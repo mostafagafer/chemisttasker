@@ -1,0 +1,46 @@
+# ─── Python / Django ──────────────────────────────────────────────
+# virtualenvs
+venv/
+**/venv/
+
+# Bytecode & caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# SQLite DB
+db.sqlite3
+
+# dotenv files
+.env
+
+# Django media/static
+backend/media/
+backend/static/
+backend/staticfiles/
+
+# Django migrations (ignore every migrations/ folder)
+**/migrations/
+
+# Management scripts (if you want to keep these local)
+management/
+
+# ─── Frontend (Vite / Node) ────────────────────────────────────────
+frontend_web/node_modules/
+frontend_web/dist/
+frontend_web/build/
+
+# Local env for frontend
+frontend_web/.env
+frontend_web/.env.local
+
+# ─── Miscellaneous ─────────────────────────────────────────────────
+# OS and editor
+.vscode/
+*.log
+*.tmp
+
+# Trash / docs folders you don’t want in Git
+trash/
+Documents/
+**/jobs/

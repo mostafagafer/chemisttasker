@@ -87,6 +87,9 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}
 
+      - name: Debug Azure Subscription Access
+        run: |
+          az account list --output table
           
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3

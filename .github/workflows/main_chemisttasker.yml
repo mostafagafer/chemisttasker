@@ -44,7 +44,6 @@ jobs:
         run: |
           cd backend
           source venv/bin/activate
-          export DJANGO_SETTINGS_MODULE=core.deployment
           python manage.py collectstatic --noinput
 
       - name: Zip artifact for deployment

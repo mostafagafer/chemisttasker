@@ -254,7 +254,7 @@ class ExplorerDashboard(APIView):
         data = {
             "user": user_serializer.data,
             "message": "Welcome Explorer!",
-            "available_jobs": [],  # Can be populated later with available jobs
+            # "available_jobs": [],  # Can be populated later with available jobs
         }
         return Response(data)
 

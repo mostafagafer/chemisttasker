@@ -2,13 +2,16 @@
 """Django's command-line utility for administrative tasks."""
 import os
 import sys
+from environ import Env
 
 
 def main():
     """Run administrative tasks."""
-    settings_module = 'core.deployment' if 'WEBSITE_HOSTNAME' in os.environ else 'core.settings'
+    env = Env()
+    Env.read_env()
 
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', settings_module)
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", env("DJANGO_SETTINGS_MODULE", default="core.settings"))
+
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:

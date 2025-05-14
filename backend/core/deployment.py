@@ -1,12 +1,16 @@
 import os
 from .settings import *
 from .settings import BASE_DIR
+import dj_database_url
 
-ALLOWED_HOSTS = [os.environ['WEBSITE_HOSTING']]
 
-CSRF_TRUSTED_ORIGINS = [
-    'https://' + os.environ['WEBSITE_HOSTING']
-]
+env = Env()
+Env.read_env()
+
+
+ALLOWED_HOSTS = [env("WEBSITE_HOSTING")]
+
+CSRF_TRUSTED_ORIGINS = ['https://' + env("WEBSITE_HOSTING")]
 
 CORS_ALLOWED_ORIGINS = [
     'https://' + os.environ['WEBSITE_HOSTING']
@@ -33,7 +37,7 @@ X_FRAME_OPTIONS           = 'DENY'
 # When behind Azure’s load-balancer
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-SECRET_KEY = os.environ['MY_SECRET_KEY']
+SECRET_KEY = env("SECRET_KEY")
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -54,18 +58,27 @@ MIDDLEWARE = [
 #     },
 # }
 
-CONNECTION = os.environ['AZURE_POSTGRESQL_CONNECTIONSTRING']
-CONNECTION_STR = {pair.split('=')[0]:pair.split('=')[1] for pair in CONNECTION.split(' ')}
+# CONNECTION = os.environ['AZURE_POSTGRESQL_CONNECTIONSTRING']
+# CONNECTION_STR = {pair.split('=')[0]:pair.split('=')[1] for pair in CONNECTION.split(' ')}
 
+# DATABASES = {
+#     "default": {
+#         "ENGINE": "django.db.backends.postgresql",
+#         "NAME": CONNECTION_STR['dbname'],
+#         "HOST": CONNECTION_STR['host'],
+#         "USER": CONNECTION_STR['user'],
+#         "PASSWORD": CONNECTION_STR['password'],
+#     }
+# }
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": CONNECTION_STR['dbname'],
-        "HOST": CONNECTION_STR['host'],
-        "USER": CONNECTION_STR['user'],
-        "PASSWORD": CONNECTION_STR['password'],
-    }
+    'default': dj_database_url.parse(
+        env('AZURE_POSTGRESQL_CONNECTIONSTRING'),
+        conn_max_age=600,
+        ssl_require=True
+    )
 }
+
+
 
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"

@@ -1,6 +1,4 @@
-# Build and deploy Django backend to Azure Web App - chemisttasker
-
-name: Build and deploy Python app to Azure Web App - chemisttasker
+name: Build and deploy Django backend to Azure Web App - chemisttasker
 
 on:
   push:
@@ -9,15 +7,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Set up Python version
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -27,55 +24,18 @@ jobs:
           echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> $GITHUB_ENV
           echo "WEBSITE_HOSTING=${{ secrets.WEBSITE_HOSTING }}" >> $GITHUB_ENV
           echo "AZURE_POSTGRESQL_CONNECTIONSTRING=${{ secrets.AZURE_POSTGRESQL_CONNECTIONSTRING }}" >> $GITHUB_ENV
-
-      - name: Set DJANGO_SETTINGS_MODULE
-        run: echo "DJANGO_SETTINGS_MODULE=core.deployment" >> $GITHUB_ENV
+          echo "DJANGO_SETTINGS_MODULE=core.deployment" >> $GITHUB_ENV
 
       - name: Install dependencies
         run: |
           cd backend
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run collectstatic
+      - name: Collect static files
         run: |
           cd backend
           python manage.py collectstatic --noinput
-
-      - name: Zip artifact for deployment
-        run: |
-          cd backend
-          zip -r ../release.zip ./*
-
-      - name: Upload artifact for deployment jobs
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-app
-          path: release.zip
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-    environment:
-      name: 'Production'
-      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-      - name: Download artifact from build job
-        uses: actions/download-artifact@v4
-        with:
-          name: python-app
-
-      - name: Unzip artifact for deployment
-        run: unzip release.zip
-
-      - name: Debug Secrets
-        run: |
-          echo "Client ID: ${{ secrets.AZUREAPPSERVICE_CLIENTID }}"
-          echo "Tenant ID: ${{ secrets.AZUREAPPSERVICE_TENANTID }}"
-          echo "Subscription ID: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}"
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -84,10 +44,9 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}
 
-          
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
-        id: deploy-to-webapp
         with:
           app-name: 'chemisttasker'
           slot-name: 'Production'
+          package: ./backend

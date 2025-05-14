@@ -10,9 +10,11 @@ django-tenants==3.7.0
 djangorestframework==3.16.0
 djangorestframework_simplejwt==5.5.0
 drf-spectacular==0.28.0
+gunicorn==23.0.0
 inflection==0.5.1
 jsonschema==4.23.0
 jsonschema-specifications==2024.10.1
+packaging==25.0
 pillow==11.2.1
 psycopg2==2.9.10
 psycopg2-binary==2.9.10

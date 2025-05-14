@@ -1,35 +1,63 @@
-- name: Set up Python
-  uses: actions/setup-python@v5
-  with:
-    python-version: '3.10'
+name: Deploy Django Backend to Azure Web App - chemisttasker
 
-- name: Export environment variables
-  run: |
-    echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> $GITHUB_ENV
-    echo "WEBSITE_HOSTING=${{ secrets.WEBSITE_HOSTING }}" >> $GITHUB_ENV
-    echo "AZURE_POSTGRESQL_CONNECTIONSTRING=${{ secrets.AZURE_POSTGRESQL_CONNECTIONSTRING }}" >> $GITHUB_ENV
-    echo "DJANGO_SETTINGS_MODULE=core.deployment" >> $GITHUB_ENV
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
-- name: Install dependencies
-  run: |
-    python -m venv venv
-    source venv/bin/activate
-    pip install --upgrade pip
-    pip install -r backend/requirements.txt
+permissions:
+  contents: read
+  id-token: write
 
-- name: Collect static files
-  run: |
-    source venv/bin/activate
-    cd backend
-    python manage.py collectstatic --noinput
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: 'Production'
 
-- name: Package application
-  run: |
-    zip -r release.zip backend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-- name: Deploy to Azure Web App
-  uses: azure/webapps-deploy@v3
-  with:
-    app-name: 'chemisttasker'
-    slot-name: 'Production'
-    package: release.zip
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Export environment variables
+        run: |
+          echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> $GITHUB_ENV
+          echo "WEBSITE_HOSTING=${{ secrets.WEBSITE_HOSTING }}" >> $GITHUB_ENV
+          echo "AZURE_POSTGRESQL_CONNECTIONSTRING=${{ secrets.AZURE_POSTGRESQL_CONNECTIONSTRING }}" >> $GITHUB_ENV
+          echo "DJANGO_SETTINGS_MODULE=core.deployment" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Run Django collectstatic
+        run: |
+          source venv/bin/activate
+          cd backend
+          python manage.py collectstatic --noinput
+
+      - name: Zip backend app for deployment
+        run: |
+          zip -r release.zip backend
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'chemisttasker'
+          slot-name: 'Production'
+          package: release.zip

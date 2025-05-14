@@ -2,7 +2,6 @@
 from rest_framework import serializers
 from .models import *
 from users.models import OrganizationMembership
-# from jobs.serializers import JobSerializer, JobApplicationSerializer
 from users.serializers import UserProfileSerializer
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -212,25 +211,19 @@ class ExplorerOnboardingSerializer(serializers.ModelSerializer):
 class OwnerDashboardResponseSerializer(serializers.Serializer):
     user = UserProfileSerializer()
     message = serializers.CharField()
-    # posted_jobs = JobSerializer(many=True)
     total_applications_received = serializers.IntegerField()
 
 class PharmacistDashboardResponseSerializer(serializers.Serializer):
     user = UserProfileSerializer()
     message = serializers.CharField()
-    # applications = JobApplicationSerializer(many=True)
-    # available_jobs = JobSerializer(many=True)
 
 class OtherStaffDashboardResponseSerializer(serializers.Serializer):
     user = UserProfileSerializer()
     message = serializers.CharField()
-    # applications = JobApplicationSerializer(many=True)
-    # available_jobs = JobSerializer(many=True)
 
 class ExplorerDashboardResponseSerializer(serializers.Serializer):
     user = UserProfileSerializer()
     message = serializers.CharField()
-    # available_jobs = JobSerializer(many=True)
 
 class PharmacySerializer(serializers.ModelSerializer):
     # explicitly declare your FileFields so DRF will return the URLs

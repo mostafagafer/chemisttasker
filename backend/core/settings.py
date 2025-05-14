@@ -68,7 +68,6 @@ INSTALLED_APPS = [
 
     # my apps
     'client_profile',
-    # 'jobs',
 ]
 
 MIDDLEWARE = [

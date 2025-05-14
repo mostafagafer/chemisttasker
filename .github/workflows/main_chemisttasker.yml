@@ -80,6 +80,12 @@ jobs:
       - name: Unzip artifact for deployment
         run: unzip release.zip
 
+      - name: Debug Secrets
+        run: |
+          echo "Client ID: ${{ secrets.AZUREAPPSERVICE_CLIENTID }}"
+          echo "Tenant ID: ${{ secrets.AZUREAPPSERVICE_TENANTID }}"
+          echo "Subscription ID: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}"
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -87,9 +93,6 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}
 
-      - name: Debug Azure Subscription Access
-        run: |
-          az account list --output table
           
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3

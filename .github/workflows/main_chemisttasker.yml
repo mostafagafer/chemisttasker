@@ -46,7 +46,9 @@ jobs:
 
       - name: Zip backend app for deployment
         run: |
-          zip -r release.zip backend
+          cd backend
+          zip -r ../release.zip .
+
 
       - name: Azure Login
         uses: azure/login@v2

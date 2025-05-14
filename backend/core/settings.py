@@ -10,9 +10,6 @@ Env.read_env()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
-
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = env('SECRET_KEY')
 
@@ -21,39 +18,24 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
-# CORS_ALLOW_CREDENTIALS = True
-
-# CORS_ALLOW_ALL_ORIGINS = True
-
-# CORS_ALLOWED_ORIGINS = [
-#     "http://localhost:19006",  # Expo web
-#     "http://127.0.0.1:19006",
-#     "http://localhost:3000",
-# ]
 
 # Only send cookies when they’re on an explicitly allowed origin:
 CORS_ALLOW_CREDENTIALS = True
 
-if DEBUG:
-    # Development: trust your Vite/Expo local ports
-    CORS_ALLOWED_ORIGINS = [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:5175",
-        "http://127.0.0.1:5175",
-        "http://localhost:19006",
-        "http://127.0.0.1:19006",
-    ]
-    CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
-else:
-    # Production: only your real domains
-    CORS_ALLOWED_ORIGINS = [
-        "https://yourdomain.com",
-        "https://www.yourdomain.com",
-    ]
-    CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
+# Development: trust your Vite/Expo local ports
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
+    "http://localhost:19006",
+    "http://127.0.0.1:19006",
+]
+
+CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
+
 
 CORS_ALLOW_HEADERS = [
     'accept',
@@ -189,6 +171,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field

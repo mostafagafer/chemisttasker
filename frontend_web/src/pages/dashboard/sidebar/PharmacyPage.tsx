@@ -154,7 +154,12 @@ export default function PharmacyPage() {
 
   // ─── Fetch & Onboarding Check ───────────────────────────────────────────────
   useEffect(() => {
-    const isOrgAdmin = user?.memberships?.some(m => m.role === 'ORG_ADMIN');
+    // const isOrgAdmin = user?.memberships?.some(m => m.role === 'ORG_ADMIN');
+    const isOrgAdmin = Array.isArray(user?.memberships)
+      ? user.memberships.some(m => m?.role === 'ORG_ADMIN')
+      : false;
+
+
     const load = () => {
       apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.pharmacies}`)
         .then((res: AxiosResponse<Pharmacy[]>) => setPharmacies(res.data))
@@ -261,10 +266,19 @@ export default function PharmacyPage() {
     }
     fd.append('about', about);
 
-    const orgMem = user?.memberships?.find(m => m.role === 'ORG_ADMIN');
-    if (orgMem) {
+    // const orgMem = user?.memberships?.find(m => m.role === 'ORG_ADMIN');
+    // if (orgMem) {
+    //   fd.append('organization', orgMem.organization_id.toString());
+    // }
+
+    const orgMem = Array.isArray(user?.memberships)
+      ? user.memberships.find(m => m?.role === 'ORG_ADMIN')
+      : null;
+
+    if (orgMem?.organization_id) {
       fd.append('organization', orgMem.organization_id.toString());
     }
+
 
     try {
       let res: AxiosResponse<Pharmacy>;

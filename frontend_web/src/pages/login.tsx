@@ -50,14 +50,21 @@ export default function Login() {
       login(access, refresh, userInfo);
 
       // if they hold any org role, go to org dashboard
-      const isOrgMember = userInfo.memberships?.some(
-        (m: any) => ORG_ROLES.includes(m.role)
-      );
+      // const isOrgMember = userInfo.memberships?.some(
+      //   (m: any) => ORG_ROLES.includes(m.role)
+      // );
+      // if (isOrgMember) {
+      //   navigate('/dashboard/organization/overview');
+      //   return;
+      // }
+      const isOrgMember = Array.isArray(userInfo?.memberships)
+        ? userInfo.memberships.some((m: any) => m?.role && ORG_ROLES.includes(m.role))
+        : false;
+
       if (isOrgMember) {
         navigate('/dashboard/organization/overview');
         return;
       }
-
       // else by base role
       switch (userInfo.role) {
         case 'OWNER':

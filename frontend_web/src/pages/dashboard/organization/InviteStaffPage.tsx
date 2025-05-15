@@ -18,7 +18,11 @@ export default function InviteStaffPage() {
   if (!user) return <div>Loading user info…</div>;
 
   // find the organization where this user is ORG_ADMIN
-  const orgMembership = user.memberships?.find((m: OrgMembership) => m.role === 'ORG_ADMIN');
+  // const orgMembership = user.memberships?.find((m: OrgMembership) => m.role === 'ORG_ADMIN');
+  const orgMembership = Array.isArray(user?.memberships)
+    ? user.memberships.find((m: OrgMembership) => m?.role === 'ORG_ADMIN')
+    : null;
+
   const orgId = orgMembership?.organization_id;
   if (!orgId) return <Alert severity="error">You are not an org admin.</Alert>;
 

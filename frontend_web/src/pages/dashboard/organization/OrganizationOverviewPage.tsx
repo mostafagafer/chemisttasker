@@ -9,9 +9,14 @@ import { API_ENDPOINTS } from '../../../constants/api';
 
 export default function OrganizationOverviewPage() {
   const { user } = useAuth();
-  const orgMembership = user?.memberships?.find((m) =>
-    ORG_ROLES.includes(m.role as any)
-  );
+  // const orgMembership = user?.memberships?.find((m) =>
+  //   ORG_ROLES.includes(m.role as any)
+  // );
+  const orgMembership = Array.isArray(user?.memberships)
+    ? user.memberships.find(m => m?.role && ORG_ROLES.includes(m.role as any))
+    : null;
+
+
   const orgId = orgMembership?.organization_id;
 
   const [data, setData] = useState<any>(null);

@@ -26,9 +26,12 @@ export default function ProtectedRoute({
 
   if (requiredRole) {
     const hasBaseRole = user?.role === requiredRole;
-    const hasOrgRole = user?.memberships?.some(m =>
-      ORG_ROLES.includes(m.role as any)
-    );
+    // const hasOrgRole = user?.memberships?.some(m =>
+    //   ORG_ROLES.includes(m.role as any)
+    // );
+    const hasOrgRole = Array.isArray(user?.memberships)
+      ? user.memberships.some(m => m?.role && ORG_ROLES.includes(m.role as any))
+      : false;
 
     const allowOrgZone = requiredRole === 'ORG_ADMIN' && hasOrgRole;
 

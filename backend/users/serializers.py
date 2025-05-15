@@ -6,7 +6,6 @@ from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from client_profile.models import Organization
 from .models import OrganizationMembership
-from .serializers import OrganizationMembershipSerializer  # adjust import path if needed
 
 User = get_user_model()
 
@@ -38,16 +37,6 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             role=validated_data['role']
         )
 
-class UserProfileSerializer(serializers.ModelSerializer):
-    memberships = OrganizationMembershipSerializer(
-        source='organization_memberships',
-        many=True,
-        read_only=True
-    )
-    class Meta:
-        model = User
-        fields = ['id', 'username', 'email', 'role', 'memberships']
-        read_only_fields = fields
 
 # class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 #     username_field = User.USERNAME_FIELD  # use email
@@ -84,6 +73,18 @@ class OrganizationMembershipSerializer(serializers.ModelSerializer):
         model = OrganizationMembership
         fields = ['id', 'user', 'user_email', 'role', 'region']
         extra_kwargs = {'user': {'write_only': True}}
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    memberships = OrganizationMembershipSerializer(
+        source='organization_memberships',
+        many=True,
+        read_only=True
+    )
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'role', '']
+        read_only_fields = fields
+
 
 class InviteOrgUserSerializer(serializers.Serializer):
     email        = serializers.EmailField()

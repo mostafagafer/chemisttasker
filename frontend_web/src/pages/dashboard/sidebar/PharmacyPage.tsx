@@ -266,7 +266,7 @@ export default function PharmacyPage() {
     // if (orgMem) {
     //   fd.append('organization', orgMem.organization_id.toString());
     // }
-    const orgMem = (user?.memberships || []).find(m => m && m.role === 'ORG_ADMIN');
+    const orgMem = (user?.memberships || []).find(m => m?.role === 'ORG_ADMIN');;
       if (orgMem) {
         fd.append('organization', orgMem.organization_id.toString());
       }

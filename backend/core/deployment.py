@@ -10,7 +10,7 @@ Env.read_env()
 
 ALLOWED_HOSTS = [
     env("WEBSITE_HOSTING"),
-    'thankful-stone-0dac7ba00.6.azurestaticapps.net'  # Frontend domain
+    'thankful-stone-0dac7ba00.6.azurestaticapps.net',
 ]
 
 CSRF_TRUSTED_ORIGINS = [

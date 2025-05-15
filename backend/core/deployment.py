@@ -11,19 +11,22 @@ Env.read_env()
 ALLOWED_HOSTS = [
     env("WEBSITE_HOSTING"),
     'thankful-stone-0dac7ba00.6.azurestaticapps.net',
-    'localhost'
+    "chemisttasker.com.au",
+    # 'localhost'
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     'https://' + env("WEBSITE_HOSTING"),
+    "https://chemisttasker.com.au",
     'https://thankful-stone-0dac7ba00.6.azurestaticapps.net',
-    'http://localhost:5173'
+    # 'http://localhost:5173'
     ]
 
 CORS_ALLOWED_ORIGINS = [
     'https://' + os.environ['WEBSITE_HOSTING'],
+    "https://chemisttasker.com.au",
     'https://thankful-stone-0dac7ba00.6.azurestaticapps.net',
-    'http://localhost:5173'
+    # 'http://localhost:5173'
 ]
 
 DEBUG=False

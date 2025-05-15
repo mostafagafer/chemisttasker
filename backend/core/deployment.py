@@ -8,12 +8,20 @@ env = Env()
 Env.read_env()
 
 
-ALLOWED_HOSTS = [env("WEBSITE_HOSTING")]
+ALLOWED_HOSTS = [
+    env("WEBSITE_HOSTING"),
+    'thankful-stone-0dac7ba00.6.azurestaticapps.net'  # Frontend domain
+]
 
-CSRF_TRUSTED_ORIGINS = ['https://' + env("WEBSITE_HOSTING")]
+CSRF_TRUSTED_ORIGINS = [
+    'https://' + env("WEBSITE_HOSTING"),
+    'https://thankful-stone-0dac7ba00.6.azurestaticapps.net'
+    ]
 
 CORS_ALLOWED_ORIGINS = [
-    'https://' + os.environ['WEBSITE_HOSTING']
+    'https://' + os.environ['WEBSITE_HOSTING'],
+    'https://thankful-stone-0dac7ba00.6.azurestaticapps.net'
+
 ]
 
 DEBUG=False

@@ -6,14 +6,12 @@ export default defineConfig(({ command }) => {
   const isDev = command === 'serve'
 
   return {
-    base: isDev ? '/' : '/static/',
-
+    base: '/',
     plugins: [react()],
 
     server: {
       host: 'localhost',
-      strictPort: true,   // if you ask for 5174 and it’s busy, it will error
-      // ← remove `port: 5173` entirely
+      strictPort: true,   
     },
 
     build: {

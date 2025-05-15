@@ -12,20 +12,23 @@ ALLOWED_HOSTS = [
     env("WEBSITE_HOSTING"),
     'thankful-stone-0dac7ba00.6.azurestaticapps.net',
     "chemisttasker.com.au",
+    "www.chemisttasker.com.au",
     # 'localhost'
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     'https://' + env("WEBSITE_HOSTING"),
-    "https://chemisttasker.com.au",
     'https://thankful-stone-0dac7ba00.6.azurestaticapps.net',
+    "https://chemisttasker.com.au",
+    "https://www.chemisttasker.com.au",
     # 'http://localhost:5173'
     ]
 
 CORS_ALLOWED_ORIGINS = [
     'https://' + os.environ['WEBSITE_HOSTING'],
-    "https://chemisttasker.com.au",
     'https://thankful-stone-0dac7ba00.6.azurestaticapps.net',
+    "https://chemisttasker.com.au",
+    "https://www.chemisttasker.com.au",
     # 'http://localhost:5173'
 ]
 

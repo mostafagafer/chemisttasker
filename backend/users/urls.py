@@ -12,10 +12,7 @@ router.register('', UserViewSet, basename='user')
 urlpatterns = [
     path('register/', RegisterView.as_view()),
     path('login/', CustomLoginView.as_view(), name='custom_token_obtain_pair'),
-    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    # Django’s built-in password reset views
-    # path('auth/password-reset/',       auth_views.PasswordResetView.as_view(),       name='password_reset'),
-    # path('auth/password-reset/done/',  auth_views.PasswordResetDoneView.as_view(),   name='password_reset_done'),
+    path('token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
     path('password-reset-confirm/',PasswordResetConfirmAPIView.as_view(), name='password_reset_confirm_api'),
     path('auth/reset/<uidb64>/<token>/', auth_views.PasswordResetConfirmView.as_view(),name='password_reset_confirm'),
     path('auth/reset/done/',           auth_views.PasswordResetCompleteView.as_view(),name='password_reset_complete'),

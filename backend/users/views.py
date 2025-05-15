@@ -1,5 +1,5 @@
 from rest_framework import generics, permissions
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from django.contrib.auth import get_user_model
 from rest_framework import viewsets, permissions
 from rest_framework import viewsets, permissions, filters
@@ -22,7 +22,8 @@ from django.utils.http import urlsafe_base64_decode
 from .serializers import (
     UserRegistrationSerializer,
     CustomTokenObtainPairSerializer,
-    UserProfileSerializer
+    UserProfileSerializer,
+    CustomTokenRefreshSerializer
 )
 User = get_user_model()
 
@@ -30,10 +31,11 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = UserRegistrationSerializer
     permission_classes = [permissions.AllowAny]
 
-
 class CustomLoginView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
+class CustomTokenRefreshView(TokenRefreshView):
+    serializer_class = CustomTokenRefreshSerializer
 
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
     """

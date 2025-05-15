@@ -51,7 +51,7 @@ import MyHistoryShiftsPage   from './pages/dashboard/sidebar/MyHistoryShiftsPage
 
 // Invoice
 import InvoiceManagePage   from './pages/dashboard/sidebar/InvoiceManagePage';
-import InvoiceGeneratePage   from './pages/dashboard/sidebar/InvoiceGeneratePage';
+// import InvoiceGeneratePage   from './pages/dashboard/sidebar/InvoiceGeneratePage';
 import InvoiceDetailPage   from './pages/dashboard/sidebar/ManageInvoicesPage';
 
 import { AuthProvider } from './contexts/AuthContext';
@@ -202,7 +202,7 @@ const router = createBrowserRouter([
             element: <Outlet />,
             children: [
               { index: true, element: <InvoiceManagePage /> },
-              { path: 'new', element: <InvoiceGeneratePage /> },
+              // { path: 'new', element: <InvoiceGeneratePage /> },
               { path: ':id', element: <InvoiceDetailPage /> },
             ],
           },

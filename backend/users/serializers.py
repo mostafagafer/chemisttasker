@@ -6,6 +6,7 @@ from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from client_profile.models import Organization
 from .models import OrganizationMembership
+from .serializers import OrganizationMembershipSerializer  # adjust import path if needed
 
 User = get_user_model()
 
@@ -38,13 +39,18 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         )
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    memberships = OrganizationMembershipSerializer(
+        source='organization_memberships',
+        many=True,
+        read_only=True
+    )
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'role']
+        fields = ['id', 'username', 'email', 'role', 'memberships']
         read_only_fields = fields
 
-class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    username_field = User.USERNAME_FIELD  # use email
+# class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+#     username_field = User.USERNAME_FIELD  # use email
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):

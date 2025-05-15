@@ -17,9 +17,7 @@ export default function App() {
   if (isLoading) return null  // or a spinner
 
   // user is guaranteed here by ProtectedRoute
-  // const isOrg = user!.memberships?.some(m => ORG_ROLES.includes(m.role as any))
-  const isOrg = (user?.memberships || []).some(m => ORG_ROLES.includes(m.role as any));
-
+  const isOrg = user!.memberships?.some(m => ORG_ROLES.includes(m.role as any))
   const nav = isOrg
     ? ORGANIZATION_NAV
     : user!.role === 'OWNER'

@@ -21,13 +21,9 @@ import { API_ENDPOINTS } from '../../../constants/api';
 
 export default function ClaimPharmaciesPage() {
   const { user } = useAuth();
-  // const orgMembership = user?.memberships?.find(m =>
-  //   ORG_ROLES.includes(m.role as any)
-  // );
-  const orgMembership = (user?.memberships || []).find(m =>
+  const orgMembership = user?.memberships?.find(m =>
     ORG_ROLES.includes(m.role as any)
   );
-
   const orgId = orgMembership?.organization_id;
 
   const [email, setEmail] = useState('');

@@ -11,17 +11,19 @@ Env.read_env()
 ALLOWED_HOSTS = [
     env("WEBSITE_HOSTING"),
     'thankful-stone-0dac7ba00.6.azurestaticapps.net',
+    'localhost'
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     'https://' + env("WEBSITE_HOSTING"),
-    'https://thankful-stone-0dac7ba00.6.azurestaticapps.net'
+    'https://thankful-stone-0dac7ba00.6.azurestaticapps.net',
+    'http://localhost:5173'
     ]
 
 CORS_ALLOWED_ORIGINS = [
     'https://' + os.environ['WEBSITE_HOSTING'],
-    'https://thankful-stone-0dac7ba00.6.azurestaticapps.net'
-
+    'https://thankful-stone-0dac7ba00.6.azurestaticapps.net',
+    'http://localhost:5173'
 ]
 
 DEBUG=False

@@ -38,6 +38,12 @@ jobs:
           pip install --upgrade pip
           pip install -r backend/requirements.txt
 
+      - name: Run Django migrations
+        run: |
+          source venv/bin/activate
+          cd backend
+          python manage.py migrate --noinput
+
       - name: Run Django collectstatic
         run: |
           source venv/bin/activate

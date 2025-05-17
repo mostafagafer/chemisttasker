@@ -107,7 +107,7 @@ TIME_ZONE = 'Australia/Sydney'
 STORAGES = {
     # 1) All your FileField / ImageField uploads go here
     "default": {
-        "BACKEND": ".storage_backends.OverwriteAzureStorage",
+        "BACKEND": "core.storage_backends.OverwriteAzureStorage",
         "OPTIONS": {
             # Authentication
             "account_name":    env("AZURE_ACCOUNT_NAME"),

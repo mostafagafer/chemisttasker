@@ -123,9 +123,15 @@ export default function PharmacistOnboardingForm() {
   const [success, setSuccess] = useState(false);
   const [tabIndex, setTabIndex] = useState(0);
 
-  const getFilename = (url: string) => url.split('/').pop() || url;
+  const getFilename = (url: string) => {
+    // drop everything after the “?” (the SAS token)
+    const clean = url.split('?')[0]
+    // then take the last path segment
+    return decodeURIComponent(clean.split('/').pop() || '')
+  }
+
   const getFileUrl = (path: string) =>
-    path.startsWith('http') ? path : `${API_BASE_URL}${path}`;
+    path.startsWith('http') ? path : `${API_BASE_URL}${path}`
 
   useEffect(() => {
     apiClient

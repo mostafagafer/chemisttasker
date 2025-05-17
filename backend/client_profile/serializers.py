@@ -63,6 +63,10 @@ class PharmacistOnboardingSerializer(serializers.ModelSerializer):
     username    = serializers.CharField(source='user.username',    required=False)
     first_name  = serializers.CharField(source='user.first_name',  required=False, allow_blank=True)
     last_name   = serializers.CharField(source='user.last_name',   required=False, allow_blank=True)
+    government_id = serializers.FileField(read_only=True)
+    gst_file      = serializers.FileField(read_only=True)
+    tfn_declaration = serializers.FileField(read_only=True)
+    resume        = serializers.FileField(read_only=True)
 
     class Meta:
         model  = PharmacistOnboarding

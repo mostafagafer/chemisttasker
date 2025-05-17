@@ -107,7 +107,7 @@ TIME_ZONE = 'Australia/Sydney'
 STORAGES = {
     # 1) All your FileField / ImageField uploads go here
     "default": {
-        "BACKEND": "storages.backends.azure_storage.AzureStorage",
+        "BACKEND": ".storage_backends.OverwriteAzureStorage",
         "OPTIONS": {
             # Authentication
             "account_name":    env("AZURE_ACCOUNT_NAME"),
@@ -119,7 +119,7 @@ STORAGES = {
             "azure_ssl":       True,           
 
             # Overwrite any existing blob with the same name
-            "overwrite_files": True,            
+            # "overwrite_files": True,            
 
             # Generate time-limited SAS URLs for users to download
             "expiration_secs": 3600,            # 1 hour (adjust as you like)

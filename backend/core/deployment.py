@@ -101,3 +101,18 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
 STATIC_URL = "/static/"
 
 TIME_ZONE = 'Australia/Sydney'
+
+
+# tell Django to use Azure for all FileField / ImageField storage
+DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
+
+
+# pick up your Azure credentials from the environment
+AZURE_ACCOUNT_NAME = env("AZURE_ACCOUNT_NAME")
+AZURE_ACCOUNT_KEY  = env("AZURE_ACCOUNT_KEY")
+AZURE_CONTAINER    = env("AZURE_CONTAINER")
+
+MEDIA_URL = f"https://{AZURE_ACCOUNT_NAME}.blob.core.windows.net/{AZURE_CONTAINER}/"
+
+# ensure HTTPS URLs
+AZURE_SSL = True

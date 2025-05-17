@@ -168,7 +168,7 @@ const router = createBrowserRouter([
               { path: 'history',   element: <HistoryShiftsPage /> },
                 ],
           },
-          { path: 'availability', element: <SetAvailabilityPage /> },
+          // { path: 'availability', element: <SetAvailabilityPage /> },
           { path: 'interests',    element: <ExplorerInterestsPage /> },
           { path: 'learning',     element: <LearningMaterialsPage /> },
           { path: 'logout',       element: <LogoutPage /> },
@@ -197,6 +197,7 @@ const router = createBrowserRouter([
               { path: 'history',   element: <MyHistoryShiftsPage /> },
             ],
           },
+          { path: 'availability', element: <SetAvailabilityPage /> },
           {
             path: 'invoice',
             element: <Outlet />,

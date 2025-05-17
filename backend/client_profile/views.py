@@ -18,6 +18,7 @@ from users.serializers import (
     UserProfileSerializer,
 )
 from django.shortcuts import get_object_or_404
+from rest_framework.parsers import MultiPartParser, FormParser
 
 from django.db.models import Q, Count, F
 from django.utils import timezone
@@ -47,7 +48,7 @@ class OwnerOnboardingCreate(generics.CreateAPIView):
     permission_classes = [permissions.IsAuthenticated, IsOwner]
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        serializer.save()
    
 class OwnerOnboardingDetail(generics.RetrieveUpdateAPIView):
     serializer_class   = OwnerOnboardingSerializer
@@ -58,7 +59,6 @@ class OwnerOnboardingDetail(generics.RetrieveUpdateAPIView):
             return OwnerOnboarding.objects.get(user=self.request.user)
         except OwnerOnboarding.DoesNotExist:
             raise NotFound("Owner onboarding profile not found.")
-
 
 class OwnerOnboardingClaim(APIView):
     """
@@ -109,13 +109,15 @@ class OwnerOnboardingClaim(APIView):
         )
 
 class PharmacistOnboardingCreateView(CreateAPIView):
+    parser_classes = [MultiPartParser, FormParser]
     serializer_class   = PharmacistOnboardingSerializer
     permission_classes = [permissions.IsAuthenticated, IsPharmacist]
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        serializer.save()
 
 class PharmacistOnboardingDetailView(RetrieveUpdateAPIView):
+    parser_classes = [MultiPartParser, FormParser]
     serializer_class   = PharmacistOnboardingSerializer
     permission_classes = [permissions.IsAuthenticated, IsPharmacist]
 
@@ -126,13 +128,15 @@ class PharmacistOnboardingDetailView(RetrieveUpdateAPIView):
             raise NotFound("Pharmacist onboarding profile not found.")
 
 class OtherStaffOnboardingCreateView(CreateAPIView):
+    parser_classes = [MultiPartParser, FormParser]
     serializer_class = OtherStaffOnboardingSerializer
-    permission_classes = [IsAuthenticated, IsOtherstaff]
+    permission_classes = [permissions.IsAuthenticated, IsOtherstaff]
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        serializer.save()
 
 class OtherStaffOnboardingDetailView(RetrieveUpdateAPIView):
+    parser_classes = [MultiPartParser, FormParser]
     serializer_class = OtherStaffOnboardingSerializer
     permission_classes = [IsAuthenticated, IsOtherstaff]
 
@@ -143,13 +147,15 @@ class OtherStaffOnboardingDetailView(RetrieveUpdateAPIView):
             raise NotFound("Onboarding profile not found for this user.")
 
 class ExplorerOnboardingCreateView(CreateAPIView):
+    parser_classes = [MultiPartParser, FormParser]
     serializer_class = ExplorerOnboardingSerializer
-    permission_classes = [IsAuthenticated, IsExplorer]
+    permission_classes = [permissions.IsAuthenticated, IsExplorer]
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        serializer.save()
 
 class ExplorerOnboardingDetailView(RetrieveUpdateAPIView):
+    parser_classes = [MultiPartParser, FormParser]
     serializer_class = ExplorerOnboardingSerializer
     permission_classes = [IsAuthenticated, IsExplorer]
 
@@ -267,6 +273,7 @@ class PharmacyViewSet(viewsets.ModelViewSet):
       - ORG_ADMINs manage org-owned pharmacies.
       - REGION_ADMIN and SHIFT_MANAGER may only view.
     """
+    parser_classes = [MultiPartParser, FormParser]
     queryset = Pharmacy.objects.all()
     serializer_class = PharmacySerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -369,6 +376,7 @@ class ChainViewSet(viewsets.ModelViewSet):
     """
     Manage Chains—and within a chain, add/remove pharmacies & staff.
     """
+    parser_classes = [MultiPartParser, FormParser]
     queryset = Chain.objects.all()
     serializer_class = ChainSerializer
     permission_classes = [permissions.IsAuthenticated]

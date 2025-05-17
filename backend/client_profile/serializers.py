@@ -109,8 +109,7 @@ class PharmacistOnboardingSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 class OtherStaffOnboardingSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(required=False)
-
+    username = serializers.CharField(source='user.username', required=False)
     class Meta:
         model = OtherStaffOnboarding
         fields = [
@@ -167,8 +166,7 @@ class OtherStaffOnboardingSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 class ExplorerOnboardingSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(required=False)
-
+    username = serializers.CharField(source='user.username', required=False)
     class Meta:
         model = ExplorerOnboarding
         fields = [

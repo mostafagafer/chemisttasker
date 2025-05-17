@@ -13,7 +13,7 @@ ALLOWED_HOSTS = [
     'thankful-stone-0dac7ba00.6.azurestaticapps.net',
     "chemisttasker.com.au",
     "www.chemisttasker.com.au",
-    'localhost'
+    # 'localhost'
 ]
 
 CSRF_TRUSTED_ORIGINS = [
@@ -21,7 +21,7 @@ CSRF_TRUSTED_ORIGINS = [
     'https://thankful-stone-0dac7ba00.6.azurestaticapps.net',
     "https://chemisttasker.com.au",
     "https://www.chemisttasker.com.au",
-    'http://localhost:5173'
+    # 'http://localhost:5173'
     ]
 
 CORS_ALLOWED_ORIGINS = [
@@ -29,7 +29,7 @@ CORS_ALLOWED_ORIGINS = [
     'https://thankful-stone-0dac7ba00.6.azurestaticapps.net',
     "https://chemisttasker.com.au",
     "https://www.chemisttasker.com.au",
-    'http://localhost:5173'
+    # 'http://localhost:5173'
 ]
 
 DEBUG=True
@@ -104,15 +104,22 @@ TIME_ZONE = 'Australia/Sydney'
 
 
 # tell Django to use Azure for all FileField / ImageField storage
-DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.azure_storage.AzureStorage",
+        "OPTIONS": {
+            # Authentication by key
+            "account_name": env("AZURE_ACCOUNT_NAME"),
+            "account_key":  env("AZURE_ACCOUNT_KEY"),
 
+            # Which container to use
+            "azure_container": env("AZURE_CONTAINER"),
 
-# pick up your Azure credentials from the environment
-AZURE_ACCOUNT_NAME = env("AZURE_ACCOUNT_NAME")
-AZURE_ACCOUNT_KEY  = env("AZURE_ACCOUNT_KEY")
-AZURE_CONTAINER    = env("AZURE_CONTAINER")
+            # Force HTTPS
+            "ssl": True,
+        },
+    },
+}
 
-MEDIA_URL = f"https://{AZURE_ACCOUNT_NAME}.blob.core.windows.net/{AZURE_CONTAINER}/"
-
-# ensure HTTPS URLs
-AZURE_SSL = True
+# This still controls the URLs Django generates:
+MEDIA_URL = f"https://{env('AZURE_ACCOUNT_NAME')}.blob.core.windows.net/{env('AZURE_CONTAINER')}/"

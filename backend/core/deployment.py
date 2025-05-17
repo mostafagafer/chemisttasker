@@ -96,30 +96,33 @@ DATABASES = {
 
 
 
-STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
-STATIC_URL = "/static/"
+# STATIC_ROOT = BASE_DIR / "staticfiles"
+# STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
+# STATIC_URL = "/static/"
 
 TIME_ZONE = 'Australia/Sydney'
 
 
 # tell Django to use Azure for all FileField / ImageField storage
 STORAGES = {
+    # default = media
     "default": {
         "BACKEND": "storages.backends.azure_storage.AzureStorage",
         "OPTIONS": {
-            # Authentication by key
-            "account_name": env("AZURE_ACCOUNT_NAME"),
-            "account_key":  env("AZURE_ACCOUNT_KEY"),
-
-            # Which container to use
-            "azure_container": env("AZURE_CONTAINER"),
-
-            # Force HTTPS
-            "ssl": True,
+            "account_name":    env("AZURE_ACCOUNT_NAME"),
+            "account_key":     env("AZURE_ACCOUNT_KEY"),
+            "azure_container": env("AZURE_CONTAINER"),  # your media container
+            "ssl":             True,
         },
+    },
+    # staticfiles = use your existing local/WhiteNoise pipeline
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
     },
 }
 
-# This still controls the URLs Django generates:
-MEDIA_URL = f"https://{env('AZURE_ACCOUNT_NAME')}.blob.core.windows.net/{env('AZURE_CONTAINER')}/"
+# Tell Django how to generate media URLs
+MEDIA_URL = (
+    f"https://{env('AZURE_ACCOUNT_NAME')}"
+    f".blob.core.windows.net/{env('AZURE_CONTAINER')}/"
+)

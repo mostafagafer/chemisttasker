@@ -16,7 +16,7 @@ function SidebarFooter({ mini }: SidebarFooterProps) {
 export default function OrganizationDashboardWrapper() {
   return (
     <DashboardLayout slots={{ sidebarFooter: SidebarFooter }}>
-      <PageContainer>
+      <PageContainer slots={{ header: () => null }}>
         <Outlet />
       </PageContainer>
     </DashboardLayout>

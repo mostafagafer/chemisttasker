@@ -32,7 +32,7 @@ CORS_ALLOWED_ORIGINS = [
     # 'http://localhost:5173'
 ]
 
-DEBUG=True
+DEBUG=False
 
 # Redirect all HTTP → HTTPS
 SECURE_SSL_REDIRECT = True
@@ -68,24 +68,6 @@ MIDDLEWARE = [
 ]
 
 
-# STORAGES = {
-#     "staticfiles": {
-#         "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
-#     },
-# }
-
-# CONNECTION = os.environ['AZURE_POSTGRESQL_CONNECTIONSTRING']
-# CONNECTION_STR = {pair.split('=')[0]:pair.split('=')[1] for pair in CONNECTION.split(' ')}
-
-# DATABASES = {
-#     "default": {
-#         "ENGINE": "django.db.backends.postgresql",
-#         "NAME": CONNECTION_STR['dbname'],
-#         "HOST": CONNECTION_STR['host'],
-#         "USER": CONNECTION_STR['user'],
-#         "PASSWORD": CONNECTION_STR['password'],
-#     }
-# }
 DATABASES = {
     'default': dj_database_url.parse(
         env('AZURE_POSTGRESQL_CONNECTIONSTRING'),
@@ -96,32 +78,21 @@ DATABASES = {
 
 
 
-# STATIC_ROOT = BASE_DIR / "staticfiles"
-# STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
-# STATIC_URL = "/static/"
-
 TIME_ZONE = 'Australia/Sydney'
 
 
 # tell Django to use Azure for all FileField / ImageField storage
 STORAGES = {
-    # 1) All your FileField / ImageField uploads go here
     "default": {
-        "BACKEND": "core.storage_backends.OverwriteAzureStorage",
+        "BACKEND": "storages.backends.azure_storage.AzureStorage",
         "OPTIONS": {
             # Authentication
             "account_name":    env("AZURE_ACCOUNT_NAME"),
             "account_key":     env("AZURE_ACCOUNT_KEY"),
-            # Your pre-created container (still private)
             "azure_container": env("AZURE_CONTAINER"),
 
-            # Enforce HTTPS when talking to Azure
-            "azure_ssl":       True,           
-
-            # Overwrite any existing blob with the same name
-            # "overwrite_files": True,            
-
-            # Generate time-limited SAS URLs for users to download
+            "azure_ssl":       True,            # ← NOT "ssl"
+            "overwrite_files": True,            # ← new
             "expiration_secs": 3600,            # 1 hour (adjust as you like)
 
             # In case of network slowness, bump this up (defaults to None)
@@ -129,7 +100,6 @@ STORAGES = {
         },
     },
 
-    # 2) Tell Django “staticfiles” is still the local/WhiteNoise pipeline
     "staticfiles": {
         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
     },

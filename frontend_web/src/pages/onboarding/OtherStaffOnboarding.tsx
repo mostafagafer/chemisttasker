@@ -17,13 +17,17 @@ import {
   MenuItem,
   Button,
   Alert,
-  Divider,
+  Snackbar,
   Link,
+  Divider,
 } from '@mui/material';
+import { useNavigate } from 'react-router-dom';
 import apiClient from '../../utils/apiClient';
 import { API_ENDPOINTS, API_BASE_URL } from '../../constants/api';
 
 interface FormData {
+  first_name: string;
+  last_name: string;
   username: string;
   phone_number: string;
   government_id: File | null;
@@ -62,13 +66,16 @@ const SKILL_CHOICES = [
   { value: 'COMPOUNDING', label: 'Compounding' },
   { value: 'S8', label: 'S8 handling' },
 ];
-const labels = ['Basic Info', 'Reg Docs', 'Skills', 'Payment', 'Refs', 'Profile'];
+const labels = ['Basic Info', 'Reg Docs', 'Skills', 'Payment', 'Referees', 'Profile'];
 
 export default function OtherStaffOnboarding() {
+  const navigate = useNavigate();
   const detailUrl = API_ENDPOINTS.onboardingDetail('otherstaff');
   const createUrl = API_ENDPOINTS.onboardingCreate('otherstaff');
 
   const [data, setData] = useState<FormData>({
+    first_name: '',
+    last_name: '',
     username: '',
     phone_number: '',
     government_id: null,
@@ -94,24 +101,25 @@ export default function OtherStaffOnboarding() {
     short_bio: '',
     resume: null,
   });
-  const [existingGovernmentId, setExistingGovernmentId] = useState<string>('');
-  const [existingAhpraProof, setExistingAhpraProof] = useState<string>('');
-  const [existingHoursProof, setExistingHoursProof] = useState<string>('');
-  const [existingCertificate, setExistingCertificate] = useState<string>('');
-  const [existingUniversityId, setExistingUniversityId] = useState<string>('');
-  const [existingCprCertificate, setExistingCprCertificate] = useState<string>('');
-  const [existingS8Certificate, setExistingS8Certificate] = useState<string>('');
-  const [existingGstFile, setExistingGstFile] = useState<string>('');
-  const [existingTfnDeclaration, setExistingTfnDeclaration] = useState<string>('');
-  const [existingResume, setExistingResume] = useState<string>('');
+
+  // separate existing-file state
+  const [existingGovernmentId, setExistingGovernmentId] = useState('');
+  const [existingAhpraProof, setExistingAhpraProof] = useState('');
+  const [existingHoursProof, setExistingHoursProof] = useState('');
+  const [existingCertificate, setExistingCertificate] = useState('');
+  const [existingUniversityId, setExistingUniversityId] = useState('');
+  const [existingCprCertificate, setExistingCprCertificate] = useState('');
+  const [existingS8Certificate, setExistingS8Certificate] = useState('');
+  const [existingGstFile, setExistingGstFile] = useState('');
+  const [existingTfnDeclaration, setExistingTfnDeclaration] = useState('');
+  const [existingResume, setExistingResume] = useState('');
 
   const [loading, setLoading] = useState(true);
   const [profileExists, setProfileExists] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [tabIndex, setTabIndex] = useState(0);
 
-  const getFilename = (url: string) => url.split('/').pop() || url;
   const getFileUrl = (path: string) =>
     path.startsWith('http') ? path : `${API_BASE_URL}${path}`;
 
@@ -121,6 +129,8 @@ export default function OtherStaffOnboarding() {
       .then(res => {
         const d = res.data as any;
         setData({
+          first_name: d.first_name || '',
+          last_name: d.last_name || '',
           username: d.username || '',
           phone_number: d.phone_number || '',
           government_id: null,
@@ -146,6 +156,7 @@ export default function OtherStaffOnboarding() {
           short_bio: d.short_bio || '',
           resume: null,
         });
+        // set existing URLs
         setExistingGovernmentId(d.government_id || '');
         setExistingAhpraProof(d.ahpra_proof || '');
         setExistingHoursProof(d.hours_proof || '');
@@ -174,37 +185,21 @@ export default function OtherStaffOnboarding() {
     }));
   };
 
-  const handleFileChange =
-    (field: keyof Pick<FormData,
-      | 'government_id'
-      | 'ahpra_proof'
-      | 'hours_proof'
-      | 'certificate'
-      | 'university_id'
-      | 'cpr_certificate'
-      | 's8_certificate'
-      | 'gst_file'
-      | 'tfn_declaration'
-      | 'resume'>
-    ) =>
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setData(prev => ({
-        ...prev,
-        [field]: e.target.files?.[0] ?? null,
-      }));
-    };
+  const handleFileChange = (field: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setData(prev => ({ ...prev, [field]: e.target.files?.[0] ?? null }));
+  };
 
-  const handleMultiCheckbox =
-    (field: 'skills', val: string) =>
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setData(prev => {
-        const arr = prev[field];
-        return {
-          ...prev,
-          [field]: e.target.checked ? [...arr, val] : arr.filter(x => x !== val),
-        };
-      });
-    };
+  const handleMultiCheckbox = (field: 'skills', val: string) => (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    setData(prev => {
+      const arr = prev[field];
+      return {
+        ...prev,
+        [field]: e.target.checked ? [...arr, val] : arr.filter(x => x !== val),
+      };
+    });
+  };
 
   const handleTabChange = (_: any, newIndex: number) => {
     setTabIndex(newIndex);
@@ -212,9 +207,8 @@ export default function OtherStaffOnboarding() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
-    setSuccess(false);
+    setLoading(true);
 
     try {
       const form = new FormData();
@@ -230,9 +224,9 @@ export default function OtherStaffOnboarding() {
         url: profileExists ? detailUrl : createUrl,
         data: form,
       });
-
       const d = res.data as any;
-      setProfileExists(true);
+
+      // update each existing-file URL
       setExistingGovernmentId(d.government_id || existingGovernmentId);
       setExistingAhpraProof(d.ahpra_proof || existingAhpraProof);
       setExistingHoursProof(d.hours_proof || existingHoursProof);
@@ -243,28 +237,42 @@ export default function OtherStaffOnboarding() {
       setExistingGstFile(d.gst_file || existingGstFile);
       setExistingTfnDeclaration(d.tfn_declaration || existingTfnDeclaration);
       setExistingResume(d.resume || existingResume);
-      setSuccess(true);
+
+      setProfileExists(true);
+      setLoading(false);
+      setSnackbarOpen(true);
     } catch (err: any) {
-      const data = err.response?.data;
-      if (data && typeof data === 'object') {
-        setError(
-          Object.entries(data)
-            .map(([f, msgs]) => `${f}: ${(msgs as string[]).join(', ')}`)
-            .join('\n')
-        );
-      } else {
-        setError(err.message);
-      }
-    } finally {
+      setError(err.response?.data?.detail || err.message);
       setLoading(false);
     }
   };
 
+
+
   if (loading) return <Typography>Loading…</Typography>;
 
   const panels: React.ReactNode[] = [
+    // Basic Info
     <Box sx={{ p: 2 }} key="basic">
       <Typography variant="h6">Basic Info</Typography>
+      <TextField
+        fullWidth
+        margin="normal"
+        label="First Name"
+        name="first_name"
+        value={data.first_name}
+        onChange={handleChange}
+        required
+      />
+      <TextField
+        fullWidth
+        margin="normal"
+        label="Last Name"
+        name="last_name"
+        value={data.last_name}
+        onChange={handleChange}
+        required
+      />
       <TextField
         fullWidth
         margin="normal"
@@ -285,18 +293,19 @@ export default function OtherStaffOnboarding() {
       />
 
       <Typography sx={{ mt: 2 }}>Government ID</Typography>
-      {existingGovernmentId && (
-        <Typography variant="body2">
-          Current:&nbsp;
-          <Link href={getFileUrl(existingGovernmentId)} target="_blank">
-            {getFilename(existingGovernmentId)}
-          </Link>
-        </Typography>
-      )}
-      <Button variant="outlined" component="label" sx={{ mt: 1 }}>
+      <Button variant="outlined" component="label">
         Upload ID
         <input hidden type="file" onChange={handleFileChange('government_id')} />
       </Button>
+      {existingGovernmentId && (
+        <Link
+          href={getFileUrl(existingGovernmentId)}
+          target="_blank"
+          sx={{ ml: 2, fontSize: '0.875rem' }}
+        >
+          View
+        </Link>
+      )}
 
       <TextField
         select
@@ -308,126 +317,105 @@ export default function OtherStaffOnboarding() {
         onChange={handleChange}
         required
       >
-        {ROLE_CHOICES.map(c => (
-          <MenuItem key={c.value} value={c.value}>
-            {c.label}
+        {ROLE_CHOICES.map(o => (
+          <MenuItem key={o.value} value={o.value}>
+            {o.label}
           </MenuItem>
         ))}
       </TextField>
     </Box>,
 
+    // Reg Docs
     <Box sx={{ p: 2 }} key="reg">
-      <Typography variant="h6">Regulatory Docs</Typography>
+      <Typography variant="h6">Reg Docs</Typography>
       {data.role_type === 'INTERN' && (
         <>
           <Typography>AHPRA Proof</Typography>
-          {existingAhpraProof && (
-            <Typography variant="body2">
-              Current:&nbsp;
-              <Link href={getFileUrl(existingAhpraProof)} target="_blank">
-                {getFilename(existingAhpraProof)}
-              </Link>
-            </Typography>
-          )}
           <Button variant="outlined" component="label" sx={{ mr: 1 }}>
             Upload AHPRA
             <input hidden type="file" onChange={handleFileChange('ahpra_proof')} />
           </Button>
+          {existingAhpraProof && (
+            <Link href={getFileUrl(existingAhpraProof)} target="_blank" sx={{ ml: 2, fontSize: '0.875rem' }}>
+              View
+            </Link>
+          )}
 
           <Typography sx={{ mt: 2 }}>Hours Proof</Typography>
-          {existingHoursProof && (
-            <Typography variant="body2">
-              Current:&nbsp;
-              <Link href={getFileUrl(existingHoursProof)} target="_blank">
-                {getFilename(existingHoursProof)}
-              </Link>
-            </Typography>
-          )}
           <Button variant="outlined" component="label">
             Upload Hours
             <input hidden type="file" onChange={handleFileChange('hours_proof')} />
           </Button>
+          {existingHoursProof && (
+            <Link href={getFileUrl(existingHoursProof)} target="_blank" sx={{ ml: 2, fontSize: '0.875rem' }}>
+              View
+            </Link>
+          )}
         </>
       )}
       {['TECHNICIAN', 'ASSISTANT'].includes(data.role_type) && (
         <>
           <Typography sx={{ mt: 2 }}>Certificate</Typography>
-          {existingCertificate && (
-            <Typography variant="body2">
-              Current:&nbsp;
-              <Link href={getFileUrl(existingCertificate)} target="_blank">
-                {getFilename(existingCertificate)}
-              </Link>
-            </Typography>
-          )}
           <Button variant="outlined" component="label">
             Upload Certificate
             <input hidden type="file" onChange={handleFileChange('certificate')} />
           </Button>
+          {existingCertificate && (
+            <Link href={getFileUrl(existingCertificate)} target="_blank" sx={{ ml: 2, fontSize: '0.875rem' }}>
+              View
+            </Link>
+          )}
         </>
       )}
       {data.role_type === 'STUDENT' && (
         <>
           <Typography sx={{ mt: 2 }}>University ID</Typography>
-          {existingUniversityId && (
-            <Typography variant="body2">
-              Current:&nbsp;
-              <Link href={getFileUrl(existingUniversityId)} target="_blank">
-                {getFilename(existingUniversityId)}
-              </Link>
-            </Typography>
-          )}
           <Button variant="outlined" component="label">
             Upload University ID
             <input hidden type="file" onChange={handleFileChange('university_id')} />
           </Button>
+          {existingUniversityId && (
+            <Link href={getFileUrl(existingUniversityId)} target="_blank" sx={{ ml: 2, fontSize: '0.875rem' }}>
+              View
+            </Link>
+          )}
         </>
       )}
       {data.role_type === 'OTHER' && (
         <>
           <Typography sx={{ mt: 2 }}>CPR Certificate</Typography>
-          {existingCprCertificate && (
-            <Typography variant="body2">
-              Current:&nbsp;
-              <Link href={getFileUrl(existingCprCertificate)} target="_blank">
-                {getFilename(existingCprCertificate)}
-              </Link>
-            </Typography>
-          )}
           <Button variant="outlined" component="label" sx={{ mr: 1 }}>
             Upload CPR
             <input hidden type="file" onChange={handleFileChange('cpr_certificate')} />
           </Button>
+          {existingCprCertificate && (
+            <Link href={getFileUrl(existingCprCertificate)} target="_blank" sx={{ ml: 2, fontSize: '0.875rem' }}>
+              View
+            </Link>
+          )}
 
           <Typography sx={{ mt: 2 }}>S8 Certificate</Typography>
-          {existingS8Certificate && (
-            <Typography variant="body2">
-              Current:&nbsp;
-              <Link href={getFileUrl(existingS8Certificate)} target="_blank">
-                {getFilename(existingS8Certificate)}
-              </Link>
-            </Typography>
-          )}
           <Button variant="outlined" component="label">
             Upload S8
             <input hidden type="file" onChange={handleFileChange('s8_certificate')} />
           </Button>
+          {existingS8Certificate && (
+            <Link href={getFileUrl(existingS8Certificate)} target="_blank" sx={{ ml: 2, fontSize: '0.875rem' }}>
+              View
+            </Link>
+          )}
         </>
       )}
     </Box>,
 
+    // Skills
     <Box sx={{ p: 2 }} key="skills">
-      <Typography variant="h6">Skills & Experience</Typography>
-      <FormGroup row>
+      <Typography variant="h6">Skills</Typography>
+      <FormGroup sx={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 1 }}>
         {SKILL_CHOICES.map(s => (
           <FormControlLabel
             key={s.value}
-            control={(
-              <Checkbox
-                checked={data.skills.includes(s.value)}
-                onChange={handleMultiCheckbox('skills', s.value)}
-              />
-            )}
+            control={<Checkbox checked={data.skills.includes(s.value)} onChange={handleMultiCheckbox('skills', s.value)} />}
             label={s.label}
           />
         ))}
@@ -443,74 +431,67 @@ export default function OtherStaffOnboarding() {
         required
       >
         {YEARS.map(y => (
-          <MenuItem key={y} value={y}>{y}</MenuItem>
+          <MenuItem key={y} value={y}>
+            {y}
+          </MenuItem>
         ))}
       </TextField>
     </Box>,
 
-    <Box sx={{ p: 2 }} key="payment">
+    // Payment
+    <Box key="payment" sx={{ p: 2 }}>
       <Typography variant="h6">Payment Method</Typography>
       <FormControl component="fieldset">
-        <RadioGroup
-          row
-          name="payment_preference"
-          value={data.payment_preference}
-          onChange={handleChange}
-        >
-          <FormControlLabel value="TFN" control={<Radio />} label="TFN" />
-          <FormControlLabel value="ABN" control={<Radio />} label="ABN" />
+        <RadioGroup row name="payment_preference" value={data.payment_preference} onChange={handleChange}>
+          <FormControlLabel value="TFN" control={<Radio />} label="TFN (Payslip)" />
+          <FormControlLabel value="ABN" control={<Radio />} label="ABN (Contractor)" />
         </RadioGroup>
       </FormControl>
 
       {data.payment_preference === 'ABN' ? (
         <Box sx={{ mt: 2 }}>
-          <TextField
-            fullWidth
-            margin="normal"
-            label="ABN"
-            name="abn"
-            value={data.abn}
-            onChange={handleChange}
-          />
-          <FormControlLabel
-            control={(
-              <Checkbox
-                name="gst_registered"
-                checked={data.gst_registered}
-                onChange={handleChange}
-              />
-            )}
-            label="GST Registered"
-          />
-          {existingGstFile && (
-            <Typography variant="body2">
-              Current:&nbsp;
-              <Link href={getFileUrl(existingGstFile)} target="_blank">
-                {getFilename(existingGstFile)}
-              </Link>
-            </Typography>
-          )}
+          <TextField fullWidth margin="normal" label="ABN" name="abn" value={data.abn} onChange={handleChange} />
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <FormControlLabel
+              control={<Checkbox name="gst_registered" checked={data.gst_registered} onChange={handleChange} />}
+              label="GST Registered"
+            />
+          </Box>
+
           {data.gst_registered && (
-            <Button variant="outlined" component="label" sx={{ mt: 1 }}>
-              Upload GST
-              <input hidden type="file" onChange={handleFileChange('gst_file')} />
-            </Button>
+            <Box sx={{ mt: 2 }}>
+              <Button variant="outlined" component="label">
+                Upload GST Certificate
+                <input hidden type="file" onChange={handleFileChange('gst_file')} />
+              </Button>
+              {existingGstFile ? (
+                <Link href={getFileUrl(existingGstFile)} target="_blank" sx={{ ml: 2, fontSize: '0.875rem' }}>
+                  View
+                </Link>
+              ) : (
+                <Typography variant="body2" color="text.secondary" sx={{ ml: 2, fontSize: '0.875rem' }}>
+                  No file uploaded
+                </Typography>
+              )}
+            </Box>
           )}
         </Box>
       ) : (
         <Box sx={{ mt: 2 }}>
-          {existingTfnDeclaration && (
-            <Typography variant="body2">
-              Current:&nbsp;
-              <Link href={getFileUrl(existingTfnDeclaration)} target="_blank">
-                {getFilename(existingTfnDeclaration)}
-              </Link>
-            </Typography>
-          )}
-          <Button variant="outlined" component="label" sx={{ mb: 2 }}>
-            Upload TFN
+          <Button variant="outlined" component="label">
+            Upload TFN Declaration
             <input hidden type="file" onChange={handleFileChange('tfn_declaration')} />
           </Button>
+          {existingTfnDeclaration ? (
+            <Link href={getFileUrl(existingTfnDeclaration)} target="_blank" sx={{ ml: 2, fontSize: '0.875rem' }}>
+              View
+            </Link>
+          ) : (
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 2, fontSize: '0.875rem' }}>
+              No file uploaded
+            </Typography>
+          )}
+
           <TextField
             fullWidth
             margin="normal"
@@ -519,14 +500,7 @@ export default function OtherStaffOnboarding() {
             value={data.super_fund_name}
             onChange={handleChange}
           />
-          <TextField
-            fullWidth
-            margin="normal"
-            label="USI"
-            name="super_usi"
-            value={data.super_usi}
-            onChange={handleChange}
-          />
+          <TextField fullWidth margin="normal" label="USI" name="super_usi" value={data.super_usi} onChange={handleChange} />
           <TextField
             fullWidth
             margin="normal"
@@ -539,7 +513,8 @@ export default function OtherStaffOnboarding() {
       )}
     </Box>,
 
-    <Box sx={{ p: 2 }} key="refs">
+    // Referees
+    <Box sx={{ p: 2 }} key="Referees">
       <Typography variant="h6">References</Typography>
       <TextField
         fullWidth
@@ -561,6 +536,7 @@ export default function OtherStaffOnboarding() {
       />
     </Box>,
 
+    // Profile
     <Box sx={{ p: 2 }} key="profile">
       <Typography variant="h6">Profile & Resume</Typography>
       <TextField
@@ -573,33 +549,41 @@ export default function OtherStaffOnboarding() {
         multiline
         rows={4}
       />
-      <Divider sx={{ my: 2 }}>Resume (Required)</Divider>
-      {existingResume && (
-        <Typography variant="body2">
-          Current:&nbsp;
-          <Link href={getFileUrl(existingResume)} target="_blank">
-            {getFilename(existingResume)}
-          </Link>
-        </Typography>
-      )}
+      <Divider sx={{ my: 2 }}>Resume</Divider>
       <Button variant="outlined" component="label">
-        Upload Resume/CV
-        <input
-          hidden
-          accept="application/pdf"
-          type="file"
-          onChange={handleFileChange('resume')}
-        />
+        Upload Resume
+        <input hidden accept="application/pdf" type="file" onChange={handleFileChange('resume')} />
       </Button>
+      {existingResume && (
+        <Link href={getFileUrl(existingResume)} target="_blank" sx={{ ml: 2, fontSize: '0.875rem' }}>
+          View
+        </Link>
+      )}
     </Box>,
   ];
 
+
+  const preventFormSubmit = (e: React.KeyboardEvent) => {
+  if (e.key === 'Enter' && tabIndex < panels.length - 1) {
+    e.preventDefault();
+  }
+};
+
+  // Wrap your existing handleSubmit so we can debug / delegate:
+  const debugHandleSubmit = async (e: React.FormEvent) => {
+    console.log('Form submit triggered from:', document.activeElement);
+    e.preventDefault();
+    await handleSubmit(e);  // calls your real submit logic
+  };
+
+
   return (
     <Container maxWidth="lg">
+      {error&&<Alert severity="error" sx={{mb:2}}>{error}</Alert>}
+      <Snackbar open={snackbarOpen} autoHideDuration={3000} onClose={()=>{setSnackbarOpen(false);navigate('/dashboard/otherstaff/overview');}}>
+        <Alert severity="success" sx={{width:'100%'}}>Profile saved successfully!</Alert>
+      </Snackbar>
       <Paper sx={{ p: 3, mt: 4 }} elevation={3}>
-        {error && <Alert severity="error">{error}</Alert>}
-        {success && <Alert severity="success">Saved!</Alert>}
-
         <Box
           sx={{
             display: 'flex',
@@ -617,7 +601,6 @@ export default function OtherStaffOnboarding() {
             allowScrollButtonsMobile
             textColor="secondary"
             indicatorColor="secondary"
-            sx={{ width: 'auto' }}
           >
             {labels.map((l, i) => (
               <Tab key={i} label={l} />
@@ -625,28 +608,57 @@ export default function OtherStaffOnboarding() {
           </Tabs>
         </Box>
 
-        <Box component="form" onSubmit={handleSubmit}>
-          {panels[tabIndex]}
+        {/*
+          If we're on the final panel, wrap in a form:
+          otherwise just render the panel + Next/Back buttons.
+        */}
+        {tabIndex === panels.length - 1 ? (
           <Box
-            sx={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              mt: 2,
-            }}
+            component="form"
+            onSubmit={debugHandleSubmit}
+            onKeyDown={preventFormSubmit}
           >
-            <Button disabled={tabIndex === 0} onClick={() => setTabIndex(i => i - 1)}>
-              Back
-            </Button>
-            {tabIndex < labels.length - 1 ? (
-              <Button onClick={() => setTabIndex(i => i + 1)}>Next</Button>
-            ) : (
+            {panels[tabIndex]}
+
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
+              <Button
+                type="button"
+                disabled={tabIndex === 0}
+                onClick={() => setTabIndex(i => i - 1)}
+              >
+                Back
+              </Button>
               <Button type="submit" variant="contained" disabled={loading}>
                 {loading ? 'Saving…' : 'Submit'}
               </Button>
-            )}
+            </Box>
           </Box>
-        </Box>
+        ) : (
+          <Box onKeyDown={preventFormSubmit}>
+            {panels[tabIndex]}
+
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
+              <Button
+                type="button"
+                disabled={tabIndex === 0}
+                onClick={() => setTabIndex(i => i - 1)}
+              >
+                Back
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  console.log('Next button clicked');
+                  setTabIndex(i => i + 1);
+                }}
+              >
+                Next
+              </Button>
+            </Box>
+          </Box>
+        )}
       </Paper>
+
     </Container>
   );
 }

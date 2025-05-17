@@ -9,6 +9,41 @@ from decimal import Decimal
 
 User = get_user_model()
 
+
+class RemoveOldFilesMixin:
+    """
+    Mixin to delete old file blobs before saving new uploads on specified file fields.
+    """
+    file_fields: list[str] = []
+
+    def update(self, instance, validated_data):
+        # Delete old blobs for any file_fields being replaced
+        for field in self.file_fields:
+            if field in validated_data:
+                old = getattr(instance, field)
+                if old:
+                    old.delete(save=False)
+        return super().update(instance, validated_data)
+
+
+class SyncUserMixin:
+    """
+    Mixin to sync nested user fields on create/update.
+    """
+    def _sync_user(self, user, data):
+        if not isinstance(data, dict):
+            return
+        updated = []
+        for attr, val in data.items():
+            setattr(user, attr, val)
+            updated.append(attr)
+        if updated:
+            user.save(update_fields=updated)
+
+    def perform_user_sync(self, validated_data):
+        user_data = validated_data.pop('user', {})
+        self._sync_user(self.context['request'].user, user_data)
+
 # Onboardings
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
@@ -16,8 +51,9 @@ class OrganizationSerializer(serializers.ModelSerializer):
         fields = ['id', 'name']
         read_only_fields = ['id']
 
-class OwnerOnboardingSerializer(serializers.ModelSerializer):
-    # sync these onto the User model
+class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
+    file_fields = []  # no file uploads on owner onboarding
+
     username   = serializers.CharField(source='user.username',   required=False)
     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
     last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
@@ -32,41 +68,28 @@ class OwnerOnboardingSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             'verified': {'read_only': True},
-            'organization': {'read_only': True},  # only Org-Admins can set this
+            'organization': {'read_only': True},  # only Org-Admins may set
             'organization_claimed': {'read_only': True},
-       }
-
-    def _sync_user(self, user, data):
-        updated = []
-        for attr, val in data.items():
-            setattr(user, attr, val)
-            updated.append(attr)
-        if updated:
-            user.save(update_fields=updated)
+        }
 
     def create(self, validated_data):
-        user_data = validated_data.pop('user', {})
-        validated_data.pop('user', None)
-        user = self.context['request'].user
-        self._sync_user(user, user_data)
-        return OwnerOnboarding.objects.create(user=user, **validated_data)
+        self.perform_user_sync(validated_data)
+        return OwnerOnboarding.objects.create(
+            user=self.context['request'].user,
+            **validated_data
+        )
 
     def update(self, instance, validated_data):
-        user_data = validated_data.pop('user', {})
-        validated_data.pop('user', None)
-        user = self.context['request'].user
-        self._sync_user(user, user_data)
+        self.perform_user_sync(validated_data)
         return super().update(instance, validated_data)
+    
 
-class PharmacistOnboardingSerializer(serializers.ModelSerializer):
-    # both read *and* write from/to the nested `user` relation
-    username    = serializers.CharField(source='user.username',    required=False)
-    first_name  = serializers.CharField(source='user.first_name',  required=False, allow_blank=True)
-    last_name   = serializers.CharField(source='user.last_name',   required=False, allow_blank=True)
-    government_id = serializers.FileField(read_only=True)
-    gst_file      = serializers.FileField(read_only=True)
-    tfn_declaration = serializers.FileField(read_only=True)
-    resume        = serializers.FileField(read_only=True)
+class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
+    file_fields = ['government_id', 'gst_file', 'tfn_declaration', 'resume']
+
+    username   = serializers.CharField(source='user.username',   required=False)
+    first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
+    last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
 
     class Meta:
         model  = PharmacistOnboarding
@@ -84,129 +107,81 @@ class PharmacistOnboardingSerializer(serializers.ModelSerializer):
             'member_of_chain': {'read_only': True},
         }
 
-    def _sync_user(self, user, data):
-        # only proceed if data is actually a dict of fields
-        if not isinstance(data, dict):
-            return
-        updated = []
-        for attr, val in data.items():
-            setattr(user, attr, val)
-            updated.append(attr)
-        if updated:
-            user.save(update_fields=updated)
-
     def create(self, validated_data):
-        # pop off any nested user info (may come through as a dict or sometimes as a User instance)
-        user_data = validated_data.pop('user', {})
-        # now sync username/first/last only if we have a dict
-        self._sync_user(self.context['request'].user, user_data)
-
-        # create the actual onboarding row
+        self.perform_user_sync(validated_data)
         return PharmacistOnboarding.objects.create(
             user=self.context['request'].user,
             **validated_data
         )
 
     def update(self, instance, validated_data):
-        user_data = validated_data.pop('user', {})
-        self._sync_user(self.context['request'].user, user_data)
+        self.perform_user_sync(validated_data)
         return super().update(instance, validated_data)
 
-class OtherStaffOnboardingSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(source='user.username', required=False)
+class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
+    file_fields = [
+        'government_id', 'ahpra_proof', 'hours_proof',
+        'certificate', 'university_id', 'cpr_certificate', 's8_certificate',
+        'gst_file', 'tfn_declaration', 'resume'
+    ]
+
+    username   = serializers.CharField(source='user.username',   required=False)
+    first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
+    last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
+
     class Meta:
-        model = OtherStaffOnboarding
+        model  = OtherStaffOnboarding
         fields = [
-            'username',
-            'government_id',
-            'role_type',
-            'phone_number',
-            'skills',
-            'years_experience',
-            'payment_preference',
-            'ahpra_proof',
-            'hours_proof',
-            'certificate',
-            'university_id',
-            'cpr_certificate',
-            's8_certificate',
-            'abn',
-            'gst_registered',
-            'gst_file',
-            'tfn_declaration',
-            'super_fund_name',
-            'super_usi',
-            'super_member_number',
-            'referee1_email',
-            'referee2_email',
-            'short_bio',
-            'resume',
-            'verified',
+            'username', 'first_name', 'last_name',
+            'government_id', 'role_type', 'phone_number',
+            'skills', 'years_experience', 'payment_preference',
+            'ahpra_proof', 'hours_proof', 'certificate', 'university_id',
+            'cpr_certificate', 's8_certificate',
+            'abn', 'gst_registered', 'gst_file', 'tfn_declaration',
+            'super_fund_name', 'super_usi', 'super_member_number',
+            'referee1_email', 'referee2_email', 'short_bio', 'resume',
+            'verified'
         ]
         extra_kwargs = {
             'verified': {'read_only': True},
         }
 
     def create(self, validated_data):
-        # handle username exactly as in pharmacist serializer
-        username = validated_data.pop('username', None)
-        user = self.context['request'].user
-        if username:
-            user.username = username
-            user.save(update_fields=['username'])
-
-        # attach the user FK
-        validated_data['user'] = user
+        self.perform_user_sync(validated_data)
+        validated_data['user'] = self.context['request'].user
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
-        # same username logic on update
-        username = validated_data.pop('username', None)
-        user = self.context['request'].user
-        if username:
-            user.username = username
-            user.save(update_fields=['username'])
-
+        self.perform_user_sync(validated_data)
         return super().update(instance, validated_data)
 
-class ExplorerOnboardingSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(source='user.username', required=False)
+
+class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
+    file_fields = ['government_id', 'resume']
+
+    username   = serializers.CharField(source='user.username',   required=False)
+    first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
+    last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
+
     class Meta:
-        model = ExplorerOnboarding
+        model  = ExplorerOnboarding
         fields = [
-            'username',
-            'government_id',
-            'role_type',
-            'phone_number',
-            'interests',
-            'referee1_email',
-            'referee2_email',
-            'short_bio',
-            'resume',
-            'verified',
+            'username', 'first_name', 'last_name',
+            'government_id', 'role_type', 'phone_number',
+            'interests', 'referee1_email', 'referee2_email',
+            'short_bio', 'resume', 'verified'
         ]
         extra_kwargs = {
             'verified': {'read_only': True},
         }
 
     def create(self, validated_data):
-        # same pattern
-        username = validated_data.pop('username', None)
-        user = self.context['request'].user
-        if username:
-            user.username = username
-            user.save(update_fields=['username'])
-
-        validated_data['user'] = user
+        self.perform_user_sync(validated_data)
+        validated_data['user'] = self.context['request'].user
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
-        username = validated_data.pop('username', None)
-        user = self.context['request'].user
-        if username:
-            user.username = username
-            user.save(update_fields=['username'])
-
+        self.perform_user_sync(validated_data)
         return super().update(instance, validated_data)
 
 # Dashboards
@@ -227,7 +202,7 @@ class ExplorerDashboardResponseSerializer(serializers.Serializer):
     user = UserProfileSerializer()
     message = serializers.CharField()
 
-class PharmacySerializer(serializers.ModelSerializer):
+class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
     # explicitly declare your FileFields so DRF will return the URLs
     methadone_s8_protocols = serializers.FileField(
         use_url=True, allow_null=True, required=False
@@ -243,6 +218,12 @@ class PharmacySerializer(serializers.ModelSerializer):
     )
     has_chain = serializers.SerializerMethodField()
     claimed   = serializers.SerializerMethodField()
+    file_fields = [
+        'methadone_s8_protocols',
+        'qld_sump_docs',
+        'sops',
+        'induction_guides',
+    ]
 
     class Meta:
         model = Pharmacy
@@ -289,7 +270,8 @@ class PharmacySerializer(serializers.ModelSerializer):
         # “Has the owner been claimed by an Organization?”
         return getattr(obj.owner, 'organization_claimed', False)
 
-class ChainSerializer(serializers.ModelSerializer):
+class ChainSerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
+    file_fields = ['logo']
     # nested readout of pharmacies
     pharmacies = PharmacySerializer(many=True, read_only=True)
     # write-only field to set pharmacies by ID list

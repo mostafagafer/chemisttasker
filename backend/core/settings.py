@@ -180,9 +180,6 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
-# STATIC_URL = 'static/'
-# STATIC_ROOT = BASE_DIR / "staticfiles"
-
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
@@ -206,12 +203,47 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
     'ALGORITHM': 'HS256',
-    # …you can add more overrides here if needed
 }
 
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+
+# # # tell Django to use Azure for all FileField / ImageField storage
+# STORAGES = {
+#     # 1) All your FileField / ImageField uploads go here
+#     "default": {
+#         "BACKEND": "storages.backends.azure_storage.AzureStorage",
+#         "OPTIONS": {
+#             # Authentication
+#             "account_name":    env("AZURE_ACCOUNT_NAME"),
+#             "account_key":     env("AZURE_ACCOUNT_KEY"),
+#             "azure_container": env("AZURE_CONTAINER"),
+
+#             # Enforce HTTPS when talking to Azure
+#             "azure_ssl":       True,           
+#             # Overwrite any existing blob with the same name
+#             "overwrite_files": True,            
+#             # Generate time-limited SAS URLs for users to download
+#             "expiration_secs": 3600,            # 1 hour (adjust as you like)
+
+#             # In case of network slowness, bump this up (defaults to None)
+#             # "timeout":        120,
+#         },
+#     },
+
+#     # 2) Tell Django “staticfiles” is still the local/WhiteNoise pipeline
+#     "staticfiles": {
+#         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+#     },
+# }
+
+# # # Tell Django how to generate media URLs
+# MEDIA_URL = (
+#     f"https://{env('AZURE_ACCOUNT_NAME')}"
+#     f".blob.core.windows.net/{env('AZURE_CONTAINER')}/"
+# )
 
 
 # Use console backend for local testing

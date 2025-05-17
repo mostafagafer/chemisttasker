@@ -15,7 +15,7 @@ function SidebarFooter({ mini }: SidebarFooterProps) {
 export default function OtherstaffDashboardWrapper() {
   return (
     <DashboardLayout slots={{ sidebarFooter: SidebarFooter }}>
-      <PageContainer>
+      <PageContainer slots={{ header: () => null }}>
         <Outlet />
       </PageContainer>
     </DashboardLayout>

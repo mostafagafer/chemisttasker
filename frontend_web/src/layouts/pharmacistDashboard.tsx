@@ -14,7 +14,7 @@ function SidebarFooter({ mini }: SidebarFooterProps) {
 export default function PharmacistDashboardWrapper() {
   return (
     <DashboardLayout slots={{ sidebarFooter: SidebarFooter }}>
-      <PageContainer>
+      <PageContainer slots={{ header: () => null }}>
         <Outlet />
       </PageContainer>
     </DashboardLayout>

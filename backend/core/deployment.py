@@ -13,7 +13,7 @@ ALLOWED_HOSTS = [
     'thankful-stone-0dac7ba00.6.azurestaticapps.net',
     "chemisttasker.com.au",
     "www.chemisttasker.com.au",
-    # 'localhost'
+    'localhost'
 ]
 
 CSRF_TRUSTED_ORIGINS = [
@@ -21,7 +21,7 @@ CSRF_TRUSTED_ORIGINS = [
     'https://thankful-stone-0dac7ba00.6.azurestaticapps.net',
     "https://chemisttasker.com.au",
     "https://www.chemisttasker.com.au",
-    # 'http://localhost:5173'
+    'http://localhost:5173'
     ]
 
 CORS_ALLOWED_ORIGINS = [
@@ -29,10 +29,10 @@ CORS_ALLOWED_ORIGINS = [
     'https://thankful-stone-0dac7ba00.6.azurestaticapps.net',
     "https://chemisttasker.com.au",
     "https://www.chemisttasker.com.au",
-    # 'http://localhost:5173'
+    'http://localhost:5173'
 ]
 
-DEBUG=False
+DEBUG=True
 
 # Redirect all HTTP → HTTPS
 SECURE_SSL_REDIRECT = True

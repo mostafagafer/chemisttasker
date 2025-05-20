@@ -28,7 +28,6 @@ class OwnerOnboardingAdmin(admin.ModelAdmin):
         obj.full_clean()  # Enforces model-level validation (e.g. PHARMACIST only)
         super().save_model(request, obj, form, change)
 
-
 @admin.register(PharmacistOnboarding)
 class PharmacistOnboardingAdmin(admin.ModelAdmin):
     list_display = ['user', 'payment_preference', 'verified', 'member_of_chain']
@@ -105,7 +104,6 @@ class ChainAdmin(admin.ModelAdmin):
         }),
     )
 
-
 @admin.register(Pharmacy)
 class PharmacyAdmin(admin.ModelAdmin):
     list_display = (
@@ -143,7 +141,6 @@ class PharmacyAdmin(admin.ModelAdmin):
         }),
     )
 
-
 @admin.register(Membership)
 class MembershipAdmin(admin.ModelAdmin):
     list_display = (
@@ -165,8 +162,6 @@ class MembershipAdmin(admin.ModelAdmin):
         }),
     )
 
-
-
 class ShiftSlotInline(admin.TabularInline):
     model = ShiftSlot
     extra = 1
@@ -177,7 +172,7 @@ class ShiftAdmin(admin.ModelAdmin):
     list_display = [
         'id','pharmacy','role_needed','employment_type',
         'visibility','reveal_count','single_user_only',
-        'accepted_user','created_at'
+        'accepted_user','created_at', 'created_by'
     ]
     list_filter = [
         'role_needed','employment_type','single_user_only','visibility'
@@ -197,9 +192,6 @@ class ShiftInterestAdmin(admin.ModelAdmin):
     list_filter  = ('revealed','slot','shift')
     search_fields = ('user__username','shift__pharmacy__name')
 
-admin.site.register(ExplorerPost)
-
-
 class InvoiceLineItemInline(admin.TabularInline):
     model = InvoiceLineItem
     extra = 0
@@ -210,54 +202,6 @@ class InvoiceLineItemInline(admin.TabularInline):
     )
     readonly_fields = ('total',)
 
-# @admin.register(Invoice)
-# class InvoiceAdmin(admin.ModelAdmin):
-#     list_display = (
-#         'id', 'invoice_date', 'client_display', 'total', 'status', 'external'
-#     )
-#     list_filter = ('status', 'external', 'gst_registered')
-#     search_fields = (
-#         'pharmacy_name_snapshot', 'custom_bill_to_name', 'bill_to_email'
-#     )
-#     inlines = [InvoiceLineItemInline]
-#     fieldsets = (
-#         (None, {
-#             'fields': ('user', 'status', 'external', 'pharmacy')
-#         }),
-#         ('Client Snapshot', {
-#             'fields': (
-#                 'pharmacy_name_snapshot', 'pharmacy_address_snapshot',
-#                 'pharmacy_abn_snapshot',
-#                 'custom_bill_to_name', 'custom_bill_to_address'
-#             )
-#         }),
-#         ('Billing Details', {
-#             'fields': (
-#                 'pharmacist_abn', 'gst_registered', 'super_rate_snapshot',
-#                 'bank_account_name', 'bsb', 'account_number',
-#                 'super_fund_name', 'super_usi', 'super_member_number',
-#                 'bill_to_email', 'cc_emails'
-#             )
-#         }),
-#         ('Totals & Dates', {
-#             'fields': (
-#                 'invoice_date', 'due_date',
-#                 'subtotal', 'gst_amount', 'super_amount', 'total'
-#             )
-#         }),
-#     )
-
-#     def client_display(self, obj):
-#         """
-#         Show the correct client name in list_display
-#         """
-#         return (
-#             obj.custom_bill_to_name if obj.external
-#             else obj.pharmacy_name_snapshot
-#         )
-#     client_display.short_description = 'Client'
-
-
 @admin.register(Invoice)
 class InvoiceAdmin(admin.ModelAdmin):
     list_display = (
@@ -267,3 +211,5 @@ class InvoiceAdmin(admin.ModelAdmin):
     list_filter  = ('status','gst_registered')
     inlines      = [InvoiceLineItemInline]
     readonly_fields = ('subtotal','gst_amount','super_amount','total')
+
+admin.site.register(ExplorerPost)

@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
 from .models import Invoice, InvoiceLineItem
-from client_profile.models import Shift, Pharmacy
+from client_profile.models import Shift, Pharmacy, PharmacistOnboarding, OtherStaffOnboarding
 
 def expand_recurring_slots(slots):
     """
@@ -45,34 +45,58 @@ def generate_invoice_from_shifts(
     billing_data=None,
     due_date=None
 ):
+        # —── Pull issuer details from onboarding ───—
+    try:
+        ob = PharmacistOnboarding.objects.get(user=user)
+    except PharmacistOnboarding.DoesNotExist:
+        ob = OtherStaffOnboarding.objects.get(user=user)
+
     # 1) Build invoice fields
     fields = {
-        'user': user,
-        'external': external,
-        'pharmacist_abn': billing_data['pharmacist_abn'],
-        'gst_registered': billing_data['gst_registered'],
+        'user':                user,
+        'external':            external,
+        'issuer_first_name':   ob.first_name,
+        'issuer_last_name':    ob.last_name,
+        'issuer_abn':          ob.abn or '',
+        'issuer_email':        billing_data['issuer_email'],
+
+        'gst_registered':      billing_data['gst_registered'],
         'super_rate_snapshot': Decimal(str(billing_data['super_rate_snapshot'])),
-        'bank_account_name': billing_data['bank_account_name'],
-        'bsb': billing_data['bsb'],
-        'account_number': billing_data['account_number'],
-        'bill_to_email': billing_data['bill_to_email'],
-        'cc_emails': billing_data.get('cc_emails', ''),
-        'due_date': due_date,
+        'bank_account_name':   billing_data['bank_account_name'],
+        'bsb':                 billing_data['bsb'],
+        'account_number':      billing_data['account_number'],
+        'cc_emails':           billing_data.get('cc_emails', ''),
+        'due_date':            due_date,
     }
 
-    # 2) Snapshot client info
+    # 2) Snapshot recipient & pharmacy info
     if not external:
         pharmacy = Pharmacy.objects.get(pk=pharmacy_id)
+        # use the shift creator’s email as the bill-to email
+        shift = Shift.objects.get(pk=shift_ids[0], accepted_user=user)
+        recipient_email = shift.created_by.email if shift.created_by else ''
+
         fields.update({
-            'pharmacy': pharmacy,
-            'pharmacy_name_snapshot': pharmacy.name,
-            'pharmacy_address_snapshot': pharmacy.address,
-            'pharmacy_abn_snapshot': pharmacy.abn,
+            'pharmacy':                   pharmacy,
+            'pharmacy_name_snapshot':     pharmacy.name,
+            'pharmacy_address_snapshot':  pharmacy.address,
+            'pharmacy_abn_snapshot':      pharmacy.abn,
+
+            # recipient = the shift’s creator
+            'bill_to_first_name':         shift.created_by.first_name,
+            'bill_to_last_name':          shift.created_by.last_name,
+            'bill_to_abn':                shift.created_by.onboarding.abn,
+            'bill_to_email':              recipient_email,
         })
     else:
+        # external, use form-supplied recipient data
         fields.update({
-            'custom_bill_to_name': billing_data['custom_bill_to_name'],
+            'custom_bill_to_name':    billing_data['custom_bill_to_name'],
             'custom_bill_to_address': billing_data['custom_bill_to_address'],
+            'bill_to_first_name':     billing_data['bill_to_first_name'],
+            'bill_to_last_name':      billing_data['bill_to_last_name'],
+            'bill_to_abn':            billing_data['bill_to_abn'],
+            'bill_to_email':          billing_data['bill_to_email'],
         })
 
     invoice = Invoice.objects.create(**fields)

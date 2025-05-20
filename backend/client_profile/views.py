@@ -750,8 +750,6 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             'assignment_id': a.id
         }, status=status.HTTP_200_OK)
 
-
-
 class CommunityShiftViewSet(BaseShiftViewSet):
     """Community‐level shifts, only for users who are active members of that pharmacy."""
     def get_queryset(self):
@@ -793,7 +791,6 @@ class CommunityShiftViewSet(BaseShiftViewSet):
             allowed = COMMUNITY_LEVELS
 
         return qs.filter(role_needed__in=allowed).distinct()
-
 
 class PublicShiftViewSet(BaseShiftViewSet):
     """Platform‐public shifts, filtered by the user’s exact clinical role."""
@@ -990,7 +987,6 @@ class IsPharmacistOrOtherStaff(permissions.BasePermission):
             request.user.role in ('PHARMACIST', 'OTHER_STAFF')
         )
 
-
 # --- “My Confirmed” Viewset ---
 class MyConfirmedShiftsViewSet(BaseShiftViewSet):
     """
@@ -1016,7 +1012,6 @@ class MyConfirmedShiftsViewSet(BaseShiftViewSet):
 
         return qs.distinct()
 
-
 # --- “My History” Viewset ---
 class MyHistoryShiftsViewSet(BaseShiftViewSet):
     """
@@ -1041,6 +1036,9 @@ class MyHistoryShiftsViewSet(BaseShiftViewSet):
 
         return qs.distinct()
 
+
+
+
 class ExplorerPostViewSet(viewsets.ModelViewSet):
     queryset = ExplorerPost.objects.all()
     serializer_class = ExplorerPostSerializer
@@ -1062,7 +1060,7 @@ class UserAvailabilityViewSet(viewsets.ModelViewSet):
 
 from client_profile.services import generate_invoice_from_shifts
 class InvoiceListView(generics.ListCreateAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = InvoiceSerializer
 
     def get_queryset(self):
@@ -1073,8 +1071,9 @@ class InvoiceListView(generics.ListCreateAPIView):
 
 
 class InvoiceDetailView(generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = InvoiceSerializer
+    lookup_field = 'pk'
 
     def get_queryset(self):
         return Invoice.objects.filter(user=self.request.user)
@@ -1087,8 +1086,8 @@ class GenerateInvoiceView(APIView):
         data = request.data
         # Ensure required billing fields are present
         required = [
-            'pharmacist_abn', 'gst_registered', 'super_rate_snapshot',
-            'bank_account_name', 'bsb', 'account_number', 'bill_to_email'
+            'issuer_abn', 'gst_registered', 'super_rate_snapshot',
+            'bank_account_name', 'bsb', 'account_number', 'bill_to_email',  'cc_emails',
         ]
         missing = [f for f in required if f not in data]
         if missing:

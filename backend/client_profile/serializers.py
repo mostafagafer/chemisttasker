@@ -328,6 +328,8 @@ class ShiftSerializer(serializers.ModelSerializer):
     # for multi-slot shifts
     slot_assignments = serializers.SerializerMethodField()
 
+
+    fixed_rate = serializers.DecimalField(max_digits=6, decimal_places=2)
     class Meta:
         model = Shift
         fields = [
@@ -469,6 +471,9 @@ class ShiftInterestSerializer(serializers.ModelSerializer):
 class MyShiftSerializer(serializers.ModelSerializer):
     # reuse the full PharmacySerializer (with all the file‐fields)
     pharmacy_detail = PharmacySerializer(source='pharmacy', read_only=True)
+    created_by_first_name = serializers.CharField(source='created_by.first_name', read_only=True)
+    created_by_last_name  = serializers.CharField(source='created_by.last_name',  read_only=True)
+    created_by_email      = serializers.EmailField(source='created_by.email',      read_only=True)
 
     # bring rate_type, fixed_rate, workload_tags straight through
     rate_type     = serializers.CharField(read_only=True)
@@ -483,6 +488,9 @@ class MyShiftSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'pharmacy_detail',
+            'created_by_first_name',
+            'created_by_last_name',
+            'created_by_email',
             'role_needed',
             'rate_type',
             'fixed_rate',
@@ -561,7 +569,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             'id', 'user', 'external', 'pharmacy',
             'pharmacy_name_snapshot', 'pharmacy_address_snapshot', 'pharmacy_abn_snapshot',
             'custom_bill_to_name', 'custom_bill_to_address',
-            'pharmacist_abn', 'gst_registered', 'super_rate_snapshot',
+            'gst_registered', 'super_rate_snapshot',
             'bank_account_name', 'bsb', 'account_number',
             'super_fund_name', 'super_usi', 'super_member_number',
             'bill_to_email', 'cc_emails',
@@ -569,6 +577,11 @@ class InvoiceSerializer(serializers.ModelSerializer):
             'subtotal', 'gst_amount', 'super_amount', 'total',
             'status', 'created_at',
             'line_items',
+            # Recipient snapshot
+            'bill_to_first_name', 'bill_to_last_name', 'bill_to_abn',
+
+            # Issuer snapshot
+            'issuer_first_name', 'issuer_last_name', 'issuer_abn',
         ]
         read_only_fields = [
             'subtotal', 'gst_amount', 'super_amount', 'total', 'created_at'

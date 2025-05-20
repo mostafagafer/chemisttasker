@@ -21,13 +21,13 @@ import ReceiptIcon from '@mui/icons-material/Receipt';
 
 
 export const ORGANIZATION_NAV: Navigation = [
-  { kind: 'header', title: 'Organization' },
+  { kind: 'header', title: 'Organization Management' },
   { segment: 'dashboard/organization/overview', title: 'Overview',        icon: <GroupsIcon /> },
   { segment: 'dashboard/organization/invite',   title: 'Invite Staff',    icon: <ManageAccountsSharpIcon /> },
   { segment: 'dashboard/organization/claim',    title: 'Claim Pharmacies',icon: <StoreIcon /> },
   { kind: 'divider' },
-  {
-    segment: 'dashboard/organization/manage-pharmacies',
+  { kind: 'header', title: 'Manage Staff and Shifts' },
+  { segment: 'dashboard/organization/manage-pharmacies',
     title: 'Manage Pharmacies',
     icon: <MedicationLiquidIcon />,
     children: [
@@ -36,30 +36,30 @@ export const ORGANIZATION_NAV: Navigation = [
     ],
   },
   { segment: 'dashboard/organization/post-shift', title: 'Post Shift', icon: <PostAddIcon /> },
-  {
-    segment: 'dashboard/organization/shifts',
+  { segment: 'dashboard/organization/shifts',
     title: 'Shifts',
     icon: <AccessTimeIcon />,
     children: [
-      // { segment: 'public',    title: 'Public Shifts',    icon: <PublicIcon /> },
-      // { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
       { segment: 'active',    title: 'Active Shifts',    icon: <PlayArrowIcon /> },
       { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
       { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
     ],
   },
   { kind: 'divider' },
-  { segment: 'dashboard/organization/logout', title: 'Logout', icon: <LogoutIcon /> },
+  { kind: 'header', title: 'Learning & Explorer Hub' },
+  { segment: 'dashboard/organization/interests',     title: 'Explore Interests', icon: <FavoriteIcon /> },
+  { segment: 'dashboard/organization/learning',      title: 'Learning Materials',icon: <SchoolIcon /> },
+  { kind: 'divider' },
+  { segment: 'dashboard/organization/logout',        title: 'Logout',            icon: <LogoutIcon /> },
 ]
 
 export const OWNER_NAV: Navigation = [
-  { kind: 'header', title: 'Owner' },
+  { kind: 'header', title: 'Profile Settings' },
   { segment: 'dashboard/owner/overview',      title: 'Overview',           icon: <DashboardIcon /> },
   { segment: 'dashboard/owner/onboarding',    title: 'Profile',            icon: <ManageAccountsSharpIcon /> },
   { kind: 'divider' },
-  { kind: 'header', title: 'Staff' },
-  {
-    segment: 'dashboard/owner/manage-pharmacies',
+  { kind: 'header', title: 'Manage Staff and Shifts' },
+  { segment: 'dashboard/owner/manage-pharmacies',
     title: 'Manage Pharmacies',
     icon: <MedicationLiquidIcon />,
     children: [
@@ -68,19 +68,17 @@ export const OWNER_NAV: Navigation = [
     ],
   },
   { segment: 'dashboard/owner/post-shift',     title: 'Post Shift',        icon: <PostAddIcon /> },
-  {
-    segment: 'dashboard/owner/shifts',
+  { segment: 'dashboard/owner/shifts',
     title: 'Shifts',
     icon: <AccessTimeIcon />,
     children: [
-      // { segment: 'public',    title: 'Public Shifts',    icon: <PublicIcon /> },
-      // { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
       { segment: 'active',    title: 'Active Shifts',    icon: <PlayArrowIcon /> },
       { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
       { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
     ],
   },
   { kind: 'divider' },
+  { kind: 'header', title: 'Learning & Explorer Hub' },
   { segment: 'dashboard/owner/interests',     title: 'Explore Interests', icon: <FavoriteIcon /> },
   { segment: 'dashboard/owner/learning',      title: 'Learning Materials',icon: <SchoolIcon /> },
   { kind: 'divider' },
@@ -88,12 +86,13 @@ export const OWNER_NAV: Navigation = [
 ]
 
 export const PHARMACIST_NAV: Navigation = [
-  { kind: 'header', title: 'Pharmacist' },
+  { kind: 'header', title: 'Profile and Availability' },
   { segment: 'dashboard/pharmacist/overview',     title: 'Overview',           icon: <DashboardIcon /> },
   { segment: 'dashboard/pharmacist/onboarding',   title: 'Profile',            icon: <ManageAccountsSharpIcon /> },
+  { segment: 'dashboard/pharmacist/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
   { kind: 'divider' },
-  {
-    segment: 'dashboard/pharmacist/shifts',
+  { kind: 'header', title: 'Shifts & Invoices' },
+  { segment: 'dashboard/pharmacist/shifts',
     title: 'Shifts',
     icon: <AccessTimeIcon />,
     children: [
@@ -103,12 +102,11 @@ export const PHARMACIST_NAV: Navigation = [
       { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
     ],
   },
-  { segment: 'dashboard/pharmacist/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
-  { kind: 'divider' },
   { segment: 'dashboard/pharmacist/invoice', title: 'Manage Invoices', icon: <ReceiptIcon /> },
 
 
   { kind: 'divider' },
+  { kind: 'header', title: 'Learning & Explorer Hub' },
   { segment: 'dashboard/pharmacist/interests',    title: 'Explore Interests', icon: <FavoriteIcon /> },
   { segment: 'dashboard/pharmacist/learning',     title: 'Learning Materials',icon: <SchoolIcon /> },
   { kind: 'divider' },
@@ -116,25 +114,25 @@ export const PHARMACIST_NAV: Navigation = [
 ]
 
 export const OTHERSTAFF_NAV: Navigation = [
-  { kind: 'header', title: 'Other Staff' },
+  { kind: 'header', title: 'Profile and Availability' },
   { segment: 'dashboard/otherstaff/overview',     title: 'Overview',   icon: <DashboardIcon /> },
   { segment: 'dashboard/otherstaff/onboarding',   title: 'Profile',    icon: <ManageAccountsSharpIcon /> },
+  { segment: 'dashboard/otherstaff/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
   { kind: 'divider' },
-  {
-    segment: 'dashboard/otherstaff/shifts',
+  { kind: 'header', title: 'Shifts & Invoices' },
+  { segment: 'dashboard/otherstaff/shifts',
     title: 'Shifts',
     icon: <AccessTimeIcon />,
     children: [
-      { segment: 'public',    title: 'Public Shifts',    icon: <AccessTimeIcon /> },
-      { segment: 'community', title: 'Community Shifts', icon: <AccessTimeIcon /> },
+      { segment: 'public',    title: 'Public Shifts',    icon: <PublicIcon /> },
+      { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
       { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
       { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
     ],
   },
-  { segment: 'dashboard/otherstaff/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
-  { kind: 'divider' },
   { segment: 'dashboard/otherstaff/invoice', title: 'Manage Invoices', icon: <ReceiptIcon /> },
   { kind: 'divider' },
+  { kind: 'header', title: 'Learning & Explorer Hub' },
   { segment: 'dashboard/otherstaff/interests',    title: 'Explore Interests', icon: <FavoriteIcon /> },
   { segment: 'dashboard/otherstaff/learning',     title: 'Learning Materials',icon: <SchoolIcon /> },
   { kind: 'divider' },
@@ -142,7 +140,7 @@ export const OTHERSTAFF_NAV: Navigation = [
 ]
 
 export const EXPLORER_NAV: Navigation = [
-  { kind: 'header', title: 'Explorer' },
+  { kind: 'header', title: 'Profile settings' },
   { segment: 'dashboard/explorer/overview',   title: 'Overview', icon: <DashboardIcon /> },
   { segment: 'dashboard/explorer/onboarding', title: 'Profile',  icon: <ManageAccountsSharpIcon /> },
   { kind: 'divider' },

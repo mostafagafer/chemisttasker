@@ -3,6 +3,8 @@ from django.db import models
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from datetime import date
+# from django.utils import timezone
+
 
 class Organization(models.Model):
     """
@@ -531,10 +533,6 @@ class UserAvailability(models.Model):
 
 
 ## Invoice model
-
-from django.utils import timezone
-
-
 class Invoice(models.Model):
     STATUS_CHOICES = [
         ('draft', 'Draft'),
@@ -566,10 +564,17 @@ class Invoice(models.Model):
     custom_bill_to_name     = models.CharField(max_length=255, blank=True)
     custom_bill_to_address  = models.TextField(blank=True)
 
-    # Billing info (all on this model—no onboarding writes)
-    pharmacist_abn       = models.CharField(max_length=20, blank=True, default="")
+    # —────────── Issuer snapshot (the one creating the invoice) ──────────—
+    issuer_first_name        = models.CharField(max_length=150, blank=True, default="")
+    issuer_last_name         = models.CharField(max_length=150, blank=True, default="")
+    issuer_abn           = models.CharField(max_length=20, blank=True, default="")
     gst_registered       = models.BooleanField(default=False)
     super_rate_snapshot  = models.DecimalField(max_digits=5, decimal_places=2, default=11.5)
+
+    # —────────── Recipient snapshot (who’s billed) ──────────—
+    bill_to_first_name       = models.CharField(max_length=150, blank=True, default="")
+    bill_to_last_name        = models.CharField(max_length=150, blank=True, default="")
+    bill_to_abn              = models.CharField(max_length=20,  blank=True, default="")
 
     bank_account_name    = models.CharField(max_length=255, blank=True, default="")
     bsb                  = models.CharField(max_length=6,   blank=True, default="")

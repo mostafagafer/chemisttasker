@@ -237,7 +237,7 @@ export default function ManageInvoicesPage() {
       // Build payload
       const payload: any = {
         external: formData.external,
-        pharmacist_abn: formData.pharmacistAbn,
+        issuer_abn: formData.pharmacistAbn,
         gst_registered: formData.gstRegistered,
         super_rate_snapshot: formData.superRateSnapshot,
         bank_account_name: formData.bankAccountName,

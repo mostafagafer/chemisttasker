@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 from environ import Env
+from datetime import timedelta
 import dj_database_url
 
 
@@ -10,7 +11,6 @@ Env.read_env()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = env('SECRET_KEY')
 
@@ -18,7 +18,6 @@ SECRET_KEY = env('SECRET_KEY')
 DEBUG = True
 
 ALLOWED_HOSTS = ['*']
-
 
 # Only send cookies when they’re on an explicitly allowed origin:
 CORS_ALLOW_CREDENTIALS = True
@@ -131,20 +130,20 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
-
 DATABASES = {
-    'default': dj_database_url.parse(
-        env('AZURE_POSTGRESQL_CONNECTIONSTRING'),
-        conn_max_age=600,
-        ssl_require=True
-    )
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
 }
+
+# DATABASES = {
+#     'default': dj_database_url.parse(
+#         env('AZURE_POSTGRESQL_CONNECTIONSTRING'),
+#         conn_max_age=600,
+#         ssl_require=True
+#     )
+# }
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
@@ -190,8 +189,6 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # JWT settings for better frontend integration
-from datetime import timedelta
-
 SIMPLE_JWT = {
     # Short‑lived access token
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
@@ -204,11 +201,6 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
     'ALGORITHM': 'HS256',
 }
-
-
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-
 
 # # # tell Django to use Azure for all FileField / ImageField storage
 # STORAGES = {
@@ -244,6 +236,9 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 #     f"https://{env('AZURE_ACCOUNT_NAME')}"
 #     f".blob.core.windows.net/{env('AZURE_CONTAINER')}/"
 # )
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 
 # Use console backend for local testing

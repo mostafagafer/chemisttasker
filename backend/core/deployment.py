@@ -67,7 +67,6 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-
 DATABASES = {
     'default': dj_database_url.parse(
         env('AZURE_POSTGRESQL_CONNECTIONSTRING'),
@@ -76,10 +75,7 @@ DATABASES = {
     )
 }
 
-
-
 TIME_ZONE = 'Australia/Sydney'
-
 
 # tell Django to use Azure for all FileField / ImageField storage
 STORAGES = {

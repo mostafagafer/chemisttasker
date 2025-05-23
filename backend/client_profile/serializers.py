@@ -135,6 +135,9 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
             'username', 'first_name', 'last_name',
             'government_id', 'role_type', 'phone_number',
             'skills', 'years_experience', 'payment_preference',
+            'classification_level',  # ✅ NEW
+            'student_year',          # ✅ NEW
+            'intern_half',           # ✅ NEW
             'ahpra_proof', 'hours_proof', 'certificate', 'university_id',
             'cpr_certificate', 's8_certificate',
             'abn', 'gst_registered', 'gst_file', 'tfn_declaration',
@@ -145,6 +148,17 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
         extra_kwargs = {
             'verified': {'read_only': True},
         }
+    def validate(self, data):
+        role = data.get('role_type')
+
+        if role == 'STUDENT' and not data.get('student_year'):
+            raise serializers.ValidationError({'student_year': 'Required for Pharmacy Students.'})
+        if role == 'ASSISTANT' and not data.get('classification_level'):
+            raise serializers.ValidationError({'classification_level': 'Required for Pharmacy Assistants.'})
+        if role == 'INTERN' and not data.get('intern_half'):
+            raise serializers.ValidationError({'intern_half': 'Required for Intern Pharmacists.'})
+
+        return data
 
     def create(self, validated_data):
         self.perform_user_sync(validated_data)
@@ -231,6 +245,7 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
             "id",
             "name",
             "address",
+            "state",
             "owner",
             "organization",
             "verified",
@@ -322,27 +337,37 @@ class ShiftSerializer(serializers.ModelSerializer):
     pharmacy_detail = PharmacySerializer(source='pharmacy', read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
 
-     # for single-user shifts
-    accepted_user_id   = serializers.IntegerField(source='accepted_user.id',   read_only=True)
-    accepted_user_name = serializers.CharField( source='accepted_user.get_full_name', read_only=True)
     # for multi-slot shifts
     slot_assignments = serializers.SerializerMethodField()
 
 
-    fixed_rate = serializers.DecimalField(max_digits=6, decimal_places=2)
+    # fixed_rate = serializers.DecimalField(max_digits=6, decimal_places=2)
+    owner_adjusted_rate = serializers.DecimalField(max_digits=6,decimal_places=2,required=False,allow_null=True)
+
     class Meta:
         model = Shift
         fields = [
             'id', 'created_by','created_at', 'pharmacy',  'pharmacy_detail','role_needed', 'employment_type', 'visibility',
             'escalation_level', 'escalate_to_owner_chain', 'escalate_to_org_chain', 'escalate_to_platform',
-            'must_have', 'nice_to_have', 'rate_type', 'fixed_rate', 'slots','single_user_only',
-            'interested_users_count', 'reveal_quota', 'reveal_count', 'workload_tags',
-            'accepted_user_id','accepted_user_name','slot_assignments',
+            'must_have', 'nice_to_have', 'rate_type', 'fixed_rate', 'owner_adjusted_rate','slots','single_user_only',
+            'interested_users_count', 'reveal_quota', 'reveal_count', 'workload_tags','slot_assignments',
         ]
         read_only_fields = [
             'id', 'created_by', 'escalation_level',
             'interested_users_count', 'reveal_count'
         ]
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get('request')
+
+        # Only restrict rate fields on write methods
+        if request and request.method in ['POST', 'PUT', 'PATCH']:
+            role = request.data.get('role_needed') or self.initial_data.get('role_needed')
+            if role != 'PHARMACIST':
+                fields.pop('fixed_rate', None)
+                fields.pop('rate_type', None)
+
+        return fields
 
     def _build_allowed_tiers(self, pharmacy, user):
         """Return the escalation path based on Org-Admin status, chain, and claim."""
@@ -483,6 +508,10 @@ class MyShiftSerializer(serializers.ModelSerializer):
     # only return the slots that this user is actually assigned to
     slots = serializers.SerializerMethodField()
 
+    # Lineitems from service.py
+    line_items = serializers.SerializerMethodField()
+    owner_adjusted_rate = serializers.DecimalField(max_digits=6, decimal_places=2, read_only=True)
+
     class Meta:
         model = Shift
         fields = [
@@ -496,34 +525,29 @@ class MyShiftSerializer(serializers.ModelSerializer):
             'fixed_rate',
             'workload_tags',
             'slots',
+            'line_items',
+            'owner_adjusted_rate',
         ]
+        read_only_fields = ['was_modified']  # ✅ this protects it
 
     def get_slots(self, obj):
         user = self.context['request'].user
 
-        if obj.single_user_only:
-            qs = obj.slots.all() if obj.accepted_user_id == user.id else ShiftSlot.objects.none()
-        else:
-            qs = obj.slots.filter(assignment__user=user)
+        # Show only the slots where the user has assignments
+        slot_ids = obj.slot_assignments.filter(user=user).values_list('slot_id', flat=True)
+        qs = obj.slots.filter(id__in=slot_ids)
 
         return ShiftSlotSerializer(qs, many=True).data
 
-# ExplorerPost Serializer
-class ExplorerPostSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ExplorerPost
-        fields = '__all__'
+        return ShiftSlotSerializer(qs, many=True).data
+    def get_line_items(self, obj):
+        user = self.context['request'].user
+        from client_profile.services import generate_preview_invoice_lines
 
-# Availability
-class UserAvailabilitySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = UserAvailability
-        fields = [
-            'id', 'date', 'start_time', 'end_time',
-            'is_all_day', 'is_recurring', 'recurring_days',
-            'recurring_end_date', 'notes'
-        ]
-        read_only_fields = ['id']
+        try:
+            return generate_preview_invoice_lines(shift=obj, user=user)
+        except Exception:
+            return []
 
 
 class InvoiceLineItemSerializer(serializers.ModelSerializer):
@@ -628,3 +652,22 @@ class InvoiceSerializer(serializers.ModelSerializer):
         instance.total = subtotal + gst_amt + super_amt
         instance.save()
         return instance
+
+
+# ExplorerPost Serializer
+class ExplorerPostSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExplorerPost
+        fields = '__all__'
+
+# Availability
+class UserAvailabilitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserAvailability
+        fields = [
+            'id', 'date', 'start_time', 'end_time',
+            'is_all_day', 'is_recurring', 'recurring_days',
+            'recurring_end_date', 'notes'
+        ]
+        read_only_fields = ['id']
+

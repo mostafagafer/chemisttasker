@@ -19,6 +19,9 @@ import {
   IconButton,
   Typography,
 } from '@mui/material';
+import Tooltip from '@mui/material/Tooltip';
+import InfoIcon from '@mui/icons-material/InfoOutlined';
+
 import { Close as CloseIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../../../utils/apiClient';
@@ -124,6 +127,7 @@ export default function PostShiftPage() {
 
   const [rateType, setRateType] = useState<string>('');
   const [fixedRate, setFixedRate] = useState<string>('');
+  const [ownerAdjustedRate, setOwnerAdjustedRate] = useState('');
 
   const [slots, setSlots] = useState<SlotEntry[]>([]);
   const [slotDate, setSlotDate] = useState<string>('');
@@ -225,6 +229,7 @@ export default function PostShiftPage() {
         nice_to_have:  niceToHave,
         rate_type:     roleNeeded === 'PHARMACIST' ? rateType : null,
         fixed_rate:    roleNeeded === 'PHARMACIST' && rateType === 'FIXED' ? fixedRate : null,
+        owner_adjusted_rate: roleNeeded !== 'PHARMACIST' && ownerAdjustedRate ? Number(ownerAdjustedRate) : null,
         single_user_only: singleUserOnly,
         slots: slots.map(s => ({
           date: s.date,
@@ -411,7 +416,30 @@ export default function PostShiftPage() {
                   )}
                 </>
               ) : (
-                <Typography align="center">Rate set by government award</Typography>
+                  <Box>
+                    <Typography align="center" sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}>
+                      Rate set by government award
+                      <Tooltip title="Click to view pay guide PDF from Fair Work Commission" arrow>
+                        <a
+                          href="https://portal.fairwork.gov.au/ArticleDocuments/872/pharmacy-industry-award-ma000012-pay-guide.pdf.aspx"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <InfoIcon fontSize="small" color="action" />
+                        </a>
+                      </Tooltip>
+                    </Typography>
+
+                    <TextField
+                      label="Owner Bonus (AUD$/hr, optional)"
+                      type="number"
+                      value={ownerAdjustedRate}
+                      onChange={e => setOwnerAdjustedRate(e.target.value)}
+                      fullWidth
+                      sx={{ mt: 2 }}
+                      helperText="This bonus will be added to the award rate"
+                    />
+                  </Box>
               )}
             </Box>
           )}

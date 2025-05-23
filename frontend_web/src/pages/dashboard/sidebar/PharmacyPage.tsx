@@ -43,6 +43,7 @@ interface Pharmacy {
   owner: number;
   name: string;
   address: string;
+  state: string;
   chain: number | null;
   abn: string;
   asic_number: string;
@@ -92,6 +93,7 @@ export default function PharmacyPage() {
   // Basic fields
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
+  const [state, setState] = useState('');
 
   // Regulatory
   const [asicNumber, setAsicNumber] = useState('');
@@ -192,6 +194,8 @@ export default function PharmacyPage() {
       // populate all fields from p
       setName(p.name || '');
       setAddress(p.address || '');
+      setState(p.state || '');
+
       setAsicNumber(p.asic_number || '');
       setAbn(p.abn || '');
       setExistingApprovalCert(p.methadone_s8_protocols || null);
@@ -214,7 +218,7 @@ export default function PharmacyPage() {
     } else {
       setEditing(null);
       setName(''); setAddress('');
-      setAsicNumber(''); setAbn('');
+      setAsicNumber(''); setAbn('');setState('');
       setExistingApprovalCert(null);
       setExistingSops(null);
       setExistingInductionGuides(null);
@@ -244,6 +248,7 @@ export default function PharmacyPage() {
     const fd = new FormData();
     fd.append('name', name);
     fd.append('address', address);
+    fd.append('state', state);
     fd.append('asic_number', asicNumber);
     fd.append('abn', abn);
     if (approvalCertFile)    fd.append('methadone_s8_protocols', approvalCertFile);
@@ -265,11 +270,6 @@ export default function PharmacyPage() {
       fd.append('default_fixed_rate', defaultFixedRate);
     }
     fd.append('about', about);
-
-    // const orgMem = user?.memberships?.find(m => m.role === 'ORG_ADMIN');
-    // if (orgMem) {
-    //   fd.append('organization', orgMem.organization_id.toString());
-    // }
 
     const orgMem = Array.isArray(user?.memberships)
       ? user.memberships.find(m => m?.role === 'ORG_ADMIN')
@@ -402,6 +402,31 @@ export default function PharmacyPage() {
                 value={address}
                 onChange={e => setAddress(e.target.value)}
               />
+              <TextField
+                select
+                fullWidth
+                margin="normal"
+                label="State"
+                value={state}
+                onChange={e => setState(e.target.value)}
+                required
+              >
+                {[
+                  { value: 'QLD', label: 'Queensland' },
+                  { value: 'NSW', label: 'New South Wales' },
+                  { value: 'VIC', label: 'Victoria' },
+                  { value: 'SA', label: 'South Australia' },
+                  { value: 'WA', label: 'Western Australia' },
+                  { value: 'TAS', label: 'Tasmania' },
+                  { value: 'ACT', label: 'Australian Capital Territory' },
+                  { value: 'NT', label: 'Northern Territory' },
+                ].map(s => (
+                  <MenuItem key={s.value} value={s.value}>
+                    {s.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+
             </Box>
           )}
 
@@ -742,7 +767,12 @@ export default function PharmacyPage() {
             <Card key={p.id} sx={{ mb: 2 }}>
               <CardContent>
                 <Typography variant="h6">{p.name}</Typography>
-                <Typography color="textSecondary">{p.address}</Typography>
+                <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
+                  {p.state}
+                </Typography>
+                <Typography variant="body2" color="textSecondary">
+                  {p.address}
+                </Typography>
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
                   <IconButton onClick={() => openDialog(p)}>
                     <EditIcon />

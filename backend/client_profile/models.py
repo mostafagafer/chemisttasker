@@ -90,8 +90,27 @@ class OtherStaffOnboarding(models.Model):
     ROLE_CHOICES = [
         ("INTERN", "Intern Pharmacist"),
         ("TECHNICIAN", "Dispensary Technician"),
-        ("ASSISTANT", "Assistant"),
+        ("ASSISTANT", "Pharmacy Assistant"),
         ("STUDENT", "Pharmacy Student"),
+    ]
+
+    ASSISTANT_LEVEL_CHOICES = [
+        ("LEVEL_1", "Pharmacy Assistant - Level 1"),
+        ("LEVEL_2", "Pharmacy Assistant - Level 2"),
+        ("LEVEL_3", "Pharmacy Assistant - Level 3"),
+        ("LEVEL_4", "Pharmacy Assistant - Level 4"),
+    ]
+
+    STUDENT_YEAR_CHOICES = [
+        ("YEAR_1", "Pharmacy Student - 1st Year"),
+        ("YEAR_2", "Pharmacy Student - 2nd Year"),
+        ("YEAR_3", "Pharmacy Student - 3rd Year"),
+        ("YEAR_4", "Pharmacy Student - 4th Year"),
+    ]
+
+    INTERN_HALF_CHOICES = [
+        ("FIRST_HALF", "Intern - First Half"),
+        ("SECOND_HALF", "Intern - Second Half"),
     ]
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
@@ -101,6 +120,11 @@ class OtherStaffOnboarding(models.Model):
     skills = models.JSONField(default=list, blank=True)
     years_experience = models.CharField(max_length=20)
     payment_preference = models.CharField(max_length=10)
+
+    # Granular classification (used in award rate logic)
+    classification_level = models.CharField(max_length=20, choices=ASSISTANT_LEVEL_CHOICES, blank=True, null=True)
+    student_year = models.CharField(max_length=20, choices=STUDENT_YEAR_CHOICES, blank=True, null=True)
+    intern_half = models.CharField(max_length=20, choices=INTERN_HALF_CHOICES, blank=True, null=True)
 
     # Role-specific docs
     ahpra_proof = models.FileField(upload_to='role_docs/', blank=True, null=True)
@@ -183,6 +207,18 @@ class Pharmacy(models.Model):
 
     name                   = models.CharField(max_length=120)
     address                = models.CharField(max_length=255)
+    STATE_CHOICES = [
+        ('QLD', 'Queensland'),
+        ('NSW', 'New South Wales'),
+        ('VIC', 'Victoria'),
+        ('SA', 'South Australia'),
+        ('WA', 'Western Australia'),
+        ('TAS', 'Tasmania'),
+        ('ACT', 'Australian Capital Territory'),
+        ('NT',  'Northern Territory'),
+    ]
+
+    state = models.CharField(max_length=3, choices=STATE_CHOICES, blank=True, null=True)
 
     owner                  = models.ForeignKey(
                                 OwnerOnboarding,
@@ -300,8 +336,10 @@ class Chain(models.Model):
 class Shift(models.Model):
     ROLE_CHOICES = [
         ('PHARMACIST', 'Pharmacist'),
-        ('TECHNICIAN', 'Technician'),
+        ('INTERN', 'Intern'),
+        ('STUDENT', 'Student'),
         ('ASSISTANT', 'Assistant'),
+        ('TECHNICIAN', 'Technician'),
         ('EXPLORER', 'Explorer'),
     ]
     RATE_TYPE_CHOICES = [
@@ -345,7 +383,13 @@ class Shift(models.Model):
         max_digits=6, decimal_places=2,
         null=True, blank=True
     )
-
+    owner_adjusted_rate = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text="Optional bonus/hr offered by owner for all staff"
+    )
     visibility = models.CharField(
         max_length=20,
         choices=[
@@ -357,12 +401,6 @@ class Shift(models.Model):
         default='PLATFORM'
     )
 
-    accepted_user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        null=True, blank=True,
-        on_delete=models.SET_NULL,
-        related_name='accepted_shift'
-    )
     reveal_count = models.IntegerField(default=0)
     reveal_quota = models.IntegerField(null=True, blank=True)
 
@@ -392,21 +430,24 @@ class Shift(models.Model):
             if not isinstance(val, list) or not all(isinstance(x, str) for x in val):
                 raise ValidationError({field: 'Must be a list of strings.'})
 
-        # Rate fields logic
-        if self.role_needed != 'PHARMACIST' and (self.rate_type or self.fixed_rate is not None):
-            raise ValidationError('Rate fields only allowed for Pharmacist shifts.')
-        if self.rate_type == 'FIXED' and self.fixed_rate is None:
-            raise ValidationError({'fixed_rate': 'fixed_rate required when rate_type=FIXED.'})
+        # Validate rate fields ONLY for PHARMACIST
+        if self.role_needed == 'PHARMACIST':
+            if self.rate_type == 'FIXED' and self.fixed_rate is None:
+                raise ValidationError({'fixed_rate': 'fixed_rate required when rate_type=FIXED.'})
+        else:
+            if self.rate_type or self.fixed_rate is not None:
+                raise ValidationError('Rate fields are only allowed for Pharmacist shifts.')
 
-    def save(self, *args, **kwargs):
-        self.full_clean()
-        if not self.pk and self.role_needed == 'PHARMACIST':
-            self.rate_type = self.rate_type or self.pharmacy.default_rate_type
-            self.fixed_rate = self.fixed_rate or self.pharmacy.default_fixed_rate
-        super().save(*args, **kwargs)
 
-    def __str__(self):
-        return f"Shift at {self.pharmacy.name}"
+        def save(self, *args, **kwargs):
+            self.full_clean()
+            if not self.pk and self.role_needed == 'PHARMACIST':
+                self.rate_type = self.rate_type or self.pharmacy.default_rate_type
+                self.fixed_rate = self.fixed_rate or self.pharmacy.default_fixed_rate
+            super().save(*args, **kwargs)
+
+        def __str__(self):
+            return f"Shift at {self.pharmacy.name}"
 
 
 class ShiftSlot(models.Model):
@@ -475,11 +516,15 @@ class ShiftSlotAssignment(models.Model):
         on_delete=models.CASCADE,
         related_name='slot_assignments'
     )
-    # one slot — one assignment
-    slot = models.OneToOneField(
+    slot = models.ForeignKey(
         'ShiftSlot',
         on_delete=models.CASCADE,
-        related_name='assignment'
+        related_name='assignments'
+    )
+    slot_date = models.DateField(
+        null=True,  # ✅ TEMPORARY — allow nulls just for migration
+        blank=True,
+        help_text="Specific date instance if this slot recurs"
     )
     # who is doing that slot
     user = models.ForeignKey(
@@ -488,47 +533,25 @@ class ShiftSlotAssignment(models.Model):
         related_name='slot_assignments'
     )
     assigned_at = models.DateTimeField(auto_now_add=True)
+    unit_rate = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Locked-in rate at time of assignment"
+    )
+
+    rate_reason = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Details explaining how the rate was calculated"
+    )
+    class Meta:
+        unique_together = ('slot', 'slot_date')
+
 
     def __str__(self):
         return f"{self.user.get_full_name()} assigned to slot {self.slot.id}"
-
-
-# ExplorerPost Model - Represents a post made by an explorer (student, junior, career switcher)
-class ExplorerPost(models.Model):
-    explorer_profile = models.ForeignKey('ExplorerOnboarding', on_delete=models.CASCADE)  # The explorer posting the interest
-    headline = models.CharField(max_length=255)  # Title of the post
-    body = models.TextField()  # Detailed description of the explorer's interests or background
-    view_count = models.IntegerField(default=0)  # Number of views the post has received
-    created_at = models.DateTimeField(auto_now_add=True)  # Timestamp when the post was created
-    updated_at = models.DateTimeField(auto_now=True)  # Timestamp when the post was last updated
-
-    def __str__(self):
-        return f"{self.headline} - {self.explorer_profile.user.get_full_name()}"
-
-
-class UserAvailability(models.Model):
-    """
-    Timeslot model representing when a user is available to work.
-    """
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='user_availabilities'
-    )
-    date = models.DateField()
-    start_time = models.TimeField()
-    end_time = models.TimeField()
-    is_all_day = models.BooleanField(default=False)
-    is_recurring = models.BooleanField(default=False)
-    recurring_days = models.JSONField(default=list, blank=True)  # list of ints [0=Sun..6=Sat]
-    recurring_end_date = models.DateField(null=True, blank=True)
-    notes = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        times = "All Day" if self.is_all_day else f"{self.start_time}-{self.end_time}"
-        return f"{self.user.username} available {times} on {self.date}"
 
 
 
@@ -606,10 +629,11 @@ class Invoice(models.Model):
 
 class InvoiceLineItem(models.Model):
     CATEGORY_CHOICES = [
-        ('4-1300', 'Professional services'),
-        ('6-4200', 'Superannuation'),
-        ('2-1500', 'Travel expenses'),
-        ('2-1800', 'Miscellaneous reimbursements'),
+        ('ProfessionalServices', 'Professional services'),
+        ('Superannuation', 'Superannuation'),
+        ('Transportation', 'Travel expenses'),
+        ('Accommodation', 'Accommodation'),
+        ('Miscellaneous', 'Miscellaneous reimbursements'),
     ]
     UNIT_CHOICES = [
         ('Hours', 'Hours'),
@@ -646,6 +670,7 @@ class InvoiceLineItem(models.Model):
     gst_applicable   = models.BooleanField(default=True)
     super_applicable = models.BooleanField(default=True)
     is_manual        = models.BooleanField(default=False)
+    was_modified     = models.BooleanField(default=False)  # ✅ New field
 
     shift = models.ForeignKey(
         'client_profile.Shift',
@@ -657,3 +682,43 @@ class InvoiceLineItem(models.Model):
 
     def __str__(self):
         return f"{self.description} – {self.quantity} {self.unit} @ {self.unit_price}"
+
+
+
+# ExplorerPost Model - Represents a post made by an explorer (student, junior, career switcher)
+class ExplorerPost(models.Model):
+    explorer_profile = models.ForeignKey('ExplorerOnboarding', on_delete=models.CASCADE)  # The explorer posting the interest
+    headline = models.CharField(max_length=255)  # Title of the post
+    body = models.TextField()  # Detailed description of the explorer's interests or background
+    view_count = models.IntegerField(default=0)  # Number of views the post has received
+    created_at = models.DateTimeField(auto_now_add=True)  # Timestamp when the post was created
+    updated_at = models.DateTimeField(auto_now=True)  # Timestamp when the post was last updated
+
+    def __str__(self):
+        return f"{self.headline} - {self.explorer_profile.user.get_full_name()}"
+
+
+class UserAvailability(models.Model):
+    """
+    Timeslot model representing when a user is available to work.
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='user_availabilities'
+    )
+    date = models.DateField()
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    is_all_day = models.BooleanField(default=False)
+    is_recurring = models.BooleanField(default=False)
+    recurring_days = models.JSONField(default=list, blank=True)  # list of ints [0=Sun..6=Sat]
+    recurring_end_date = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        times = "All Day" if self.is_all_day else f"{self.start_time}-{self.end_time}"
+        return f"{self.user.username} available {times} on {self.date}"
+

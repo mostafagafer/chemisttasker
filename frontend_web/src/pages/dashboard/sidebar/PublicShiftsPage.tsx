@@ -33,18 +33,28 @@ interface Slot {
 
 interface Shift {
   id: number;
-  pharmacy?: { id: number; name: string; address?: string };
-  pharmacy_detail?: { id: number; name: string; address?: string };
+  pharmacy?: {
+    id: number;
+    name: string;
+    address?: string;
+    state?: string;
+  };
+  pharmacy_detail?: {
+    id: number;
+    name: string;
+    address?: string;
+    state?: string;
+  };
   slots: Slot[];
   employment_type: 'LOCUM' | 'FULL_TIME' | 'PART_TIME';
   workload_tags: string[];
+  owner_adjusted_rate?: string | null;
   must_have: string[];
   nice_to_have: string[];
   created_at: string;
   rate_type: 'FIXED' | 'FLEXIBLE' | 'PHARMACIST_PROVIDED' | null;
   fixed_rate: string | null;
   single_user_only: boolean;
-  accepted_user_id?: number;
   slot_assignments: { slot_id: number; user_id: number }[];
   }
 
@@ -99,15 +109,9 @@ export default function PublicShiftsPage() {
           ? shiftsRes.data
           : [];
 
-          // ⚙️ filter out:
-          //  • single-user shifts that already have accepted_user_id
-          //  • multi-slot shifts where every slot is assigned
           const available = rawShifts.filter(s => {
-            if (s.single_user_only) {
-              return !s.accepted_user_id;
-            }
-            // multi-slot: drop if slot_assignments covers them all
-            return (s.slot_assignments?.length ?? 0) < s.slots.length;
+            const assignedSlotCount = s.slot_assignments?.length ?? 0;
+            return assignedSlotCount < s.slots.length;
           });
           
           setShifts(
@@ -119,6 +123,7 @@ export default function PublicShiftsPage() {
             created_at:    s.created_at,
             rate_type:     s.rate_type,
             fixed_rate:    s.fixed_rate,
+            owner_adjusted_rate: s.owner_adjusted_rate ?? null, // ✅ add this
           }))
         );
 
@@ -239,7 +244,7 @@ export default function PublicShiftsPage() {
           // determine rate display
           let rateLabel = 'N/A';
           if (shift.rate_type === 'FIXED') {
-            rateLabel = `Fixed – ${shift.fixed_rate} AUD`;
+            rateLabel = `Fixed – ${shift.fixed_rate} AUD/hr`;
           } else if (shift.rate_type === 'FLEXIBLE') {
             rateLabel = 'Flexible';
           } else if (shift.rate_type === 'PHARMACIST_PROVIDED') {
@@ -255,15 +260,30 @@ export default function PublicShiftsPage() {
                 <Divider sx={{ my: 1 }} />
                 {pharm?.address && (
                   <Typography variant="body2" color="textSecondary">
-                    {pharm.address}
+                    {pharm?.state ? `${pharm.state} | ` : ''}{pharm.address}
                   </Typography>
                 )}
                 {/* Rate */}
-                <Box sx={{ mt: 1 }}>
-                  <Typography variant="body1">
-                    <strong>Rate:</strong> {rateLabel}
-                  </Typography>
+                <Box sx={{ mt: 4 }}>
+                  {/* Pharmacist Rate Info */}
+                  {shift.rate_type && (
+                    <Typography variant="body1">
+                      <strong>Rate:</strong> {rateLabel}
+                    </Typography>
+                  )}
+
+                  {/* Owner Bonus for Other Staff */}
+                  {shift.owner_adjusted_rate && (
+                    <Typography
+                      variant="body1"
+                      sx={{ color: 'green', fontWeight: 'bold', mt: shift.rate_type ? 1 : 0 }}
+                    >
+                      💰 Bonus: +{shift.owner_adjusted_rate} AUD/hr on top of Award Rate
+                    </Typography>
+                  )}
                 </Box>
+
+
 
                 {/* Employment Type */}
                  <Box sx={{ mt: 1 }}>

@@ -40,8 +40,8 @@ class PharmacistOnboardingAdmin(admin.ModelAdmin):
 
 @admin.register(OtherStaffOnboarding)
 class OtherStaffOnboardingAdmin(admin.ModelAdmin):
-    list_display = ['user','role_type','payment_preference','verified',]
-    list_filter = [ 'verified','payment_preference','role_type', ]
+    list_display = ['user', 'role_type', 'classification_level', 'student_year', 'intern_half', 'payment_preference', 'verified']
+    list_filter = ['verified', 'payment_preference', 'role_type', 'classification_level', 'student_year', 'intern_half']
     search_fields = ['user__email','user__first_name','user__last_name','role_type',]
 
     def save_model(self, request, obj, form, change):
@@ -113,25 +113,25 @@ class PharmacyAdmin(admin.ModelAdmin):
         'verified',
         'abn',
         'asic_number',
+        'state',
     )
     list_filter = (
         'verified',
         'owner',
         'organization',
+        'state',
     )
     search_fields = (
         'name',
         'owner__user__email',
         'organization__name',
-    )
-    readonly_fields = (
-        # add any fields you want read-only, e.g.:
-        # 'verified',
+        'state',
     )
     fieldsets = (
         (None, {
             'fields': (
                 'name',
+                'state',
                 'owner',
                 'organization',
                 'verified',
@@ -171,13 +171,11 @@ class ShiftAdmin(admin.ModelAdmin):
     inlines = [ShiftSlotInline]
     list_display = [
         'id','pharmacy','role_needed','employment_type',
-        'visibility','reveal_count','single_user_only',
-        'accepted_user','created_at', 'created_by'
+        'visibility','reveal_count','single_user_only','created_at', 'created_by'
     ]
     list_filter = [
         'role_needed','employment_type','single_user_only','visibility'
     ]
-    list_editable = ['accepted_user']
     search_fields = ['pharmacy__name','role_needed']
 
 @admin.register(ShiftSlotAssignment)

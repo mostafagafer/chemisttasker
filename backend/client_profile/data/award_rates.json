@@ -1,0 +1,88 @@
+{
+  "ASSISTANT": {
+    "LEVEL_1": {
+      "weekday": 29.0,
+      "saturday": 34.8,
+      "sunday": 40.6,
+      "public_holiday": 58.0,
+      "early_morning": 34.8,
+      "late_night": 34.8
+    },
+    "LEVEL_2": {
+      "weekday": 31.5,
+      "saturday": 37.8,
+      "sunday": 44.1,
+      "public_holiday": 63.0,
+      "early_morning": 37.8,
+      "late_night": 37.8
+    },
+    "LEVEL_3": {
+      "weekday": 33.96,
+      "saturday": 40.76,
+      "sunday": 47.55,
+      "public_holiday": 67.93,
+      "early_morning": 40.76,
+      "late_night": 40.76
+    },
+    "LEVEL_4": {
+      "weekday": 36.4,
+      "saturday": 43.68,
+      "sunday": 51.0,
+      "public_holiday": 72.8,
+      "early_morning": 43.68,
+      "late_night": 43.68
+    }
+  },
+  "STUDENT": {
+    "YEAR_1": {
+      "weekday": 27.0,
+      "saturday": 32.4,
+      "sunday": 37.8,
+      "public_holiday": 54.0,
+      "early_morning": 32.4,
+      "late_night": 32.4
+    },
+    "YEAR_2": {
+      "weekday": 30.0,
+      "saturday": 36.0,
+      "sunday": 42.0,
+      "public_holiday": 60.0,
+      "early_morning": 36.0,
+      "late_night": 36.0
+    },
+    "YEAR_3": {
+      "weekday": 33.96,
+      "saturday": 40.76,
+      "sunday": 47.55,
+      "public_holiday": 67.93,
+      "early_morning": 40.76,
+      "late_night": 40.76
+    },
+    "YEAR_4": {
+      "weekday": 36.0,
+      "saturday": 43.2,
+      "sunday": 50.4,
+      "public_holiday": 72.0,
+      "early_morning": 43.2,
+      "late_night": 43.2
+    }
+  },
+  "INTERN": {
+    "FIRST_HALF": {
+      "weekday": 37.5,
+      "saturday": 45.0,
+      "sunday": 52.5,
+      "public_holiday": 75.0,
+      "early_morning": 45.0,
+      "late_night": 45.0
+    },
+    "SECOND_HALF": {
+      "weekday": 41.0,
+      "saturday": 49.2,
+      "sunday": 57.4,
+      "public_holiday": 82.0,
+      "early_morning": 49.2,
+      "late_night": 49.2
+    }
+  }
+}

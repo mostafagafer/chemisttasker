@@ -40,7 +40,6 @@ interface Shift {
     address?: string;
   };
   single_user_only: boolean;
-  accepted_user_id?: number;      // for whole-shift assignments
   slot_assignments: {             // from your serializer
     slot_id: number;
     user_id: number;

@@ -22,6 +22,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 
 from django.db.models import Q, Count, F
 from django.utils import timezone
+from client_profile.services import get_locked_rate_for_slot
 
 # Onboardings
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -693,9 +694,9 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
     def accept_user(self, request, pk=None):
         """
         Assign a user to:
-         - the entire shift if single_user_only=True, OR
-         - unassigned slots in a multi‐slot shift when slot_id is omitted, OR
-         - a specific slot if slot_id is provided.
+        - the entire shift if single_user_only=True, OR
+        - unassigned slots in a multi‐slot shift when slot_id is omitted, OR
+        - a specific slot if slot_id is provided.
         """
         shift = self.get_object()
         user_id = request.data.get('user_id')
@@ -705,49 +706,92 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
         slot_id = request.data.get('slot_id')
 
-        # 1) SINGLE‐USER‐ONLY SHIFT: cover every slot and mark accepted_user
+        # ✅ CASE 1: SINGLE‐USER‐ONLY SHIFT — Expand all dates and assign per-day
         if shift.single_user_only:
+            from client_profile.services import expand_shift_slots, get_locked_rate_for_slot
             assignment_ids = []
-            for slot in shift.slots.all():
+
+            for entry in expand_shift_slots(shift):
+                slot = entry['slot']
+                slot_date = entry['date']
+                rate, reason = get_locked_rate_for_slot(shift=shift, slot=slot, user=candidate, override_date=slot_date)
+
                 a, created = ShiftSlotAssignment.objects.update_or_create(
                     slot=slot,
-                    defaults={'shift': shift, 'user': candidate}
+                    slot_date=slot_date,
+                    defaults={
+                        'shift': shift,
+                        'user': candidate,
+                        'unit_rate': rate,
+                        'rate_reason': reason
+                    }
                 )
                 assignment_ids.append(a.id)
 
-            shift.accepted_user = candidate
-            shift.save()  # full_clean will pass, since we're the first to set accepted_user
-
             return Response({
-                'status': f'{candidate.get_full_name()} assigned to entire shift',
+                'status': f'{candidate.get_full_name()} assigned to entire shift (per-date)',
                 'assignment_ids': assignment_ids
             }, status=status.HTTP_200_OK)
 
-        # 2) MULTI‐SLOT BULK (slot_id omitted): only fill the unassigned slots
+        # ✅ CASE 2: MULTI‐SLOT BULK — assign user to all unassigned slot+dates
         if slot_id is None:
+            from client_profile.services import expand_shift_slots, get_locked_rate_for_slot
             assignment_ids = []
-            # exclude any slot that already has an assignment
-            for slot in shift.slots.exclude(assignment__isnull=False):
+
+            for entry in expand_shift_slots(shift):
+                slot = entry['slot']
+                slot_date = entry['date']
+
+                already_assigned = ShiftSlotAssignment.objects.filter(slot=slot, slot_date=slot_date).exists()
+                if already_assigned:
+                    continue
+
+                rate, reason = get_locked_rate_for_slot(shift=shift, slot=slot, user=candidate, override_date=slot_date)
+
                 a, created = ShiftSlotAssignment.objects.update_or_create(
                     slot=slot,
-                    defaults={'shift': shift, 'user': candidate}
+                    slot_date=slot_date,
+                    defaults={
+                        'shift': shift,
+                        'user': candidate,
+                        'unit_rate': rate,
+                        'rate_reason': reason
+                    }
                 )
                 assignment_ids.append(a.id)
 
             return Response({
-                'status': f'{candidate.get_full_name()} assigned to remaining slots',
+                'status': f'{candidate.get_full_name()} assigned to unassigned slots (per-date)',
                 'assignment_ids': assignment_ids
             }, status=status.HTTP_200_OK)
 
-        # 3) PER‐SLOT ASSIGNMENT
-        slot = get_object_or_404(ShiftSlot, pk=slot_id, shift=shift)
-        a, created = ShiftSlotAssignment.objects.update_or_create(
-            slot=slot,
-            defaults={'shift': shift, 'user': candidate}
-        )
+        # ✅ CASE 3: PER‐SLOT ASSIGNMENT — assign user to ALL dates of a single recurring slot
+        from client_profile.services import expand_shift_slots, get_locked_rate_for_slot
+        slot = get_object_or_404(shift.slots, pk=slot_id)
+        assignment_ids = []
+
+        for entry in expand_shift_slots(shift):
+            if entry['slot'].id != slot.id:
+                continue  # only process the selected slot
+
+            slot_date = entry['date']
+            rate, reason = get_locked_rate_for_slot(shift=shift, slot=slot, user=candidate, override_date=slot_date)
+
+            a, created = ShiftSlotAssignment.objects.update_or_create(
+                slot=slot,
+                slot_date=slot_date,
+                defaults={
+                    'shift': shift,
+                    'user': candidate,
+                    'unit_rate': rate,
+                    'rate_reason': reason
+                }
+            )
+            assignment_ids.append(a.id)
+
         return Response({
-            'status': f'{candidate.get_full_name()} assigned to slot {slot.id}',
-            'assignment_id': a.id
+            'status': f'{candidate.get_full_name()} assigned to slot {slot.id} (per-date)',
+            'assignment_ids': assignment_ids
         }, status=status.HTTP_200_OK)
 
 class CommunityShiftViewSet(BaseShiftViewSet):
@@ -867,13 +911,13 @@ class ActiveShiftViewSet(BaseShiftViewSet):
        # Only keep shifts where assigned_count < total_slot_count
         qs = qs.annotate(
            slot_count=Count('slots', distinct=True),
-           assigned_count=Count('slots__assignment', distinct=True)
+           assigned_count=Count('slots__assignments', distinct=True)
         ).filter(assigned_count__lt=F('slot_count'))
 
         # Only future slots
         qs = qs.filter(
             Q(slots__date__gt=today) |
-            Q(slots__date=today, slots__start_time__gt=now.time())
+            Q(slots__date=today, slots__end_time__gt=now.time())
         )
 
         return qs.distinct()
@@ -901,7 +945,7 @@ class ConfirmedShiftViewSet(BaseShiftViewSet):
         # Only keep shifts where every slot is assigned
         qs = qs.annotate(
             slot_count=Count('slots', distinct=True),
-            assigned_count=Count('slots__assignment', distinct=True)
+            assigned_count=Count('slots__assignments', distinct=True)
         ).filter(assigned_count__gte=F('slot_count'))
 
         # **NEW**: show both upcoming and in-progress, not just in-progress
@@ -936,7 +980,7 @@ class HistoryShiftViewSet(BaseShiftViewSet):
         # fully assigned
         qs = qs.annotate(
             slot_count=Count('slots', distinct=True),
-            assigned_count=Count('slots__assignment', distinct=True)
+            assigned_count=Count('slots__assignments', distinct=True)
         ).filter(assigned_count__gte=F('slot_count'))
 
         # slots ended
@@ -1001,9 +1045,7 @@ class MyConfirmedShiftsViewSet(BaseShiftViewSet):
         today = date.today()
 
         qs = super().get_queryset().filter(
-            # only shifts I’m assigned to
-            Q(single_user_only=True,  accepted_user=user) |
-            Q(single_user_only=False, slot_assignments__user=user)
+            slot_assignments__user=user
         ).filter(
             # at least one slot still in progress
             Q(slots__date__gt=today) |
@@ -1026,13 +1068,13 @@ class MyHistoryShiftsViewSet(BaseShiftViewSet):
         today = date.today()
 
         qs = super().get_queryset().filter(
-            Q(single_user_only=True,  accepted_user=user) |
-            Q(single_user_only=False, slot_assignments__user=user)
-        ).filter(
-            # only slots fully in the past
-            Q(slots__date__lt=today) |
-            Q(slots__date=today, slots__end_time__lt=now.time())
+            slot_assignments__user=user
         )
+        # .filter(
+        #     # only slots fully in the past
+        #     Q(slots__date__lt=today) |
+        #     Q(slots__date=today, slots__end_time__lt=now.time())
+        # )
 
         return qs.distinct()
 
@@ -1107,3 +1149,18 @@ class GenerateInvoiceView(APIView):
         )
 
         return Response(InvoiceSerializer(invoice).data, status=status.HTTP_201_CREATED)
+
+from rest_framework.decorators import api_view, permission_classes
+from .services import generate_preview_invoice_lines
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def preview_invoice_lines(request, shift_id):
+    try:
+        shift = Shift.objects.get(id=shift_id)
+    except Shift.DoesNotExist:
+        return Response({"error": "Shift not found"}, status=404)
+
+    line_items = generate_preview_invoice_lines(shift, request.user)
+    print(f"🔍 {len(line_items)} line items for user {request.user} on shift {shift_id}")
+    return Response(line_items)

@@ -25,10 +25,10 @@ import { API_ENDPOINTS, API_BASE_URL } from '../../constants/api';
 import { useNavigate } from 'react-router-dom';
 
 interface RatePreference {
-  weekdays: string;
-  saturdays: string;
-  sundays: string;
-  public_holidays: string;
+  weekday: string;
+  saturday: string;
+  sunday: string;
+  public_holiday: string;
   early_morning: string;
   late_night: string;
 }
@@ -101,10 +101,10 @@ export default function PharmacistOnboardingForm() {
     super_usi: '',
     super_member_number: '',
     rate_preference: {
-      weekdays: '',
-      saturdays: '',
-      sundays: '',
-      public_holidays: '',
+      weekday: '',
+      saturday: '',
+      sunday: '',
+      public_holiday: '',
       early_morning: '',
       late_night: '',
     },

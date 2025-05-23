@@ -47,6 +47,8 @@ interface Shift {
   fixed_rate: string | null;
   workload_tags: string[];
   slots: Slot[];
+  owner_adjusted_rate: string | null;
+
 }
 
 export default function MyConfirmedShiftsPage() {
@@ -118,62 +120,84 @@ export default function MyConfirmedShiftsPage() {
         My Confirmed Shifts
       </Typography>
 
-      {displayed.map(shift => {
-        let rateLabel = 'N/A';
-        if (shift.rate_type === 'FIXED') {
-          rateLabel = `Fixed – ${shift.fixed_rate} AUD`;
-        } else if (shift.rate_type === 'FLEXIBLE') {
-          rateLabel = 'Flexible';
-        } else if (shift.rate_type === 'PHARMACIST_PROVIDED') {
-          rateLabel = 'Pharmacist Provided';
-        }
+{displayed.map(shift => {
+  const isPharmacist = shift.role_needed === 'PHARMACIST';
+  const showBonus = !!shift.owner_adjusted_rate && !isPharmacist;
 
-        return (
-          <Paper key={shift.id} sx={{ p: 2, mb: 2 }}>
-            <Box
-              sx={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <Typography variant="h6">
-                {shift.pharmacy_detail.name}
-              </Typography>
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={() => openDialog(shift.pharmacy_detail)}
-              >
-                Pharmacy Details
-              </Button>
-            </Box>
+  // Determine rate label:
+  let rateLabel = '';
+  if (isPharmacist) {
+    if (shift.rate_type === 'FIXED') {
+      rateLabel = `Fixed – ${shift.fixed_rate} AUD/hr`;
+    } else if (shift.rate_type === 'FLEXIBLE') {
+      rateLabel = 'Flexible – see slot rates';
+    } else if (shift.rate_type === 'PHARMACIST_PROVIDED') {
+      rateLabel = 'Pharmacist Provided – see preferences';
+    } else {
+      rateLabel = 'Flexible (Fair Work)';
+    }
+  } else {
+    rateLabel = 'Award Rate (Fair Work Commission, May 2025)';
+  }
 
-            <Box sx={{ mt: 1, display: 'grid', gap: 1 }}>
-              <Typography>
-                <strong>Role:</strong> {shift.role_needed}
-              </Typography>
-              <Typography>
-                <strong>Rate:</strong> {rateLabel}
-              </Typography>
-              {shift.workload_tags.length > 0 && (
-                <Typography>
-                  <strong>Workload Tags:</strong>{' '}
-                  {shift.workload_tags.join(', ')}
-                </Typography>
-              )}
-            </Box>
+  return (
+    <Paper key={shift.id} sx={{ p: 2, mb: 2 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}
+      >
+        <Typography variant="h6">
+          {shift.pharmacy_detail.name}
+        </Typography>
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={() => openDialog(shift.pharmacy_detail)}
+        >
+          Pharmacy Details
+        </Button>
+      </Box>
 
-            <Box sx={{ mt: 2 }}>
-              {shift.slots.map(slot => (
-                <Typography key={slot.id} variant="body2">
-                  {slot.date} {slot.start_time}–{slot.end_time}
-                </Typography>
-              ))}
-            </Box>
-          </Paper>
-        );
-      })}
+      <Box sx={{ mt: 1, display: 'grid', gap: 1 }}>
+        <Typography>
+          <strong>Role:</strong> {shift.role_needed}
+        </Typography>
+
+        <Typography>
+          <strong>Rate:</strong> {rateLabel}
+        </Typography>
+
+        {showBonus && (
+          <Typography
+            sx={{ color: 'green', fontWeight: 'bold', mt: 1 }}
+          >
+            💰 Bonus: +{shift.owner_adjusted_rate} AUD/hr on top of Award Rate
+          </Typography>
+        )}
+
+        {shift.workload_tags.length > 0 && (
+          <Typography>
+            <strong>Workload Tags:</strong>{' '}
+            {shift.workload_tags.join(', ')}
+          </Typography>
+        )}
+      </Box>
+
+      <Box sx={{ mt: 2 }}>
+        {shift.slots.map(slot => (
+          <Typography key={slot.id} variant="body2">
+            {slot.date} {slot.start_time}–{slot.end_time}
+          </Typography>
+        ))}
+      </Box>
+    </Paper>
+  );
+})}
+
+
 
       {pageCount > 1 && (
         <Box display="flex" justifyContent="center" mt={4}>

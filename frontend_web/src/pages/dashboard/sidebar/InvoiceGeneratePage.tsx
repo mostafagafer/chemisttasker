@@ -14,17 +14,17 @@ import { useAuth } from '../../../contexts/AuthContext';
 
 interface ShiftSlot {
   id: number;
-  date: string;               // "YYYY-MM-DD"
-  start_time: string;         // "HH:MM:SS"
-  end_time: string;           // "HH:MM:SS"
+  date: string;
+  start_time: string;
+  end_time: string;
   is_recurring: boolean;
-  recurring_days: number[];   // 0=Sun..6=Sat
-  recurring_end_date: string | null; // "YYYY-MM-DD"
+  recurring_days: number[];
+  recurring_end_date: string | null;
 }
 
 interface Shift {
   id: number;
-  pharmacy_detail: { id: number; name: string; abn: string|null; address?:string };
+  pharmacy_detail: { id: number; name: string; abn: string|null; address?:string; state?: string; };
   created_by_first_name?: string;
   created_by_last_name?:  string;
   created_by_email?:      string;
@@ -36,9 +36,10 @@ interface Shift {
 interface LineItem {
   id: string;
   shiftSlotId?: number;
-  date: string;        // "YYYY-MM-DD"
-  start_time: string;  // "HH:MM:SS"
-  end_time: string;    // "HH:MM:SS"
+  slot_date?: string;  // ✅ Add this line
+  date: string;
+  start_time: string;
+  end_time: string;
   category: string;
   unit: string;
   quantity: number;
@@ -52,6 +53,7 @@ const CATEGORY_CHOICES = [
   { code: 'Superannuation', label: 'Superannuation' },
   { code: 'Transportation', label: 'Transportation' },
   { code: 'Accommodation', label: 'Accommodation' },
+  { code: 'Miscellaneous', label: 'Miscellaneous reimbursements' },
 ];
 const UNIT_CHOICES = ['Hours', 'Item'];
 
@@ -71,10 +73,11 @@ export default function InvoiceGeneratePage() {
     const [shiftError, setShiftError]       = useState<string|null>(null);
     const [selectedShiftId, setSelectedShiftId] = useState<number|''>('');
 
+
     // ─── Issuer Details ──────────────────────────────────  
     const [issuerFirstName, setIssuerFirstName] = useState('');
     const [issuerLastName,  setIssuerLastName]  = useState('');
-    const [issuerEmail,     setIssuerEmail]     = useState(user?.email     ?? '');
+    // const [issuerEmail,     setIssuerEmail]     = useState(user?.email     ?? '');
     const [issuerAbn,       setIssuerAbn]       = useState('');
 
     // ─── Recipient (Shift-Creator) & Pharmacy Snapshots ──  
@@ -85,6 +88,7 @@ export default function InvoiceGeneratePage() {
     const [pharmacyNameSnapshot,   setPharmacyNameSnapshot]   = useState('');
     const [pharmacyAddressSnapshot,setPharmacyAddressSnapshot]= useState('');
     const [facilityAbn,            setFacilityAbn]            = useState('');
+    const [facilityState, setFacilityState] = useState('');
 
     // ─── External Bill-To (fallback for mode==='external') ─  
     const [externalName,    setExternalName]    = useState('');
@@ -107,37 +111,6 @@ export default function InvoiceGeneratePage() {
     const [submitting, setSubmitting]   = useState(false);
     const [submitError, setSubmitError] = useState<string|null>(null);
 
-  
-  // Helper: expand recurring slots just like your Python
-  function expandRecurringSlots(slots: ShiftSlot[]): { date:string; start:string; end:string }[] {
-    const entries: {date:string, start:string, end:string}[] = [];
-    slots.forEach(slot => {
-        if (slot.is_recurring && slot.recurring_end_date) {
-        const startDate = new Date(slot.date);
-        const endDate   = new Date(slot.recurring_end_date);
-        for (
-            let d = new Date(startDate);
-            d <= endDate;
-            d.setDate(d.getDate() + 1)
-        ) {
-            if (slot.recurring_days.includes(d.getDay())) {
-            entries.push({
-                date:  d.toISOString().slice(0,10),
-                start: slot.start_time,
-                end:   slot.end_time
-            });
-            }
-        }
-        } else {
-        entries.push({
-            date:  slot.date,
-            start: slot.start_time,
-            end:   slot.end_time
-        });
-        }
-    });
-    return entries;
-  }
 
 // ─── A) Load issuer details once on mount ─────────────
 useEffect(() => {
@@ -172,7 +145,6 @@ useEffect(() => {
     });
 }, [mode]);
 
-// ─── 2) Build line items AND snapshot pharmacy + recipient ───
 useEffect(() => {
   // Only run in internal mode when a shift is selected, shifts are loaded, and we have a logged-in user
   if (mode !== 'internal' || !selectedShiftId || shifts.length === 0 || !user) {
@@ -187,6 +159,7 @@ useEffect(() => {
   setPharmacyNameSnapshot(shift.pharmacy_detail.name);
   setPharmacyAddressSnapshot(shift.pharmacy_detail.address ?? '');
   setFacilityAbn(shift.pharmacy_detail.abn ?? '');
+  setFacilityState(shift.pharmacy_detail.state ?? '');
 
   // — Recipient (shift creator) snapshot via flat fields —
   setBillToFirstName(shift.created_by_first_name ?? '');
@@ -206,53 +179,26 @@ useEffect(() => {
   }
 
   // — Expand recurring slots & build serviceRows —
-  const entries = expandRecurringSlots(shift.slots);
-  const rate    = parseFloat(shift.fixed_rate);
-  const serviceRows: LineItem[] = entries.map((e, idx) => {
-    const start = new Date(`${e.date}T${e.start}`);
-    const end   = new Date(`${e.date}T${e.end}`);
-    const hours = parseFloat(
-      ((end.getTime() - start.getTime()) / 3600000).toFixed(2)
-    );
-    return {
-      id:          `${shift.id}-${idx}`,
-      shiftSlotId: shift.id,
-      date:        e.date,
-      start_time:  e.start,
-      end_time:    e.end,
-      category:    'ProfessionalServices',
-      unit:        'Hours',
-      quantity:    hours,
-      unit_price:  rate,
-      discount:    0,
-      total:       parseFloat((hours * rate).toFixed(2)),
-    };
-  });
+  // ─ 🔥 New logic: fetch backend-calculated line items ─
+  apiClient.get(API_ENDPOINTS.invoicePreview(shift.id))
+    .then(res => {
+      const backendItems = res.data;
 
-  // — Preserve any manual extras (Transportation / Accommodation / etc) —
-  const manualExtras = lineItems
-    .filter(li => !li.shiftSlotId && li.category !== 'Superannuation')
-    .map(item => {
-      if (
-        item.quantity === 0 &&
-        ['Transportation', 'Accommodation'].includes(item.category)
-      ) {
-        const tot = parseFloat(
-          (1 * item.unit_price * (1 - item.discount / 100)).toFixed(2)
-        );
-        return { ...item, quantity: 1, total: tot };
-      }
-      return item;
+      const manualExtras = lineItems.filter(
+        li => !li.shiftSlotId && li.category !== 'Superannuation'
+      );
+
+      setLineItems([...backendItems, ...manualExtras]);
+      const allItems = [...backendItems, ...manualExtras];
+      setLineItems(allItems);
+      console.log("🔍 lineItems[0]:", allItems[0]);
+
+    })
+    .catch(() => {
+      setLineItems([]);
     });
 
-  // — Final line items set —
-  setLineItems([...serviceRows, ...manualExtras]);
-}, [
-  mode,
-  selectedShiftId,
-  shifts,
-  user,      // guard to ensure user is non-null
-]);
+}, [mode, selectedShiftId, shifts, user]);
 
 
 // ─── 3) Recompute Superannuation (unchanged) ─────────────
@@ -325,7 +271,7 @@ useEffect(() => {
         end_time: '00:00:00',
         category: '',
         unit: 'Item',
-        quantity: 1, // Default to 1 for new rows
+        quantity: 1,
         unit_price: 0,
         discount: 0,
         total: 0,
@@ -379,7 +325,7 @@ const handleGenerate = () => {
   // Issuer snapshot
   fd.append('issuer_first_name',   issuerFirstName);
   fd.append('issuer_last_name',    issuerLastName);
-  fd.append('issuer_email',        issuerEmail);
+  // fd.append('issuer_email',        issuerEmail);
   fd.append('issuer_abn',          issuerAbn);
 
   // Core billing data
@@ -405,6 +351,7 @@ const handleGenerate = () => {
     fd.append('pharmacy_name_snapshot',    pharmacyNameSnapshot);
     fd.append('pharmacy_address_snapshot', pharmacyAddressSnapshot);
     fd.append('pharmacy_abn_snapshot',     facilityAbn);
+    fd.append('pharmacy_state_snapshot', facilityState);
 
     // Recipient snapshot (shift creator)
     fd.append('bill_to_first_name',        billToFirstName);
@@ -661,73 +608,76 @@ const handleGenerate = () => {
         <Typography variant="h6">Grand Total: ${grandTotal.toFixed(2)}</Typography>
         </Box>
 
-<Container maxWidth="md">
-  <Paper sx={{ p: 4, mt: 4 }}>
 
     {/* ─── 1. Billing-To (Recipient) Details ─────────────────────────── */}
     <Typography variant="h6" gutterBottom>Billing-To Details</Typography>
-{/* 1. Billing-To (Recipient) / Facility */}
-<Box display="flex" gap={2} flexWrap="wrap" mb={4}>
-  {/* Facility snapshot */}
-  {mode==='internal' && <>
-    <Box flex="1 1 30%">
-      <TextField label="Facility Name" value={pharmacyNameSnapshot} InputProps={{readOnly:true}} fullWidth/>
-    </Box>
-    <Box flex="1 1 15%">
-      <TextField label="Facility ABN"  value={facilityAbn}            InputProps={{readOnly:true}} fullWidth/>
-    </Box>
-    <Box flex="1 1 45%">
-      <TextField label="Facility Address" value={pharmacyAddressSnapshot} InputProps={{readOnly:true}} fullWidth/>
-    </Box>
-  </>}
+    {/* 1. Billing-To (Recipient) / Facility */}
+    <Box display="flex" gap={2} flexWrap="wrap" mb={4}>
+      
+      {/* Facility snapshot */}
+      {mode==='internal' && <>
+        <Box flex="1 1 30%">
+          <TextField label="Facility Name" value={pharmacyNameSnapshot} InputProps={{readOnly:true}} fullWidth/>
+        </Box>
+        <Box flex="1 1 15%">
+          <TextField label="Facility ABN"  value={facilityAbn}            InputProps={{readOnly:true}} fullWidth/>
+        </Box>
+        <Box flex="1 1 20%">
+          <TextField label="Facility Address" value={pharmacyAddressSnapshot} InputProps={{readOnly:true}} fullWidth/>
+        </Box>
+        <Box flex="1 1 15%">
+          <TextField label="Facility State" value={facilityState} InputProps={{readOnly:true}} fullWidth/>
+        </Box>
+      </>}
 
-  {/* Recipient snapshot */}
-  {mode==='internal' && <>
-    <Box flex="1 1 30%">
-      <TextField label="Bill-To Name"  value={`${billToFirstName} ${billToLastName}`} InputProps={{readOnly:true}} fullWidth/>
-    </Box>
-    <Box flex="1 1 30%">
-      <TextField label="Bill-To Email" value={billToEmail}  InputProps={{readOnly:true}} fullWidth/>
-    </Box>
-    <Box flex="1 1 20%">
-      <TextField label="Bill-To ABN"   value={billToAbn}    InputProps={{readOnly:true}} fullWidth/>
-    </Box>
-  </>}
+      {/* Recipient snapshot */}
+      {mode==='internal' && <>
+        <Box flex="1 1 30%">
+          <TextField label="Bill-To Name"  value={`${billToFirstName} ${billToLastName}`} InputProps={{readOnly:true}} fullWidth/>
+        </Box>
+        <Box flex="1 1 30%">
+          <TextField label="Bill-To Email" value={billToEmail}  InputProps={{readOnly:true}} fullWidth/>
+        </Box>
+        {/* <Box flex="1 1 20%">
+          <TextField label="Bill-To ABN"   value={billToAbn}    InputProps={{readOnly:true}} fullWidth/>
+        </Box> */}
+      </>}
 
-  {/* External fallback */}
-  {mode==='external' && <>
-    <Box flex="1 1 45%">
-      <TextField label="Bill-To Name" value={externalName} onChange={e=>setExternalName(e.target.value)} fullWidth/>
-    </Box>
-    <Box flex="1 1 45%">
-      <TextField label="Bill-To Address" value={externalAddress} onChange={e=>setExternalAddress(e.target.value)} fullWidth/>
-    </Box>
-    <Box flex="1 1 45%">
-      <TextField label="Bill-To Email" value={billToEmail} onChange={e=>setBillToEmail(e.target.value)} fullWidth/>
-    </Box>
-    <Box flex="1 1 45%">
-      <TextField label="Bill-To ABN"   value={billToAbn} onChange={e=>setBillToAbn(e.target.value)} fullWidth/>
-    </Box>
-  </>}
+      {/* External fallback */}
+      {mode==='external' && <>
+        <Box flex="1 1 45%">
+          <TextField label="Bill-To Name" value={externalName} onChange={e=>setExternalName(e.target.value)} fullWidth/>
+        </Box>
+        <Box flex="1 1 45%">
+          <TextField label="Bill-To Address" value={externalAddress} onChange={e=>setExternalAddress(e.target.value)} fullWidth/>
+        </Box>
+        <Box flex="1 1 45%">
+          <TextField label="Bill-To Email" value={billToEmail} onChange={e=>setBillToEmail(e.target.value)} fullWidth/>
+        </Box>
+        <Box flex="1 1 45%">
+          <TextField label="Bill-To ABN"   value={billToAbn} onChange={e=>setBillToAbn(e.target.value)} fullWidth/>
+        </Box>
+      </>}
 
-  {/* CC Emails */}
-  <Box flex="1 1 45%">
-    <TextField label="CC Emails" helperText="Comma-separated" value={ccEmails} onChange={e=>setCcEmails(e.target.value)} fullWidth/>
-  </Box>
-</Box>
+      {/* CC Emails */}
+      <Box flex="1 1 45%">
+        <TextField label="CC Emails" helperText="Comma-separated" value={ccEmails} onChange={e=>setCcEmails(e.target.value)} fullWidth/>
+      </Box>
+    </Box>
 
-{/* 2. Issuer summary on left */}
-<Box display="flex" justifyContent="flex-start" mb={4}>
-  <Box>
-    <Typography variant="subtitle1">Issuer</Typography>
-    <Typography>{issuerFirstName} {issuerLastName}</Typography>
-    <Typography variant="body2">ABN: {issuerAbn}</Typography>
-  </Box>
-</Box>
+    {/* 2. Issuer summary on left */}
+    <Typography variant="h6" gutterBottom >Issier Information</Typography>
+    <Box display="flex" justifyContent="flex-start" mb={4}>
+      <Box>
+        {/* <Typography variant="subtitle1">Issuer</Typography> */}
+        <Typography>{issuerFirstName} {issuerLastName}</Typography>
+        <Typography variant="body2">ABN: {issuerAbn}</Typography>
+      </Box>
+    </Box>
 
 
     {/* ─── 3. GST & Certificate ─────────────────────────────────────── */}
-    <Typography variant="h6" gutterBottom>GST Information</Typography>
+    <Typography variant="h6" gutterBottom >GST Information</Typography>
     <Box display="flex" gap={2} alignItems="center" mb={4}>
       <FormControlLabel
         control={
@@ -817,8 +767,6 @@ const handleGenerate = () => {
 
     {/* …your line-items table and Generate button here… */}
 
-  </Paper>
-</Container>
 
 
 

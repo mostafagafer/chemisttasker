@@ -32,6 +32,9 @@ interface FormData {
   phone_number: string;
   government_id: File | null;
   role_type: string;
+  classification_level?: string;
+  student_year?: string;
+  intern_half?: string;
   skills: string[];
   years_experience: string;
   ahpra_proof: File | null;
@@ -66,6 +69,27 @@ const SKILL_CHOICES = [
   { value: 'COMPOUNDING', label: 'Compounding' },
   { value: 'S8', label: 'S8 handling' },
 ];
+const ASSISTANT_LEVELS = [
+  { value: 'LEVEL_1', label: 'Assistant - Level 1' },
+  { value: 'LEVEL_2', label: 'Assistant - Level 2' },
+  { value: 'LEVEL_3', label: 'Assistant - Level 3' },
+  { value: 'LEVEL_4', label: 'Assistant - Level 4' },
+];
+
+const STUDENT_YEARS = [
+  { value: 'YEAR_1', label: '1st Year' },
+  { value: 'YEAR_2', label: '2nd Year' },
+  { value: 'YEAR_3', label: '3rd Year' },
+  { value: 'YEAR_4', label: '4th Year' },
+];
+
+const INTERN_HALVES = [
+  { value: 'FIRST_HALF', label: 'First Half' },
+  { value: 'SECOND_HALF', label: 'Second Half' },
+];
+
+
+
 const labels = ['Basic Info', 'Reg Docs', 'Skills', 'Payment', 'Referees', 'Profile'];
 
 export default function OtherStaffOnboarding() {
@@ -80,6 +104,9 @@ export default function OtherStaffOnboarding() {
     phone_number: '',
     government_id: null,
     role_type: '',
+    classification_level: '',
+    student_year: '',
+    intern_half: '',
     skills: [],
     years_experience: '',
     ahpra_proof: null,
@@ -135,6 +162,9 @@ export default function OtherStaffOnboarding() {
           phone_number: d.phone_number || '',
           government_id: null,
           role_type: d.role_type || '',
+          classification_level: d.classification_level || '',
+          student_year: d.student_year || '',
+          intern_half: d.intern_half || '',
           skills: d.skills || [],
           years_experience: d.years_experience || '',
           ahpra_proof: null,
@@ -177,13 +207,22 @@ export default function OtherStaffOnboarding() {
       .finally(() => setLoading(false));
   }, [detailUrl]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value, type, checked } = e.target;
-    setData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value,
-    }));
-  };
+const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const target = e.target;
+  const { name, value } = target;
+  const isCheckbox = target instanceof HTMLInputElement && target.type === 'checkbox';
+
+  setData(prev => ({
+    ...prev,
+    [name]: isCheckbox ? target.checked : value,
+    ...(name === 'role_type' && {
+      classification_level: '',
+      student_year: '',
+      intern_half: '',
+    }),
+  }));
+};
+
 
   const handleFileChange = (field: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setData(prev => ({ ...prev, [field]: e.target.files?.[0] ?? null }));
@@ -323,6 +362,64 @@ export default function OtherStaffOnboarding() {
           </MenuItem>
         ))}
       </TextField>
+      {data.role_type === 'ASSISTANT' && (
+        <TextField
+          select
+          fullWidth
+          margin="normal"
+          label="Assistant Classification Level"
+          name="classification_level"
+          value={data.classification_level || ''}
+          onChange={handleChange}
+          required
+        >
+          {ASSISTANT_LEVELS.map(l => (
+            <MenuItem key={l.value} value={l.value}>
+              {l.label}
+            </MenuItem>
+          ))}
+        </TextField>
+      )}
+
+      {data.role_type === 'STUDENT' && (
+        <TextField
+          select
+          fullWidth
+          margin="normal"
+          label="Student Year"
+          name="student_year"
+          value={data.student_year || ''}
+          onChange={handleChange}
+          required
+        >
+          {STUDENT_YEARS.map(y => (
+            <MenuItem key={y.value} value={y.value}>
+              {y.label}
+            </MenuItem>
+          ))}
+        </TextField>
+      )}
+
+      {data.role_type === 'INTERN' && (
+        <TextField
+          select
+          fullWidth
+          margin="normal"
+          label="Intern Half"
+          name="intern_half"
+          value={data.intern_half || ''}
+          onChange={handleChange}
+          required
+        >
+          {INTERN_HALVES.map(h => (
+            <MenuItem key={h.value} value={h.value}>
+              {h.label}
+            </MenuItem>
+          ))}
+        </TextField>
+      )}
+
+
     </Box>,
 
     // Reg Docs

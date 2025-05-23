@@ -49,6 +49,7 @@ urlpatterns = [
     # Invoice
     # list and create (manual or via shifts)
     path('invoices/', InvoiceListView.as_view(), name='invoice-list'),
+    path('invoices/preview/<int:shift_id>/', preview_invoice_lines, name='invoice-preview'),
     # retrieve/update/delete
     path('invoices/<int:pk>/', InvoiceDetailView.as_view(), name='invoice-detail'),
     # alternate generate endpoint (optional—your front end can use POST to /invoices/ directly)

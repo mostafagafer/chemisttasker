@@ -19,8 +19,14 @@ export const API_ENDPOINTS = {
   explorerDashboard: '/client-profile/dashboard/explorer/',
 
   // Onboarding
-  onboardingDetail: (role: string) => `/client-profile/${role}/onboarding/me/`,
-  onboardingCreate: (role: string) => `/client-profile/${role}/onboarding/`,
+  onboardingDetail: (role: string) => {
+    const safeRole = role === 'other_staff' ? 'otherstaff' : role;
+    return `/client-profile/${safeRole}/onboarding/me/`;
+  },
+  onboardingCreate: (role: string) => {
+    const safeRole = role === 'other_staff' ? 'otherstaff' : role;
+    return `/client-profile/${safeRole}/onboarding/`;
+  },
 
   // invite & claim
   inviteOrgUser: '/users/invite-org-user/',
@@ -63,6 +69,13 @@ export const API_ENDPOINTS = {
   getHistoryShifts:      '/client-profile/shifts/history/',
   getMyConfirmedShifts: '/client-profile/my-confirmed-shifts/',
   getMyHistoryShifts:   '/client-profile/my-history-shifts/',
+  // list interest records separately
+  getShiftInterests:     '/client-profile/shift-interests/',
+  // Actions on individual shifts
+  expressInterestInShift: (shiftId: string|number) => `/client-profile/shifts/${shiftId}/express_interest/`,
+  revealProfile:         (shiftId: string|number) => `/client-profile/shifts/${shiftId}/reveal_profile/`,
+  acceptUserToShift:     (shiftId: string|number) => `/client-profile/shifts/${shiftId}/accept_user/`,
+
 
 
   // invoice
@@ -72,13 +85,7 @@ export const API_ENDPOINTS = {
   invoiceDetail: (id: number) => `/client-profile/invoices/${id}/`,
   // Shortcut to generate from shifts
   generateInvoice: '/client-profile/invoices/generate/',
-
-  // Actions on individual shifts
-  expressInterestInShift: (shiftId: string|number) => `/client-profile/shifts/${shiftId}/express_interest/`,
-  revealProfile:         (shiftId: string|number) => `/client-profile/shifts/${shiftId}/reveal_profile/`,
-  acceptUserToShift:     (shiftId: string|number) => `/client-profile/shifts/${shiftId}/accept_user/`,
-
-  // list interest records separately
-  getShiftInterests:     '/client-profile/shift-interests/',
+  invoicePreview: (id: number) => `/client-profile/invoices/preview/${id}/`,
+  
 };
 

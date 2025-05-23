@@ -35,7 +35,6 @@ interface Shift {
   pharmacy_detail: { name: string };
   role_needed: string;
   single_user_only: boolean;
-  accepted_user_id?: number;
   slot_assignments: { slot_id: number; user_id: number }[];
   slots: Slot[];
 }
@@ -151,19 +150,21 @@ export default function ConfirmedShiftsPage() {
                     {s.date} {s.start_time}–{s.end_time}
                   </Typography>
                 ))}
-                {shift.accepted_user_id && (
+                {/* ✅ NEW LOGIC FOR SINGLE-USER SHIFT */}
+                {shift.slot_assignments.length > 0 && (
                   <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                     <Button
                       size="small"
                       variant="outlined"
                       onClick={() =>
-                        openProfile(shift.id, null, shift.accepted_user_id!)
+                        openProfile(shift.id, null, shift.slot_assignments[0].user_id)
                       }
                     >
                       View Assigned
                     </Button>
                   </Box>
                 )}
+
               </>
             ) : (
               shift.slots.map(slot => {

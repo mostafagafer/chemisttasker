@@ -24,6 +24,7 @@ import ExplorerOnboarding from './pages/onboarding/ExplorerOnboarding';
 
 
 
+
 import ProtectedRoute from './components/ProtectedRoute';
 import OwnerDashboardWrapper from './layouts/ownerDashboard';
 import PharmacistDashboardWrapper from './layouts/pharmacistDashboard';
@@ -48,11 +49,13 @@ import ConfirmedShiftsPage from './pages/dashboard/sidebar/ConfirmedShiftsPage';
 import HistoryShiftsPage   from './pages/dashboard/sidebar/HistoryShiftsPage';
 import MyConfirmedShiftsPage from './pages/dashboard/sidebar/MyConfirmedShiftsPage';
 import MyHistoryShiftsPage   from './pages/dashboard/sidebar/MyHistoryShiftsPage';
+import ShiftDetailPage from './pages/dashboard/sidebar/ShiftDetailPage';
+
 
 // Invoice
 import InvoiceManagePage   from './pages/dashboard/sidebar/InvoiceManagePage';
 import InvoiceGeneratePage   from './pages/dashboard/sidebar/InvoiceGeneratePage';
-import InvoiceDetailPage   from './pages/dashboard/sidebar/ManageInvoicesPage';
+import InvoiceDetailPage   from './pages/dashboard/sidebar/InvoiceDetailPage';
 
 import { AuthProvider } from './contexts/AuthContext';
 
@@ -65,6 +68,8 @@ const router = createBrowserRouter([
       { path: 'register', element: <Register /> },
       // Password reset confirm route
       { path: 'reset-password/:uid/:token', element: <ResetPasswordPage /> },
+
+      { path: 'dashboard/:role/shifts/:type/:id', element: <ShiftDetailPage /> }, // <== Add here
 
       // Orgnization
       {
@@ -168,7 +173,6 @@ const router = createBrowserRouter([
               { path: 'history',   element: <HistoryShiftsPage /> },
                 ],
           },
-          // { path: 'availability', element: <SetAvailabilityPage /> },
           { path: 'interests',    element: <ExplorerInterestsPage /> },
           { path: 'learning',     element: <LearningMaterialsPage /> },
           { path: 'logout',       element: <LogoutPage /> },

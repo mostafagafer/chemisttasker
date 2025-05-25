@@ -1,0 +1,3 @@
+web: gunicorn core.wsgi --bind=0.0.0.0:8000
+worker: python manage.py procrastinate worker
+periodic: python manage.py procrastinate periodic

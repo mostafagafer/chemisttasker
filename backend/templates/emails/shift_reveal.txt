@@ -1,0 +1,11 @@
+Hi {{ user_first_name }},
+
+The shift poster has just viewed your profile for a shift at {{ pharmacy_name }} ({{ role_needed }}).
+
+See Shift Details: {{ shift_link }}
+
+If the fit looks right, you might hear from them soon! We’ll keep you updated on any next steps.
+
+Need help or have questions? Just reply to this email.
+
+— The ChemistTasker Team 💚

@@ -464,15 +464,31 @@ class ShiftSlot(models.Model):
     recurring_end_date = models.DateField(null=True, blank=True)
 
     def clean(self):
+        """
+        Validates a ShiftSlot, ensuring recurring slot definitions are correct.
+
+        - recurring_days: List of integers 0 (Monday) to 6 (Sunday) - consistent with Python's datetime.weekday().
+        - recurring_end_date: Required for recurring slots, must be after start date.
+        - For non-recurring, recurring_days must be empty.
+        """
         if self.is_recurring:
             if not self.recurring_days:
-                raise ValidationError('recurring_days required for recurring slots.')
+                raise ValidationError({'recurring_days': 'This field is required for recurring slots.'})
+            if not isinstance(self.recurring_days, list):
+                raise ValidationError({'recurring_days': 'Must be a list of integers (0=Monday, 6=Sunday).'})
+            for d in self.recurring_days:
+                if not isinstance(d, int) or not (0 <= d <= 6):
+                    raise ValidationError({'recurring_days': 'Each entry must be an integer between 0 (Monday) and 6 (Sunday).'})
+
             if self.recurring_end_date is None:
-                raise ValidationError('recurring_end_date required for recurring slots.')
-            if self.recurring_end_date < self.date:
-                raise ValidationError('recurring_end_date must be after start date.')
-        if not isinstance(self.recurring_days, list) or not all(isinstance(d, int) and 0 <= d <= 6 for d in self.recurring_days):
-            raise ValidationError({'recurring_days': 'List of integers 0(Monday)-6(Sunday).'})
+                raise ValidationError({'recurring_end_date': 'This field is required for recurring slots.'})
+            if self.recurring_end_date <= self.date:
+                raise ValidationError({'recurring_end_date': 'End date must be after start date for recurring slots.'})
+        else:
+            if self.recurring_days:
+                raise ValidationError({'recurring_days': 'Should be empty for non-recurring slots.'})
+            if self.recurring_end_date:
+                raise ValidationError({'recurring_end_date': 'Should be empty for non-recurring slots.'})
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -548,6 +564,11 @@ class ShiftSlotAssignment(models.Model):
     )
     class Meta:
         unique_together = ('slot', 'slot_date')
+        indexes = [
+            models.Index(fields=['slot', 'slot_date']),      # Fast lookup by slot and date
+            models.Index(fields=['user', 'slot_date']),      # Fast lookup for all slots by user for a day
+        ]
+
 
 
     def __str__(self):
@@ -591,6 +612,7 @@ class Invoice(models.Model):
     issuer_first_name        = models.CharField(max_length=150, blank=True, default="")
     issuer_last_name         = models.CharField(max_length=150, blank=True, default="")
     issuer_abn           = models.CharField(max_length=20, blank=True, default="")
+    issuer_email = models.EmailField(blank=True, default="")
     gst_registered       = models.BooleanField(default=False)
     super_rate_snapshot  = models.DecimalField(max_digits=5, decimal_places=2, default=11.5)
 
@@ -649,7 +671,7 @@ class InvoiceLineItem(models.Model):
     category_code    = models.CharField(
         max_length=20,
         choices=CATEGORY_CHOICES,
-        default='4-1300',
+        default='ProfessionalServices',
         help_text='ATO category code'
     )
     unit             = models.CharField(
@@ -679,6 +701,11 @@ class InvoiceLineItem(models.Model):
         blank=True,
         related_name='invoice_items'
     )
+    class Meta:
+        indexes = [
+            models.Index(fields=['invoice']),
+            models.Index(fields=['shift']),
+        ]
 
     def __str__(self):
         return f"{self.description} – {self.quantity} {self.unit} @ {self.unit_price}"

@@ -1,0 +1,11 @@
+Hi {{ user_first_name }},
+
+Great news! You’ve been accepted for a shift at {{ pharmacy_name }} ({{ role_needed }}).
+
+View Shift Details: {{ shift_link }}
+
+Please review the shift details and confirm your attendance in your ChemistTasker portal.
+
+Wishing you an amazing shift ahead!
+
+— The ChemistTasker Team 💚

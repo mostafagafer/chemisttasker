@@ -39,6 +39,15 @@ interface Shift {
   slots: Slot[];
 }
 
+interface RatePreference {
+  weekday: string;
+  saturday: string;
+  sunday: string;
+  public_holiday: string;
+  early_morning: string;
+  late_night: string;
+}
+
 interface Profile {
   first_name: string;
   last_name: string;
@@ -46,6 +55,7 @@ interface Profile {
   phone_number?: string;
   short_bio?: string;
   resume?: string;
+  rate_preference?: RatePreference | null;
 }
 
 export default function ConfirmedShiftsPage() {
@@ -247,6 +257,22 @@ export default function ConfirmedShiftsPage() {
                   Download CV
                 </Button>
               )}
+              {profile.rate_preference && (
+                <Box mt={2}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    <strong>Rate Preference</strong>
+                  </Typography>
+                  <ul style={{ margin: 0, paddingLeft: 16 }}>
+                    <li>Weekday: {profile.rate_preference.weekday || "N/A"}</li>
+                    <li>Saturday: {profile.rate_preference.saturday || "N/A"}</li>
+                    <li>Sunday: {profile.rate_preference.sunday || "N/A"}</li>
+                    <li>Public Holiday: {profile.rate_preference.public_holiday || "N/A"}</li>
+                    <li>Early Morning: {profile.rate_preference.early_morning || "N/A"}</li>
+                    <li>Late Night: {profile.rate_preference.late_night || "N/A"}</li>
+                  </ul>
+                </Box>
+              )}
+
             </>
           )}
         </DialogContent>

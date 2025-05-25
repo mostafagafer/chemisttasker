@@ -586,6 +586,7 @@ class InvoiceLineItemSerializer(serializers.ModelSerializer):
 
 class InvoiceSerializer(serializers.ModelSerializer):
     line_items = InvoiceLineItemSerializer(many=True)
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = Invoice

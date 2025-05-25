@@ -75,6 +75,10 @@ export const API_ENDPOINTS = {
   expressInterestInShift: (shiftId: string|number) => `/client-profile/shifts/${shiftId}/express_interest/`,
   revealProfile:         (shiftId: string|number) => `/client-profile/shifts/${shiftId}/reveal_profile/`,
   acceptUserToShift:     (shiftId: string|number) => `/client-profile/shifts/${shiftId}/accept_user/`,
+  getCommunityShiftDetail: (id: string | number) => `/client-profile/community-shifts/${id}`,
+  getPublicShiftDetail:    (id: string | number) => `/client-profile/public-shifts/${id}`,
+  getActiveShiftDetail:    (id: string | number) => `/client-profile/shifts/active/${id}`,
+  getConfirmedShiftDetail: (id: string | number) => `/client-profile/shifts/confirmed/${id}/`,
 
 
 
@@ -86,6 +90,7 @@ export const API_ENDPOINTS = {
   // Shortcut to generate from shifts
   generateInvoice: '/client-profile/invoices/generate/',
   invoicePreview: (id: number) => `/client-profile/invoices/preview/${id}/`,
-  
+  invoicePdf: (id: number) => `/client-profile/invoices/${id}/pdf/`,
+
 };
 

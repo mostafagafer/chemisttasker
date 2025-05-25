@@ -49,6 +49,15 @@ interface Interest {
   revealed: boolean;
 }
 
+interface RatePreference {
+  weekday: string;
+  saturday: string;
+  sunday: string;
+  public_holiday: string;
+  early_morning: string;
+  late_night: string;
+}
+
 interface UserDetail {
   id: number;
   first_name: string;
@@ -57,6 +66,8 @@ interface UserDetail {
   phone_number?: string;
   short_bio?: string;
   resume?: string;
+  rate_preference?: RatePreference | null; // <-- ADD THIS LINE
+
 }
 
 export default function ActiveShiftsPage() {
@@ -331,6 +342,34 @@ export default function ActiveShiftsPage() {
               {dialogData.resume && (
                 <Button href={dialogData.resume} target="_blank">Download CV</Button>
               )}
+              {dialogData.rate_preference && (
+              <Box mt={2}>
+                <Typography variant="subtitle2" gutterBottom>
+                  <strong>Rate Preference</strong>
+                </Typography>
+                <List dense>
+                  <ListItem>
+                    <ListItemText primary="Weekday" secondary={dialogData.rate_preference.weekday || "N/A"} />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText primary="Saturday" secondary={dialogData.rate_preference.saturday || "N/A"} />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText primary="Sunday" secondary={dialogData.rate_preference.sunday || "N/A"} />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText primary="Public Holiday" secondary={dialogData.rate_preference.public_holiday || "N/A"} />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText primary="Early Morning" secondary={dialogData.rate_preference.early_morning || "N/A"} />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText primary="Late Night" secondary={dialogData.rate_preference.late_night || "N/A"} />
+                  </ListItem>
+                </List>
+              </Box>
+            )}
+
             </Box>
           )}
         </DialogContent>

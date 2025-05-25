@@ -1,0 +1,12 @@
+Hi {{ user_first_name }},
+
+This is a friendly reminder that you have an upcoming shift at {{ pharmacy_name }} ({{ role_needed }}).
+
+Time: {{ slot_time }}
+
+View Shift Details: {{ shift_link }}
+
+If you have any questions or need to make changes, just let us know.
+Wishing you a smooth and successful shift!
+
+— The ChemistTasker Team 💚

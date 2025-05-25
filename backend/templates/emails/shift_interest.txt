@@ -1,0 +1,11 @@
+Heads up! Someone’s interested in your shift.
+
+Good news! Someone from the ChemistTasker network has shown interest in your shift at {{ pharmacy_name }} ({{ role_needed }}).
+
+View & Manage Your Shift: {{ shift_link }}
+
+Don’t worry—we keep candidate details private at this stage. Log in to review all interested candidates and take the next step when you’re ready.
+
+If you have any questions, our friendly team is just a reply away.
+
+— The ChemistTasker Team 💚

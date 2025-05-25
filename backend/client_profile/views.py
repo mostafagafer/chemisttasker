@@ -19,10 +19,12 @@ from users.serializers import (
 )
 from django.shortcuts import get_object_or_404
 from rest_framework.parsers import MultiPartParser, FormParser
-
+import json
 from django.db.models import Q, Count, F
 from django.utils import timezone
 from client_profile.services import get_locked_rate_for_slot
+from users.tasks import send_async_email
+from client_profile.utils import build_shift_email_context
 
 # Onboardings
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -266,7 +268,7 @@ class ExplorerDashboard(APIView):
         return Response(data)
 
 
-# Cahing and Pharmacy and membership
+# Chain, Pharmacy and membership
 class PharmacyViewSet(viewsets.ModelViewSet):
     """
     Pharmacy CRUD:
@@ -613,6 +615,20 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 slot=slot,
                 user=user
             )
+        if created and shift.created_by and shift.created_by.email:
+            ctx = build_shift_email_context(
+                shift,
+                user=shift.created_by,
+                role=shift.created_by.role.lower(),      
+            )
+            send_async_email.defer(
+                subject=f"New interest in your shift at {shift.pharmacy.name}",
+                recipient_list=[shift.created_by.email],
+                template_name="emails/shift_interest.html",
+                context=ctx,
+                text_template="emails/shift_interest.txt"
+            )
+
 
         # 3) Serialize and return
         serializer = ShiftInterestSerializer(interest, context={'request': request})
@@ -664,7 +680,18 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         if not interest.revealed:
             interest.revealed = True
             interest.save()
-
+            ctx = build_shift_email_context(
+            shift,
+            user=candidate,
+            role=candidate.role.lower(),
+            )
+            send_async_email.defer(
+                subject=f"Your profile was revealed for a shift at {shift.pharmacy.name}",
+                recipient_list=[candidate.email],
+                template_name="emails/shift_reveal.html",
+                context=ctx,
+                text_template="emails/shift_reveal.txt"
+            )
 
         # return profile (unchanged)
         try:
@@ -673,6 +700,8 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 'phone_number': po.phone_number,
                 'short_bio':    po.short_bio,
                 'resume':       request.build_absolute_uri(po.resume.url) if po.resume else None,
+                'rate_preference': po.rate_preference or None,
+
             }
         except PharmacistOnboarding.DoesNotExist:
             os = OtherStaffOnboarding.objects.get(user=candidate)
@@ -727,6 +756,19 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                     }
                 )
                 assignment_ids.append(a.id)
+            ctx = build_shift_email_context(
+            shift,
+            user=candidate,
+            role=candidate.role.lower(),
+            )
+            send_async_email.defer(
+                subject=f"You’ve been accepted for a shift at {shift.pharmacy.name}",
+                recipient_list=[candidate.email],
+                template_name="emails/shift_accept.html",
+                context=ctx,
+                text_template="emails/shift_accept.txt"
+            )
+
 
             return Response({
                 'status': f'{candidate.get_full_name()} assigned to entire shift (per-date)',
@@ -760,6 +802,19 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 )
                 assignment_ids.append(a.id)
 
+            ctx = build_shift_email_context(
+            shift,
+            user=candidate,
+            role=candidate.role.lower(),
+            )
+            send_async_email.defer(
+                subject=f"You’ve been accepted for a shift at {shift.pharmacy.name}",
+                recipient_list=[candidate.email],
+                template_name="emails/shift_accept.html",
+                context=ctx,
+                text_template="emails/shift_accept.txt"
+            )
+
             return Response({
                 'status': f'{candidate.get_full_name()} assigned to unassigned slots (per-date)',
                 'assignment_ids': assignment_ids
@@ -788,6 +843,19 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 }
             )
             assignment_ids.append(a.id)
+
+        ctx = build_shift_email_context(
+        shift,
+        user=candidate,
+        role=candidate.role.lower(),
+        )
+        send_async_email.defer(
+            subject=f"You’ve been accepted for a shift at {shift.pharmacy.name}",
+            recipient_list=[candidate.email],
+            template_name="emails/shift_accept.html",
+            context=ctx,
+            text_template="emails/shift_accept.txt"
+        )
 
         return Response({
             'status': f'{candidate.get_full_name()} assigned to slot {slot.id} (per-date)',
@@ -1126,10 +1194,10 @@ class GenerateInvoiceView(APIView):
 
     def post(self, request):
         data = request.data
-        # Ensure required billing fields are present
+
         required = [
             'issuer_abn', 'gst_registered', 'super_rate_snapshot',
-            'bank_account_name', 'bsb', 'account_number', 'bill_to_email',  'cc_emails',
+            'bank_account_name', 'bsb', 'account_number', 'bill_to_email', 'cc_emails',
         ]
         missing = [f for f in required if f not in data]
         if missing:
@@ -1138,11 +1206,37 @@ class GenerateInvoiceView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Parse custom line items
+        line_items_raw = data.get('line_items')
+        custom_lines = []
+        if line_items_raw:
+            if isinstance(line_items_raw, str):
+                try:
+                    custom_lines = json.loads(line_items_raw)
+                except Exception as ex:
+                    return Response({'error': f'Invalid line_items: {ex}'}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                custom_lines = line_items_raw
+
+        # Parse shift_ids
+        shift_ids_raw = data.get('shift_ids')
+        shift_ids = []
+        if shift_ids_raw:
+            if isinstance(shift_ids_raw, str):
+                try:
+                    shift_ids = json.loads(shift_ids_raw)
+                except Exception as ex:
+                    return Response({'error': f'Invalid shift_ids: {ex}'}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                shift_ids = shift_ids_raw
+        else:
+            shift_ids = []
+
         invoice = generate_invoice_from_shifts(
             user=request.user,
             pharmacy_id=data.get('pharmacy'),
-            shift_ids=data.get('shift_ids', []),
-            custom_lines=data.get('custom_lines', []),
+            shift_ids=shift_ids,
+            custom_lines=custom_lines,
             external=data.get('external', False),
             billing_data=data,
             due_date=data.get('due_date')
@@ -1162,5 +1256,16 @@ def preview_invoice_lines(request, shift_id):
         return Response({"error": "Shift not found"}, status=404)
 
     line_items = generate_preview_invoice_lines(shift, request.user)
-    print(f"🔍 {len(line_items)} line items for user {request.user} on shift {shift_id}")
+    # print(f"🔍 {len(line_items)} line items for user {request.user} on shift {shift_id}")
     return Response(line_items)
+
+
+from django.http import HttpResponse
+from .services import render_invoice_to_pdf
+
+def invoice_pdf_view(request, invoice_id):
+    invoice = Invoice.objects.get(pk=invoice_id)
+    pdf_bytes = render_invoice_to_pdf(invoice)
+    response = HttpResponse(pdf_bytes, content_type="application/pdf")
+    response['Content-Disposition'] = f'inline; filename="invoice_{invoice.id}.pdf"'
+    return response

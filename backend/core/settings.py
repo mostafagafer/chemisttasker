@@ -36,6 +36,8 @@ CORS_ALLOWED_ORIGINS = [
 
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
+FRONTEND_BASE_URL = "http://localhost:5173"
+
 
 CORS_ALLOW_HEADERS = [
     'accept',
@@ -65,6 +67,9 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'drf_spectacular',
     'corsheaders',
+
+    # Async tasks
+    "procrastinate.contrib.django",
 
     # Azure blob
     'storages',
@@ -111,7 +116,10 @@ SPECTACULAR_SETTINGS = {
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [
+            os.path.join(BASE_DIR, "templates"),
+
+        ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -130,20 +138,21 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
-
 # DATABASES = {
-#     'default': dj_database_url.parse(
-#         env('AZURE_POSTGRESQL_CONNECTIONSTRING'),
-#         conn_max_age=600,
-#         ssl_require=True
-#     )
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
 # }
+
+DATABASES = {
+    'default': dj_database_url.config(
+        default=env('AZURE_POSTGRESQL_CONNECTIONSTRING'),
+        conn_max_age=600,
+        conn_health_checks=True,
+        ssl_require=True
+    )
+}
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
@@ -241,6 +250,53 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 
-# Use console backend for local testing
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = 'no-reply@localhost'
+# # Use console backend for local testing
+# EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# DEFAULT_FROM_EMAIL = 'no-reply@localhost'
+
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.zoho.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = env('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL')
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "procrastinate": {
+            "format": "%(asctime)s %(levelname)-7s %(name)s %(message)s"
+        },
+    },
+    "handlers": {
+        "procrastinate": {
+            "level": "DEBUG",
+            "class": "logging.StreamHandler",
+            "formatter": "procrastinate",
+        },
+    },
+    "loggers": {
+        "procrastinate": {
+            "handlers": ["procrastinate"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
+
+
+# # Function to run when the app is ready
+# PROCRASTINATE_ON_APP_READY = "myapp.procrastinate.on_app_ready"
+
+# # Module name for auto-discovering tasks (default is "tasks")
+# PROCRASTINATE_AUTODISCOVER_MODULE_NAME = "tasks"
+
+# # Additional modules to import tasks from
+# PROCRASTINATE_IMPORT_PATHS = ["myapp.extra_tasks"]
+
+# # Database alias to use (default is "default")
+# PROCRASTINATE_DATABASE_ALIAS = "default"

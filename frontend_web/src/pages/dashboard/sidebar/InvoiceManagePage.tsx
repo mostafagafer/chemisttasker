@@ -147,8 +147,25 @@ export default function InvoiceManagePage() {
   };
 
   // PDF (stub)
-  const handlePdf = () => {
-    setSnackbar({ open: true, msg: 'Download PDF not implemented.' });
+  const handlePdf = async () => {
+    if (!menuInvoiceId) return;
+    try {
+      // Fetch PDF from backend as a blob
+      const response = await apiClient.get(
+          API_ENDPOINTS.invoicePdf(menuInvoiceId),
+        { responseType: 'blob' }
+      );
+      // Create a URL and trigger download
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `invoice_${menuInvoiceId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      setSnackbar({ open: true, msg: 'PDF download failed.' });
+    }
     handleMenuClose();
   };
 

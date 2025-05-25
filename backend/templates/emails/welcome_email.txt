@@ -1,0 +1,11 @@
+👋 Welcome, {{ first_name|default:email }}!
+
+We’re thrilled to have you join the ChemistTasker family! 🚀
+
+To get started, just complete your onboarding here:
+{{ onboarding_link }}
+
+If you need anything, our team is always happy to help.
+Wishing you an awesome day! 🌈✨
+
+— The ChemistTasker Team 💚

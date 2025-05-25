@@ -32,6 +32,9 @@ CORS_ALLOWED_ORIGINS = [
     # 'http://localhost:5173'
 ]
 
+
+FRONTEND_BASE_URL = "https://www.chemisttasker.com.au"
+
 DEBUG=False
 
 # Redirect all HTTP → HTTPS
@@ -68,12 +71,14 @@ MIDDLEWARE = [
 ]
 
 DATABASES = {
-    'default': dj_database_url.parse(
-        env('AZURE_POSTGRESQL_CONNECTIONSTRING'),
+    'default': dj_database_url.config(
+        default=env('AZURE_POSTGRESQL_CONNECTIONSTRING'),
         conn_max_age=600,
+        conn_health_checks=True,
         ssl_require=True
     )
 }
+
 
 TIME_ZONE = 'Australia/Sydney'
 

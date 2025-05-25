@@ -19,6 +19,10 @@ from rest_framework.views import APIView
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 
+from users.tasks import send_async_email
+from users.utils import get_frontend_onboarding_url
+
+
 from .serializers import (
     UserRegistrationSerializer,
     CustomTokenObtainPairSerializer,
@@ -30,6 +34,22 @@ User = get_user_model()
 class RegisterView(generics.CreateAPIView):
     serializer_class = UserRegistrationSerializer
     permission_classes = [permissions.AllowAny]
+    
+    def perform_create(self, serializer):
+        user = serializer.save()
+        onboarding_link = get_frontend_onboarding_url(user)
+        ctx = {
+            "first_name": user.first_name,
+            "email": user.email,
+            "onboarding_link": onboarding_link,
+        }
+        send_async_email.defer(
+            subject="🎉 Welcome to ChemistTasker! Let’s Get You Started 🌟",
+            recipient_list=[user.email],
+            template_name="emails/welcome_email.html",
+            context=ctx,
+            text_template="emails/welcome_email.txt"
+        )
 
 class CustomLoginView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer

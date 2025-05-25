@@ -33,6 +33,9 @@ jobs:
           echo "AZURE_ACCOUNT_NAME=${{ secrets.AZURE_ACCOUNT_NAME }}"             >> $GITHUB_ENV
           echo "AZURE_ACCOUNT_KEY=${{ secrets.AZURE_ACCOUNT_KEY }}"               >> $GITHUB_ENV
           echo "AZURE_CONTAINER=${{ secrets.AZURE_CONTAINER }}"                   >> $GITHUB_ENV
+          echo "EMAIL_HOST_USER=${{ secrets.EMAIL_HOST_USER }}" >> $GITHUB_ENV
+          echo "EMAIL_HOST_PASSWORD=${{ secrets.EMAIL_HOST_PASSWORD }}" >> $GITHUB_ENV
+          echo "DEFAULT_FROM_EMAIL=${{ secrets.DEFAULT_FROM_EMAIL }}" >> $GITHUB_ENV
 
       - name: Install dependencies
         run: |
@@ -52,6 +55,9 @@ jobs:
           source venv/bin/activate
           cd backend
           python manage.py collectstatic --noinput
+
+      - name: Make startup.sh executable
+        run: chmod +x backend/startup.sh
 
       - name: Zip backend app for deployment
         run: |

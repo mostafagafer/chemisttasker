@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Your Profile Was Revealed!</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
+        .wave { font-size: 2.5rem; }
+        .btn {
+            display: inline-block;
+            background: #23b59c;
+            color: #fff;
+            padding: 12px 28px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.15rem;
+            margin: 16px 0;
+            box-shadow: 0 1px 3px #e0e0e0;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #199982; }
+        .emoji { font-size: 1.25rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="wave">👀🔓</div>
+        <h2>Your profile was revealed!</h2>
+
+        <p>
+            Hi {{ user_first_name }},
+        </p>
+        <p>
+            The shift poster has just viewed your profile for a shift at <b>{{ pharmacy_name }}</b> (<b>{{ role_needed }}</b>).
+        </p>
+        <a class="btn" href="{{ shift_link }}">See Shift Details</a>
+        <p>
+            If the fit looks right, you might hear from them soon!<br>
+            We’ll keep you updated on any next steps.
+        </p>
+        <p>
+            Need help or have questions? Just reply to this email.<br>
+            Wishing you the best! 🌱
+        </p>
+        <p class="emoji">— The ChemistTasker Team 💚</p>
+    </div>
+</body>
+</html>

@@ -55,7 +55,7 @@ const CATEGORY_CHOICES = [
   { code: 'Accommodation', label: 'Accommodation' },
   { code: 'Miscellaneous', label: 'Miscellaneous reimbursements' },
 ];
-const UNIT_CHOICES = ['Hours', 'Item'];
+const UNIT_CHOICES = ['Hours', 'Lump Sum'];
 
 export default function InvoiceGeneratePage() {
     const { user } = useAuth();
@@ -77,7 +77,7 @@ export default function InvoiceGeneratePage() {
     // ─── Issuer Details ──────────────────────────────────  
     const [issuerFirstName, setIssuerFirstName] = useState('');
     const [issuerLastName,  setIssuerLastName]  = useState('');
-    // const [issuerEmail,     setIssuerEmail]     = useState(user?.email     ?? '');
+    const issuerEmail = user?.email ?? '';
     const [issuerAbn,       setIssuerAbn]       = useState('');
 
     // ─── Recipient (Shift-Creator) & Pharmacy Snapshots ──  
@@ -191,7 +191,7 @@ useEffect(() => {
       setLineItems([...backendItems, ...manualExtras]);
       const allItems = [...backendItems, ...manualExtras];
       setLineItems(allItems);
-      console.log("🔍 lineItems[0]:", allItems[0]);
+      // console.log("🔍 lineItems[0]:", allItems[0]);
 
     })
     .catch(() => {
@@ -218,7 +218,7 @@ useEffect(() => {
     start_time: '00:00:00',
     end_time:   '00:00:00',
     category:   'Superannuation',
-    unit:       'Item',
+    unit:       'Lump Sum',
     quantity:   1,
     unit_price: newSuper,
     discount:   0,
@@ -270,7 +270,7 @@ useEffect(() => {
         start_time: '00:00:00',
         end_time: '00:00:00',
         category: '',
-        unit: 'Item',
+        unit: 'Lump Sum',
         quantity: 1,
         unit_price: 0,
         discount: 0,
@@ -325,11 +325,11 @@ const handleGenerate = () => {
   // Issuer snapshot
   fd.append('issuer_first_name',   issuerFirstName);
   fd.append('issuer_last_name',    issuerLastName);
-  // fd.append('issuer_email',        issuerEmail);
+  fd.append('issuer_email',        issuerEmail);
   fd.append('issuer_abn',          issuerAbn);
 
   // Core billing data
-  fd.append('gst_registered',      String(gstRegistered));
+  fd.append('gst_registered', gstRegistered ? '1' : '0');
   fd.append('super_rate_snapshot', superRateSnapshot.toString());
   if (gstCertFile) fd.append('gst_certificate', gstCertFile);
   fd.append('super_fund_name',     superFundName);
@@ -346,7 +346,8 @@ const handleGenerate = () => {
 
   if (mode === 'internal') {
     // Link to pharmacy + snapshot
-    fd.append('pharmacy',                  String(selectedShiftId));
+    const selectedShift = shifts.find(s => s.id === selectedShiftId);
+    fd.append('pharmacy', String(selectedShift?.pharmacy_detail.id || ''));
     fd.append('shift_ids',                 JSON.stringify([selectedShiftId]));
     fd.append('pharmacy_name_snapshot',    pharmacyNameSnapshot);
     fd.append('pharmacy_address_snapshot', pharmacyAddressSnapshot);
@@ -363,6 +364,7 @@ const handleGenerate = () => {
     fd.append('external',                  'true');
     fd.append('custom_bill_to_name',       externalName);
     fd.append('custom_bill_to_address',    externalAddress);
+    fd.append('bill_to_abn', billToAbn);
 
     // And let user overwrite billToEmail if they wish
     fd.append('bill_to_email',             billToEmail);
@@ -385,7 +387,11 @@ const handleGenerate = () => {
   apiClient.post(API_ENDPOINTS.generateInvoice, fd, {
     headers: { 'Content-Type': 'multipart/form-data' }
   })
-  .then(() => navigate('/dashboard/pharmacist/invoice'))
+  .then(() => {
+    // If you have the role in context:
+    const role = user?.role?.toLowerCase() ?? 'pharmacist'; // fallback if needed
+    navigate(`/dashboard/${role}/invoice`);
+  })
   .catch(ex => setSubmitError(ex.response?.data?.error || 'Server error'))
   .finally(() => setSubmitting(false));
 };
@@ -671,6 +677,7 @@ const handleGenerate = () => {
       <Box>
         {/* <Typography variant="subtitle1">Issuer</Typography> */}
         <Typography>{issuerFirstName} {issuerLastName}</Typography>
+        <Typography> {issuerEmail}</Typography>
         <Typography variant="body2">ABN: {issuerAbn}</Typography>
       </Box>
     </Box>

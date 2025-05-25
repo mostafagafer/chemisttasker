@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Someone’s Interested in Your Shift!</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
+        .wave { font-size: 2.5rem; }
+        .btn {
+            display: inline-block;
+            background: #23b59c;
+            color: #fff;
+            padding: 12px 28px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.15rem;
+            margin: 16px 0;
+            box-shadow: 0 1px 3px #e0e0e0;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #199982; }
+        .emoji { font-size: 1.25rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="wave">👀✨</div>
+        <h2>Heads up! Someone’s interested in your shift.</h2>
+
+        <p>
+            Good news! Someone from the ChemistTasker network has shown interest in your shift at <b>{{ pharmacy_name }}</b> (<b>{{ role_needed }}</b>).
+        </p>
+        <a class="btn" href="{{ shift_link }}">View & Manage Your Shift</a>
+        <p>
+            <b>Don’t worry—</b> we keep candidate details private at this stage.<br>
+            Log in to review all interested candidates and take the next step when you’re ready.
+        </p>
+        <p>
+            If you have any questions, our friendly team is just a reply away.<br>
+            Have a great day! ✨
+        </p>
+        <p class="emoji">— The ChemistTasker Team 💚</p>
+    </div>
+</body>
+</html>

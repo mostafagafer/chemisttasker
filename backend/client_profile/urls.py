@@ -54,6 +54,7 @@ urlpatterns = [
     path('invoices/<int:pk>/', InvoiceDetailView.as_view(), name='invoice-detail'),
     # alternate generate endpoint (optional—your front end can use POST to /invoices/ directly)
     path('invoices/generate/', GenerateInvoiceView.as_view(), name='generate-invoice'),
+    path('invoices/<int:invoice_id>/pdf/', invoice_pdf_view, name='invoice_pdf'),
 
     # Include the API routes for CRUD operations
     path('', include(router.urls)),

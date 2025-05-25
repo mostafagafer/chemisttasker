@@ -58,7 +58,6 @@ class User(AbstractUser):
     def is_explorer(self):
         return self.role == 'EXPLORER'
 
-
 class OrganizationMembership(models.Model):
     """
     Assigns users to an Organization with one of three roles.

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Invoice #{{ invoice.id }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; font-size: 12px; margin: 0; padding: 0; }
+        .container { width: 95%; margin: 0 auto; padding: 20px; }
+        .header { border-bottom: 2px solid #1976d2; padding-bottom: 10px; margin-bottom: 20px; }
+        .invoice-title { font-size: 28px; font-weight: bold; color: #1976d2; }
+        .invoice-meta { float: right; text-align: right; }
+        .section-title { font-weight: bold; margin-top: 30px; margin-bottom: 5px; font-size: 17px;}
+        .row { display: flex; gap: 40px; }
+        .info-box { flex: 1; margin-bottom: 20px; }
+        .label { font-weight: bold; color: #555; }
+        table { width: 100%; border-collapse: collapse; margin-top: 25px; }
+        th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: center; }
+        th { background: #e3f2fd; font-weight: bold; }
+        tfoot td { font-weight: bold; }
+        .right { text-align: right; }
+        .mt-2 { margin-top: 16px; }
+        .mb-2 { margin-bottom: 16px; }
+        .highlight { background: #ffecb3; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header row">
+        <div>
+            <div class="invoice-title">Tax Invoice</div>
+            <div>Invoice #: {{ invoice.id }}</div>
+            <div>Invoice Date: {{ invoice.invoice_date|date:"Y-m-d" }}</div>
+            <div>Due Date: {{ invoice.due_date|date:"Y-m-d" }}</div>
+        </div>
+        <div class="invoice-meta">
+            <div><span class="label">Status:</span> {{ invoice.status|default:"Issued" }}</div>
+        </div>
+    </div>
+
+    <!-- Recipient and Issuer -->
+    <div class="section-title">Bill To</div>
+    <div class="row">
+        <div class="info-box">
+            {% if external %}
+                <div><span class="label">Name:</span> {{ invoice.custom_bill_to_name }}</div>
+                <div><span class="label">Address:</span> {{ invoice.custom_bill_to_address }}</div>
+            {% else %}
+                <div><span class="label">Facility Name:</span> {{ invoice.pharmacy_name_snapshot }}</div>
+                <div><span class="label">Facility ABN:</span> {{ invoice.pharmacy_abn_snapshot }}</div>
+                <div><span class="label">Facility Address:</span> {{ invoice.pharmacy_address_snapshot }}</div>
+                <div><span class="label">Facility State:</span> {{ invoice.pharmacy_state_snapshot }}</div>
+                <div><span class="label">Bill-To Name:</span> {{ invoice.bill_to_first_name }} {{ invoice.bill_to_last_name }}</div>
+                <div><span class="label">Bill-To Email:</span> {{ invoice.bill_to_email }}</div>
+            {% endif %}
+            <div><span class="label">Bill-To ABN:</span> {{ invoice.bill_to_abn|default_if_none:"" }}</div>
+            <div><span class="label">CC Emails:</span> {{ invoice.cc_emails|default_if_none:"" }}</div>
+        </div>
+        <div class="info-box">
+            <div class="section-title">Issuer</div>
+            <div>{{ invoice.issuer_first_name }} {{ invoice.issuer_last_name }}</div>
+            <div>{{ invoice.issuer_email }}</div>
+            <div>ABN: {{ invoice.issuer_abn }}</div>
+        </div>
+    </div>
+
+    <!-- GST & Superannuation -->
+    <div class="row">
+        <div class="info-box">
+            <div class="section-title">GST</div>
+            <div>GST Registered: {{ invoice.gst_registered|yesno:"Yes,No" }}</div>
+        </div>
+        <div class="info-box">
+            <div class="section-title">Superannuation</div>
+            <div>Super Rate: {{ invoice.super_rate_snapshot }}%</div>
+            <div>Fund: {{ invoice.super_fund_name }}</div>
+            <div>USI: {{ invoice.super_usi }}</div>
+            <div>Member #: {{ invoice.super_member_number }}</div>
+        </div>
+    </div>
+
+    <!-- Banking -->
+    <div class="section-title">Banking Details</div>
+    <div>
+        <span class="label">Account Name:</span> {{ invoice.bank_account_name }}<br>
+        <span class="label">BSB:</span> {{ invoice.bsb }}<br>
+        <span class="label">Account Number:</span> {{ invoice.account_number }}
+    </div>
+
+    <!-- Line Items Table -->
+    <div class="section-title">Line Items</div>
+    <table>
+        <thead>
+        <tr>
+            <th>Category</th>
+            <th>Date</th>
+            <th>Start</th>
+            <th>End</th>
+            <th>Hours</th>
+            <th>Unit</th>
+            <th>Unit Price ($)</th>
+            <th>Discount (%)</th>
+            <th>Amount ($)</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for li in line_items %}
+            <tr>
+                <td>{{ li.category_code }}</td>
+                <td>{{ li.date|default_if_none:"" }}</td>
+                <td>{{ li.start_time|default_if_none:"" }}</td>
+                <td>{{ li.end_time|default_if_none:"" }}</td>
+                <td>
+                  {% if li.category_code == "ProfessionalServices" %}
+                    {{ li.quantity|floatformat:2 }}
+                  {% elif li.category_code in "Transportation,Accommodation" %}
+                    1.00
+                  {% else %}
+                  {% endif %}
+                </td>
+                <td>{{ li.unit }}</td>
+                <td>{{ li.unit_price|floatformat:2 }}</td>
+                <td>{{ li.discount|floatformat:0 }}</td>
+                <td>{{ li.total|floatformat:2 }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+        <tfoot>
+        <tr>
+            <td colspan="8" class="right">Subtotal</td>
+            <td>${{ subtotal|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td colspan="8" class="right">Transportation</td>
+            <td>${{ transportation|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td colspan="8" class="right">Accommodation</td>
+            <td>${{ accommodation|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td colspan="8" class="right">GST (10%)</td>
+            <td>${{ gst|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td colspan="8" class="right">Superannuation ({{ invoice.super_rate_snapshot }}%)</td>
+            <td>${{ super_amount|floatformat:2 }}</td>
+        </tr>
+        <tr class="highlight">
+            <td colspan="8" class="right">Grand Total</td>
+            <td>${{ grand_total|floatformat:2 }}</td>
+        </tr>
+        </tfoot>
+    </table>
+
+    <div class="mt-2" style="font-size: 13px; color: #888;">
+        <b>Notes:</b> Please ensure payment to the bank details above by the due date.<br>
+        For any queries, contact {{ invoice.issuer_email }}.
+    </div>
+</div>
+</body>
+</html>

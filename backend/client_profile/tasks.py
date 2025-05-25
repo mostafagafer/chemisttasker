@@ -6,17 +6,17 @@ from client_profile.utils import build_shift_email_context
 
 from procrastinate.contrib.django import app
 
+@app.periodic(cron="0 */12 * * *")
 @app.task
-def send_shift_reminders():
+def send_shift_reminders(timestamp: int):
     """
     Send a reminder email 12 hours before each assigned shift/slot.
-    Should be run periodically (e.g., every hour).
+    This task is scheduled to run every 12 hours.
     """
     now = timezone.now()
     window_start = now + timedelta(hours=12)
     window_end = now + timedelta(hours=13)  # 1-hour window
 
-    # Query all assignments scheduled to start in the next 12–13 hours
     assignments = ShiftSlotAssignment.objects.select_related('shift', 'slot', 'user')\
         .filter(
             slot_date=window_start.date(),
@@ -29,14 +29,17 @@ def send_shift_reminders():
         candidate = assignment.user
         slot = assignment.slot
 
+        # Calculate the slot_time string
         slot_time = f"{assignment.slot_date} {slot.start_time.strftime('%H:%M')}–{slot.end_time.strftime('%H:%M')}"
+
+        # Always pass role as lower-case (just like other notifications)
         ctx = build_shift_email_context(
             shift,
             user=candidate,
-            extra={
-                "slot_time": slot_time
-            }
+            role=candidate.role.lower() if hasattr(candidate, "role") and candidate.role else "pharmacist",
+            extra={"slot_time": slot_time}
         )
+
         send_async_email.defer(
             subject=f"Reminder: Your upcoming shift at {shift.pharmacy.name}",
             recipient_list=[candidate.email],

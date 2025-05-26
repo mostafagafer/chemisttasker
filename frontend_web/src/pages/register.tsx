@@ -61,8 +61,8 @@ export default function Register() {
       };
 
       await apiClient.post(API_ENDPOINTS.register, payload);
-      alert("Account created successfully! Please log in.");
-      navigate("/login");
+      alert("Account created successfully! Please check your email for the verification code.");
+      navigate("/otp-verify", { state: { email: formData.email } });
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const data = err.response?.data as Record<string, string[]>;

@@ -1,0 +1,13 @@
+Verify Your Email - ChemistTasker
+
+Welcome to ChemistTasker!
+
+To activate your account, please use this verification code:
+
+    {{ otp }}
+
+Enter this code on the verification page to confirm your email address.
+
+If you did not sign up for ChemistTasker, you can safely ignore this email.
+
+— The ChemistTasker Team 💚

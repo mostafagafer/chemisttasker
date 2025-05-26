@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>ChemistTasker OTP Verification</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
+        .wave { font-size: 2.5rem; }
+        .btn {
+            display: inline-block;
+            background: #23b59c;
+            color: #fff;
+            padding: 12px 28px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.15rem;
+            margin: 16px 0;
+            box-shadow: 0 1px 3px #e0e0e0;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #199982; }
+        .emoji { font-size: 1.25rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="wave">🔒</div>
+        <h2>Verify Your Email</h2>
+
+        <p>
+            Welcome to <b>ChemistTasker</b>!<br>
+            To activate your account, please use the verification code below:
+        </p>
+        <div style="font-size:2rem;font-weight:bold;background:#f3f9f7;border-radius:10px;display:inline-block;padding:12px 28px;margin:16px 0 12px 0;letter-spacing:4px;">
+            {{ otp }}
+        </div>
+        <p>
+            Enter this code on the verification page to confirm your email address.<br>
+            <br>
+            If you did not sign up, you can ignore this email.
+        </p>
+        <p class="emoji">— The ChemistTasker Team 💚</p>
+    </div>
+</body>
+</html>

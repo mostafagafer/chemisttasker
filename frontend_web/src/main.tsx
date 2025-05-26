@@ -8,6 +8,7 @@ import App from './App';
 import LandingPage     from './pages/LandingPage';
 import Login           from './pages/login';
 import Register        from './pages/register';
+import OTPVerify        from './pages/OTPVerify';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 
 // Orgnization
@@ -65,6 +66,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <LandingPage /> },
       { path: 'login',    element: <Login /> },
+      { path: 'otp-verify', element: <OTPVerify /> },
       { path: 'register', element: <Register /> },
       // Password reset confirm route
       { path: 'reset-password/:uid/:token', element: <ResetPasswordPage /> },

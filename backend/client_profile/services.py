@@ -333,12 +333,6 @@ from django.template.loader import render_to_string
 from weasyprint import HTML
 
 def render_invoice_to_pdf(invoice):
-    """
-    Generate a PDF for the given Invoice object, with all related context.
-    Assumes the Invoice model has all relevant fields and a related line_items (many-to-one).
-    """
-    # Pull related line_items (and parse as needed)
-def render_invoice_to_pdf(invoice):
     line_items = invoice.line_items.all().order_by('id')
 
     # Always use Decimal for calculations

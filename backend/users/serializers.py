@@ -7,6 +7,8 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, Toke
 from rest_framework_simplejwt.tokens      import RefreshToken
 from client_profile.models import Organization
 from .models import OrganizationMembership
+import random
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -32,11 +34,22 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         # validated_data now has: email, password, role
-        return User.objects.create_user(
+        user = User.objects.create_user(
             email=validated_data['email'],
             password=validated_data['password'],
             role=validated_data['role']
         )
+
+        # ---- ONLY THIS BLOCK IS NEW ----
+        otp = str(random.randint(100000, 999999))
+        user.otp_code = otp
+        user.otp_created_at = timezone.now()
+        user.is_otp_verified = False
+        user.save()
+        # ---- END NEW BLOCK ----
+
+        return user
+
 
 class OrganizationMembershipSerializer(serializers.ModelSerializer):
     user_email   = serializers.EmailField(source='user.email', read_only=True)
@@ -61,6 +74,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
+
+        user = self.user
+        if not user.is_otp_verified:
+            from rest_framework.exceptions import AuthenticationFailed
+            raise AuthenticationFailed("Please verify your email address (check your inbox for your OTP code).")
 
         # pull in all org memberships for this user
         memberships = OrganizationMembership.objects.filter(user=self.user)

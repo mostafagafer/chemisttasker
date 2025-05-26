@@ -21,7 +21,9 @@ from django.utils.http import urlsafe_base64_decode
 
 from users.tasks import send_async_email
 from users.utils import get_frontend_onboarding_url
-
+from datetime import timedelta
+from django.utils import timezone
+import random
 
 from .serializers import (
     UserRegistrationSerializer,
@@ -37,6 +39,55 @@ class RegisterView(generics.CreateAPIView):
     
     def perform_create(self, serializer):
         user = serializer.save()
+        # onboarding_link = get_frontend_onboarding_url(user)
+        # ctx = {
+        #     "first_name": user.first_name,
+        #     "email": user.email,
+        #     "onboarding_link": onboarding_link,
+        # }
+        # send_async_email.defer(
+        #     subject="🎉 Welcome to ChemistTasker! Let’s Get You Started 🌟",
+        #     recipient_list=[user.email],
+        #     template_name="emails/welcome_email.html",
+        #     context=ctx,
+        #     text_template="emails/welcome_email.txt"
+        # )
+        otp_subject = "Your ChemistTasker Verification Code"
+        otp_context = {"otp": user.otp_code, "user": user}
+        send_async_email(
+            subject=otp_subject,
+            recipient_list=[user.email],
+            template_name="emails/otp_email.html",  # You need to create this template
+            context=otp_context,
+            text_template="emails/otp_email.txt"
+       )
+
+class VerifyOTPView(APIView):
+    OTP_EXPIRY_MINUTES = 10
+
+    def post(self, request):
+        email = request.data.get("email")
+        otp = request.data.get("otp")
+        user = User.objects.filter(email=email).first()
+
+        if not user or not otp:
+            return Response({"detail": "Invalid credentials."}, status=400)
+
+        # --- Check if OTP is expired ---
+        if not user.otp_created_at or (timezone.now() - user.otp_created_at > timedelta(minutes=self.OTP_EXPIRY_MINUTES)):
+            return Response({"detail": "OTP has expired. Please request a new code."}, status=400)
+
+        # --- Check if OTP matches ---
+        if user.otp_code != otp:
+            return Response({"detail": "Incorrect OTP."}, status=400)
+
+        # --- Success: verify user and clear OTP ---
+        user.is_otp_verified = True
+        user.otp_code = None
+        user.otp_created_at = None
+        user.save()
+
+        # --- Send welcome email ---
         onboarding_link = get_frontend_onboarding_url(user)
         ctx = {
             "first_name": user.first_name,
@@ -50,6 +101,36 @@ class RegisterView(generics.CreateAPIView):
             context=ctx,
             text_template="emails/welcome_email.txt"
         )
+        return Response({"detail": "OTP verified. Welcome email sent."}, status=200)
+
+class ResendOTPView(APIView):
+    def post(self, request):
+        email = request.data.get("email")
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response({"detail": "No account with this email."}, status=400)
+
+        # Only allow resending if not verified
+        if user.is_otp_verified:
+            return Response({"detail": "User already verified."}, status=400)
+
+        # Generate new OTP
+        otp = str(random.randint(100000, 999999))
+        user.otp_code = otp
+        user.otp_created_at = timezone.now()
+        user.save()
+
+        # Send OTP email (same as initial registration)
+        context = {"otp": otp, "user": user}
+        send_async_email(
+            subject="Your ChemistTasker Verification Code",
+            recipient_list=[user.email],
+            template_name="emails/otp_email.html",
+            context=context,
+            text_template="emails/otp_email.txt",  # if using text version
+        )
+
+        return Response({"detail": "A new OTP has been sent to your email."}, status=200)
 
 class CustomLoginView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer

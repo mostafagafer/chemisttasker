@@ -49,14 +49,6 @@ export default function Login() {
 
       login(access, refresh, userInfo);
 
-      // if they hold any org role, go to org dashboard
-      // const isOrgMember = userInfo.memberships?.some(
-      //   (m: any) => ORG_ROLES.includes(m.role)
-      // );
-      // if (isOrgMember) {
-      //   navigate('/dashboard/organization/overview');
-      //   return;
-      // }
       const isOrgMember = Array.isArray(userInfo?.memberships)
         ? userInfo.memberships.some((m: any) => m?.role && ORG_ROLES.includes(m.role))
         : false;
@@ -92,6 +84,14 @@ export default function Login() {
             : err.response?.data?.message) ||
           'Login failed. Please check your credentials.';
         setError(msg);
+
+        if (
+          msg &&
+          msg.toLowerCase().includes("please verify your email address")
+        ) {
+          navigate("/otp-verify", { state: { email } });
+        }
+
       } else {
         setError('An unexpected error occurred. Please try again.');
       }
@@ -146,7 +146,7 @@ export default function Login() {
         </form>
 
         <Box mt={2} textAlign="center">
-          <Link component={RouterLink} to="/password-reset">
+          <Link component={RouterLink} to="/password-reset-confirm">
             Forgot Password?
           </Link>
         </Box>

@@ -1,5 +1,6 @@
 from rest_framework.permissions import BasePermission
 from .models import OrganizationMembership
+from rest_framework import permissions
 
 
 
@@ -55,3 +56,10 @@ class IsOtherstaff(BasePermission):
 class IsExplorer(BasePermission):
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.is_explorer()
+    
+class IsOTPVerified(permissions.BasePermission):
+    message = "Please verify your email before starting onboarding."
+
+    def has_permission(self, request, view):
+        # Only allow onboarding if OTP is verified
+        return request.user and request.user.is_authenticated and request.user.is_otp_verified

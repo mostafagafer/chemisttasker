@@ -48,14 +48,14 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
 class OwnerOnboardingCreate(generics.CreateAPIView):
     serializer_class = OwnerOnboardingSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOwner]
+    permission_classes = [permissions.IsAuthenticated, IsOwner, IsOTPVerified]
 
     def perform_create(self, serializer):
         serializer.save()
    
 class OwnerOnboardingDetail(generics.RetrieveUpdateAPIView):
     serializer_class   = OwnerOnboardingSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOwner]
+    permission_classes = [permissions.IsAuthenticated, IsOwner, IsOTPVerified]
 
     def get_object(self):
         try:
@@ -114,7 +114,7 @@ class OwnerOnboardingClaim(APIView):
 class PharmacistOnboardingCreateView(CreateAPIView):
     parser_classes = [MultiPartParser, FormParser]
     serializer_class   = PharmacistOnboardingSerializer
-    permission_classes = [permissions.IsAuthenticated, IsPharmacist]
+    permission_classes = [permissions.IsAuthenticated, IsPharmacist, IsOTPVerified]
 
     def perform_create(self, serializer):
         serializer.save()
@@ -122,7 +122,7 @@ class PharmacistOnboardingCreateView(CreateAPIView):
 class PharmacistOnboardingDetailView(RetrieveUpdateAPIView):
     parser_classes = [MultiPartParser, FormParser]
     serializer_class   = PharmacistOnboardingSerializer
-    permission_classes = [permissions.IsAuthenticated, IsPharmacist]
+    permission_classes = [permissions.IsAuthenticated, IsPharmacist, IsOTPVerified]
 
     def get_object(self):
         try:
@@ -133,7 +133,7 @@ class PharmacistOnboardingDetailView(RetrieveUpdateAPIView):
 class OtherStaffOnboardingCreateView(CreateAPIView):
     parser_classes = [MultiPartParser, FormParser]
     serializer_class = OtherStaffOnboardingSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOtherstaff]
+    permission_classes = [permissions.IsAuthenticated, IsOtherstaff, IsOTPVerified]
 
     def perform_create(self, serializer):
         serializer.save()
@@ -141,7 +141,7 @@ class OtherStaffOnboardingCreateView(CreateAPIView):
 class OtherStaffOnboardingDetailView(RetrieveUpdateAPIView):
     parser_classes = [MultiPartParser, FormParser]
     serializer_class = OtherStaffOnboardingSerializer
-    permission_classes = [IsAuthenticated, IsOtherstaff]
+    permission_classes = [IsAuthenticated, IsOtherstaff, IsOTPVerified]
 
     def get_object(self):
         try:
@@ -152,7 +152,7 @@ class OtherStaffOnboardingDetailView(RetrieveUpdateAPIView):
 class ExplorerOnboardingCreateView(CreateAPIView):
     parser_classes = [MultiPartParser, FormParser]
     serializer_class = ExplorerOnboardingSerializer
-    permission_classes = [permissions.IsAuthenticated, IsExplorer]
+    permission_classes = [permissions.IsAuthenticated, IsExplorer, IsOTPVerified]
 
     def perform_create(self, serializer):
         serializer.save()
@@ -160,7 +160,7 @@ class ExplorerOnboardingCreateView(CreateAPIView):
 class ExplorerOnboardingDetailView(RetrieveUpdateAPIView):
     parser_classes = [MultiPartParser, FormParser]
     serializer_class = ExplorerOnboardingSerializer
-    permission_classes = [IsAuthenticated, IsExplorer]
+    permission_classes = [IsAuthenticated, IsExplorer, IsOTPVerified]
 
     def get_object(self):
         try:

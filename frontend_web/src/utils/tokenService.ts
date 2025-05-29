@@ -2,6 +2,7 @@
 
 const ACCESS_TOKEN_KEY = 'access';
 const REFRESH_TOKEN_KEY = 'refresh';
+const USER_KEY = 'user'; // <-- ADD THIS LINE
 
 export function getAccessToken(): string | null {
   return localStorage.getItem(ACCESS_TOKEN_KEY);
@@ -19,4 +20,5 @@ export function setTokens(access: string, refresh: string) {
 export function clearTokens() {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem(USER_KEY); // <-- ENSURE THIS CLEARS THE USER AS WELL!
 }

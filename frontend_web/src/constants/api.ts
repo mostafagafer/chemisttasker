@@ -7,7 +7,7 @@ export const API_ENDPOINTS = {
   login: '/users/login/',
   register: '/users/register/',
   refresh: '/users/token/refresh/',  
-  verifyOtp: "/users/verify-otp/",      // or whatever your DRF route is
+  verifyOtp: "/users/verify-otp/",
   resendOtp: "/users/resend-otp/",
   
   // Dashboards

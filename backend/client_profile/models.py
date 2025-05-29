@@ -25,7 +25,7 @@ class OwnerOnboarding(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
 
     # Basic Info
-    username        = models.CharField(max_length=150)
+    # username        = models.CharField(max_length=150)
     phone_number    = models.CharField(max_length=20)
     role            = models.CharField(max_length=20, choices=ROLE_CHOICES)
     chain_pharmacy  = models.BooleanField(default=False)
@@ -51,7 +51,7 @@ class OwnerOnboarding(models.Model):
 
 class PharmacistOnboarding(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    username = models.CharField(max_length=150)
+    # username = models.CharField(max_length=150)
 
     government_id = models.FileField(upload_to='gov_ids/')
     ahpra_number = models.CharField(max_length=100)

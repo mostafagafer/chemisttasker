@@ -1,46 +1,83 @@
-// src/App.tsx
-import { Outlet } from 'react-router-dom';
+import { useEffect, useState, useMemo } from "react";
+import { Outlet } from "react-router-dom";
 import { ReactRouterAppProvider } from '@toolpad/core/react-router';
-import { useAuth } from './contexts/AuthContext';
-import { ORG_ROLES } from './constants/roles';
+import { useAuth } from "./contexts/AuthContext";
+import { useWorkspace } from "./contexts/WorkspaceContext";
 import {
   ORGANIZATION_NAV,
-  OWNER_NAV,
-  PHARMACIST_NAV,
-  OTHERSTAFF_NAV,
-  EXPLORER_NAV,
-} from './navigation';
+  getOwnerNav,
+  getPharmacistNavDynamic,
+  getOtherStaffNavDynamic,
+  getExplorerNav,
+} from "./navigation";
+import apiClient from "./utils/apiClient";
+
+// ✨ Update: use the full user object, not just role
+function useOnboardingProgress(user: any) {
+  const [progress, setProgress] = useState<number>(0);
+
+  useEffect(() => {
+    if (!user) return; // No user, don't fetch
+    let isMounted = true;
+    const validRoles = ["owner", "pharmacist", "other_staff", "explorer"];
+    const role = user.role;
+    if (role && validRoles.includes(role.toLowerCase())) {
+      let key =
+        role.toLowerCase() === "other_staff"
+          ? "otherstaff"
+          : role.toLowerCase();
+
+      apiClient
+        .get(`/client-profile/${key}/onboarding/me/`)
+        .then((res) => {
+          if (isMounted) setProgress(res.data.progress_percent ?? 0);
+        })
+        .catch(() => {
+          if (isMounted) setProgress(0);
+        });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [user]); // Listen for user changes, not just role
+
+  return progress;
+}
 
 export default function App() {
   const { user, isLoading } = useAuth();
+  const { workspace } = useWorkspace();
 
-  // 1) While we’re checking tokens/refresh…
+  // No change here: pass the user object instead of just role
+  const progress = useOnboardingProgress(user);
+
+  const nav = useMemo(() => {
+    if (!user) return [];
+    if (
+      Array.isArray(user.memberships) &&
+      user.memberships.some(
+        (m) =>
+          m?.role &&
+          ["ORG_ADMIN", "ORG_OWNER", "ORG_STAFF"].includes(m.role)
+      )
+    ) {
+      return ORGANIZATION_NAV;
+    }
+    if (user.role === "OWNER") return getOwnerNav(progress);
+    if (user.role === "PHARMACIST") return getPharmacistNavDynamic(progress, workspace);
+    if (user.role === "OTHER_STAFF") return getOtherStaffNavDynamic(progress, workspace);
+    if (user.role === "EXPLORER") return getExplorerNav(progress);
+    return [];
+  }, [user, progress, workspace]);
+
   if (isLoading) return null;
-
-  // 2) If there is NO user (i.e. on landing/login/register), 
-  //    just render the child route and don’t try to read user.role
-  if (!user) {
-    return <Outlet />;
-  }
-
-  // 3) From here on, user is guaranteed non-null,
-  //    so it’s safe to read user.role and user.memberships:
-  const isOrg = Array.isArray(user.memberships)
-    ? user.memberships.some(m => m?.role && ORG_ROLES.includes(m.role as any))
-    : false;
-
-  const nav = isOrg
-    ? ORGANIZATION_NAV
-    : user.role === 'OWNER'
-    ? OWNER_NAV
-    : user.role === 'PHARMACIST'
-    ? PHARMACIST_NAV
-    : user.role === 'OTHER_STAFF'
-    ? OTHERSTAFF_NAV
-    : EXPLORER_NAV;
+  if (!user) return <Outlet />;
 
   return (
-    <ReactRouterAppProvider navigation={nav} branding={{ title: 'ChemistTasker' }}>
+    <ReactRouterAppProvider
+      navigation={nav}
+      branding={{ title: "ChemistTasker" }}
+    >
       <Outlet />
     </ReactRouterAppProvider>
   );

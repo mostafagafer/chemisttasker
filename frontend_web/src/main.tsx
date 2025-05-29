@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { Outlet } from 'react-router-dom';
+import { WorkspaceProvider } from './contexts/WorkspaceContext'; // Add this import
 
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 
@@ -293,7 +294,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     {/* AuthProvider must wrap RouterProvider */}
     <AuthProvider>
+      <WorkspaceProvider> {/* Add this wrapper */}
       <RouterProvider router={router} />
+      </WorkspaceProvider> {/* Close wrapper */}
     </AuthProvider>
   </React.StrictMode>
 );

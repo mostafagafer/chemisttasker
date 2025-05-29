@@ -2,10 +2,6 @@
 
 import { createContext, useContext, ReactNode, useEffect, useState } from 'react';
 
-//
-// 1. Define the shape of an organization membership.
-//    This matches what your backend returns on login.
-//
 export interface OrgMembership {
   organization_id: number;
   organization_name: string;
@@ -13,9 +9,6 @@ export interface OrgMembership {
   region: string;
 }
 
-//
-// 2. Extend your User type to include memberships.
-//
 export type User = {
   id?: number;
   username: string;
@@ -25,10 +18,10 @@ export type User = {
 };
 
 type AuthContextType = {
-  access: string | null;   // Primary access token
-  token: string | null;    // Alias for access
-  refresh: string | null;  // Refresh token
-  user: User | null;       // Now includes memberships
+  access: string | null;
+  token: string | null;
+  refresh: string | null;
+  user: User | null;
   login: (access: string, refresh: string, user: User) => void;
   logout: () => void;
   isLoading: boolean;
@@ -49,52 +42,68 @@ type AuthProviderProps = {
 };
 
 export function AuthProvider({ children }: AuthProviderProps) {
-  const [access, setAccess]       = useState<string | null>(null);
-  const [refresh, setRefresh]     = useState<string | null>(null);
-  const [user, setUser]           = useState<User | null>(null);
+  const [access, setAccess] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // On mount, pull any saved auth state from localStorage
+  // Bulletproof localStorage/session bootstrap
   useEffect(() => {
-    const storedAccess  = localStorage.getItem('access');
-    const storedRefresh = localStorage.getItem('refresh');
-    const storedUser    = localStorage.getItem('user');
+    try {
+      const storedAccess = localStorage.getItem('access');
+      const storedRefresh = localStorage.getItem('refresh');
+      const storedUser = localStorage.getItem('user');
 
-    if (storedAccess) setAccess(storedAccess);
-    if (storedRefresh) setRefresh(storedRefresh);
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser) as User);
-      } catch {
+      // If any are missing, or user fails to parse, log out completely
+      if (!storedAccess || !storedRefresh || !storedUser) {
+        localStorage.removeItem('access');
+        localStorage.removeItem('refresh');
         localStorage.removeItem('user');
+        setAccess(null);
+        setRefresh(null);
+        setUser(null);
+      } else {
+        try {
+          setUser(JSON.parse(storedUser));
+          setAccess(storedAccess);
+          setRefresh(storedRefresh);
+        } catch {
+          // Malformed user in storage, clear all
+          localStorage.removeItem('user');
+          setUser(null);
+          setAccess(null);
+          setRefresh(null);
+        }
       }
+    } catch {
+      // Catch-all: if anything explodes, clear everything
+      localStorage.removeItem('access');
+      localStorage.removeItem('refresh');
+      localStorage.removeItem('user');
+      setAccess(null);
+      setRefresh(null);
+      setUser(null);
     }
     setIsLoading(false);
   }, []);
 
-  // Called after successful login API call, passing in full User object including memberships
   const login = (newAccess: string, newRefresh: string, userInfo: User) => {
     setAccess(newAccess);
     setRefresh(newRefresh);
     setUser(userInfo);
-
     localStorage.setItem('access', newAccess);
     localStorage.setItem('refresh', newRefresh);
     localStorage.setItem('user', JSON.stringify(userInfo));
-
     console.log('Auth data saved successfully');
   };
 
-  // Clears all auth state
   const logout = () => {
     setAccess(null);
     setRefresh(null);
     setUser(null);
-
     localStorage.removeItem('access');
     localStorage.removeItem('refresh');
     localStorage.removeItem('user');
-
     console.log('Auth data removed successfully');
   };
 
@@ -115,7 +124,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   );
 }
 
-// Hook to consume auth state
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {

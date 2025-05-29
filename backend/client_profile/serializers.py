@@ -57,6 +57,7 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
     username   = serializers.CharField(source='user.username',   required=False)
     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
     last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
+    progress_percent = serializers.SerializerMethodField()
 
     class Meta:
         model  = OwnerOnboarding
@@ -64,7 +65,7 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
             'username', 'first_name', 'last_name',
             'phone_number', 'role', 'chain_pharmacy',
             'ahpra_number', 'verified',
-            'organization', 'organization_claimed',
+            'organization', 'organization_claimed', 'progress_percent',
         ]
         extra_kwargs = {
             'verified': {'read_only': True},
@@ -82,7 +83,22 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
     def update(self, instance, validated_data):
         self.perform_user_sync(validated_data)
         return super().update(instance, validated_data)
-    
+
+    def get_progress_percent(self, obj):
+        required_fields = [
+            obj.user.username,
+            obj.user.first_name,
+            obj.user.last_name,
+            obj.phone_number,
+            obj.role,
+        ]
+        # Only count AHPRA for pharmacists:
+        if obj.role == "PHARMACIST":
+            required_fields.append(obj.ahpra_number)
+        filled = sum(bool(field) for field in required_fields)
+        percent = int(100 * filled / len(required_fields))
+        return percent
+
 
 class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
     file_fields = ['government_id', 'gst_file', 'tfn_declaration', 'resume']
@@ -90,6 +106,7 @@ class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
     username   = serializers.CharField(source='user.username',   required=False)
     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
     last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
+    progress_percent = serializers.SerializerMethodField()
 
     class Meta:
         model  = PharmacistOnboarding
@@ -100,7 +117,7 @@ class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
             'abn', 'gst_registered', 'gst_file',
             'tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number',
             'referee1_email', 'referee2_email',
-            'rate_preference', 'verified', 'member_of_chain'
+            'rate_preference', 'verified', 'member_of_chain', 'progress_percent',
         ]
         extra_kwargs = {
             'verified':        {'read_only': True},
@@ -118,16 +135,46 @@ class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
         self.perform_user_sync(validated_data)
         return super().update(instance, validated_data)
 
+    def get_progress_percent(self, obj):
+        required_fields = [
+            obj.user.username,
+            obj.user.first_name,
+            obj.user.last_name,
+            obj.government_id,
+            obj.ahpra_number,
+            obj.phone_number,
+            obj.payment_preference,
+            obj.referee1_email,
+            obj.referee2_email,
+            obj.resume,
+            obj.short_bio,
+        ]
+        # ABN is only required if payment_preference is "abn"
+        if obj.payment_preference and obj.payment_preference.lower() == "abn":
+            required_fields.append(obj.abn)
+            if obj.gst_registered ==True:
+                required_fields.append(obj.gst_file)
+
+        # TFN is only required if payment_preference is "TFN"
+        if obj.payment_preference and obj.payment_preference.lower() == "tfn":
+            required_fields.append(obj.tfn_declaration)
+            required_fields.append(obj.super_fund_name)
+            required_fields.append(obj.super_usi)
+            required_fields.append(obj.super_member_number)
+        filled = sum(bool(field) for field in required_fields)
+        percent = int(100 * filled / len(required_fields))
+        return percent
+
 class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
     file_fields = [
         'government_id', 'ahpra_proof', 'hours_proof',
         'certificate', 'university_id', 'cpr_certificate', 's8_certificate',
         'gst_file', 'tfn_declaration', 'resume'
     ]
-
     username   = serializers.CharField(source='user.username',   required=False)
     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
     last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
+    progress_percent = serializers.SerializerMethodField()
 
     class Meta:
         model  = OtherStaffOnboarding
@@ -135,15 +182,15 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
             'username', 'first_name', 'last_name',
             'government_id', 'role_type', 'phone_number',
             'skills', 'years_experience', 'payment_preference',
-            'classification_level',  # ✅ NEW
-            'student_year',          # ✅ NEW
-            'intern_half',           # ✅ NEW
+            'classification_level',
+            'student_year',
+            'intern_half',
             'ahpra_proof', 'hours_proof', 'certificate', 'university_id',
             'cpr_certificate', 's8_certificate',
             'abn', 'gst_registered', 'gst_file', 'tfn_declaration',
             'super_fund_name', 'super_usi', 'super_member_number',
             'referee1_email', 'referee2_email', 'short_bio', 'resume',
-            'verified'
+            'verified', 'progress_percent',
         ]
         extra_kwargs = {
             'verified': {'read_only': True},
@@ -169,6 +216,51 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
         self.perform_user_sync(validated_data)
         return super().update(instance, validated_data)
 
+    def get_progress_percent(self, obj):
+        required_fields = [
+            obj.user.username,
+            obj.user.first_name,
+            obj.user.last_name,
+            obj.government_id,
+            obj.phone_number,
+            obj.role_type,
+            obj.payment_preference,
+            obj.referee1_email,
+            obj.referee2_email,
+            obj.resume,
+            obj.short_bio,
+        ]
+        if obj.role_type == "STUDENT":
+            required_fields.append(obj.student_year)
+            required_fields.append(obj.university_id)
+        if obj.role_type == "ASSISTANT":
+            required_fields.append(obj.classification_level)
+            required_fields.append(obj.certificate)
+        if obj.role_type == "TECHNICIAN":
+            required_fields.append(obj.certificate)
+        if obj.role_type == "INTERN":
+            required_fields.append(obj.intern_half)
+            required_fields.append(obj.ahpra_proof)
+            required_fields.append(obj.hours_proof)
+
+        # ABN is only required if payment_preference is "abn"
+        if obj.payment_preference and obj.payment_preference.lower() == "abn":
+            required_fields.append(obj.abn)
+            if obj.gst_registered ==True:
+                required_fields.append(obj.gst_file)
+
+        # TFN is only required if payment_preference is "TFN"
+        if obj.payment_preference and obj.payment_preference.lower() == "tfn":
+            required_fields.append(obj.tfn_declaration)
+            required_fields.append(obj.super_fund_name)
+            required_fields.append(obj.super_usi)
+            required_fields.append(obj.super_member_number)
+
+
+        filled = sum(bool(field) for field in required_fields)
+        percent = int(100 * filled / len(required_fields))
+        return percent
+
 
 class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
     file_fields = ['government_id', 'resume']
@@ -176,6 +268,7 @@ class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serialize
     username   = serializers.CharField(source='user.username',   required=False)
     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
     last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
+    progress_percent = serializers.SerializerMethodField()
 
     class Meta:
         model  = ExplorerOnboarding
@@ -183,7 +276,7 @@ class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serialize
             'username', 'first_name', 'last_name',
             'government_id', 'role_type', 'phone_number',
             'interests', 'referee1_email', 'referee2_email',
-            'short_bio', 'resume', 'verified'
+            'short_bio', 'resume', 'verified', 'progress_percent',
         ]
         extra_kwargs = {
             'verified': {'read_only': True},
@@ -197,6 +290,23 @@ class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serialize
     def update(self, instance, validated_data):
         self.perform_user_sync(validated_data)
         return super().update(instance, validated_data)
+
+    def get_progress_percent(self, obj):
+        required_fields = [
+            obj.user.username,
+            obj.user.first_name,
+            obj.user.last_name,
+            obj.government_id,
+            obj.phone_number,
+            obj.role_type,
+            obj.referee1_email,
+            obj.referee2_email,
+            obj.resume,
+            obj.short_bio,
+        ]
+        filled = sum(bool(field) for field in required_fields)
+        percent = int(100 * filled / len(required_fields))
+        return percent
 
 # Dashboards
 class OwnerDashboardResponseSerializer(serializers.Serializer):

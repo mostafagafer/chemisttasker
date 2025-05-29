@@ -1,5 +1,5 @@
 // src/navigation.tsx
-import type { Navigation } from '@toolpad/core'
+import  { Navigation } from '@toolpad/core'
 import DashboardIcon           from '@mui/icons-material/Dashboard'
 import MedicationLiquidIcon    from '@mui/icons-material/MedicationLiquid'
 import CorporateFareIcon       from '@mui/icons-material/CorporateFare'
@@ -17,7 +17,7 @@ import PlayArrowIcon    from '@mui/icons-material/PlayArrow';
 import CheckCircleIcon  from '@mui/icons-material/CheckCircle';
 import HistoryIcon      from '@mui/icons-material/History';
 import ReceiptIcon from '@mui/icons-material/Receipt';
-
+import Chip from "@mui/material/Chip";
 
 
 export const ORGANIZATION_NAV: Navigation = [
@@ -53,12 +53,25 @@ export const ORGANIZATION_NAV: Navigation = [
   { segment: 'dashboard/organization/logout',        title: 'Logout',            icon: <LogoutIcon /> },
 ]
 
-export const OWNER_NAV: Navigation = [
-  { kind: 'header', title: 'Profile Settings' },
-  { segment: 'dashboard/owner/overview',      title: 'Overview',           icon: <DashboardIcon /> },
-  { segment: 'dashboard/owner/onboarding',    title: 'Profile',            icon: <ManageAccountsSharpIcon /> },
-  { kind: 'divider' },
-  { kind: 'header', title: 'Manage Pharmacies and Shifts' },
+export function getOwnerNav(progress_percent: number) {
+  return [
+    { kind: 'header' as const, title: 'Profile Settings' },
+    { segment: 'dashboard/owner/overview', title: 'Overview', icon: <DashboardIcon /> },
+    {
+      segment: 'dashboard/owner/onboarding',
+      title: 'Profile',
+      icon: <ManageAccountsSharpIcon />,
+      action: (
+        <Chip
+          size="small"
+          label={`${progress_percent}%`}
+          color={progress_percent === 100 ? "success" : "default"}
+          sx={{ ml: 0.5, fontWeight: 700 }}
+        />
+      ),
+    },
+  { kind: 'divider' as const },
+  { kind: 'header' as const, title: 'Manage Pharmacies and Shifts' },
   { segment: 'dashboard/owner/manage-pharmacies',
     title: 'Manage Pharmacies',
     icon: <MedicationLiquidIcon />,
@@ -77,72 +90,183 @@ export const OWNER_NAV: Navigation = [
       { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
     ],
   },
-  { kind: 'divider' },
-  { kind: 'header', title: 'Learning & Explorer Hub' },
+  { kind: 'divider' as const },
+  { kind: 'header' as const, title: 'Learning & Explorer Hub' },
   { segment: 'dashboard/owner/interests',     title: 'Explore Interests', icon: <FavoriteIcon /> },
   { segment: 'dashboard/owner/learning',      title: 'Learning Materials',icon: <SchoolIcon /> },
-  { kind: 'divider' },
+  { kind: 'divider' as const },
   { segment: 'dashboard/owner/logout',        title: 'Logout',            icon: <LogoutIcon /> },
-]
+]}
 
-export const PHARMACIST_NAV: Navigation = [
-  { kind: 'header', title: 'Profile and Availability' },
-  { segment: 'dashboard/pharmacist/overview',     title: 'Overview',           icon: <DashboardIcon /> },
-  { segment: 'dashboard/pharmacist/onboarding',   title: 'Profile',            icon: <ManageAccountsSharpIcon /> },
-  { segment: 'dashboard/pharmacist/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
-  { kind: 'divider' },
-  { kind: 'header', title: 'Shifts & Invoices' },
-  { segment: 'dashboard/pharmacist/shifts',
-    title: 'Shifts',
-    icon: <AccessTimeIcon />,
-    children: [
-      { segment: 'public',    title: 'Public Shifts',    icon: <PublicIcon /> },
-      { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
-      { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
-      { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
-    ],
-  },
-  { segment: 'dashboard/pharmacist/invoice', title: 'Manage Invoices', icon: <ReceiptIcon /> },
+// export function getPharmacistNav(progress_percent: number) {
+//   return [
+//     { kind: 'header' as const, title: 'Profile and Availability' },
+//     { segment: 'dashboard/pharmacist/overview', title: 'Overview', icon: <DashboardIcon /> },
+//     {
+//       segment: 'dashboard/pharmacist/onboarding',
+//       title: 'Profile',
+//       icon: <ManageAccountsSharpIcon />,
+//       action: (
+//         <Chip
+//           size="small"
+//           label={`${progress_percent}%`}
+//           color={progress_percent === 100 ? "success" : "default"}
+//           sx={{ ml: 0.5, fontWeight: 700 }}
+//         />
+//       ),
+//     },
+//   { segment: 'dashboard/pharmacist/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
+//   { kind: 'divider' as const },
+//   { kind: 'header' as const, title: 'Shifts & Invoices' },
+//   { segment: 'dashboard/pharmacist/shifts',
+//     title: 'Shifts',
+//     icon: <AccessTimeIcon />,
+//     children: [
+//       { segment: 'public',    title: 'Public Shifts',    icon: <PublicIcon /> },
+//       { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
+//       { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
+//       { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
+//     ],
+//   },
+//   { segment: 'dashboard/pharmacist/invoice', title: 'Manage Invoices', icon: <ReceiptIcon /> },
 
 
-  { kind: 'divider' },
-  { kind: 'header', title: 'Learning & Explorer Hub' },
-  { segment: 'dashboard/pharmacist/interests',    title: 'Explore Interests', icon: <FavoriteIcon /> },
-  { segment: 'dashboard/pharmacist/learning',     title: 'Learning Materials',icon: <SchoolIcon /> },
-  { kind: 'divider' },
-  { segment: 'dashboard/pharmacist/logout',       title: 'Logout',            icon: <LogoutIcon /> },
-]
+//   { kind: 'divider' as const },
+//   { kind: 'header' as const, title: 'Learning & Explorer Hub' },
+//   { segment: 'dashboard/pharmacist/interests',    title: 'Explore Interests', icon: <FavoriteIcon /> },
+//   { segment: 'dashboard/pharmacist/learning',     title: 'Learning Materials',icon: <SchoolIcon /> },
+//   { kind: 'divider' as const },
+//   { segment: 'dashboard/pharmacist/logout',       title: 'Logout',            icon: <LogoutIcon /> },
+// ]}
 
-export const OTHERSTAFF_NAV: Navigation = [
-  { kind: 'header', title: 'Profile and Availability' },
-  { segment: 'dashboard/otherstaff/overview',     title: 'Overview',   icon: <DashboardIcon /> },
-  { segment: 'dashboard/otherstaff/onboarding',   title: 'Profile',    icon: <ManageAccountsSharpIcon /> },
-  { segment: 'dashboard/otherstaff/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
-  { kind: 'divider' },
-  { kind: 'header', title: 'Shifts & Invoices' },
-  { segment: 'dashboard/otherstaff/shifts',
-    title: 'Shifts',
-    icon: <AccessTimeIcon />,
-    children: [
-      { segment: 'public',    title: 'Public Shifts',    icon: <PublicIcon /> },
-      { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
-      { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
-      { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
-    ],
-  },
-  { segment: 'dashboard/otherstaff/invoice', title: 'Manage Invoices', icon: <ReceiptIcon /> },
-  { kind: 'divider' },
-  { kind: 'header', title: 'Learning & Explorer Hub' },
-  { segment: 'dashboard/otherstaff/interests',    title: 'Explore Interests', icon: <FavoriteIcon /> },
-  { segment: 'dashboard/otherstaff/learning',     title: 'Learning Materials',icon: <SchoolIcon /> },
-  { kind: 'divider' },
-  { segment: 'dashboard/otherstaff/logout',       title: 'Logout',            icon: <LogoutIcon /> },
-]
+export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'internal' | 'platform') {
+  // 1. Define dynamic children for the "Shifts" section, changing based on workspace
+  const shiftsChildren = workspace === 'internal'
+    ? [
+        { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
+        { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
+        { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
+      ]
+    : [
+        { segment: 'public',    title: 'Public Shifts',    icon: <PublicIcon /> },
+        { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
+        { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
+        { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
+      ];
 
-export const EXPLORER_NAV: Navigation = [
-  { kind: 'header', title: 'Profile settings' },
-  { segment: 'dashboard/explorer/overview',   title: 'Overview', icon: <DashboardIcon /> },
-  { segment: 'dashboard/explorer/onboarding', title: 'Profile',  icon: <ManageAccountsSharpIcon /> },
-  { kind: 'divider' },
+  // 2. Build and return the navigation array, matching the structure of the pharmacist nav
+  return [
+    // -- Profile Section --
+    { kind: 'header' as const, title: 'Profile and Availability' },
+    { segment: 'dashboard/otherstaff/overview', title: 'Overview', icon: <DashboardIcon /> },
+    {
+      segment: 'dashboard/otherstaff/onboarding',
+      title: 'Profile',
+      icon: <ManageAccountsSharpIcon />,
+      action: (
+        <Chip
+          size="small"
+          label={`${progress_percent}%`}
+          color={progress_percent === 100 ? "success" : "default"}
+          sx={{ ml: 0.5, fontWeight: 700 }}
+        />
+      ),
+    },
+    { segment: 'dashboard/otherstaff/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
+
+    // -- Divider & Shifts Section --
+    { kind: 'divider' as const },
+    { kind: 'header' as const, title: 'Shifts & Invoices' },
+    {
+      segment: 'dashboard/otherstaff/shifts',
+      title: 'Shifts',
+      icon: <AccessTimeIcon />,
+      children: shiftsChildren,  // <-- Use the dynamic children defined above
+    },
+    { segment: 'dashboard/otherstaff/invoice', title: 'Manage Invoices', icon: <ReceiptIcon /> },
+
+    // -- Divider & Learning Section --
+    { kind: 'divider' as const },
+    { kind: 'header' as const, title: 'Learning & Explorer Hub' },
+    { segment: 'dashboard/otherstaff/interests', title: 'Explore Interests', icon: <FavoriteIcon /> },
+    { segment: 'dashboard/otherstaff/learning', title: 'Learning Materials', icon: <SchoolIcon /> },
+
+    // -- Divider & Logout --
+    { kind: 'divider' as const },
+    { segment: 'dashboard/otherstaff/logout', title: 'Logout', icon: <LogoutIcon /> },
+  ];
+}
+
+
+export function getPharmacistNavDynamic(progress_percent: number, workspace: 'internal' | 'platform') {
+  const shiftsChildren = workspace === 'internal' 
+    ? [
+        { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
+        { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
+        { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
+      ]
+    : [
+        { segment: 'public', title: 'Public Shifts', icon: <PublicIcon /> },
+        { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
+        { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
+        { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
+      ];
+
+  return [
+    { kind: 'header' as const, title: 'Profile and Availability' },
+    { segment: 'dashboard/pharmacist/overview', title: 'Overview', icon: <DashboardIcon /> },
+    {
+      segment: 'dashboard/pharmacist/onboarding',
+      title: 'Profile',
+      icon: <ManageAccountsSharpIcon />,
+      action: (
+        <Chip
+          size="small"
+          label={`${progress_percent}%`}
+          color={progress_percent === 100 ? "success" : "default"}
+          sx={{ ml: 0.5, fontWeight: 700 }}
+        />
+      ),
+    },
+    { segment: 'dashboard/pharmacist/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
+    { kind: 'divider' as const },
+    { kind: 'header' as const, title: 'Shifts & Invoices' },
+    { 
+      segment: 'dashboard/pharmacist/shifts',
+      title: 'Shifts',
+      icon: <AccessTimeIcon />,
+      children: shiftsChildren,
+    },
+    { segment: 'dashboard/pharmacist/invoice', title: 'Manage Invoices', icon: <ReceiptIcon /> },
+    { kind: 'divider' as const },
+    { kind: 'header' as const, title: 'Learning & Explorer Hub' },
+    { segment: 'dashboard/pharmacist/interests', title: 'Explore Interests', icon: <FavoriteIcon /> },
+    { segment: 'dashboard/pharmacist/learning', title: 'Learning Materials', icon: <SchoolIcon /> },
+    { kind: 'divider' as const },
+    { segment: 'dashboard/pharmacist/logout', title: 'Logout', icon: <LogoutIcon /> },
+  ];
+}
+
+
+
+
+export function getExplorerNav(progress_percent: number) {
+  return [
+    { kind: 'header' as const, title: 'Profile settings' },
+    { segment: 'dashboard/explorer/overview', title: 'Overview', icon: <DashboardIcon /> },
+    {
+      segment: 'dashboard/explorer/onboarding',
+      title: 'Profile',
+      icon: <ManageAccountsSharpIcon />,
+      action: (
+        <Chip
+          size="small"
+          label={`${progress_percent}%`}
+          color={progress_percent === 100 ? "success" : "default"}
+          sx={{ ml: 0.5, fontWeight: 700 }}
+        />
+      ),
+    },
+  { kind: 'divider' as const },
   { segment: 'dashboard/explorer/logout',     title: 'Logout',   icon: <LogoutIcon /> },
-]
+]}

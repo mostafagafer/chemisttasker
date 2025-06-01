@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from .models import OrganizationMembership
 from .serializers import InviteOrgUserSerializer
 from .permissions import OrganizationRolePermission  # our consolidated guard
+from django.conf import settings
 
 from rest_framework.views import APIView
 from django.utils.encoding import force_str
@@ -177,6 +178,7 @@ class PasswordResetConfirmAPIView(APIView):
 
         # all good—set the password
         user.set_password(pw1)
+        user.is_otp_verified = True
         user.save()
         return Response({'detail':'Password has been reset.'})
 
@@ -222,15 +224,24 @@ class InviteOrgUserView(generics.CreateAPIView):
         # 3) Build the front-end reset link
         uid   = urlsafe_base64_encode(force_bytes(user.pk))
         token = default_token_generator.make_token(user)
-        front_end_link = f"http://localhost:5173/reset-password/{uid}/{token}/"
+        frontend_url = settings.FRONTEND_BASE_URL
+        front_end_link = f"{frontend_url}/reset-password/{uid}/{token}/"
 
-        # 4) Send the email via console backend
-        send_mail(
-            "Set your password",
-            f"Click to set your password:\n\n{front_end_link}",
-            "no-reply@localhost",
-            [user.email],
-            fail_silently=False,
+        # 4) Prepare async email context and send
+        context = {
+            "org_name": data['organization'].name,
+            "role": data['role'].title(),
+            "magic_link": front_end_link,
+            "inviter": self.request.user.get_full_name() or self.request.user.email or "A ChemistTasker admin",
+        }
+        recipient_list = [user.email]
+
+        send_async_email.defer(
+            subject=f"You've been invited to join {data['organization'].name} on ChemistTasker",
+            recipient_list=recipient_list,
+            template_name="emails/org_invite_new_user.html",
+            context=context,
+            text_template="emails/org_invite_new_user.txt",
         )
 
         # 5) Return success

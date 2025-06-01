@@ -4,10 +4,11 @@ import { useState, useEffect } from 'react';
 import {
   Box, Button, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, Snackbar, IconButton,
-  Grid, Typography, Accordion, AccordionSummary,
+  Typography, Accordion, AccordionSummary,
   AccordionDetails, AccordionActions, List,
-  ListItem, ListItemText, Autocomplete
+  ListItem, ListItemText, Autocomplete, Tabs, Tab
 } from '@mui/material';
+import Grid from '@mui/material/Grid'; // CORRECT import for Grid!
 import {
   Add as AddIcon, Delete as DeleteIcon,
   Edit as EditIcon, ExpandMore as ExpandMoreIcon,
@@ -15,6 +16,31 @@ import {
 } from '@mui/icons-material';
 import apiClient from '../../../utils/apiClient';
 import { API_BASE_URL, API_ENDPOINTS } from '../../../constants/api';
+
+// New types for invite rows
+type InviteRow = {
+  email: string;
+  role: string;
+  employment_type: string;
+};
+
+const ROLES = [
+  { value: "PHARMACIST", label: "Pharmacist" },
+  { value: "TECHNICIAN", label: "Technician" },
+  { value: "ASSISTANT", label: "Assistant" },
+  { value: "INTERN", label: "Intern" },
+  { value: "STUDENT", label: "Student" }
+];
+
+const MEMBER_TYPES = [
+  { value: "FULL_TIME", label: "Full-time" },
+  { value: "PART_TIME", label: "Part-time" }
+];
+
+const LOCUM_TYPES = [
+  { value: "LOCUM", label: "Locum" },
+  { value: "CASUAL", label: "Casual" }
+];
 
 type Chain = {
   id: string;
@@ -42,11 +68,19 @@ export default function ChainPage() {
   const [tempPharmacies, setTempPharmacies] = useState<Pharmacy[]>([]);
 
   // ── Users & memberships ───────────
-  const [users, setUsers] = useState<User[]>([]);
   const [memberships, setMemberships] = useState<Record<string, Membership[]>>({});
   const [openStaffDlg, setOpenStaffDlg] = useState(false);
   const [currentPh, setCurrentPh] = useState<Pharmacy | null>(null);
-  const [addStaff, setAddStaff] = useState<User[]>([]);
+
+  // Staff invite dialog state
+  const [staffTab, setStaffTab] = useState(0); // 0 = Members, 1 = Favourite Locums
+  const [memberInvites, setMemberInvites] = useState<InviteRow[]>([
+    { email: '', role: 'PHARMACIST', employment_type: 'FULL_TIME' }
+  ]);
+  const [locumInvites, setLocumInvites] = useState<InviteRow[]>([
+    { email: '', role: 'PHARMACIST', employment_type: 'LOCUM' }
+  ]);
+  const [loading, setLoading] = useState(false);
 
   // ── Snackbar ──────────────────────
   const [snack, setSnack] = useState<{ open: boolean; msg: string }>({ open: false, msg: '' });
@@ -62,8 +96,7 @@ export default function ChainPage() {
       .catch(console.error);
 
     apiClient.get<User[]>(`${API_BASE_URL}${API_ENDPOINTS.users}`)
-      .then(res => setUsers(res.data))
-      .catch(console.error);
+      .catch(console.error); // Users state no longer used in new dialog
   }, []);
 
   // ── Whenever chain changes, load its pharmacies + members ─────────────
@@ -176,28 +209,44 @@ export default function ChainPage() {
   // ── Staff Dialog ────────────────────────────────────────────────────
   function openStaff(ph: Pharmacy) {
     setCurrentPh(ph);
-    loadMembers(ph.id);
-    setAddStaff([]);
+    setStaffTab(0);
+    setMemberInvites([{ email: '', role: 'PHARMACIST', employment_type: 'FULL_TIME' }]);
+    setLocumInvites([{ email: '', role: 'PHARMACIST', employment_type: 'LOCUM' }]);
     setOpenStaffDlg(true);
   }
   function closeStaff() {
     setOpenStaffDlg(false);
   }
-  async function saveStaff() {
-    if (!currentPh) return;
-    const existingIds = (memberships[currentPh.id] || []).map(m => m.user_details.id);
-    const toAdd = addStaff.filter(u => !existingIds.includes(u.id));
 
-    await Promise.all(toAdd.map(u =>
-      apiClient.post(
-        `${API_BASE_URL}${API_ENDPOINTS.membershipCreate}`,
-        { pharmacy: currentPh.id, user: u.id }
-      )
-    ));
-    loadMembers(currentPh.id);
-    setSnack({ open: true, msg: 'Staff added' });
-    closeStaff();
+  async function handleBulkInvite(type: 'member' | 'locum') {
+    if (!currentPh) return;
+    const invites = (type === 'member' ? memberInvites : locumInvites)
+      .filter(row => row.email && row.role && row.employment_type)
+      .map(row => ({
+        ...row,
+        pharmacy: currentPh.id
+      }));
+
+    if (invites.length === 0) {
+      setSnack({ open: true, msg: 'Please enter at least one complete invitation.' });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await apiClient.post(
+        `${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`,
+        { invitations: invites }
+      );
+      loadMembers(currentPh.id);
+      setSnack({ open: true, msg: 'Invitations sent!' });
+      closeStaff();
+    } catch (e: any) {
+      setSnack({ open: true, msg: e?.response?.data?.detail || 'Failed to send invitations.' });
+    }
+    setLoading(false);
   }
+
   async function removeStaff(memId: string, phId: string) {
     await apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.membershipDelete(memId)}`);
     loadMembers(phId);
@@ -354,28 +403,189 @@ export default function ChainPage() {
       </Dialog>
 
       {/* Staff Dialog */}
-      <Dialog open={openStaffDlg} onClose={closeStaff} fullWidth>
-        <DialogTitle>Add Staff to {currentPh?.name}</DialogTitle>
-        <DialogContent>
-          <Autocomplete
-            multiple
-            options={users.filter(u =>
-              !(memberships[currentPh?.id || ''] || [])
-                .some(m => m.user_details.id === u.id)
+<Dialog open={openStaffDlg} onClose={closeStaff} fullWidth>
+  <DialogTitle>Invite Staff to {currentPh?.name}</DialogTitle>
+  <DialogContent>
+    <Tabs value={staffTab} onChange={(_, v) => setStaffTab(v)}>
+      <Tab label="Members" />
+      <Tab label="Favourite Locums" />
+    </Tabs>
+
+    {/* Members Tab */}
+    {staffTab === 0 && (
+      <Box mt={2}>
+        {memberInvites.map((row, idx) => (
+          <Box
+            key={idx}
+            sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2 }}
+          >
+            <TextField
+              label="Email"
+              fullWidth
+              value={row.email}
+              onChange={e => {
+                const v = [...memberInvites];
+                v[idx].email = e.target.value;
+                setMemberInvites(v);
+              }}
+            />
+            <TextField
+              select
+              label="Role"
+              value={row.role}
+              onChange={e => {
+                const v = [...memberInvites];
+                v[idx].role = e.target.value;
+                setMemberInvites(v);
+              }}
+              SelectProps={{ native: true }}
+              sx={{ minWidth: 140 }}
+            >
+              {ROLES.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Employment Type"
+              value={row.employment_type}
+              onChange={e => {
+                const v = [...memberInvites];
+                v[idx].employment_type = e.target.value;
+                setMemberInvites(v);
+              }}
+              SelectProps={{ native: true }}
+              sx={{ minWidth: 120 }}
+            >
+              {MEMBER_TYPES.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </TextField>
+            {memberInvites.length > 1 && (
+              <IconButton
+                onClick={() =>
+                  setMemberInvites(v => v.filter((_, i) => i !== idx))
+                }
+              >
+                <DeleteIcon />
+              </IconButton>
             )}
-            getOptionLabel={u => u.email}
-            value={addStaff}
-            onChange={(_, v) => setAddStaff(v)}
-            renderInput={params => <TextField {...params} label="Select Users" />}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeStaff}>Cancel</Button>
-          <Button variant="contained" onClick={saveStaff}>
-            Save
+          </Box>
+        ))}
+        <Box mt={2} display="flex" alignItems="center">
+          <Button
+            onClick={() =>
+              setMemberInvites(v => [
+                ...v,
+                { email: '', role: 'PHARMACIST', employment_type: 'FULL_TIME' }
+              ])
+            }
+            disabled={loading}
+          >
+            + Add Another
           </Button>
-        </DialogActions>
-      </Dialog>
+          <Button
+            variant="contained"
+            sx={{ ml: 2 }}
+            onClick={() => handleBulkInvite('member')}
+            disabled={loading}
+          >
+            Send Invitations
+          </Button>
+        </Box>
+      </Box>
+    )}
+
+    {/* Favourite Locums Tab */}
+    {staffTab === 1 && (
+      <Box mt={2}>
+        {locumInvites.map((row, idx) => (
+          <Box
+            key={idx}
+            sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2 }}
+          >
+            <TextField
+              label="Email"
+              fullWidth
+              value={row.email}
+              onChange={e => {
+                const v = [...locumInvites];
+                v[idx].email = e.target.value;
+                setLocumInvites(v);
+              }}
+            />
+            <TextField
+              select
+              label="Role"
+              value={row.role}
+              onChange={e => {
+                const v = [...locumInvites];
+                v[idx].role = e.target.value;
+                setLocumInvites(v);
+              }}
+              SelectProps={{ native: true }}
+              sx={{ minWidth: 140 }}
+            >
+              {ROLES.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Employment Type"
+              value={row.employment_type}
+              onChange={e => {
+                const v = [...locumInvites];
+                v[idx].employment_type = e.target.value;
+                setLocumInvites(v);
+              }}
+              SelectProps={{ native: true }}
+              sx={{ minWidth: 120 }}
+            >
+              {LOCUM_TYPES.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </TextField>
+            {locumInvites.length > 1 && (
+              <IconButton
+                onClick={() =>
+                  setLocumInvites(v => v.filter((_, i) => i !== idx))
+                }
+              >
+                <DeleteIcon />
+              </IconButton>
+            )}
+          </Box>
+        ))}
+        <Box mt={2} display="flex" alignItems="center">
+          <Button
+            onClick={() =>
+              setLocumInvites(v => [
+                ...v,
+                { email: '', role: 'PHARMACIST', employment_type: 'LOCUM' }
+              ])
+            }
+            disabled={loading}
+          >
+            + Add Another
+          </Button>
+          <Button
+            variant="contained"
+            sx={{ ml: 2 }}
+            onClick={() => handleBulkInvite('locum')}
+            disabled={loading}
+          >
+            Send Invitations
+          </Button>
+        </Box>
+      </Box>
+    )}
+  </DialogContent>
+  <DialogActions>
+    <Button onClick={closeStaff} disabled={loading}>Cancel</Button>
+  </DialogActions>
+</Dialog>
+
 
       <Snackbar
         open={snack.open}

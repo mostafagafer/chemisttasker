@@ -37,3 +37,14 @@ def build_shift_email_context(shift, user=None, extra=None, role=None, shift_typ
     if extra:
         ctx.update(extra)
     return ctx
+
+
+import re
+
+def clean_email(email):
+    """Remove hidden unicode chars and spaces from email."""
+    if not email:
+        return email
+    # Remove LTR/RTL, bidi, zero-width space, and all whitespace
+    # \u200e (LTR), \u200f (RTL), \u202a-\u202e (bidi), \u200b (zero-width space), \s (any space)
+    return re.sub(r'[\u200e\u200f\u202a-\u202e\u200b\s]', '', email)

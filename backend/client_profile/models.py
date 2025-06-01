@@ -277,6 +277,21 @@ class Pharmacy(models.Model):
 
 # Membership Model - Manages the user roles within each pharmacy
 class Membership(models.Model):
+    ROLE_CHOICES = [
+        ("PHARMACIST", "Pharmacist"),
+        ("INTERN", "Intern Pharmacist"),
+        ("TECHNICIAN", "Dispensary Technician"),
+        ("ASSISTANT", "Pharmacy Assistant"),
+        ("STUDENT", "Pharmacy Student"),
+    ]
+
+    EMPLOYMENT_TYPE_CHOICES = [
+        ("FULL_TIME", "Full-time"),
+        ("PART_TIME", "Part-time"),
+        ("LOCUM", "Locum"),
+        ("CASUAL", "Casual"),
+    ]
+
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     pharmacy = models.ForeignKey(
         'client_profile.Pharmacy',
@@ -285,6 +300,34 @@ class Membership(models.Model):
         null=True,
         blank=True
     )
+
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sent_pharmacy_invites',
+        help_text="The user who sent this invitation."
+    )
+    invited_name = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Staff name as entered by the inviter (optional)."
+    )
+    role = models.CharField(
+        max_length=50,
+        choices=ROLE_CHOICES,
+        blank=False,
+        help_text="Staff role in pharmacy"
+    )
+    employment_type = models.CharField(
+        max_length=20,
+        choices=EMPLOYMENT_TYPE_CHOICES,
+        blank=False,
+        help_text="Employment type"
+    )
+
+
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -295,8 +338,8 @@ class Membership(models.Model):
 
     def __str__(self):
         if self.pharmacy:
-            return f"{self.user.get_full_name()} in {self.pharmacy.name}"
-        return self.user.get_full_name()
+            return f"{self.user.email} in {self.pharmacy.name} ({self.role})"
+        return self.user.email
 
 # Chain Model - Represents a chain of pharmacies
 class Chain(models.Model):

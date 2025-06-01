@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>You’re Invited to Join ChemistTasker!</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
+        .wave { font-size: 2.5rem; }
+        .btn {
+            display: inline-block;
+            background: #23b59c;
+            color: #fff;
+            padding: 12px 28px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.15rem;
+            margin: 16px 0;
+            box-shadow: 0 1px 3px #e0e0e0;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #199982; }
+        .emoji { font-size: 1.25rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="wave">🚀🩺</div>
+        <h2>You’ve Been Invited to Join {{ pharmacy_name }}!</h2>
+        <p>
+            Hi there,
+        </p>
+        <p>
+            <b>{{ inviter }}</b> has invited you to join <b>{{ pharmacy_name }}</b> as a <b>{{ role|title }}</b> on ChemistTasker.<br>
+            To get started, just set your password below!
+        </p>
+        <a class="btn" href="{{ magic_link }}">Set Your Password</a>
+        <p>
+            After you set your password, you’ll have immediate access to all community shifts for {{ pharmacy_name }}.<br>
+            (You can complete your profile later if you want to apply for public shifts.)
+        </p>
+        <p>
+            We’re excited to have you on the team—welcome aboard!
+        </p>
+        <p class="emoji">— The ChemistTasker Team 💚</p>
+    </div>
+</body>
+</html>

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Welcome to Your Pharmacy Team!</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
+        .wave { font-size: 2.5rem; }
+        .btn {
+            display: inline-block;
+            background: #23b59c;
+            color: #fff;
+            padding: 12px 28px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.15rem;
+            margin: 16px 0;
+            box-shadow: 0 1px 3px #e0e0e0;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #199982; }
+        .emoji { font-size: 1.25rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="wave">🏥👋</div>
+        <h2>Welcome to the Team at {{ pharmacy_name }}!</h2>
+        <p>
+            Hi {{ user_first_name|default:"there" }},
+        </p>
+        <p>
+            <b>{{ inviter }}</b> has added you as a <b>{{ role|title }}</b> at <b>{{ pharmacy_name }}</b> on ChemistTasker.<br>
+            You now have access to all <b>community shifts</b> at this pharmacy.
+        </p>
+        <a class="btn" href="{{ frontend_dashboard_link }}">Go to ChemistTasker</a>
+        <p>
+            As a member of this pharmacy, you'll get priority access to new shifts and can view all internal opportunities.<br>
+            (To apply for public shifts, just complete your onboarding profile when ready.)
+        </p>
+        <p>
+            If you have any questions or need assistance, our team is always happy to help.
+        </p>
+        <p class="emoji">— The ChemistTasker Team 💚</p>
+    </div>
+</body>
+</html>

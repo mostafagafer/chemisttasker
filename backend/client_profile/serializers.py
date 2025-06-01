@@ -419,13 +419,32 @@ class ChainSerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
 
 class MembershipSerializer(serializers.ModelSerializer):
     user_details = UserProfileSerializer(source='user', read_only=True)
+    invited_by_details = UserProfileSerializer(source='invited_by', read_only=True)
 
     class Meta:
         model = Membership
         fields = [
-            'id','user','user_details','pharmacy',
-            'is_active','created_at','updated_at'
+            'id',
+            'user',
+            'user_details',
+            'pharmacy',
+            'invited_by',
+            'invited_by_details',
+            'invited_name',
+            'role',
+            'employment_type',
+            'is_active',
+            'created_at',
+            'updated_at'
         ]
+        read_only_fields = ['invited_by', 'invited_by_details', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        if request and not validated_data.get('invited_by'):
+            validated_data['invited_by'] = request.user
+        return super().create(validated_data)
+
 
 class ShiftSlotSerializer(serializers.ModelSerializer):
     class Meta:

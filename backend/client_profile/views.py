@@ -18,13 +18,18 @@ from users.serializers import (
     UserProfileSerializer,
 )
 from django.shortcuts import get_object_or_404
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 import json
 from django.db.models import Q, Count, F
 from django.utils import timezone
 from client_profile.services import get_locked_rate_for_slot
 from users.tasks import send_async_email
-from client_profile.utils import build_shift_email_context
+from client_profile.utils import build_shift_email_context, clean_email
+from django.utils.crypto import get_random_string
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode
+from django.utils.encoding import force_bytes
+from django.conf import settings
 
 # Onboardings
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -374,12 +379,203 @@ class MembershipViewSet(viewsets.ModelViewSet):
             qs = qs.filter(pharmacy__chain_id=chain_id)
 
         return qs.distinct()
+    
+    # --- Helper for single membership invite ---
+    def _create_membership_invite(self, data, inviter):
+        """
+        Helper to create or invite a user as a membership and send emails.
+        Returns: (membership_instance, None) if successful, (None, error_message) if not.
+        """
+        try:
+            email_raw = (data.get('email') or data.get('user_email') or '').strip().lower()
+            email = clean_email(email_raw)
+            pharmacy_id = data.get('pharmacy')
+            role = data.get('role')
+            employment_type = data.get('employment_type', '')
+
+            if not email or not pharmacy_id or not role:
+                return None, 'email, pharmacy, and role are required.'
+
+            # Find or create user
+            user = User.objects.filter(email=email).first()
+            user_created = False
+            
+            if not user:
+                print(f"Creating new user for: {email}")
+                try:
+                    if role == "PHARMACIST":
+                        user_role = "PHARMACIST"
+                    elif role in ["INTERN", "STUDENT", "ASSISTANT", "TECHNICIAN"]:
+                        user_role = "OTHER_STAFF"
+                    else:
+                        user_role = "EXPLORER"
+
+                    user = User.objects.create_user(
+                        email=email,
+                        password=get_random_string(12),
+                        role=user_role,
+                        is_otp_verified=False,
+                    )
+                    user_created = True
+                    print(f"Successfully created user: {email}")
+                except Exception as e:
+                    print(f"ERROR creating user {email}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return None, f'Failed to create user: {str(e)}'
+            else:
+                if role == "PHARMACIST" and user.role != "PHARMACIST":
+                    user.role = "PHARMACIST"
+                    user.save()
+                elif role in ["INTERN", "STUDENT", "ASSISTANT", "TECHNICIAN"] and user.role == "EXPLORER":
+                    user.role = "OTHER_STAFF"
+                    user.save()
+
+            # Membership exists?
+            if Membership.objects.filter(user=user, pharmacy_id=pharmacy_id).exists():
+                return None, 'User is already a member of this pharmacy.'
+
+            # Create membership
+            try:
+                membership = Membership.objects.create(
+                    user=user,
+                    pharmacy_id=pharmacy_id,
+                    invited_by=inviter,
+                    invited_name=data.get('invited_name', ''),
+                    role=role,
+                    employment_type=employment_type,
+                )
+                print(f"Successfully created membership for: {email}")
+            except Exception as e:
+                print(f"ERROR creating membership for {email}: {e}")
+                import traceback
+                traceback.print_exc()
+                return None, f'Failed to create membership: {str(e)}'
+
+            # Prepare and send email
+            try:
+                pharmacy = Pharmacy.objects.get(id=pharmacy_id)
+                context = {
+                    "pharmacy_name": pharmacy.name,
+                    "inviter": inviter.get_full_name() or inviter.email or "A pharmacy admin",
+                    "role": role.title() if role else "",
+                }
+                recipient_list = [user.email]
+
+                if user_created:
+                    uid = urlsafe_base64_encode(force_bytes(user.pk))
+                    token = default_token_generator.make_token(user)
+                    context["magic_link"] = f"{settings.FRONTEND_BASE_URL}/reset-password/{uid}/{token}/"
+                    print("About to enqueue email for new user:", recipient_list)
+                    transaction.on_commit(lambda: send_async_email.defer(
+                        subject="You have been invited to join a pharmacy on ChemistTasker",
+                        recipient_list=recipient_list,
+                        template_name="emails/pharmacy_invite_new_user.html",
+                        context=context,
+                        text_template="emails/pharmacy_invite_new_user.txt",
+                    ))
+                    print("Successfully enqueued email for new user:", recipient_list)
+                else:
+                    context["frontend_dashboard_link"] = f"{settings.FRONTEND_BASE_URL}/login"
+                    print("About to enqueue email for existing user:", recipient_list)
+                    transaction.on_commit(lambda: send_async_email.defer(
+                        subject="You have been added to a pharmacy on ChemistTasker",
+                        recipient_list=recipient_list,
+                        template_name="emails/pharmacy_invite_existing_user.html",
+                        context=context,
+                        text_template="emails/pharmacy_invite_existing_user.txt",
+                    ))
+                    print("Successfully enqueued email for existing user:", recipient_list)
+
+            except Exception as e:
+                print(f"ERROR sending email for {email}: {e}")
+                import traceback
+                traceback.print_exc()
+                # Don't return error here - membership was created successfully
+                # Just log the email error but continue
+                print(f"Membership created but email failed for: {email}")
+
+            return membership, None
+            
+        except Exception as e:
+            print(f"UNEXPECTED ERROR in _create_membership_invite for {data.get('email', 'unknown')}: {e}")
+            import traceback
+            traceback.print_exc()
+            return None, f'Unexpected error: {str(e)}'
+    # --- Single Invite (unchanged logic, now uses helper) ---
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy()
+        inviter = request.user
+
+        # Only pharmacy owners or org admins may invite
+        is_owner = OwnerOnboarding.objects.filter(user=inviter).exists()
+        is_org_admin = OrganizationMembership.objects.filter(user=inviter, role='ORG_ADMIN').exists()
+        if not (is_owner or is_org_admin):
+            return Response({'detail': 'Only pharmacy owners or org admins may invite members.'}, status=403)
+
+        membership, error = self._create_membership_invite(data, inviter)
+        if error:
+            return Response({'detail': error}, status=400)
+        serializer = self.get_serializer(membership)
+        return Response(serializer.data, status=201)
+
+    # --- Bulk Invite ---
+    @action(detail=False, methods=['post'], url_path='bulk_invite')
+    def bulk_invite(self, request):
+        inviter = request.user
+        invitations = request.data.get('invitations', [])
+        print("==== BULK INVITE ENTRY ====")
+        print("Request data:", request.data)
+        print("Invitations list:", invitations)
+        if not invitations or not isinstance(invitations, list):
+            print("ERROR: Invitations missing or not a list!")
+            return Response({'detail': 'Invitations must be a list.'}, status=400)
+
+        # Permission: Only pharmacy owners or org admins may invite
+        is_owner = OwnerOnboarding.objects.filter(user=inviter).exists()
+        is_org_admin = OrganizationMembership.objects.filter(user=inviter, role='ORG_ADMIN').exists()
+        print(f"Inviter: {inviter.email}, Is owner? {is_owner}, Is org admin? {is_org_admin}")
+        if not (is_owner or is_org_admin):
+            print("ERROR: Permission denied.")
+            return Response({'detail': 'Only pharmacy owners or org admins may invite members.'}, status=403)
+
+        results = []
+        errors = []
+        for idx, invite in enumerate(invitations):
+            print(f"--- Processing invite {idx+1}/{len(invitations)}: {invite} ---")
+            membership, error = self._create_membership_invite(invite, inviter)
+            if error:
+                print(f"!! Error for invite {idx+1}: {error}")
+                errors.append({'line': idx+1, 'email': invite.get('email'), 'error': error})
+            else:
+                print(f"++ Successfully created membership and enqueued email for: {invite.get('email')}")
+                results.append({
+                    'email': invite.get('email'),
+                    'role': invite.get('role'),
+                    'employment_type': invite.get('employment_type'),
+                    'status': 'invited'
+                })
+
+        print("=== BULK INVITE SUMMARY ===")
+        print("RESULTS:", results)
+        print("ERRORS:", errors)
+
+        response = {'results': results}
+        if errors:
+            response['errors'] = errors
+            status_code = status.HTTP_207_MULTI_STATUS  # Partial success
+        else:
+            status_code = status.HTTP_201_CREATED
+
+        print("=== RETURNING FROM BULK INVITE ===")
+        return Response(response, status=status_code)
+
 
 class ChainViewSet(viewsets.ModelViewSet):
     """
     Manage Chains—and within a chain, add/remove pharmacies & staff.
     """
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
     queryset = Chain.objects.all()
     serializer_class = ChainSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -582,18 +778,20 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         user  = request.user
 
         # 1) Onboarding required
-        if user.role == 'PHARMACIST':
-            if not PharmacistOnboarding.objects.filter(user=user).exists():
-                return Response(
-                    {'detail': 'Please complete your pharmacist onboarding before applying.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        else:  # OTHER_STAFF
-            if not OtherStaffOnboarding.objects.filter(user=user).exists():
-                return Response(
-                    {'detail': 'Please complete your staff onboarding before applying.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        if shift.visibility == PUBLIC_LEVEL:
+            if user.role == 'PHARMACIST':
+                if not PharmacistOnboarding.objects.filter(user=user).exists():
+                    return Response(
+                        {'detail': 'Please complete your pharmacist onboarding before applying for public shifts.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            elif user.role == 'OTHER_STAFF':
+                if not OtherStaffOnboarding.objects.filter(user=user).exists():
+                    return Response(
+                        {'detail': 'Please complete your staff onboarding before applying for public shifts.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
 
         # 2) Interest logic
         if shift.single_user_only:

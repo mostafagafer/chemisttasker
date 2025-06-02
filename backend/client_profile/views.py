@@ -5,7 +5,7 @@ from .serializers import *
 from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema
+# from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import IsAuthenticated, SAFE_METHODS
 from rest_framework.generics import CreateAPIView, RetrieveUpdateAPIView
 from rest_framework.exceptions import NotFound
@@ -173,6 +173,38 @@ class ExplorerOnboardingDetailView(RetrieveUpdateAPIView):
         except ExplorerOnboarding.DoesNotExist:
             raise NotFound("Onboarding profile not found for this user.")
 
+class RefereeConfirmView(APIView):
+    """
+    POST /api/client-profile/onboarding/referee-confirm/<profile_pk>/<ref_idx>/
+    Generic for ALL onboarding profiles.
+    """
+
+    def post(self, request, profile_pk, ref_idx):
+        # Try all models (pharmacist, owner, otherstaff, etc.)
+        onboarding_models = [PharmacistOnboarding, OwnerOnboarding, OtherStaffOnboarding]  # etc
+
+        instance = None
+        for Model in onboarding_models:
+            try:
+                instance = Model.objects.get(pk=profile_pk)
+                break
+            except Model.DoesNotExist:
+                continue
+
+        if not instance:
+            return Response({'detail': 'Onboarding profile not found.'}, status=404)
+
+        # Your custom logic: mark referee as confirmed, log event, whatever you want
+        # Example: set referee1_confirmed or referee2_confirmed field based on ref_idx
+        if str(ref_idx) == "1":
+            instance.referee1_confirmed = True
+        elif str(ref_idx) == "2":
+            instance.referee2_confirmed = True
+        else:
+            return Response({'detail': 'Invalid referee index.'}, status=400)
+
+        instance.save()
+        return Response({'success': True, 'message': 'Referee confirmed.'}, status=200)
 
 # Dashboards
 class OrganizationDashboardView(APIView):
@@ -502,6 +534,7 @@ class MembershipViewSet(viewsets.ModelViewSet):
             import traceback
             traceback.print_exc()
             return None, f'Unexpected error: {str(e)}'
+        
     # --- Single Invite (unchanged logic, now uses helper) ---
     def create(self, request, *args, **kwargs):
         data = request.data.copy()
@@ -780,16 +813,30 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         # 1) Onboarding required
         if shift.visibility == PUBLIC_LEVEL:
             if user.role == 'PHARMACIST':
-                if not PharmacistOnboarding.objects.filter(user=user).exists():
+                try:
+                    po = PharmacistOnboarding.objects.get(user=user)
+                except PharmacistOnboarding.DoesNotExist:
                     return Response(
                         {'detail': 'Please complete your pharmacist onboarding before applying for public shifts.'},
                         status=status.HTTP_400_BAD_REQUEST
                     )
+                if not po.verified:
+                    return Response(
+                        {'detail': 'Your onboarding must be verified by admin before applying for public shifts.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
             elif user.role == 'OTHER_STAFF':
-                if not OtherStaffOnboarding.objects.filter(user=user).exists():
+                try:
+                    os = OtherStaffOnboarding.objects.get(user=user)
+                except OtherStaffOnboarding.DoesNotExist:
                     return Response(
                         {'detail': 'Please complete your staff onboarding before applying for public shifts.'},
                         status=status.HTTP_400_BAD_REQUEST
+                    )
+                if not os.verified:
+                    return Response(
+                        {'detail': 'Your onboarding must be verified by admin before applying for public shifts.'},
+                        status=status.HTTP_403_FORBIDDEN
                     )
 
 

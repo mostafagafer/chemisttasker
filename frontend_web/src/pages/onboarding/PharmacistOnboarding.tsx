@@ -23,6 +23,7 @@ import {
 import apiClient from '../../utils/apiClient';
 import { API_ENDPOINTS, API_BASE_URL } from '../../constants/api';
 import { useNavigate } from 'react-router-dom';
+// import { useRef } from 'react';
 
 interface RatePreference {
   weekday: string;
@@ -51,8 +52,14 @@ interface FormData {
   super_usi: string;
   super_member_number: string;
   rate_preference: RatePreference;
+  referee1_name: string;
+  referee1_relation: string;
   referee1_email: string;
+  referee2_name: string;
+  referee2_relation: string;
   referee2_email: string;
+  referee1_confirmed: boolean;
+  referee2_confirmed: boolean;
   short_bio: string;
   resume: File | null;
 }
@@ -77,6 +84,14 @@ const labels = [
   'Referees',
   'Profile',
 ];
+const REFEREE_REL_CHOICES = [
+  { value: "manager", label: "Manager" },
+  { value: "supervisor", label: "Supervisor" },
+  { value: "colleague", label: "Colleague" },
+  { value: "owner", label: "Owner" },
+  { value: "other", label: "Other" },
+];
+
 
 export default function PharmacistOnboardingForm() {
   const navigate = useNavigate();
@@ -108,8 +123,14 @@ export default function PharmacistOnboardingForm() {
       early_morning: '',
       late_night: '',
     },
-    referee1_email: '',
-    referee2_email: '',
+    referee1_name: "",
+    referee1_relation: "",
+    referee1_email: "",
+    referee1_confirmed: false,
+    referee2_name: "",
+    referee2_relation: "",
+    referee2_email: "",
+    referee2_confirmed: false,
     short_bio: '',
     resume: null,
   });
@@ -147,8 +168,14 @@ export default function PharmacistOnboardingForm() {
           super_usi: d.super_usi || '',
           super_member_number: d.super_member_number || '',
           rate_preference: d.rate_preference || prev.rate_preference,
-          referee1_email: d.referee1_email || '',
-          referee2_email: d.referee2_email || '',
+          referee1_name: d.referee1_name || "",
+          referee1_relation: d.referee1_relation || "",
+          referee1_email: d.referee1_email || "",
+          referee1_confirmed: d.referee1_confirmed || false,
+          referee2_name: d.referee2_name || "",
+          referee2_relation: d.referee2_relation || "",
+          referee2_email: d.referee2_email || "",
+          referee2_confirmed: d.referee2_confirmed || false,
           short_bio: d.short_bio || '',
         }));
         setExistingGovernmentId(d.government_id || '');
@@ -162,6 +189,21 @@ export default function PharmacistOnboardingForm() {
       })
       .finally(() => setLoading(false));
   }, [detailUrl]);
+
+  // const autoSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // useEffect(() => {
+  //   if (!profileExists) return;
+  //   if (loading) return;
+  //   if (autoSaveTimeout.current) clearTimeout(autoSaveTimeout.current);
+  //   autoSaveTimeout.current = setTimeout(() => {
+  //     handleSubmit(undefined, "autosave");
+  //   }, 2000);
+
+  //   return () => {
+  //     if (autoSaveTimeout.current) clearTimeout(autoSaveTimeout.current);
+  //   };
+  //   // eslint-disable-next-line
+  // }, [data]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
@@ -184,29 +226,60 @@ export default function PharmacistOnboardingForm() {
 
   const handleTabChange = (_: any, newIndex: number) => setTabIndex(newIndex);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); setLoading(true); setError('');
+  const handleSubmit = async (
+    e?: React.FormEvent,
+    eventType: "autosave" | "manual" = "manual",
+    submitForVerification = false
+  ) => {
+    if (e) e.preventDefault();
+    setLoading(true);
+    setError('');
     try {
       const form = new FormData();
-      Object.entries(data).forEach(([k,v]) => {
+
+      // Build the data payload. If submitting for verification, include the flag.
+      const payload = {
+        ...data,
+        ...(submitForVerification ? { submitted_for_verification: true } : {}),
+      };
+
+      Object.entries(payload).forEach(([k, v]) => {
         if (v == null) return;
         if (v instanceof File) form.append(k, v);
         else form.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
       });
-      const res = await apiClient.request({ method: profileExists ? 'patch' : 'post', url: profileExists ? detailUrl : createUrl, data: form });
+
+      const res = await apiClient.request({
+        method: profileExists ? 'patch' : 'post',
+        url: profileExists ? detailUrl : createUrl,
+        data: form
+      });
+
       const d = res.data as any;
       setProfileExists(true);
       setExistingGovernmentId(d.government_id || existingGovernmentId);
       setExistingGstFile(d.gst_file || existingGstFile);
       setExistingTfnDeclaration(d.tfn_declaration || existingTfnDeclaration);
       setExistingResume(d.resume || existingResume);
-      setSnackbarOpen(true);
+
+      // Only show snackbar and navigate if this is NOT an autosave:
+      if (eventType !== "autosave") {
+        setSnackbarOpen(true);
+      }
     } catch (err: any) {
       const resp = err.response?.data;
-      if (resp && typeof resp==='object') setError(Object.entries(resp).map(([f,msgs])=>`${f}:${(msgs as string[]).join(',')}`).join('\n'));
-      else setError(err.message);
-    } finally { setLoading(false); }
+      if (resp && typeof resp === 'object') {
+        setError(
+          Object.entries(resp)
+            .map(([f, msgs]) => `${f}:${(msgs as string[]).join(',')}`)
+            .join('\n')
+        );
+      } else setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
+
 
   if (loading) return <Typography>Loading…</Typography>;
 
@@ -356,10 +429,54 @@ export default function PharmacistOnboardingForm() {
       <Typography variant="h6">Rate Preferences</Typography>
       {Object.entries(data.rate_preference).map(([k,v])=><TextField key={k} type="number" fullWidth margin="normal" name={k} value={v} onChange={handleRateChange} label={k.split('_').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ')} />)}
     </Box>,
-    <Box key="refs" sx={{p:2}}>
+    <Box key="refs" sx={{ p: 2 }}>
       <Typography variant="h6">Referees</Typography>
-      <TextField fullWidth margin="normal" label="Referee 1 Email" name="referee1_email" value={data.referee1_email} onChange={handleChange} required />
-      <TextField fullWidth margin="normal" label="Referee 2 Email" name="referee2_email" value={data.referee2_email} onChange={handleChange} required />
+      <Typography sx={{ fontSize: '0.95rem', color: 'text.secondary', mb: 1 }}>
+        Please provide two references (not family). These may be contacted for verification.
+      </Typography>
+      {[1, 2].map(idx => (
+        <Box key={idx} sx={{ mb: 2, pl: 1, borderLeft: '4px solid #eee' }}>
+          <Typography fontWeight={600} sx={{ mb: 1 }}>
+            Referee {idx}
+            {data[`referee${idx}_confirmed` as 'referee1_confirmed' | 'referee2_confirmed'] && (
+              <span style={{ color: 'green', fontSize: 22, verticalAlign: 'middle', marginLeft: 8 }}>✔️</span>
+            )}
+          </Typography>
+
+          <TextField
+            fullWidth
+            margin="normal"
+            label="Name"
+            name={`referee${idx}_name`}
+            value={data[`referee${idx}_name` as keyof FormData] || ""}
+            onChange={handleChange}
+          />
+          <TextField
+            select
+            fullWidth
+            margin="normal"
+            label="Relation"
+            name={`referee${idx}_relation`}
+            value={data[`referee${idx}_relation` as keyof FormData] || ""}
+            onChange={handleChange}
+            SelectProps={{ native: true }}
+          >
+            <option value="">Select relation</option>
+            {REFEREE_REL_CHOICES.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </TextField>
+          <TextField
+            fullWidth
+            margin="normal"
+            label="Email"
+            name={`referee${idx}_email`}
+            value={data[`referee${idx}_email` as keyof FormData] || ""}
+            onChange={handleChange}
+            type="email"
+          />
+        </Box>
+      ))}
     </Box>,
     <Box key="profile" sx={{p:2}}>
       <Typography variant="h6">Profile & Resume</Typography>
@@ -394,11 +511,11 @@ export default function PharmacistOnboardingForm() {
   };
   
     // Wrap your existing handleSubmit so we can debug / delegate:
-    const debugHandleSubmit = async (e: React.FormEvent) => {
-      console.log('Form submit triggered from:', document.activeElement);
-      e.preventDefault();
-      await handleSubmit(e);  // calls your real submit logic
-    };
+    // const debugHandleSubmit = async (e: React.FormEvent) => {
+    //   console.log('Form submit triggered from:', document.activeElement);
+    //   e.preventDefault();
+    //   await handleSubmit(e);  // calls your real submit logic
+    // };
   
   return (
     <Container maxWidth="lg">
@@ -437,8 +554,6 @@ export default function PharmacistOnboardingForm() {
         */}
         {tabIndex === panels.length - 1 ? (
           <Box
-            component="form"
-            onSubmit={debugHandleSubmit}
             onKeyDown={preventFormSubmit}
           >
             {panels[tabIndex]}
@@ -451,9 +566,26 @@ export default function PharmacistOnboardingForm() {
               >
                 Back
               </Button>
-              <Button type="submit" variant="contained" disabled={loading}>
-                {loading ? 'Saving…' : 'Submit'}
-              </Button>
+              <Box>
+                <Button
+                  type="button"
+                  variant="outlined"
+                  disabled={loading}
+                  onClick={() => handleSubmit(undefined, "manual", false)}
+                  sx={{ mr: 2 }}
+                >
+                  {loading ? 'Saving…' : 'Save'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="contained"
+                  color="primary"
+                  disabled={loading}
+                  onClick={() => handleSubmit(undefined, "manual", true)}
+                >
+                  {loading ? 'Submitting…' : 'Submit for Verification'}
+                </Button>
+              </Box>
             </Box>
           </Box>
         ) : (
@@ -470,6 +602,14 @@ export default function PharmacistOnboardingForm() {
               </Button>
               <Button
                 type="button"
+                variant="outlined"
+                disabled={loading}
+                onClick={() => handleSubmit(undefined, "manual", false)}
+              >
+                {loading ? 'Saving…' : 'Save'}
+              </Button>
+              <Button
+                type="button"
                 onClick={() => {
                   console.log('Next button clicked');
                   setTabIndex(i => i + 1);
@@ -480,6 +620,7 @@ export default function PharmacistOnboardingForm() {
             </Box>
           </Box>
         )}
+
       </Paper>
     </Container>
   );

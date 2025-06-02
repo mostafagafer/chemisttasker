@@ -6,6 +6,9 @@ from users.serializers import UserProfileSerializer
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from decimal import Decimal
+# from users.tasks import send_async_email
+# from django.conf import settings
+from client_profile.utils import send_referee_emails, notify_superuser_on_onboarding
 
 User = get_user_model()
 
@@ -25,24 +28,28 @@ class RemoveOldFilesMixin:
                     old.delete(save=False)
         return super().update(instance, validated_data)
 
-
 class SyncUserMixin:
     """
-    Mixin to sync nested user fields on create/update.
+    Mixin to sync user fields (username, first_name, last_name) from validated_data.
     """
-    def _sync_user(self, user, data):
-        if not isinstance(data, dict):
-            return
-        updated = []
-        for attr, val in data.items():
-            setattr(user, attr, val)
-            updated.append(attr)
-        if updated:
-            user.save(update_fields=updated)
+    USER_FIELDS = ['username', 'first_name', 'last_name']
 
     def perform_user_sync(self, validated_data):
-        user_data = validated_data.pop('user', {})
-        self._sync_user(self.context['request'].user, user_data)
+        user = getattr(self, 'instance', None)
+        if user and hasattr(user, 'user'):
+            user = user.user
+        else:
+            user = self.context['request'].user
+
+        user_data = validated_data.pop('user', {})  # Remove 'user' dict if present
+        updated = []
+        for attr in self.USER_FIELDS:
+            if attr in user_data:
+                val = user_data[attr]
+                setattr(user, attr, val)
+                updated.append(attr)
+        if updated:
+            user.save(update_fields=updated)
 
 # Onboardings
 class OrganizationSerializer(serializers.ModelSerializer):
@@ -69,20 +76,25 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
         ]
         extra_kwargs = {
             'verified': {'read_only': True},
-            'organization': {'read_only': True},  # only Org-Admins may set
+            'organization': {'read_only': True},
             'organization_claimed': {'read_only': True},
         }
 
     def create(self, validated_data):
         self.perform_user_sync(validated_data)
-        return OwnerOnboarding.objects.create(
+        obj = OwnerOnboarding.objects.create(
             user=self.context['request'].user,
             **validated_data
         )
+        notify_superuser_on_onboarding(obj)
+        return obj
 
     def update(self, instance, validated_data):
         self.perform_user_sync(validated_data)
-        return super().update(instance, validated_data)
+        obj = super().update(instance, validated_data)
+        notify_superuser_on_onboarding(obj)
+        return obj
+
 
     def get_progress_percent(self, obj):
         required_fields = [
@@ -98,7 +110,6 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
         filled = sum(bool(field) for field in required_fields)
         percent = int(100 * filled / len(required_fields))
         return percent
-
 
 class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
     file_fields = ['government_id', 'gst_file', 'tfn_declaration', 'resume']
@@ -116,24 +127,115 @@ class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
             'skills', 'software_experience', 'payment_preference',
             'abn', 'gst_registered', 'gst_file',
             'tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number',
-            'referee1_email', 'referee2_email',
+
+            'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
+            'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
+
             'rate_preference', 'verified', 'member_of_chain', 'progress_percent',
+            'submitted_for_verification',
         ]
         extra_kwargs = {
             'verified':        {'read_only': True},
             'member_of_chain': {'read_only': True},
+            'submitted_for_verification': {'required': False},
+            # For PATCH compatibility, so you don't get errors on partial updates:
+            'first_name': {'required': False, 'allow_blank': True},
+            'last_name':  {'required': False, 'allow_blank': True},
+            'government_id': {'required': False, 'allow_null': True},
+            'ahpra_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'payment_preference': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_name': {'required': False, 'allow_blank': True},
+            'referee1_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_email': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_confirmed': {'required': False},
+            'referee2_name': {'required': False, 'allow_blank': True},
+            'referee2_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_email': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_confirmed': {'required': False},
+            'resume': {'required': False, 'allow_null': True},
+            'short_bio': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'abn': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'gst_file': {'required': False, 'allow_null': True},
+            'tfn_declaration': {'required': False, 'allow_null': True},
+            'super_fund_name': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'super_usi': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'super_member_number': {'required': False, 'allow_blank': True, 'allow_null': True},
         }
-
+    
     def create(self, validated_data):
         self.perform_user_sync(validated_data)
-        return PharmacistOnboarding.objects.create(
+        validated_data.pop('user', None)
+        obj = PharmacistOnboarding.objects.create(
             user=self.context['request'].user,
             **validated_data
         )
+        send_referee_emails(obj, validated_data, creation=True)
+        notify_superuser_on_onboarding(obj)
+        return obj
 
     def update(self, instance, validated_data):
         self.perform_user_sync(validated_data)
-        return super().update(instance, validated_data)
+        obj = super().update(instance, validated_data)
+        send_referee_emails(obj, validated_data, creation=False)
+        notify_superuser_on_onboarding(obj)
+        return obj
+
+    def validate(self, data):
+        submit = data.get('submitted_for_verification') \
+            or (self.instance and getattr(self.instance, 'submitted_for_verification', False))
+        errors = {}
+
+        must_have = [
+            'username', 'first_name', 'last_name',
+            'government_id', 'ahpra_number', 'phone_number', 'payment_preference',
+            'referee1_name', 'referee1_relation', 'referee1_email',
+            'referee2_name', 'referee2_relation', 'referee2_email',
+        ]
+
+        user_data = data.get('user', {})  # May be {} if not present
+
+        if submit:
+            for f in must_have:
+                if f in ['username', 'first_name', 'last_name']:
+                    # First look in the nested user dict
+                    val = (
+                        user_data.get(f)  # From serializer input
+                        or (self.instance and hasattr(self.instance, 'user') and getattr(self.instance.user, f, None))
+                    )
+                    if not val:
+                        errors[f] = 'This field is required to submit for verification.'
+                else:
+                    value = data.get(f)
+                    if value is None and self.instance:
+                        value = getattr(self.instance, f, None)
+                    if not value:
+                        errors[f] = 'This field is required to submit for verification.'
+
+            pay = data.get('payment_preference') or (self.instance and getattr(self.instance, 'payment_preference', None))
+            if pay:
+                if pay.lower() == "abn":
+                    abn = data.get('abn') or (self.instance and getattr(self.instance, 'abn', None))
+                    if not abn:
+                        errors['abn'] = 'ABN required when payment preference is ABN.'
+                    gst = data.get('gst_registered')
+                    if gst is None and self.instance:
+                        gst = getattr(self.instance, 'gst_registered', None)
+                    if gst:
+                        gst_file = data.get('gst_file') or (self.instance and getattr(self.instance, 'gst_file', None))
+                        if not gst_file:
+                            errors['gst_file'] = 'GST certificate required if GST registered.'
+                elif pay.lower() == "tfn":
+                    for f in ['tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number']:
+                        val = data.get(f)
+                        if val is None and self.instance:
+                            val = getattr(self.instance, f, None)
+                        if not val:
+                            errors[f] = f'{f.replace("_", " ").title()} required when payment preference is TFN.'
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return data
 
     def get_progress_percent(self, obj):
         required_fields = [
@@ -144,8 +246,8 @@ class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
             obj.ahpra_number,
             obj.phone_number,
             obj.payment_preference,
-            obj.referee1_email,
-            obj.referee2_email,
+            obj.referee1_confirmed,
+            obj.referee2_confirmed,
             obj.resume,
             obj.short_bio,
         ]
@@ -182,39 +284,149 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
             'username', 'first_name', 'last_name',
             'government_id', 'role_type', 'phone_number',
             'skills', 'years_experience', 'payment_preference',
-            'classification_level',
-            'student_year',
-            'intern_half',
+            'classification_level', 'student_year', 'intern_half',
             'ahpra_proof', 'hours_proof', 'certificate', 'university_id',
             'cpr_certificate', 's8_certificate',
             'abn', 'gst_registered', 'gst_file', 'tfn_declaration',
             'super_fund_name', 'super_usi', 'super_member_number',
-            'referee1_email', 'referee2_email', 'short_bio', 'resume',
+            'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
+            'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
+            'short_bio', 'resume',
             'verified', 'progress_percent',
+            'submitted_for_verification',
         ]
         extra_kwargs = {
             'verified': {'read_only': True},
+            'submitted_for_verification': {'required': False},
+            'first_name': {'required': False, 'allow_blank': True},
+            'last_name':  {'required': False, 'allow_blank': True},
+            'government_id': {'required': False, 'allow_null': True},
+            'role_type': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'skills': {'required': False, 'allow_null': True},
+            'years_experience': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'payment_preference': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'classification_level': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'student_year': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'intern_half': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'ahpra_proof': {'required': False, 'allow_null': True},
+            'hours_proof': {'required': False, 'allow_null': True},
+            'certificate': {'required': False, 'allow_null': True},
+            'university_id': {'required': False, 'allow_null': True},
+            'cpr_certificate': {'required': False, 'allow_null': True},
+            's8_certificate': {'required': False, 'allow_null': True},
+            'abn': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'gst_file': {'required': False, 'allow_null': True},
+            'tfn_declaration': {'required': False, 'allow_null': True},
+            'super_fund_name': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'super_usi': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'super_member_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_name': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_email': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_confirmed': {'required': False},
+            'referee2_name': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_email': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_confirmed': {'required': False},
+            'short_bio': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'resume': {'required': False, 'allow_null': True},
         }
-    def validate(self, data):
-        role = data.get('role_type')
-
-        if role == 'STUDENT' and not data.get('student_year'):
-            raise serializers.ValidationError({'student_year': 'Required for Pharmacy Students.'})
-        if role == 'ASSISTANT' and not data.get('classification_level'):
-            raise serializers.ValidationError({'classification_level': 'Required for Pharmacy Assistants.'})
-        if role == 'INTERN' and not data.get('intern_half'):
-            raise serializers.ValidationError({'intern_half': 'Required for Intern Pharmacists.'})
-
-        return data
 
     def create(self, validated_data):
         self.perform_user_sync(validated_data)
-        validated_data['user'] = self.context['request'].user
-        return super().create(validated_data)
+        validated_data.pop('user', None)
+        obj = OtherStaffOnboarding.objects.create(
+            user=self.context['request'].user,
+            **validated_data
+        )
+        send_referee_emails(obj, validated_data, creation=True)
+        notify_superuser_on_onboarding(obj)
+        return obj
 
     def update(self, instance, validated_data):
         self.perform_user_sync(validated_data)
-        return super().update(instance, validated_data)
+        obj = super().update(instance, validated_data)
+        send_referee_emails(obj, validated_data, creation=False)
+        notify_superuser_on_onboarding(obj)
+        return obj
+
+    def validate(self, data):
+        submit = data.get('submitted_for_verification') \
+            or (self.instance and getattr(self.instance, 'submitted_for_verification', False))
+        errors = {}
+
+        must_have = [
+            'username', 'first_name', 'last_name',
+            'government_id', 'role_type', 'phone_number', 'payment_preference',
+            'referee1_name', 'referee1_relation', 'referee1_email',
+            'referee2_name', 'referee2_relation', 'referee2_email',
+        ]
+
+        user_data = data.get('user', {})
+
+        if submit:
+            for f in must_have:
+                if f in ['username', 'first_name', 'last_name']:
+                    val = (
+                        user_data.get(f)
+                        or (self.instance and hasattr(self.instance, 'user') and getattr(self.instance.user, f, None))
+                    )
+                    if not val:
+                        errors[f] = 'This field is required to submit for verification.'
+                else:
+                    value = data.get(f)
+                    if value is None and self.instance:
+                        value = getattr(self.instance, f, None)
+                    if not value:
+                        errors[f] = 'This field is required to submit for verification.'
+
+            pay = data.get('payment_preference') or (self.instance and getattr(self.instance, 'payment_preference', None))
+            if pay:
+                if pay.lower() == "abn":
+                    abn = data.get('abn') or (self.instance and getattr(self.instance, 'abn', None))
+                    if not abn:
+                        errors['abn'] = 'ABN required when payment preference is ABN.'
+                    gst = data.get('gst_registered')
+                    if gst is None and self.instance:
+                        gst = getattr(self.instance, 'gst_registered', None)
+                    if gst:
+                        gst_file = data.get('gst_file') or (self.instance and getattr(self.instance, 'gst_file', None))
+                        if not gst_file:
+                            errors['gst_file'] = 'GST certificate required if GST registered.'
+                elif pay.lower() == "tfn":
+                    for f in ['tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number']:
+                        val = data.get(f)
+                        if val is None and self.instance:
+                            val = getattr(self.instance, f, None)
+                        if not val:
+                            errors[f] = f'{f.replace("_", " ").title()} required when payment preference is TFN.'
+
+            role = data.get('role_type') or (self.instance and getattr(self.instance, 'role_type', None))
+            if role == 'STUDENT':
+                if not (data.get('student_year') or (self.instance and getattr(self.instance, 'student_year', None))):
+                    errors['student_year'] = 'Required for Pharmacy Students.'
+                if not (data.get('university_id') or (self.instance and getattr(self.instance, 'university_id', None))):
+                    errors['university_id'] = 'Required for Pharmacy Students.'
+            if role == 'ASSISTANT':
+                if not (data.get('classification_level') or (self.instance and getattr(self.instance, 'classification_level', None))):
+                    errors['classification_level'] = 'Required for Pharmacy Assistants.'
+                if not (data.get('certificate') or (self.instance and getattr(self.instance, 'certificate', None))):
+                    errors['certificate'] = 'Certificate required for Pharmacy Assistants.'
+            if role == 'TECHNICIAN':
+                if not (data.get('certificate') or (self.instance and getattr(self.instance, 'certificate', None))):
+                    errors['certificate'] = 'Certificate required for Dispensary Technicians.'
+            if role == 'INTERN':
+                if not (data.get('intern_half') or (self.instance and getattr(self.instance, 'intern_half', None))):
+                    errors['intern_half'] = 'Intern half required for Intern Pharmacists.'
+                if not (data.get('ahpra_proof') or (self.instance and getattr(self.instance, 'ahpra_proof', None))):
+                    errors['ahpra_proof'] = 'AHPRA proof required for Intern Pharmacists.'
+                if not (data.get('hours_proof') or (self.instance and getattr(self.instance, 'hours_proof', None))):
+                    errors['hours_proof'] = 'Hours proof required for Intern Pharmacists.'
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return data
 
     def get_progress_percent(self, obj):
         required_fields = [
@@ -225,8 +437,8 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
             obj.phone_number,
             obj.role_type,
             obj.payment_preference,
-            obj.referee1_email,
-            obj.referee2_email,
+            obj.referee1_confirmed,
+            obj.referee2_confirmed,
             obj.resume,
             obj.short_bio,
         ]
@@ -261,7 +473,6 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
         percent = int(100 * filled / len(required_fields))
         return percent
 
-
 class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
     file_fields = ['government_id', 'resume']
 
@@ -275,21 +486,85 @@ class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serialize
         fields = [
             'username', 'first_name', 'last_name',
             'government_id', 'role_type', 'phone_number',
-            'interests', 'referee1_email', 'referee2_email',
-            'short_bio', 'resume', 'verified', 'progress_percent',
+            'interests',
+            'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
+            'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
+            'short_bio', 'resume',
+            'verified', 'progress_percent',
+            'submitted_for_verification',
         ]
         extra_kwargs = {
             'verified': {'read_only': True},
+            'submitted_for_verification': {'required': False},
+            'first_name': {'required': False, 'allow_blank': True},
+            'last_name':  {'required': False, 'allow_blank': True},
+            'government_id': {'required': False, 'allow_null': True},
+            'role_type': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'interests': {'required': False, 'allow_null': True},
+            'referee1_name': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_email': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_confirmed': {'required': False},
+            'referee2_name': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_email': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_confirmed': {'required': False},
+            'short_bio': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'resume': {'required': False, 'allow_null': True},
         }
 
     def create(self, validated_data):
         self.perform_user_sync(validated_data)
-        validated_data['user'] = self.context['request'].user
-        return super().create(validated_data)
+        validated_data.pop('user', None)
+        obj = ExplorerOnboarding.objects.create(
+            user=self.context['request'].user,
+            **validated_data
+        )
+        send_referee_emails(obj, validated_data, creation=True)
+        notify_superuser_on_onboarding(obj)
+        return obj
 
     def update(self, instance, validated_data):
         self.perform_user_sync(validated_data)
-        return super().update(instance, validated_data)
+        obj = super().update(instance, validated_data)
+        send_referee_emails(obj, validated_data, creation=False)
+        notify_superuser_on_onboarding(obj)
+        return obj
+
+    def validate(self, data):
+        submit = data.get('submitted_for_verification') \
+            or (self.instance and getattr(self.instance, 'submitted_for_verification', False))
+        errors = {}
+
+        must_have = [
+            'username', 'first_name', 'last_name',
+            'government_id', 'role_type', 'phone_number',
+            'referee1_name', 'referee1_relation', 'referee1_email',
+            'referee2_name', 'referee2_relation', 'referee2_email',
+        ]
+
+        user_data = data.get('user', {})
+
+        if submit:
+            for f in must_have:
+                if f in ['username', 'first_name', 'last_name']:
+                    val = (
+                        user_data.get(f)
+                        or (self.instance and hasattr(self.instance, 'user') and getattr(self.instance.user, f, None))
+                    )
+                    if not val:
+                        errors[f] = 'This field is required to submit for verification.'
+                else:
+                    value = data.get(f)
+                    if value is None and self.instance:
+                        value = getattr(self.instance, f, None)
+                    if not value:
+                        errors[f] = 'This field is required to submit for verification.'
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return data
 
     def get_progress_percent(self, obj):
         required_fields = [
@@ -297,10 +572,10 @@ class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serialize
             obj.user.first_name,
             obj.user.last_name,
             obj.government_id,
-            obj.phone_number,
             obj.role_type,
-            obj.referee1_email,
-            obj.referee2_email,
+            obj.phone_number,
+            obj.referee1_confirmed,
+            obj.referee2_confirmed,
             obj.resume,
             obj.short_bio,
         ]
@@ -444,7 +719,6 @@ class MembershipSerializer(serializers.ModelSerializer):
         if request and not validated_data.get('invited_by'):
             validated_data['invited_by'] = request.user
         return super().create(validated_data)
-
 
 class ShiftSlotSerializer(serializers.ModelSerializer):
     class Meta:
@@ -677,7 +951,6 @@ class MyShiftSerializer(serializers.ModelSerializer):
             return generate_preview_invoice_lines(shift=obj, user=user)
         except Exception:
             return []
-
 
 class InvoiceLineItemSerializer(serializers.ModelSerializer):
     class Meta:

@@ -50,35 +50,48 @@ class OwnerOnboarding(models.Model):
 
 
 class PharmacistOnboarding(models.Model):
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    # username = models.CharField(max_length=150)
+    REFEREE_REL_CHOICES = [
+    ('manager', 'Manager'),
+    ('supervisor', 'Supervisor'),
+    ('colleague', 'Colleague'),
+    ('owner', 'Owner'),
+    ('other', 'Other'),
+    ]
 
-    government_id = models.FileField(upload_to='gov_ids/')
-    ahpra_number = models.CharField(max_length=100)
-    phone_number = models.CharField(max_length=20)
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+
+    government_id = models.FileField(upload_to='gov_ids/', blank=True, null=True)
+    ahpra_number = models.CharField(max_length=100, blank=True, null=True)
+    phone_number = models.CharField(max_length=20, blank=True, null=True)
     short_bio = models.TextField(blank=True, null=True)
     resume = models.FileField(upload_to='resumes/', blank=True, null=True)
 
     skills = models.JSONField(default=list, blank=True)
     software_experience = models.JSONField(default=list, blank=True)
 
-    payment_preference = models.CharField(max_length=10)
+    payment_preference = models.CharField(max_length=10, blank=True, null=True)
 
     abn = models.CharField(max_length=20, blank=True, null=True)
     gst_registered = models.BooleanField(default=False)
     gst_file = models.FileField(upload_to='gst_docs/', blank=True, null=True)
-
     tfn_declaration = models.FileField(upload_to='tfn_docs/', blank=True, null=True)
     super_fund_name = models.CharField(max_length=255, blank=True, null=True)
     super_usi = models.CharField(max_length=50, blank=True, null=True)
     super_member_number = models.CharField(max_length=100, blank=True, null=True)
 
-    referee1_email = models.EmailField()
-    referee2_email = models.EmailField()
+    referee1_name = models.CharField(max_length=150, blank=True, null=True)
+    referee1_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
+    referee1_email = models.EmailField(blank=True, null=True)
+    referee1_confirmed = models.BooleanField(default=False)
 
-    # ✅ Embedded as JSONField
+    referee2_name = models.CharField(max_length=150, blank=True, null=True)
+    referee2_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
+    referee2_email = models.EmailField(blank=True, null=True)
+    referee2_confirmed = models.BooleanField(default=False)
+
     rate_preference = models.JSONField(blank=True, null=True)
 
+    submitted_for_verification = models.BooleanField(default=False)
     verified = models.BooleanField(default=False)
     member_of_chain = models.BooleanField(default=False)
 
@@ -113,13 +126,22 @@ class OtherStaffOnboarding(models.Model):
         ("SECOND_HALF", "Intern - Second Half"),
     ]
 
+    REFEREE_REL_CHOICES = [
+    ('manager', 'Manager'),
+    ('supervisor', 'Supervisor'),
+    ('colleague', 'Colleague'),
+    ('owner', 'Owner'),
+    ('other', 'Other'),
+    ]
+
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    government_id = models.FileField(upload_to='gov_ids/')
-    role_type = models.CharField(max_length=50, choices=ROLE_CHOICES)
-    phone_number = models.CharField(max_length=20)
+    government_id = models.FileField(upload_to='gov_ids/', blank=True, null=True)
+    role_type = models.CharField(max_length=50, choices=ROLE_CHOICES, blank=True, null=True)
+    phone_number = models.CharField(max_length=20, blank=True, null=True)
+
     skills = models.JSONField(default=list, blank=True)
-    years_experience = models.CharField(max_length=20)
-    payment_preference = models.CharField(max_length=10)
+    years_experience = models.CharField(max_length=20, blank=True, null=True)
+    payment_preference = models.CharField(max_length=10, blank=True, null=True)
 
     # Granular classification (used in award rate logic)
     classification_level = models.CharField(max_length=20, choices=ASSISTANT_LEVEL_CHOICES, blank=True, null=True)
@@ -144,14 +166,23 @@ class OtherStaffOnboarding(models.Model):
     super_member_number = models.CharField(max_length=100, blank=True, null=True)
 
     # References
-    referee1_email = models.EmailField()
-    referee2_email = models.EmailField()
+    referee1_name = models.CharField(max_length=150, blank=True, null=True)
+    referee1_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
+    referee1_email = models.EmailField(blank=True, null=True)
+    referee1_confirmed = models.BooleanField(default=False)
+
+    referee2_name = models.CharField(max_length=150, blank=True, null=True)
+    referee2_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
+    referee2_email = models.EmailField(blank=True, null=True)
+    referee2_confirmed = models.BooleanField(default=False)
+
 
     # Additional info
     short_bio = models.TextField(blank=True, null=True)
     resume = models.FileField(upload_to='resumes/', blank=True, null=True)
 
     verified = models.BooleanField(default=False)
+    submitted_for_verification = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.user.get_full_name()} - {self.role_type} Onboarding"
@@ -163,21 +194,40 @@ class ExplorerOnboarding(models.Model):
         ("JUNIOR", "Junior"),
         ("CAREER_SWITCHER", "Career Switcher"),
     ]
+  
+    REFEREE_REL_CHOICES = [
+    ('manager', 'Manager'),
+    ('supervisor', 'Supervisor'),
+    ('colleague', 'Colleague'),
+    ('owner', 'Owner'),
+    ('other', 'Other'),
+    ]
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    government_id = models.FileField(upload_to='gov_ids/')
-    role_type = models.CharField(max_length=50, choices=ROLE_CHOICES)
-    phone_number = models.CharField(max_length=20)
+    government_id = models.FileField(upload_to='gov_ids/', blank=True, null=True)
+    role_type = models.CharField(max_length=50, choices=ROLE_CHOICES, blank=True, null=True)
+    phone_number = models.CharField(max_length=20, blank=True, null=True)
 
-    interests = models.JSONField(default=list, blank=True)
+    interests = models.JSONField(default=list, blank=True, null=True)
     # e.g. ['Shadowing','Volunteering','Placement','Junior Assistant Role']
 
-    referee1_email = models.EmailField()
-    referee2_email = models.EmailField()
+    # Referee 1
+    referee1_name = models.CharField(max_length=150, blank=True, null=True)
+    referee1_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
+    referee1_email = models.EmailField(blank=True, null=True)
+    referee1_confirmed = models.BooleanField(default=False)
+
+    # Referee 2
+    referee2_name = models.CharField(max_length=150, blank=True, null=True)
+    referee2_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
+    referee2_email = models.EmailField(blank=True, null=True)
+    referee2_confirmed = models.BooleanField(default=False)
+
     short_bio = models.TextField(blank=True, null=True)
     resume = models.FileField(upload_to='resumes/', blank=True, null=True)
 
     verified = models.BooleanField(default=False)
+    submitted_for_verification = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.user.get_full_name()} - Explorer Onboarding"

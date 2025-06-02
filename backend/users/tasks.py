@@ -3,6 +3,7 @@ from django.template.loader import render_to_string
 from django.conf import settings
 from procrastinate.contrib.django import app
 import traceback
+print("TASK DECORATOR APP:", app)
 
 @app.task
 def send_async_email(subject, recipient_list, template_name, context, from_email=None, text_template=None):
@@ -31,4 +32,4 @@ def send_async_email(subject, recipient_list, template_name, context, from_email
     except Exception as e:
         print("EMAIL SEND ERROR:", e)
         traceback.print_exc()
-        raise  # Still let the exception propagate
+        raise  

@@ -34,9 +34,11 @@ urlpatterns = [
     path('otherstaff/onboarding/me/', OtherStaffOnboardingDetailView.as_view(), name='otherstaff-onboarding-detail'),
     path('explorer/onboarding/', ExplorerOnboardingCreateView.as_view(), name='explorer-onboarding-create'),
     path('explorer/onboarding/me/', ExplorerOnboardingDetailView.as_view(), name='explorer-onboarding-detail'),
+
+    path('onboarding/referee-confirm/<int:profile_pk>/<int:ref_idx>/', RefereeConfirmView.as_view(),name='referee-confirm'),
+
     path('dashboard/organization/', OrganizationDashboardView.as_view(), name='organization-dashboard'),
     path('dashboard/organization/<int:organization_pk>/',OrganizationDashboardView.as_view(), name='organization-dashboard'),
-
     path('dashboard/owner/', OwnerDashboard.as_view()),
     path('dashboard/pharmacist/', PharmacistDashboard.as_view()),
     path('dashboard/otherstaff/', OtherStaffDashboard.as_view()),

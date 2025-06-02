@@ -4,8 +4,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from django.conf import settings
-from .models import Invoice, InvoiceLineItem
-from client_profile.models import Shift, ShiftSlotAssignment, Pharmacy, PharmacistOnboarding, OtherStaffOnboarding
+from client_profile.models import PharmacistOnboarding, OtherStaffOnboarding, Pharmacy, Shift, ShiftSlotAssignment, InvoiceLineItem, Invoice
 
 # Load static JSON data
 BASE_DIR = Path(settings.BASE_DIR)
@@ -19,13 +18,11 @@ LATE_NIGHT_START = time(20, 0)
 def is_public_holiday(slot_date, state):
     return str(slot_date) in PUBLIC_HOLIDAYS.get(state.upper(), [])
 
-
 def get_day_type(slot_date, state):
     if is_public_holiday(slot_date, state):
         return 'public_holiday'
     weekday = slot_date.weekday()
     return 'saturday' if weekday == 5 else 'sunday' if weekday == 6 else 'weekday'
-
 
 def get_time_category(start, end):
     if start < EARLY_MORNING_END:
@@ -33,7 +30,6 @@ def get_time_category(start, end):
     if end > LATE_NIGHT_START:
         return 'late_night'
     return None
-
 
 def get_locked_rate_for_slot(slot, shift, user, override_date=None):
     slot_date = override_date or slot.date
@@ -195,9 +191,6 @@ def generate_invoice_from_shifts(
     billing_data=None,
     due_date=None
 ):
-    import json
-    from decimal import Decimal
-    from client_profile.models import PharmacistOnboarding, OtherStaffOnboarding, Pharmacy, Shift, InvoiceLineItem
 
     try:
         ob = PharmacistOnboarding.objects.get(user=user)

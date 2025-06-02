@@ -35,6 +35,8 @@ CORS_ALLOWED_ORIGINS = [
 
 FRONTEND_BASE_URL = "https://www.chemisttasker.com.au"
 
+BACKEND_BASE_URL=env("WEBSITE_HOSTING")
+
 DEBUG=False
 
 # Redirect all HTTP → HTTPS

@@ -1,1 +1,15 @@
-Hi ISA teshta3'al
+🏥👋  Welcome to the Team at {{ pharmacy_name }}!
+
+Hi {{ user_first_name|default:"there" }},
+
+{{ inviter }} has added you as a {{ role|title }} at {{ pharmacy_name }} on ChemistTasker.
+You now have access to all community shifts at this pharmacy.
+
+Go to ChemistTasker: {{ frontend_dashboard_link }}
+
+As a member of this pharmacy, you'll get priority access to new shifts and can view all internal opportunities.
+(To apply for public shifts, just complete your onboarding profile when ready.)
+
+If you have any questions or need assistance, our team is always happy to help.
+
+— The ChemistTasker Team 💚

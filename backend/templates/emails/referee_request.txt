@@ -1,0 +1,12 @@
+Reference Request for {{ candidate_name }}
+
+Hi {{ referee_name|default:"there" }},
+
+{{ candidate_name }} has listed you as a reference ({{ referee_relation|default:"Reference" }}) for their ChemistTasker application.
+
+Please confirm you are happy to be a referee by clicking the link below:
+{{ confirm_url }}
+
+If you have questions, reply to this email or contact ChemistTasker support.
+
+— The ChemistTasker Team

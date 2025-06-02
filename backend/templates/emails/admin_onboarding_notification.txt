@@ -1,0 +1,18 @@
+New {{ model_verbose_name|title }} Submission (ID {{ pk }})
+
+User: {{ user }}
+Name: {{ user_full_name }}
+Email: {{ user_email }}
+
+Review in admin:
+{{ admin_url }}
+
+Submission Details:
+{% for field, value in summary_fields.items %}
+- {{ field }}: {{ value }}
+{% empty %}
+No fields submitted.
+{% endfor %}
+
+Submitted at: {{ created }}
+ID: {{ pk }}

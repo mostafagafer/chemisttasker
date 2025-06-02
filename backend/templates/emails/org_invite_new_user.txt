@@ -1,1 +1,13 @@
-thi is organaiztion invitation
+👥💌  You’ve Been Invited to Join {{ org_name }}!
+
+Hi there,
+
+{{ inviter }} has invited you to join the organization {{ org_name }} as a {{ role }} on ChemistTasker.
+To get started, just set your password using the link below:
+
+Set your password: {{ magic_link }}
+
+After you set your password, you’ll have immediate access to your new organization.
+Welcome to the ChemistTasker community!
+
+— The ChemistTasker Team 💚

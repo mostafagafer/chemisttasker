@@ -62,7 +62,6 @@ class User(AbstractUser):
     otp_created_at = models.DateTimeField(blank=True, null=True)
     is_otp_verified = models.BooleanField(default=False)
 
-
 class OrganizationMembership(models.Model):
     """
     Assigns users to an Organization with one of three roles.

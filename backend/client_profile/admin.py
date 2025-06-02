@@ -10,7 +10,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         obj.full_clean()  # Enforces model-level validation (e.g. PHARMACIST only)
         super().save_model(request, obj, form, change)
 
-
 @admin.register(OwnerOnboarding)
 class OwnerOnboardingAdmin(admin.ModelAdmin):
     list_display = [
@@ -35,7 +34,10 @@ class OwnerOnboardingAdmin(admin.ModelAdmin):
 
 @admin.register(PharmacistOnboarding)
 class PharmacistOnboardingAdmin(admin.ModelAdmin):
-    list_display = ['user', 'payment_preference', 'verified', 'member_of_chain']
+    list_display = [
+        'user', 'payment_preference', 'verified', 'member_of_chain',
+        'referee1_confirmed', 'referee2_confirmed', 'submitted_for_verification'
+    ]
     list_filter  = ['verified', 'member_of_chain', 'payment_preference']
     search_fields = [
         'user__username', 'user__email', 'user__first_name', 'user__last_name', 'ahpra_number'
@@ -46,8 +48,14 @@ class PharmacistOnboardingAdmin(admin.ModelAdmin):
         'skills', 'software_experience', 'payment_preference',
         'abn', 'gst_registered', 'gst_file',
         'tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number',
-        'referee1_email', 'referee2_email',
-        'rate_preference', 'verified', 'member_of_chain',
+        # Referee 1
+        'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
+        # Referee 2
+        'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
+        'rate_preference',
+        'submitted_for_verification',
+        'verified',
+        'member_of_chain',
     ]
     def save_model(self, request, obj, form, change):
         obj.full_clean()
@@ -57,7 +65,8 @@ class PharmacistOnboardingAdmin(admin.ModelAdmin):
 class OtherStaffOnboardingAdmin(admin.ModelAdmin):
     list_display = [
         'user', 'role_type', 'classification_level', 'student_year',
-        'intern_half', 'payment_preference', 'verified'
+        'intern_half', 'payment_preference', 'verified',
+        'referee1_confirmed', 'referee2_confirmed', 'submitted_for_verification'
     ]
     list_filter = [
         'verified', 'payment_preference', 'role_type',
@@ -69,9 +78,17 @@ class OtherStaffOnboardingAdmin(admin.ModelAdmin):
     fields = [
         'user', 'government_id', 'role_type', 'phone_number', 'skills', 'years_experience',
         'payment_preference', 'classification_level', 'student_year', 'intern_half',
-        'ahpra_proof', 'hours_proof', 'certificate', 'university_id', 'cpr_certificate', 's8_certificate',
-        'abn', 'gst_registered', 'gst_file', 'tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number',
-        'referee1_email', 'referee2_email', 'short_bio', 'resume', 'verified',
+        'ahpra_proof', 'hours_proof', 'certificate', 'university_id',
+        'cpr_certificate', 's8_certificate',
+        'abn', 'gst_registered', 'gst_file', 'tfn_declaration',
+        'super_fund_name', 'super_usi', 'super_member_number',
+        # Referee 1
+        'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
+        # Referee 2
+        'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
+        'short_bio', 'resume',
+        'submitted_for_verification',
+        'verified',
     ]
     def save_model(self, request, obj, form, change):
         obj.full_clean()
@@ -79,14 +96,23 @@ class OtherStaffOnboardingAdmin(admin.ModelAdmin):
 
 @admin.register(ExplorerOnboarding)
 class ExplorerOnboardingAdmin(admin.ModelAdmin):
-    list_display = ['user', 'role_type', 'verified']
+    list_display = [
+        'user', 'role_type', 'verified',
+        'referee1_confirmed', 'referee2_confirmed', 'submitted_for_verification'
+    ]
     list_filter  = ['verified', 'role_type']
     search_fields = [
         'user__username', 'user__email', 'user__first_name', 'user__last_name', 'role_type'
     ]
     fields = [
         'user', 'government_id', 'role_type', 'phone_number', 'interests',
-        'referee1_email', 'referee2_email', 'short_bio', 'resume', 'verified'
+        # Referee 1
+        'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
+        # Referee 2
+        'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
+        'short_bio', 'resume',
+        'submitted_for_verification',
+        'verified',
     ]
     def save_model(self, request, obj, form, change):
         obj.full_clean()

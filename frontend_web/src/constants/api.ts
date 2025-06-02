@@ -30,10 +30,12 @@ export const API_ENDPOINTS = {
     return `/client-profile/${safeRole}/onboarding/`;
   },
 
+  refereeConfirm: (pk: string | number, refIndex: string | number) =>
+    `/client-profile/onboarding/referee-confirm/${pk}/${refIndex}/`,
+
   // invite & claim
   inviteOrgUser: '/users/invite-org-user/',
   passwordResetConfirm: '/users/password-reset-confirm/',
-  // claimOnboarding: (id: number) => `/client-profile/owner-onboarding/${id}/claim/`,
   claimOnboarding: '/client-profile/owner-onboarding/claim/',
 
   // Pharmacies

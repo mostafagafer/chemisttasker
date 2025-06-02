@@ -23,6 +23,7 @@ import OwnerOnboarding from './pages/onboarding/OwnerOnboarding';
 import PharmacistOnboarding from './pages/onboarding/PharmacistOnboarding';
 import OtherStaffOnboarding from './pages/onboarding/OtherStaffOnboarding';
 import ExplorerOnboarding from './pages/onboarding/ExplorerOnboarding';
+import RefereeConfirmPage from './pages/onboarding/RefereeConfirmPage';
 
 
 
@@ -69,10 +70,14 @@ const router = createBrowserRouter([
       { path: 'login',    element: <Login /> },
       { path: 'otp-verify', element: <OTPVerify /> },
       { path: 'register', element: <Register /> },
+
+      // PUBLIC referee confirmation page (add here)
+      { path: 'onboarding/referee-confirm/:pk/:refIndex', element: <RefereeConfirmPage /> },
+
       // Password reset confirm route
       { path: 'reset-password/:uid/:token', element: <ResetPasswordPage /> },
 
-      { path: 'dashboard/:role/shifts/:type/:id', element: <ShiftDetailPage /> }, // <== Add here
+      { path: 'dashboard/:role/shifts/:type/:id', element: <ShiftDetailPage /> },
 
       // Orgnization
       {

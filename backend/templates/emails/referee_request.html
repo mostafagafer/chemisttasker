@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Reference Confirmation Request</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
+        .wave { font-size: 2.5rem; }
+        .btn {
+            display: inline-block;
+            background: #23b59c;
+            color: #fff;
+            padding: 12px 28px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.15rem;
+            margin: 16px 0;
+            box-shadow: 0 1px 3px #e0e0e0;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #199982; }
+        .emoji { font-size: 1.25rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="wave">👋📝</div>
+        <h2>Reference Request for {{ candidate_name }}</h2>
+        <p>
+            Hi {{ referee_name|default:"there" }},
+        </p>
+        <p>
+            {{ candidate_name }} has listed you as a reference ({{ referee_relation|default:"Reference" }}) for their ChemistTasker application.
+        </p>
+        <p>
+            Please confirm you are happy to be a referee by clicking the button below:
+        </p>
+        <a class="btn" href="{{ confirm_url }}">Yes, I confirm I am a referee</a>
+        <p>
+            If you have questions, reply to this email or contact ChemistTasker support.<br>
+            Thank you for your help!
+        </p>
+        <p class="emoji">— The ChemistTasker Team 💚</p>
+    </div>
+</body>
+</html>

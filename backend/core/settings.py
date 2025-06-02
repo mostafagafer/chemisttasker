@@ -38,6 +38,7 @@ CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
 FRONTEND_BASE_URL = "http://localhost:5173"
 
+BACKEND_BASE_URL = "http://127.0.0.1:8000"
 
 CORS_ALLOW_HEADERS = [
     'accept',
@@ -51,11 +52,10 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
-
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
-    'users',
+    "users.apps.UsersConfig",
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
@@ -75,7 +75,7 @@ INSTALLED_APPS = [
     'storages',
 
     # my apps
-    'client_profile',
+    "client_profile.apps.ClientProfileConfig",
 ]
 
 MIDDLEWARE = [

@@ -51,12 +51,17 @@ interface FormData {
   super_fund_name: string;
   super_usi: string;
   super_member_number: string;
+  referee1_name: string;
+  referee1_relation: string;
   referee1_email: string;
+  referee1_confirmed: boolean;
+  referee2_name: string;
+  referee2_relation: string;
   referee2_email: string;
+  referee2_confirmed: boolean;
   short_bio: string;
   resume: File | null;
 }
-
 const ROLE_CHOICES = [
   { value: 'INTERN', label: 'Intern Pharmacist' },
   { value: 'TECHNICIAN', label: 'Dispensary Technician' },
@@ -88,6 +93,13 @@ const INTERN_HALVES = [
   { value: 'SECOND_HALF', label: 'Second Half' },
 ];
 
+const REFEREE_REL_CHOICES = [
+  { value: "manager", label: "Manager" },
+  { value: "supervisor", label: "Supervisor" },
+  { value: "colleague", label: "Colleague" },
+  { value: "owner", label: "Owner" },
+  { value: "other", label: "Other" },
+];
 
 
 const labels = ['Basic Info', 'Reg Docs', 'Skills', 'Payment', 'Referees', 'Profile'];
@@ -123,8 +135,14 @@ export default function OtherStaffOnboarding() {
     super_fund_name: '',
     super_usi: '',
     super_member_number: '',
+    referee1_name: '',
+    referee1_relation: '',
     referee1_email: '',
+    referee1_confirmed: false,
+    referee2_name: '',
+    referee2_relation: '',
     referee2_email: '',
+    referee2_confirmed: false,
     short_bio: '',
     resume: null,
   });
@@ -181,8 +199,14 @@ export default function OtherStaffOnboarding() {
           super_fund_name: d.super_fund_name || '',
           super_usi: d.super_usi || '',
           super_member_number: d.super_member_number || '',
+          referee1_name: d.referee1_name || '',
+          referee1_relation: d.referee1_relation || '',
           referee1_email: d.referee1_email || '',
+          referee1_confirmed: d.referee1_confirmed || false,
+          referee2_name: d.referee2_name || '',
+          referee2_relation: d.referee2_relation || '',
           referee2_email: d.referee2_email || '',
+          referee2_confirmed: d.referee2_confirmed || false,
           short_bio: d.short_bio || '',
           resume: null,
         });
@@ -244,18 +268,27 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElemen
     setTabIndex(newIndex);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
+  const handleSubmit = async (
+    e?: React.FormEvent,
+    eventType: "autosave" | "manual" = "manual",
+    submitForVerification = false
+  ) => {
+    if (e) e.preventDefault();
     setLoading(true);
-
+    setError('');
     try {
       const form = new FormData();
-      Object.entries(data).forEach(([k, v]) => {
+
+      // Build the data payload. If submitting for verification, include the flag.
+      const payload = {
+        ...data,
+        ...(submitForVerification ? { submitted_for_verification: true } : {}),
+      };
+
+      Object.entries(payload).forEach(([k, v]) => {
         if (v == null) return;
         if (v instanceof File) form.append(k, v);
-        else if (typeof v === 'object') form.append(k, JSON.stringify(v));
-        else form.append(k, String(v));
+        else form.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
       });
 
       const res = await apiClient.request({
@@ -263,6 +296,7 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElemen
         url: profileExists ? detailUrl : createUrl,
         data: form,
       });
+
       const d = res.data as any;
 
       // update each existing-file URL
@@ -278,10 +312,21 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElemen
       setExistingResume(d.resume || existingResume);
 
       setProfileExists(true);
-      setLoading(false);
-      setSnackbarOpen(true);
+
+      // Only show snackbar if this is NOT an autosave:
+      if (eventType !== "autosave") {
+        setSnackbarOpen(true);
+      }
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message);
+      const resp = err.response?.data;
+      if (resp && typeof resp === 'object') {
+        setError(
+          Object.entries(resp)
+            .map(([f, msgs]) => `${f}:${(msgs as string[]).join(',')}`)
+            .join('\n')
+        );
+      } else setError(err.message);
+    } finally {
       setLoading(false);
     }
   };
@@ -611,27 +656,57 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElemen
     </Box>,
 
     // Referees
-    <Box sx={{ p: 2 }} key="Referees">
-      <Typography variant="h6">References</Typography>
-      <TextField
-        fullWidth
-        margin="normal"
-        label="Referee 1 Email"
-        name="referee1_email"
-        value={data.referee1_email}
-        onChange={handleChange}
-        required
-      />
-      <TextField
-        fullWidth
-        margin="normal"
-        label="Referee 2 Email"
-        name="referee2_email"
-        value={data.referee2_email}
-        onChange={handleChange}
-        required
-      />
+    <Box key="refs" sx={{ p: 2 }}>
+      <Typography variant="h6">Referees</Typography>
+      <Typography sx={{ fontSize: '0.95rem', color: 'text.secondary', mb: 1 }}>
+        Please provide two references (not family). These may be contacted for verification.
+      </Typography>
+      {[1, 2].map(idx => (
+        <Box key={idx} sx={{ mb: 2, pl: 1, borderLeft: '4px solid #eee' }}>
+          <Typography fontWeight={600} sx={{ mb: 1 }}>
+            Referee {idx}
+            {data[`referee${idx}_confirmed` as 'referee1_confirmed' | 'referee2_confirmed'] && (
+              <span style={{ color: 'green', fontSize: 22, verticalAlign: 'middle', marginLeft: 8 }}>✔️</span>
+            )}
+          </Typography>
+
+          <TextField
+            fullWidth
+            margin="normal"
+            label="Name"
+            name={`referee${idx}_name`}
+            value={data[`referee${idx}_name` as keyof FormData] || ""}
+            onChange={handleChange}
+          />
+          <TextField
+            select
+            fullWidth
+            margin="normal"
+            label="Relation"
+            name={`referee${idx}_relation`}
+            value={data[`referee${idx}_relation` as keyof FormData] || ""}
+            onChange={handleChange}
+            SelectProps={{ native: true }}
+          >
+            <option value="">Select relation</option>
+            {REFEREE_REL_CHOICES.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </TextField>
+          <TextField
+            fullWidth
+            margin="normal"
+            label="Email"
+            name={`referee${idx}_email`}
+            value={data[`referee${idx}_email` as keyof FormData] || ""}
+            onChange={handleChange}
+            type="email"
+          />
+        </Box>
+      ))}
     </Box>,
+
+
 
     // Profile
     <Box sx={{ p: 2 }} key="profile">
@@ -725,10 +800,28 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElemen
               >
                 Back
               </Button>
-              <Button type="submit" variant="contained" disabled={loading}>
-                {loading ? 'Saving…' : 'Submit'}
-              </Button>
+              <Box>
+                <Button
+                  type="button"
+                  variant="outlined"
+                  disabled={loading}
+                  onClick={() => handleSubmit(undefined, "manual", false)}
+                  sx={{ mr: 2 }}
+                >
+                  {loading ? 'Saving…' : 'Save'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="contained"
+                  color="primary"
+                  disabled={loading}
+                  onClick={() => handleSubmit(undefined, "manual", true)}
+                >
+                  {loading ? 'Submitting…' : 'Submit for Verification'}
+                </Button>
+              </Box>
             </Box>
+
           </Box>
         ) : (
           <Box onKeyDown={preventFormSubmit}>

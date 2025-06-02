@@ -40,19 +40,6 @@ class RegisterView(generics.CreateAPIView):
     
     def perform_create(self, serializer):
         user = serializer.save()
-        # onboarding_link = get_frontend_onboarding_url(user)
-        # ctx = {
-        #     "first_name": user.first_name,
-        #     "email": user.email,
-        #     "onboarding_link": onboarding_link,
-        # }
-        # send_async_email.defer(
-        #     subject="🎉 Welcome to ChemistTasker! Let’s Get You Started 🌟",
-        #     recipient_list=[user.email],
-        #     template_name="emails/welcome_email.html",
-        #     context=ctx,
-        #     text_template="emails/welcome_email.txt"
-        # )
         otp_subject = "Your ChemistTasker Verification Code"
         otp_context = {"otp": user.otp_code, "user": user}
         send_async_email(

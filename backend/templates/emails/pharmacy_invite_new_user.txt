@@ -1,1 +1,15 @@
-this is pharmacy_invite_new_user
+🚀🩺  You’ve Been Invited to Join {{ pharmacy_name }}!
+
+Hi there,
+
+{{ inviter }} has invited you to join {{ pharmacy_name }} as a {{ role|title }} on ChemistTasker.
+To get started, just set your password using the link below:
+
+Set your password: {{ magic_link }}
+
+After you set your password, you’ll have immediate access to all community shifts for {{ pharmacy_name }}.
+(You can complete your profile later if you want to apply for public shifts.)
+
+We’re excited to have you on the team—welcome aboard!
+
+— The ChemistTasker Team 💚

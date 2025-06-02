@@ -29,8 +29,14 @@ interface FormData {
   government_id: File | null;
   role_type: string;
   interests: string[];
+  referee1_name: string;
+  referee1_relation: string;
   referee1_email: string;
+  referee1_confirmed: boolean;
+  referee2_name: string;
+  referee2_relation: string;
   referee2_email: string;
+  referee2_confirmed: boolean;
   short_bio: string;
   resume: File | null;
 }
@@ -42,6 +48,14 @@ const ROLE_CHOICES = [
 ];
 const INTERESTS = ['Shadowing', 'Volunteering', 'Placement', 'Junior Assistant Role'];
 const labels = ['Basic Info', 'Interests', 'Referees', 'Profile'];
+
+const REFEREE_REL_CHOICES = [
+  { value: "manager", label: "Manager" },
+  { value: "supervisor", label: "Supervisor" },
+  { value: "colleague", label: "Colleague" },
+  { value: "owner", label: "Owner" },
+  { value: "other", label: "Other" },
+];
 
 export default function ExplorerOnboarding() {
   const navigate = useNavigate();
@@ -56,8 +70,14 @@ export default function ExplorerOnboarding() {
     government_id: null,
     role_type: '',
     interests: [],
+    referee1_name: '',
+    referee1_relation: '',
     referee1_email: '',
+    referee1_confirmed: false,
+    referee2_name: '',
+    referee2_relation: '',
     referee2_email: '',
+    referee2_confirmed: false,
     short_bio: '',
     resume: null,
   });
@@ -85,8 +105,14 @@ export default function ExplorerOnboarding() {
           government_id: null,
           role_type: d.role_type || '',
           interests: d.interests || [],
+          referee1_name: d.referee1_name || '',
+          referee1_relation: d.referee1_relation || '',
           referee1_email: d.referee1_email || '',
+          referee1_confirmed: d.referee1_confirmed || false,
+          referee2_name: d.referee2_name || '',
+          referee2_relation: d.referee2_relation || '',
           referee2_email: d.referee2_email || '',
+          referee2_confirmed: d.referee2_confirmed || false,
           short_bio: d.short_bio || '',
           resume: null,
         });
@@ -123,33 +149,58 @@ export default function ExplorerOnboarding() {
   };
   const handleTabChange = (_: any, idx: number) => setTabIndex(idx);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(''); 
+  const handleSubmit = async (
+    e?: React.FormEvent,
+    eventType: "autosave" | "manual" = "manual",
+    submitForVerification = false
+  ) => {
+    if (e) e.preventDefault();
     setLoading(true);
+    setError('');
     try {
       const form = new FormData();
-      Object.entries(data).forEach(([k, v]) => {
+
+      // Build the data payload. If submitting for verification, include the flag.
+      const payload = {
+        ...data,
+        ...(submitForVerification ? { submitted_for_verification: true } : {}),
+      };
+
+      Object.entries(payload).forEach(([k, v]) => {
         if (v == null) return;
         if (v instanceof File) form.append(k, v);
         else form.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
       });
+
       const res = await apiClient.request({
         method: profileExists ? 'patch' : 'post',
         url: profileExists ? detailUrl : createUrl,
         data: form,
       });
+
       const d = res.data as any;
       setExistingGovId(d.government_id || existingGovId);
       setExistingResume(d.resume || existingResume);
       setProfileExists(true);
-      setSnackbarOpen(true);
+
+      // Only show snackbar if this is NOT an autosave:
+      if (eventType !== "autosave") {
+        setSnackbarOpen(true);
+      }
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message);
+      const resp = err.response?.data;
+      if (resp && typeof resp === 'object') {
+        setError(
+          Object.entries(resp)
+            .map(([f, msgs]) => `${f}:${(msgs as string[]).join(',')}`)
+            .join('\n')
+        );
+      } else setError(err.message);
     } finally {
       setLoading(false);
     }
   };
+
 
   if (loading) return <Typography>Loading…</Typography>;
 
@@ -220,27 +271,57 @@ export default function ExplorerOnboarding() {
     </Box>,
 
     // References
-    <Box sx={{ p: 2 }} key="refs">
-      <Typography variant="h6">References</Typography>
-      <TextField
-        fullWidth
-        margin="normal"
-        label="Referee 1 Email"
-        name="referee1_email"
-        value={data.referee1_email}
-        onChange={handleChange}
-        required
-      />
-      <TextField
-        fullWidth
-        margin="normal"
-        label="Referee 2 Email"
-        name="referee2_email"
-        value={data.referee2_email}
-        onChange={handleChange}
-        required
-      />
+    <Box key="refs" sx={{ p: 2 }}>
+      <Typography variant="h6">Referees</Typography>
+      <Typography sx={{ fontSize: '0.95rem', color: 'text.secondary', mb: 1 }}>
+        Please provide two references (not family). These may be contacted for verification.
+      </Typography>
+      {[1, 2].map(idx => (
+        <Box key={idx} sx={{ mb: 2, pl: 1, borderLeft: '4px solid #eee' }}>
+          <Typography fontWeight={600} sx={{ mb: 1 }}>
+            Referee {idx}
+            {data[`referee${idx}_confirmed` as 'referee1_confirmed' | 'referee2_confirmed'] && (
+              <span style={{ color: 'green', fontSize: 22, verticalAlign: 'middle', marginLeft: 8 }}>✔️</span>
+            )}
+          </Typography>
+
+          <TextField
+            fullWidth
+            margin="normal"
+            label="Name"
+            name={`referee${idx}_name`}
+            value={data[`referee${idx}_name` as keyof FormData] || ""}
+            onChange={handleChange}
+          />
+          <TextField
+            select
+            fullWidth
+            margin="normal"
+            label="Relation"
+            name={`referee${idx}_relation`}
+            value={data[`referee${idx}_relation` as keyof FormData] || ""}
+            onChange={handleChange}
+            SelectProps={{ native: true }}
+          >
+            <option value="">Select relation</option>
+            {REFEREE_REL_CHOICES.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </TextField>
+          <TextField
+            fullWidth
+            margin="normal"
+            label="Email"
+            name={`referee${idx}_email`}
+            value={data[`referee${idx}_email` as keyof FormData] || ""}
+            onChange={handleChange}
+            type="email"
+          />
+        </Box>
+      ))}
     </Box>,
+
+
 
     // Profile
     <Box sx={{ p: 2 }} key="profile">
@@ -331,26 +412,41 @@ export default function ExplorerOnboarding() {
         </Box>
 
         {tabIndex === panels.length - 1 ? (
-          // only final panel is a form
-          <Box
-            component="form"
-            onSubmit={handleSubmit}
-            onKeyDown={preventFormSubmit}
-          >
-            {panels[tabIndex]}
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
+        <Box
+          onKeyDown={preventFormSubmit}
+        >
+          {panels[tabIndex]}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
+            <Button
+              type="button"
+              disabled={tabIndex === 0}
+              onClick={() => setTabIndex(i => i - 1)}
+            >
+              Back
+            </Button>
+            <Box>
               <Button
                 type="button"
-                disabled={tabIndex === 0}
-                onClick={() => setTabIndex(i => i - 1)}
+                variant="outlined"
+                disabled={loading}
+                onClick={() => handleSubmit(undefined, "manual", false)}
+                sx={{ mr: 2 }}
               >
-                Back
+                {loading ? 'Saving…' : 'Save'}
               </Button>
-              <Button type="submit" variant="contained" disabled={loading}>
-                {loading ? 'Saving…' : 'Submit'}
+              <Button
+                type="button"
+                variant="contained"
+                color="primary"
+                disabled={loading}
+                onClick={() => handleSubmit(undefined, "manual", true)}
+              >
+                {loading ? 'Submitting…' : 'Submit for Verification'}
               </Button>
             </Box>
           </Box>
+        </Box>
+
         ) : (
           <Box onKeyDown={preventFormSubmit}>
             {panels[tabIndex]}

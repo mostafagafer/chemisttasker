@@ -553,11 +553,9 @@ export default function PharmacistOnboardingForm() {
           otherwise just render the panel + Next/Back buttons.
         */}
         {tabIndex === panels.length - 1 ? (
-          <Box
-            onKeyDown={preventFormSubmit}
-          >
+          // Final tab: show Save and Submit for Verification
+          <Box onKeyDown={preventFormSubmit}>
             {panels[tabIndex]}
-
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
               <Button
                 type="button"
@@ -589,9 +587,9 @@ export default function PharmacistOnboardingForm() {
             </Box>
           </Box>
         ) : (
+          // Any non-final tab: just Back and Next (NO Save)
           <Box onKeyDown={preventFormSubmit}>
             {panels[tabIndex]}
-
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
               <Button
                 type="button"
@@ -600,14 +598,7 @@ export default function PharmacistOnboardingForm() {
               >
                 Back
               </Button>
-              <Button
-                type="button"
-                variant="outlined"
-                disabled={loading}
-                onClick={() => handleSubmit(undefined, "manual", false)}
-              >
-                {loading ? 'Saving…' : 'Save'}
-              </Button>
+              {/* REMOVE THE SAVE BUTTON FROM HERE */}
               <Button
                 type="button"
                 onClick={() => {
@@ -620,6 +611,7 @@ export default function PharmacistOnboardingForm() {
             </Box>
           </Box>
         )}
+
 
       </Paper>
     </Container>

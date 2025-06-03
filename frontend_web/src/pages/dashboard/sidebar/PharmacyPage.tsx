@@ -26,7 +26,15 @@ import {
   FormControl,
   InputLabel,
   Pagination,
+  Accordion, AccordionSummary,
+  AccordionDetails, AccordionActions,
+  List,
+  ListItem,
+  ListItemText,
+
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+
 import {
   AddCircleOutline as AddIcon,
   Edit as EditIcon,
@@ -75,6 +83,18 @@ export default function PharmacyPage() {
 
   // ─── State ────────────────────────────────────────────────────────────────
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
+  const [memberships, setMemberships] = useState<Record<string, any[]>>({});
+  const [openStaffDlg, setOpenStaffDlg] = useState(false);
+  const [currentPh, setCurrentPh] = useState<Pharmacy | null>(null);
+  const [memberInvites, setMemberInvites] = useState([
+    { email: '', invited_name: '', role: 'PHARMACIST', employment_type: 'FULL_TIME' }
+  ]);
+  const [staffTab, setStaffTab] = useState(0); // 0=Internal, 1=External
+  const [locumInvites, setLocumInvites] = useState([
+    { email: '', invited_name: '', role: 'PHARMACIST', employment_type: 'LOCUM' }
+  ]);
+
+
   const [loading, setLoading] = useState(true);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
 
@@ -156,6 +176,8 @@ export default function PharmacyPage() {
 
   // ─── Fetch & Onboarding Check ───────────────────────────────────────────────
   useEffect(() => {
+    if (!user) return; // Don't run until user is set
+
     // const isOrgAdmin = user?.memberships?.some(m => m.role === 'ORG_ADMIN');
     const isOrgAdmin = Array.isArray(user?.memberships)
       ? user.memberships.some(m => m?.role === 'ORG_ADMIN')
@@ -164,9 +186,10 @@ export default function PharmacyPage() {
 
     const load = () => {
       apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.pharmacies}`)
-        .then((res: AxiosResponse<Pharmacy[]>) => setPharmacies(res.data))
-        .catch((err: AxiosError) => console.error(err))
-        .finally(() => setLoading(false));
+        .then((res: AxiosResponse<Pharmacy[]>) => {
+          setPharmacies(res.data);
+          res.data.forEach(ph => loadMembers(ph.id));
+        })
     };
     if (isOrgAdmin) {
       load();
@@ -317,6 +340,13 @@ export default function PharmacyPage() {
       console.error(err);
     }
   };
+
+  function loadMembers(phId: string) {
+  apiClient
+    .get<any[]>(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${phId}`)
+    .then(res => setMemberships(m => ({ ...m, [phId]: res.data })))
+    .catch(console.error);
+}
 
   // ─── Early Returns ──────────────────────────────────────────────────────────
   if (loading) {
@@ -752,6 +782,268 @@ export default function PharmacyPage() {
         </DialogActions>
       </Dialog>
 
+<Dialog open={openStaffDlg} onClose={() => setOpenStaffDlg(false)} fullWidth maxWidth="sm">
+  <DialogTitle>
+    Invite Staff to {currentPh?.name}
+  </DialogTitle>
+  <DialogContent
+    sx={{
+      // no overflow, nice padding
+      pt: 2,
+      pb: 2,
+      minWidth: 400
+    }}
+  >
+    <Tabs
+      value={staffTab}
+      onChange={(_, v) => setStaffTab(v)}
+      sx={{
+        mb: 2,
+        '.MuiTab-root': { minWidth: 120 },
+      }}
+      variant="fullWidth"
+      textColor="inherit"
+      indicatorColor="primary"
+    >
+      <Tab label="Internal (Full/Part Time)" />
+      <Tab label="External (Locum/Casual)" />
+    </Tabs>
+
+    {staffTab === 0 && memberInvites.map((row, idx) => (
+      <Box
+        key={idx}
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: '1fr',
+          gap: 2,
+          mb: 2,
+          borderRadius: 2,
+          p: 2,
+        }}
+      >
+        <TextField
+          label="Full Name"
+          value={row.invited_name}
+          onChange={e => {
+            const v = [...memberInvites];
+            v[idx].invited_name = e.target.value;
+            setMemberInvites(v);
+          }}
+          fullWidth
+        />
+        <TextField
+          label="Email"
+          value={row.email}
+          onChange={e => {
+            const v = [...memberInvites];
+            v[idx].email = e.target.value;
+            setMemberInvites(v);
+          }}
+          fullWidth
+        />
+        <TextField
+          select
+          label="Role"
+          value={row.role}
+          onChange={e => {
+            const v = [...memberInvites];
+            v[idx].role = e.target.value;
+            setMemberInvites(v);
+          }}
+          fullWidth
+        >
+          {['PHARMACIST', 'TECHNICIAN', 'ASSISTANT', 'INTERN', 'STUDENT'].map(opt => (
+            <MenuItem key={opt} value={opt}>
+              {opt.charAt(0) + opt.slice(1).toLowerCase()}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          label="Employment Type"
+          value={row.employment_type}
+          onChange={e => {
+            const v = [...memberInvites];
+            v[idx].employment_type = e.target.value;
+            setMemberInvites(v);
+          }}
+          fullWidth
+        >
+          {['FULL_TIME', 'PART_TIME'].map(opt => (
+            <MenuItem key={opt} value={opt}>
+              {opt.replace('_', ' ')}
+            </MenuItem>
+          ))}
+        </TextField>
+        {memberInvites.length > 1 && (
+          <Box>
+            <Button
+              color="secondary"
+              onClick={() => setMemberInvites(v => v.filter((_, i) => i !== idx))}
+            >
+              Remove
+            </Button>
+          </Box>
+        )}
+      </Box>
+    ))}
+
+    {staffTab === 1 && locumInvites.map((row, idx) => (
+      <Box
+        key={idx}
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: '1fr',
+          gap: 2,
+          mb: 2,
+          borderRadius: 2,
+          p: 2,
+        }}
+      >
+        <TextField
+          label="Full Name"
+          value={row.invited_name}
+          onChange={e => {
+            const v = [...locumInvites];
+            v[idx].invited_name = e.target.value;
+            setLocumInvites(v);
+          }}
+          fullWidth
+        />
+        <TextField
+          label="Email"
+          value={row.email}
+          onChange={e => {
+            const v = [...locumInvites];
+            v[idx].email = e.target.value;
+            setLocumInvites(v);
+          }}
+          fullWidth
+        />
+        <TextField
+          select
+          label="Role"
+          value={row.role}
+          onChange={e => {
+            const v = [...locumInvites];
+            v[idx].role = e.target.value;
+            setLocumInvites(v);
+          }}
+          fullWidth
+        >
+          {['PHARMACIST', 'TECHNICIAN', 'ASSISTANT', 'INTERN', 'STUDENT'].map(opt => (
+            <MenuItem key={opt} value={opt}>
+              {opt.charAt(0) + opt.slice(1).toLowerCase()}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          label="Employment Type"
+          value={row.employment_type}
+          onChange={e => {
+            const v = [...locumInvites];
+            v[idx].employment_type = e.target.value;
+            setLocumInvites(v);
+          }}
+          fullWidth
+        >
+          {['LOCUM', 'CASUAL'].map(opt => (
+            <MenuItem key={opt} value={opt}>
+              {opt.charAt(0) + opt.slice(1).toLowerCase()}
+            </MenuItem>
+          ))}
+        </TextField>
+        {locumInvites.length > 1 && (
+          <Box>
+            <Button
+              color="secondary"
+              onClick={() => setLocumInvites(v => v.filter((_, i) => i !== idx))}
+            >
+              Remove
+            </Button>
+          </Box>
+        )}
+      </Box>
+    ))}
+
+    <Box mt={2} display="flex" alignItems="center">
+      {staffTab === 0 ? (
+        <Button
+          onClick={() =>
+            setMemberInvites(v => [
+              ...v,
+              { email: '', invited_name: '', role: 'PHARMACIST', employment_type: 'FULL_TIME' }
+            ])
+          }
+        >
+          + Add Another
+        </Button>
+      ) : (
+        <Button
+          onClick={() =>
+            setLocumInvites(v => [
+              ...v,
+              { email: '', invited_name: '', role: 'PHARMACIST', employment_type: 'LOCUM' }
+            ])
+          }
+        >
+          + Add Another
+        </Button>
+      )}
+      <Button
+        variant="contained"
+        sx={{ ml: 2 }}
+        onClick={async () => {
+          // 1. Get correct invites array
+          const invites =
+            staffTab === 0
+              ? memberInvites
+                  .filter(row => row.email && row.role && row.employment_type)
+                  .map(row => ({
+                    ...row,
+                    pharmacy: currentPh?.id, // Must supply pharmacy!
+                  }))
+              : locumInvites
+                  .filter(row => row.email && row.role && row.employment_type)
+                  .map(row => ({
+                    ...row,
+                    pharmacy: currentPh?.id,
+                  }));
+
+          if (!invites.length) {
+            setSnackMsg('Please fill out at least one invite.');
+            setSnackbarOpen(true);
+            return;
+          }
+
+          try {
+            await apiClient.post(
+              `${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`,
+              { invitations: invites }
+            );
+            // Reload members:
+            if (currentPh) loadMembers(currentPh.id);
+            setSnackMsg('Invitations sent!');
+          } catch (e: any) {
+            setSnackMsg(e?.response?.data?.detail || 'Failed to send invitations.');
+          }
+
+          setSnackbarOpen(true);
+          setOpenStaffDlg(false);
+        }}
+      >
+        Send Invitations
+      </Button>
+
+    </Box>
+  </DialogContent>
+  <DialogActions>
+    <Button onClick={() => setOpenStaffDlg(false)}>Cancel</Button>
+  </DialogActions>
+</Dialog>
+
+
       <Snackbar
         open={snackbarOpen}
         autoHideDuration={3000}
@@ -764,28 +1056,80 @@ export default function PharmacyPage() {
           <Typography variant="h6">You have no pharmacies.</Typography>
         ) : (
           paginated.map(p => (
-            <Card key={p.id} sx={{ mb: 2 }}>
-              <CardContent>
-                <Typography variant="h6">{p.name}</Typography>
-                <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
-                  {p.state}
-                </Typography>
-                <Typography variant="body2" color="textSecondary">
-                  {p.address}
-                </Typography>
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
-                  <IconButton onClick={() => openDialog(p)}>
-                    <EditIcon />
-                  </IconButton>
-                  <IconButton onClick={() => handleDelete(p.id)}>
-                    <DeleteIcon />
-                  </IconButton>
-                </Box>
-              </CardContent>
-            </Card>
+            <Box key={p.id} sx={{ mb: 3 }}>
+              {/* Pharmacy Card */}
+              <Card>
+                <CardContent>
+                  <Typography variant="h6">{p.name}</Typography>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
+                    {p.state}
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary">
+                    {p.address}
+                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
+                    <IconButton onClick={() => openDialog(p)}>
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton onClick={() => handleDelete(p.id)}>
+                      <DeleteIcon />
+                    </IconButton>
+                  </Box>
+                </CardContent>
+              </Card>
+              {/* Accordion for staff — DIRECTLY under each card */}
+              <Accordion sx={{ mt: 1 }}>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography>{p.name} — Staff</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <List dense>
+                    {(memberships[p.id] || []).map(m => (
+                      <ListItem
+                        key={m.id}
+                        secondaryAction={
+                          <IconButton
+                            edge="end"
+                            onClick={() => {
+                              apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.membershipDelete(m.id)}`)
+                                .then(() => loadMembers(p.id));
+                            }}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        }
+                      >
+                        <ListItemText
+                          primary={
+                            <>
+                              <strong>{m.user_details?.email}</strong>
+                              {m.invited_name && <> &mdash; <em>{m.invited_name}</em></>}
+                            </>
+                          }
+                          secondary={
+                            <>
+                              <span>Role: <b>{m.role}</b></span>
+                              &nbsp;|&nbsp;
+                              <span>Type: <b>{m.employment_type}</b></span>
+                            </>
+                          }
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </AccordionDetails>
+                <AccordionActions>
+                  <Button onClick={() => {
+                    setCurrentPh(p);
+                    setOpenStaffDlg(true);
+                  }}>
+                    Invite Staff
+                  </Button>
+                </AccordionActions>
+              </Accordion>
+            </Box>
           ))
         )}
-
         {pharmacies.length > itemsPerPage && (
           <Box display="flex" justifyContent="center" mt={2}>
             <Pagination
@@ -796,6 +1140,7 @@ export default function PharmacyPage() {
           </Box>
         )}
       </Box>
+
     </Box>
   );
 }

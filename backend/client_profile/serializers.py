@@ -165,20 +165,24 @@ class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
     
     def create(self, validated_data):
         self.perform_user_sync(validated_data)
+        submitted_now = validated_data.get('submitted_for_verification', False)
         validated_data.pop('user', None)
         obj = PharmacistOnboarding.objects.create(
             user=self.context['request'].user,
             **validated_data
         )
-        send_referee_emails(obj, validated_data, creation=True)
-        notify_superuser_on_onboarding(obj)
+        if submitted_now:
+            send_referee_emails(obj, validated_data, creation=True)
+            notify_superuser_on_onboarding(obj)
         return obj
 
     def update(self, instance, validated_data):
         self.perform_user_sync(validated_data)
+        will_submit = validated_data.get('submitted_for_verification', False)
         obj = super().update(instance, validated_data)
-        send_referee_emails(obj, validated_data, creation=False)
-        notify_superuser_on_onboarding(obj)
+        if will_submit:
+            send_referee_emails(obj, validated_data, creation=False)
+            notify_superuser_on_onboarding(obj)
         return obj
 
     def validate(self, data):
@@ -335,20 +339,24 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
 
     def create(self, validated_data):
         self.perform_user_sync(validated_data)
+        submitted_now = validated_data.get('submitted_for_verification', False)
         validated_data.pop('user', None)
         obj = OtherStaffOnboarding.objects.create(
             user=self.context['request'].user,
             **validated_data
         )
-        send_referee_emails(obj, validated_data, creation=True)
-        notify_superuser_on_onboarding(obj)
+        if submitted_now:
+            send_referee_emails(obj, validated_data, creation=True)
+            notify_superuser_on_onboarding(obj)
         return obj
 
     def update(self, instance, validated_data):
         self.perform_user_sync(validated_data)
+        will_submit = validated_data.get('submitted_for_verification', False)
         obj = super().update(instance, validated_data)
-        send_referee_emails(obj, validated_data, creation=False)
-        notify_superuser_on_onboarding(obj)
+        if will_submit:
+            send_referee_emails(obj, validated_data, creation=False)
+            notify_superuser_on_onboarding(obj)
         return obj
 
     def validate(self, data):
@@ -516,20 +524,24 @@ class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serialize
 
     def create(self, validated_data):
         self.perform_user_sync(validated_data)
+        submitted_now = validated_data.get('submitted_for_verification', False)
         validated_data.pop('user', None)
         obj = ExplorerOnboarding.objects.create(
             user=self.context['request'].user,
             **validated_data
         )
-        send_referee_emails(obj, validated_data, creation=True)
-        notify_superuser_on_onboarding(obj)
+        if submitted_now:
+            send_referee_emails(obj, validated_data, creation=True)
+            notify_superuser_on_onboarding(obj)
         return obj
 
     def update(self, instance, validated_data):
         self.perform_user_sync(validated_data)
+        will_submit = validated_data.get('submitted_for_verification', False)
         obj = super().update(instance, validated_data)
-        send_referee_emails(obj, validated_data, creation=False)
-        notify_superuser_on_onboarding(obj)
+        if will_submit:
+            send_referee_emails(obj, validated_data, creation=False)
+            notify_superuser_on_onboarding(obj)
         return obj
 
     def validate(self, data):

@@ -50,11 +50,7 @@ def clean_email(email):
     return re.sub(r'[\u200e\u200f\u202a-\u202e\u200b\s]', '', email)
 
 def send_referee_emails(obj, validated_data, creation=False):
-    if creation:
-        submitted_now = validated_data.get('submitted_for_verification', False)
-    else:
-        submitted_now = validated_data.get('submitted_for_verification', False) and not obj.submitted_for_verification
-
+    submitted_now = validated_data.get('submitted_for_verification', False)
     if submitted_now:
         for idx in [1, 2]:
             email_raw = getattr(obj, f'referee{idx}_email', None)

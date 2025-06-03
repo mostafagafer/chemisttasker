@@ -59,7 +59,7 @@ export const API_ENDPOINTS = {
   // Memberships (chain users)
   membershipList:   '/client-profile/memberships/',
   membershipCreate: '/client-profile/memberships/',
-  membershipBulkInvite: '/client-profile/memberships/bulk_invite/',   // <--- NEW
+  membershipBulkInvite: '/client-profile/memberships/bulk_invite/',
   membershipDelete: (membershipId: string) => `/client-profile/memberships/${membershipId}/`,
 
   // Shifts

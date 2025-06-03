@@ -98,46 +98,6 @@ export function getOwnerNav(progress_percent: number) {
   { segment: 'dashboard/owner/logout',        title: 'Logout',            icon: <LogoutIcon /> },
 ]}
 
-// export function getPharmacistNav(progress_percent: number) {
-//   return [
-//     { kind: 'header' as const, title: 'Profile and Availability' },
-//     { segment: 'dashboard/pharmacist/overview', title: 'Overview', icon: <DashboardIcon /> },
-//     {
-//       segment: 'dashboard/pharmacist/onboarding',
-//       title: 'Profile',
-//       icon: <ManageAccountsSharpIcon />,
-//       action: (
-//         <Chip
-//           size="small"
-//           label={`${progress_percent}%`}
-//           color={progress_percent === 100 ? "success" : "default"}
-//           sx={{ ml: 0.5, fontWeight: 700 }}
-//         />
-//       ),
-//     },
-//   { segment: 'dashboard/pharmacist/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
-//   { kind: 'divider' as const },
-//   { kind: 'header' as const, title: 'Shifts & Invoices' },
-//   { segment: 'dashboard/pharmacist/shifts',
-//     title: 'Shifts',
-//     icon: <AccessTimeIcon />,
-//     children: [
-//       { segment: 'public',    title: 'Public Shifts',    icon: <PublicIcon /> },
-//       { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
-//       { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
-//       { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
-//     ],
-//   },
-//   { segment: 'dashboard/pharmacist/invoice', title: 'Manage Invoices', icon: <ReceiptIcon /> },
-
-
-//   { kind: 'divider' as const },
-//   { kind: 'header' as const, title: 'Learning & Explorer Hub' },
-//   { segment: 'dashboard/pharmacist/interests',    title: 'Explore Interests', icon: <FavoriteIcon /> },
-//   { segment: 'dashboard/pharmacist/learning',     title: 'Learning Materials',icon: <SchoolIcon /> },
-//   { kind: 'divider' as const },
-//   { segment: 'dashboard/pharmacist/logout',       title: 'Logout',            icon: <LogoutIcon /> },
-// ]}
 
 export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'internal' | 'platform') {
   // 1. Define dynamic children for the "Shifts" section, changing based on workspace
@@ -248,8 +208,6 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
 }
 
 
-
-
 export function getExplorerNav(progress_percent: number) {
   return [
     { kind: 'header' as const, title: 'Profile settings' },
@@ -268,5 +226,9 @@ export function getExplorerNav(progress_percent: number) {
       ),
     },
   { kind: 'divider' as const },
-  { segment: 'dashboard/explorer/logout',     title: 'Logout',   icon: <LogoutIcon /> },
+  { kind: 'header', title: 'Learning & Explorer Hub' },
+  { segment: 'dashboard/explorer/interests',     title: 'Explore Interests', icon: <FavoriteIcon /> },
+  { segment: 'dashboard/explorer/learning',      title: 'Learning Materials',icon: <SchoolIcon /> },
+  { kind: 'divider' as const },
+  { segment: 'dashboard/explorer/logout',        title: 'Logout',            icon: <LogoutIcon /> },
 ]}

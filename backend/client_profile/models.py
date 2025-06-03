@@ -43,6 +43,12 @@ class OwnerOnboarding(models.Model):
                              related_name='owner_onboardings'
                           )
     organization_claimed = models.BooleanField(default=False)
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['user']),
+            models.Index(fields=['organization']),
+        ]
 
     def __str__(self):
         # Always show the user’s login email
@@ -321,6 +327,12 @@ class Pharmacy(models.Model):
                              )
 
     about                  = models.TextField(blank=True)
+   
+    class Meta:
+        indexes = [
+            models.Index(fields=['owner']),
+            models.Index(fields=['organization']),
+        ]
 
     def __str__(self):
         return self.name
@@ -385,6 +397,12 @@ class Membership(models.Model):
     class Meta:
         unique_together = ('user', 'pharmacy')
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['pharmacy']),
+            models.Index(fields=['user']),
+            models.Index(fields=['pharmacy', 'user']),
+        ]
+
 
     def __str__(self):
         if self.pharmacy:
@@ -420,6 +438,11 @@ class Chain(models.Model):
         blank=True,
         related_name='chains'
     )
+    class Meta:
+        indexes = [
+            models.Index(fields=['owner']),
+            models.Index(fields=['organization']),
+        ]
 
     def __str__(self):
         return self.name
@@ -538,6 +561,12 @@ class Shift(models.Model):
                 self.rate_type = self.rate_type or self.pharmacy.default_rate_type
                 self.fixed_rate = self.fixed_rate or self.pharmacy.default_fixed_rate
             super().save(*args, **kwargs)
+   
+    class Meta:
+        indexes = [
+            models.Index(fields=['pharmacy']),
+            models.Index(fields=['created_by']),
+        ]
 
         def __str__(self):
             return f"Shift at {self.pharmacy.name}"
@@ -736,6 +765,12 @@ class Invoice(models.Model):
 
     status     = models.CharField(max_length=10, choices=STATUS_CHOICES, default='draft')
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['user']),
+            models.Index(fields=['pharmacy']),
+        ]
 
     def __str__(self):
         client = self.custom_bill_to_name if self.external else self.pharmacy_name_snapshot
@@ -837,6 +872,11 @@ class UserAvailability(models.Model):
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['user']),
+        ]
 
     def __str__(self):
         times = "All Day" if self.is_all_day else f"{self.start_time}-{self.end_time}"

@@ -190,7 +190,7 @@ def generate_invoice_from_shifts(
     external=False,
     billing_data=None,
     due_date=None
-):
+    ):
 
     try:
         ob = PharmacistOnboarding.objects.get(user=user)

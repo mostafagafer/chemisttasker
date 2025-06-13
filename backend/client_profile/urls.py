@@ -22,6 +22,8 @@ router.register(r'shifts/confirmed', ConfirmedShiftViewSet, basename='confirmed-
 router.register(r'shifts/history',   HistoryShiftViewSet,   basename='history-shifts')
 # Interest endpoint
 router.register(r'shift-interests', ShiftInterestViewSet,  basename='shift-interests')
+router.register(r'shift-rejections', ShiftRejectionViewSet, basename='shift-rejections')
+
 router.register(r'my-confirmed-shifts',MyConfirmedShiftsViewSet,basename='my-confirmed-shifts')
 router.register(r'my-history-shifts',MyHistoryShiftsViewSet,basename='my-history-shifts')
 

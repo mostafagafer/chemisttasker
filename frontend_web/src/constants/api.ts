@@ -74,8 +74,10 @@ export const API_ENDPOINTS = {
   getHistoryShifts:      '/client-profile/shifts/history/',
   getMyConfirmedShifts: '/client-profile/my-confirmed-shifts/',
   getMyHistoryShifts:   '/client-profile/my-history-shifts/',
-  // list interest records separately
+  // list interest and rejections records separately
   getShiftInterests:     '/client-profile/shift-interests/',
+  getShiftRejections: '/client-profile/shift-rejections/',
+
   // Actions on individual shifts
   expressInterestInShift: (shiftId: string|number) => `/client-profile/shifts/${shiftId}/express_interest/`,
   revealProfile:         (shiftId: string|number) => `/client-profile/shifts/${shiftId}/reveal_profile/`,
@@ -84,6 +86,9 @@ export const API_ENDPOINTS = {
   getPublicShiftDetail:    (id: string | number) => `/client-profile/public-shifts/${id}`,
   getActiveShiftDetail:    (id: string | number) => `/client-profile/shifts/active/${id}`,
   getConfirmedShiftDetail: (id: string | number) => `/client-profile/shifts/confirmed/${id}/`,
+  escalateCommunityShift: (shiftId: string | number) => `/client-profile/community-shifts/${shiftId}/escalate/`,
+  getCommunityShiftMemberStatus: (shiftId: string | number) => `/client-profile/community-shifts/${shiftId}/member_status/`,
+  rejectCommunityShift: (shiftId: string | number) => `/client-profile/community-shifts/${shiftId}/reject/`,
 
 
 

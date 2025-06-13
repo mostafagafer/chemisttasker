@@ -45,10 +45,13 @@ interface SlotEntry {
 }
 
 const ESCALATION_LABELS: Record<string, string> = {
+  LOCUM_CASUAL: 'Favourite Staff (Locum/Casual)',
   OWNER_CHAIN: 'Owner Chain',
   ORG_CHAIN: 'Organization Chain',
   PLATFORM: 'Platform',
 };
+
+
 
 export default function PostShiftPage() {
   const { user } = useAuth();
@@ -68,9 +71,12 @@ export default function PostShiftPage() {
   const [pharmacyId, setPharmacyId] = useState<number | ''>('');
   const [allowedVis, setAllowedVis] = useState<string[]>([]);
   const [visibility, setVisibility] = useState<string>('');
-  const [escalateToOwnerChain, setEscalateToOwnerChain] = useState<string>('');
-  const [escalateToOrgChain, setEscalateToOrgChain] = useState<string>('');
-  const [escalateToPlatform, setEscalateToPlatform] = useState<string>('');
+  const [escalationDates, setEscalationDates] = useState<Record<string, string>>({
+    LOCUM_CASUAL: '',
+    OWNER_CHAIN: '',
+    ORG_CHAIN: '',
+    PLATFORM: '',
+  });
 
   // compute allowedVis & default visibility only when pharmacyId or user.role changes
   useEffect(() => {
@@ -84,24 +90,28 @@ export default function PostShiftPage() {
 
     let allowed: string[];
     if (user.role === 'ORG_ADMIN') {
-      allowed = ['PHARMACY', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'];
+      allowed = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'];
     } else {
       if (!p.has_chain && !p.claimed) {
         allowed = ['PLATFORM'];
       } else if (p.has_chain && !p.claimed) {
-        allowed = ['PHARMACY', 'OWNER_CHAIN', 'PLATFORM'];
+        allowed = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'PLATFORM'];
       } else if (!p.has_chain && p.claimed) {
-        allowed = ['PHARMACY', 'ORG_CHAIN', 'PLATFORM'];
+        allowed = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'ORG_CHAIN', 'PLATFORM'];
       } else {
-        allowed = ['PHARMACY', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'];
+        allowed = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'];
       }
     }
 
     setAllowedVis(allowed);
     setVisibility(prev => (allowed.includes(prev) ? prev : allowed[0]));
-    setEscalateToOwnerChain('');
-    setEscalateToOrgChain('');
-    setEscalateToPlatform('');
+    setEscalationDates({
+      LOCUM_CASUAL: '',
+      OWNER_CHAIN: '',
+      ORG_CHAIN: '',
+      PLATFORM: '',
+    });
+
   }, [pharmacyId, pharmacies, user.role]);
 
   // — Other form fields —
@@ -200,16 +210,17 @@ export default function PostShiftPage() {
     const startIdx = allowedVis.indexOf(visibility);
     if (startIdx === -1) return showSnackbar('Select a valid visibility');
     const nextTiers = allowedVis.slice(startIdx + 1);
+
+    // Validate escalation dates for all next tiers
     for (const tier of nextTiers) {
-      const dateVal =
-        tier === 'OWNER_CHAIN' ? escalateToOwnerChain :
-        tier === 'ORG_CHAIN'   ? escalateToOrgChain   :
-        escalateToPlatform;
-      if (!dateVal) {
-        return showSnackbar(`Enter date → ${ESCALATION_LABELS[tier]}`);
+      if (!escalationDates[tier]) {
+        return showSnackbar(`Enter date → ${ESCALATION_LABELS[tier] || tier}`);
       }
     }
-    if (roleNeeded === 'PHARMACIST' && (!rateType || (rateType === 'FIXED' && !fixedRate))) {
+    if (
+      roleNeeded === 'PHARMACIST' &&
+      (!rateType || (rateType === 'FIXED' && !fixedRate))
+    ) {
       return showSnackbar('Select rate type & fixed rate if FIXED');
     }
     if (!slots.length) return showSnackbar('Add at least one slot');
@@ -221,9 +232,10 @@ export default function PostShiftPage() {
         role_needed: roleNeeded,
         employment_type: employmentType,
         visibility,
-        escalate_to_owner_chain: escalateToOwnerChain || null,
-        escalate_to_org_chain:   escalateToOrgChain   || null,
-        escalate_to_platform:    escalateToPlatform   || null,
+        escalate_to_locum_casual: escalationDates['LOCUM_CASUAL'] || null,
+        escalate_to_owner_chain:  escalationDates['OWNER_CHAIN'] || null,
+        escalate_to_org_chain:    escalationDates['ORG_CHAIN'] || null,
+        escalate_to_platform:     escalationDates['PLATFORM'] || null,
         workload_tags: workloadTags,
         must_have:     mustHave,
         nice_to_have:  niceToHave,
@@ -329,10 +341,11 @@ export default function PostShiftPage() {
                   {allowedVis.map(opt => (
                     <MenuItem key={opt} value={opt}>
                       { {
-                        PHARMACY: 'Pharmacy Level',
-                        OWNER_CHAIN: 'Owner Chain',
-                        ORG_CHAIN: 'Organization Chain',
-                        PLATFORM: 'Platform (Public)',
+                            FULL_PART_TIME: 'Pharmacy Members (Full/Part Time)',
+                            LOCUM_CASUAL:   'Favourite Staff (Locum/Casual)',
+                            OWNER_CHAIN:    'Owner Chain',
+                            ORG_CHAIN:      'Organization Chain',
+                            PLATFORM:       'Platform (Public)',
                       }[opt] }
                     </MenuItem>
                   ))}
@@ -340,28 +353,19 @@ export default function PostShiftPage() {
               </FormControl>
 
               {/* Render all escalation pickers after the chosen visibility */}
-              {allowedVis.slice(allowedVis.indexOf(visibility) + 1).map(tier => {
-                const label = ESCALATION_LABELS[tier];
-                const value =
-                  tier === 'OWNER_CHAIN' ? escalateToOwnerChain :
-                  tier === 'ORG_CHAIN'   ? escalateToOrgChain   :
-                  escalateToPlatform;
-                const onChange =
-                  tier === 'OWNER_CHAIN' ? (e: any) => setEscalateToOwnerChain(e.target.value) :
-                  tier === 'ORG_CHAIN'   ? (e: any) => setEscalateToOrgChain(e.target.value) :
-                                          (e: any) => setEscalateToPlatform(e.target.value);
-                return (
-                  <TextField
-                    key={tier}
-                    label={`Escalate → ${label}`}
-                    type="datetime-local"
-                    value={value}
-                    onChange={onChange}
-                    InputLabelProps={{ shrink: true }}
-                    fullWidth
-                  />
-                );
-              })}
+              {allowedVis.slice(allowedVis.indexOf(visibility) + 1).map(tier => (
+                <TextField
+                  key={tier}
+                  label={`Escalate → ${ESCALATION_LABELS[tier] ?? tier}`}
+                  type="datetime-local"
+                  value={escalationDates[tier] || ''}
+                  onChange={e => setEscalationDates(d => ({ ...d, [tier]: e.target.value }))}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                />
+              ))}
+
+
             </Box>
           )}
 

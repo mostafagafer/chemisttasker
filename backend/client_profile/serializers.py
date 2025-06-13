@@ -9,6 +9,8 @@ from decimal import Decimal
 # from users.tasks import send_async_email
 # from django.conf import settings
 from client_profile.utils import send_referee_emails, notify_superuser_on_onboarding
+from datetime import date # Import date
+from django.utils import timezone # Import timezone
 
 User = get_user_model()
 
@@ -759,6 +761,9 @@ class ShiftSerializer(serializers.ModelSerializer):
     # fixed_rate = serializers.DecimalField(max_digits=6, decimal_places=2)
     owner_adjusted_rate = serializers.DecimalField(max_digits=6,decimal_places=2,required=False,allow_null=True)
 
+    allowed_escalation_levels = serializers.SerializerMethodField()
+    is_single_user = serializers.BooleanField(source='single_user_only', read_only=True)
+
     class Meta:
         model = Shift
         fields = [
@@ -766,11 +771,12 @@ class ShiftSerializer(serializers.ModelSerializer):
             'escalation_level', 'escalate_to_owner_chain', 'escalate_to_org_chain', 'escalate_to_platform',
             'must_have', 'nice_to_have', 'rate_type', 'fixed_rate', 'owner_adjusted_rate','slots','single_user_only',
             'interested_users_count', 'reveal_quota', 'reveal_count', 'workload_tags','slot_assignments',
-        ]
+            'allowed_escalation_levels','is_single_user']
         read_only_fields = [
             'id', 'created_by', 'escalation_level',
-            'interested_users_count', 'reveal_count'
-        ]
+            'interested_users_count', 'reveal_count',
+            'allowed_escalation_levels']
+
     def get_fields(self):
         fields = super().get_fields()
         request = self.context.get('request')
@@ -785,7 +791,10 @@ class ShiftSerializer(serializers.ModelSerializer):
         return fields
 
     def _build_allowed_tiers(self, pharmacy, user):
-        """Return the escalation path based on Org-Admin status, chain, and claim."""
+        """
+        Return the escalation path based on Org-Admin status, chain, and claim.
+        Supports five-level escalation: FULL_PART_TIME, LOCUM_CASUAL, OWNER_CHAIN, ORG_CHAIN, PLATFORM.
+        """
         is_org_admin = OrganizationMembership.objects.filter(
             user=user, role='ORG_ADMIN', organization_id=pharmacy.organization_id
         ).exists()
@@ -796,16 +805,16 @@ class ShiftSerializer(serializers.ModelSerializer):
 
         # 1) Org-Admins always get every tier
         if is_org_admin:
-            return ['PHARMACY', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM']
+            return ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM']
 
         # 2) If no chain AND not claimed, start at PLATFORM only
         if not has_chain and not claimed:
             return ['PLATFORM']
 
-        # 3) Otherwise build from PHARMACY…
-        tiers = ['PHARMACY']
+        # 3) Otherwise, escalate from FULL_PART_TIME onward
+        tiers = ['FULL_PART_TIME', 'LOCUM_CASUAL']
 
-        # …then OWNER_CHAIN if there’s a paid chain
+        # …then OWNER_CHAIN if there’s a chain
         if has_chain:
             tiers.append('OWNER_CHAIN')
 
@@ -816,6 +825,13 @@ class ShiftSerializer(serializers.ModelSerializer):
         # …and finally PLATFORM
         tiers.append('PLATFORM')
         return tiers
+
+    def get_allowed_escalation_levels(self, obj):
+        request = self.context.get('request')
+        if request:
+            # Make sure _build_allowed_tiers is also defined within ShiftSerializer
+            return self._build_allowed_tiers(obj.pharmacy, request.user)
+        return []
 
     def create(self, validated_data):
         slots_data = validated_data.pop('slots')
@@ -867,6 +883,39 @@ class ShiftSerializer(serializers.ModelSerializer):
                 ShiftSlot.objects.create(shift=instance, **slot)
 
         return instance
+
+    def get_slots(self, obj): # NEW METHOD
+        """
+        Filters and returns only relevant slots for the shift (future and unassigned).
+        This mirrors the logic from ActiveShiftViewSet's get_queryset.
+        """
+        now = timezone.now()
+        today = date.today()
+
+        # Get all slots for this shift
+        all_slots = obj.slots.all()
+
+        # Filter out past slots and assigned slots
+        filtered_slots = []
+        for slot in all_slots:
+            slot_is_future = (
+                slot.date > today
+                or (slot.date == today and slot.end_time >= now.time()) # Use >= now.time() for active shifts
+            )
+
+            # Check if this specific slot has any assignments
+            # Note: This checks if ANY assignment exists for this slot, regardless of date.
+            # If you need to check for assignments on a specific date for recurring slots,
+            # the logic would need to be more complex, potentially involving expand_shift_slots.
+            # For simplicity for an 'unassigned' shift, this assumes the whole slot is unassigned.
+            slot_is_assigned = ShiftSlotAssignment.objects.filter(slot=slot).exists()
+
+            if slot_is_future and not slot_is_assigned:
+                filtered_slots.append(slot)
+        
+        return ShiftSlotSerializer(filtered_slots, many=True).data
+
+
     def get_slot_assignments(self, shift):
         return [
         {'slot_id': a.slot.id, 'user_id': a.user.id}
@@ -874,12 +923,10 @@ class ShiftSerializer(serializers.ModelSerializer):
         ]
 
 class ShiftInterestSerializer(serializers.ModelSerializer):
-    user     = serializers.StringRelatedField(read_only=True)
+    user = serializers.SerializerMethodField()
     user_id  = serializers.IntegerField(source='user.id', read_only=True)
     slot_id  = serializers.IntegerField(source='slot.id', read_only=True)
     slot_time = serializers.SerializerMethodField()
-
-    # ← SWITCH from MethodField to direct BooleanField
     revealed = serializers.BooleanField(read_only=True)
 
     class Meta:
@@ -892,21 +939,42 @@ class ShiftInterestSerializer(serializers.ModelSerializer):
             'slot_time',
             'user',
             'user_id',
-            'revealed',        # ← now comes from the model
+            'revealed',
             'expressed_at',
         ]
         read_only_fields = [
             'id','user','user_id','slot_time','revealed','expressed_at'
         ]
 
+    def get_user(self, obj):
+        request = self.context.get('request')
+        if obj.shift.visibility == 'PLATFORM' and not obj.revealed:
+            # For debugging, return a distinct anonymous string.
+            return "Anonymous Interest User"
+        # For debugging, return the full name if revealed or not public.
+        return obj.user.get_full_name()
+
     def get_slot_time(self, obj):
         slot = obj.slot
         if not slot:
-            return ''
+            # For debugging, return a default string if slot is None.
+            return "N/A Slot Time"
         date_str  = slot.date.strftime('%Y-%m-%d')
         start_str = slot.start_time.strftime('%H:%M')
         end_str   = slot.end_time.strftime('%H:%M')
         return f"{date_str} {start_str}–{end_str}"
+
+
+class ShiftRejectionSerializer(serializers.ModelSerializer):
+    user = serializers.StringRelatedField(read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    slot_id = serializers.IntegerField(source='slot.id', read_only=True)
+    class Meta:
+        model = ShiftRejection
+        fields = [
+            'id', 'shift', 'slot', 'slot_id', 'slot_date', 'user', 'user_id', 'rejected_at'
+        ]
+        read_only_fields = ['id', 'user', 'user_id', 'slot_id', 'rejected_at']
 
 class MyShiftSerializer(serializers.ModelSerializer):
     # reuse the full PharmacySerializer (with all the file‐fields)

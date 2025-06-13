@@ -509,10 +509,11 @@ class Shift(models.Model):
     visibility = models.CharField(
         max_length=20,
         choices=[
-            ('PHARMACY', 'Pharmacy Level'),
-            ('OWNER_CHAIN', 'Owner Chain'),
-            ('ORG_CHAIN', 'Organization Chain'),
-            ('PLATFORM', 'Platform (Public)'),
+            ('FULL_PART_TIME', 'Full/Part Time Pharmacy Members'),
+            ('LOCUM_CASUAL',   'Locum/Casual Pharmacy Members'),
+            ('OWNER_CHAIN',    'Owner Chain'),
+            ('ORG_CHAIN',      'Organization Chain'),
+            ('PLATFORM',       'Platform (Public)'),
         ],
         default='PLATFORM'
     )
@@ -520,6 +521,7 @@ class Shift(models.Model):
     reveal_count = models.IntegerField(default=0)
     reveal_quota = models.IntegerField(null=True, blank=True)
 
+    escalate_to_locum_casual = models.DateTimeField(null=True, blank=True)
     escalate_to_owner_chain = models.DateTimeField(null=True, blank=True)
     escalate_to_org_chain = models.DateTimeField(null=True, blank=True)
     escalate_to_platform = models.DateTimeField(null=True, blank=True)
@@ -695,6 +697,48 @@ class ShiftSlotAssignment(models.Model):
 
     def __str__(self):
         return f"{self.user.get_full_name()} assigned to slot {self.slot.id}"
+
+class ShiftRejection(models.Model):
+    shift = models.ForeignKey(
+        Shift,
+        on_delete=models.CASCADE,
+        related_name='rejections'
+    )
+    slot = models.ForeignKey(
+        ShiftSlot,
+        on_delete=models.CASCADE,
+        related_name='slot_rejections',
+        null=True, blank=True
+    )
+    slot_date = models.DateField(
+        null=True, blank=True,
+        help_text="Specific date instance if this slot recurs"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='slot_rejections'
+    )
+    rejected_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('slot', 'slot_date', 'user')
+        indexes = [
+            models.Index(fields=['slot', 'slot_date']),
+            models.Index(fields=['user', 'slot_date']),
+        ]
+
+    def __str__(self):
+        # FIX: Check if self.slot is not None before accessing its attributes
+        slotinfo = f' (slot {self.slot.id})' if self.slot else ''
+        # You can add slot_date for more detail if slot is present and has a date
+        if self.slot and self.slot_date: # Only add slot_date if slot is not None and slot_date exists
+            slotinfo = f" (slot {self.slot.id} on {self.slot_date})"
+        elif self.slot_date: # If slot is None but slot_date exists (though unlikely for a full rejection)
+            slotinfo = f" (on {self.slot_date})"
+        # If both slot and slot_date are None, slotinfo remains an empty string.
+
+        return f"{self.user.get_full_name()} rejected shift at {self.shift.pharmacy.name}{slotinfo}"
 
 
 

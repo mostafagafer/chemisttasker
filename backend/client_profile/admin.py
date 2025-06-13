@@ -248,6 +248,12 @@ class ShiftInterestAdmin(admin.ModelAdmin):
     list_filter  = ('revealed','slot','shift')
     search_fields = ('user__username','shift__pharmacy__name')
 
+@admin.register(ShiftRejection)
+class ShiftRejectionAdmin(admin.ModelAdmin):
+    list_display = ('id','shift','slot','user','rejected_at')
+    list_filter  = ('slot','shift')
+    search_fields = ('user__username','shift__pharmacy__name')
+
 class InvoiceLineItemInline(admin.TabularInline):
     model = InvoiceLineItem
     extra = 0

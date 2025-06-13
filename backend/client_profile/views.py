@@ -30,6 +30,11 @@ from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode
 from django.utils.encoding import force_bytes
 from django.conf import settings
+from rest_framework.exceptions import APIException
+class Http400(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = 'Bad Request.'
+    default_code = 'bad_request'
 
 # Onboardings
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -750,7 +755,7 @@ class ChainViewSet(viewsets.ModelViewSet):
 
 
 
-COMMUNITY_LEVELS = ['PHARMACY', 'OWNER_CHAIN', 'ORG_CHAIN']
+COMMUNITY_LEVELS = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN','ORG_CHAIN']
 PUBLIC_LEVEL = 'PLATFORM'
 
 class BaseShiftViewSet(viewsets.ModelViewSet):
@@ -760,7 +765,7 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
     def check_permissions(self, request):
         super().check_permissions(request)
-        if request.method in SAFE_METHODS or self.action == 'express_interest':
+        if request.method in SAFE_METHODS or self.action in ['express_interest', 'reject']:
             return
 
         user = request.user
@@ -793,9 +798,10 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         qs = Shift.objects.all().annotate(interested_users_count=Count('interests'))
         now = timezone.now()
         esc_rules = [
-            (0, 'escalate_to_owner_chain', 'OWNER_CHAIN', 1),
-            (1, 'escalate_to_org_chain',    'ORG_CHAIN',   2),
-            (2, 'escalate_to_platform',     'PLATFORM',    3),
+            (0, 'escalate_to_locum_casual', 'LOCUM_CASUAL', 1),
+            (1, 'escalate_to_owner_chain',  'OWNER_CHAIN', 2),
+            (2, 'escalate_to_org_chain',    'ORG_CHAIN',   3),
+            (3, 'escalate_to_platform',     'PLATFORM',    4),
         ]
         for lvl, date_field, next_vis, next_lvl in esc_rules:
             Shift.objects.filter(
@@ -884,83 +890,83 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def reveal_profile(self, request, pk=None):
-        shift   = self.get_object()
+        shift = self.get_object()
         user_id = request.data.get('user_id')
+        
         if user_id is None:
-            return Response({'detail': 'user_id is required.'},
-                            status=status.HTTP_400_BAD_REQUEST)
-        candidate = get_object_or_404(User, pk=user_id)
+            return Response({'detail': 'user_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        candidate = get_object_or_404(User, pk=user_id)
         slot_id = request.data.get('slot_id')
-        # 1) Try to find a slot-specific interest if slot_id is provided
-        if slot_id is not None:
-            try:
-                interest = ShiftInterest.objects.get(
-                    shift=shift, slot_id=slot_id, user=candidate
-                )
-            except ShiftInterest.DoesNotExist:
-                # 2) Fallback to the “all-slots” interest
-                interest = get_object_or_404(
-                    ShiftInterest, shift=shift, slot__isnull=True, user=candidate
-                )
-        else:
-            # 3) No slot_id → must be an all-slots interest
+
+        # Handle single user shifts
+        if shift.single_user_only:
+            # For single user shifts, always look for slot=None interest
             interest = get_object_or_404(
                 ShiftInterest, shift=shift, slot__isnull=True, user=candidate
             )
+        else:
+            # Existing multi-slot logic
+            if slot_id is not None:
+                try:
+                    interest = ShiftInterest.objects.get(
+                        shift=shift, slot_id=slot_id, user=candidate
+                    )
+                except ShiftInterest.DoesNotExist:
+                    interest = get_object_or_404(
+                        ShiftInterest, shift=shift, slot__isnull=True, user=candidate
+                    )
+            else:
+                interest = get_object_or_404(
+                    ShiftInterest, shift=shift, slot__isnull=True, user=candidate
+                )
 
-        # quota & shift.revealed_users logic (unchanged)...
+        # Rest of the reveal logic remains the same...
         if (shift.reveal_quota is not None
             and shift.reveal_count >= shift.reveal_quota
             and not shift.revealed_users.filter(pk=user_id).exists()):
-            return Response({'detail': 'Reveal quota exceeded.'},
-                            status=status.HTTP_403_FORBIDDEN)
+            return Response({'detail': 'Reveal quota exceeded.'}, status=status.HTTP_403_FORBIDDEN)
 
         if not shift.revealed_users.filter(pk=user_id).exists():
             shift.revealed_users.add(candidate)
             shift.reveal_count += 1
             shift.save()
 
-        # persist on the interest itself
         if not interest.revealed:
             interest.revealed = True
             interest.save()
-            ctx = build_shift_email_context(
-            shift,
-            user=candidate,
-            role=candidate.role.lower(),
-            )
-            send_async_email.defer(
-                subject=f"Your profile was revealed for a shift at {shift.pharmacy.name}",
-                recipient_list=[candidate.email],
-                template_name="emails/shift_reveal.html",
-                context=ctx,
-                text_template="emails/shift_reveal.txt"
-            )
 
-        # return profile (unchanged)
+        # Send email and return profile data...
+        ctx = build_shift_email_context(shift, user=candidate, role=candidate.role.lower())
+        send_async_email.defer(
+            subject=f"Your profile was revealed for a shift at {shift.pharmacy.name}",
+            recipient_list=[candidate.email],
+            template_name="emails/shift_reveal.html",
+            context=ctx,
+            text_template="emails/shift_reveal.txt"
+        )
+
         try:
             po = PharmacistOnboarding.objects.get(user=candidate)
             profile_data = {
                 'phone_number': po.phone_number,
-                'short_bio':    po.short_bio,
-                'resume':       request.build_absolute_uri(po.resume.url) if po.resume else None,
+                'short_bio': po.short_bio,
+                'resume': request.build_absolute_uri(po.resume.url) if po.resume else None,
                 'rate_preference': po.rate_preference or None,
-
             }
         except PharmacistOnboarding.DoesNotExist:
             os = OtherStaffOnboarding.objects.get(user=candidate)
             profile_data = {
                 'phone_number': os.phone_number,
-                'short_bio':    os.short_bio,
-                'resume':       request.build_absolute_uri(os.resume.url) if os.resume else None,
+                'short_bio': os.short_bio,
+                'resume': request.build_absolute_uri(os.resume.url) if os.resume else None,
             }
 
         return Response({
-            'id':         candidate.id,
+            'id': candidate.id,
             'first_name': candidate.first_name,
-            'last_name':  candidate.last_name,
-            'email':      candidate.email,
+            'last_name': candidate.last_name,
+            'email': candidate.email,
             **profile_data
         })
 
@@ -1107,24 +1113,275 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             'assignment_ids': assignment_ids
         }, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        shift = self.get_object()
+        user = request.user
+        slot_id = request.data.get('slot_id')
+        slot_date = request.data.get('slot_date')  # required if recurring
+
+        if slot_id is None:
+            # Allow rejecting the entire shift (slot=None) only if single_user_only
+            if not shift.single_user_only:
+                return Response({'detail': 'slot_id is required'}, status=400)
+            slot = None
+        else:
+            slot = get_object_or_404(ShiftSlot, pk=slot_id, shift=shift)
+
+        # Parse slot_date if provided (for recurring slots)
+        if slot is not None and slot.is_recurring and slot_date:
+            try:
+                slot_date_obj = datetime.strptime(slot_date, "%Y-%m-%d").date()
+            except ValueError:
+                return Response({'detail': 'Invalid slot_date format, use YYYY-MM-DD'}, status=400)
+        else:
+            slot_date_obj = None
+
+        rejection, created = ShiftRejection.objects.get_or_create(
+            shift=shift,
+            slot=slot,
+            slot_date=slot_date_obj,
+            user=user
+        )
+        serializer = ShiftRejectionSerializer(rejection)
+
+        # --- Send escalation prompt email if this is a new rejection ---
+        if created and shift.created_by and shift.created_by.email:
+            ctx = build_shift_email_context(
+                shift,
+                user=shift.created_by,
+                role=shift.created_by.role.lower(),
+                extra={
+                    "rejector_name": user.get_full_name() or user.email,
+                }
+            )
+            ctx["escalation_message"] = (
+                f"{user.get_full_name() or user.email} has declined the shift or slot."
+                "\n\nIf you need to reach a wider audience, you can escalate the shift to the platform with a single click—"
+                "making it visible to the entire ChemistTasker community. This can help you find the right fit, faster."
+            )
+
+            send_async_email.defer(
+                subject=f"Shift Update: {user.get_full_name() or user.email} has declined your shift",
+                recipient_list=[shift.created_by.email],
+                template_name="emails/shift_rejected.html",
+                context=ctx,
+                text_template="emails/shift_rejected.txt"
+            )
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    # @action(detail=True, methods=['get'])
+    # def member_status(self, request, pk=None):
+    #     shift = get_object_or_404(Shift, pk=pk)
+
+    #     # CRITICAL FIX: This endpoint is ONLY for non-Public visibility levels.
+    #     # If a request comes for a Public shift, return an error/empty response.
+    #     if shift.visibility == PUBLIC_LEVEL:
+    #         # This endpoint is explicitly for internal member status.
+    #         # Public interests are handled via ShiftInterestViewSet directly on the frontend.
+    #         return Response({'detail': 'Member status is not applicable for Public shifts via this endpoint. Please query /shift-interests directly for public interests.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    #     slot_id_param = request.query_params.get('slot_id')
+    #     slot_date = request.query_params.get('slot_date')
+
+    #     # Determine the specific ShiftSlot object for filtering assignments and interests/rejections
+    #     slot_obj = None
+    #     if slot_id_param:
+    #         slot_obj = get_object_or_404(ShiftSlot, pk=slot_id_param, shift=shift)
+    #     elif not shift.single_user_only:
+    #         # If it's a multi-slot, non-single-user shift, slot_id is mandatory.
+    #         return Response({'detail': 'slot_id is required for multi-slot shifts via this endpoint.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    #     # Determine interests/rejections based on shift type:
+    #     # If single_user_only, look for slot__isnull=True.
+    #     # If multi-slot, look for interests/rejections tied to the specific slot_obj.
+    #     interests_query = ShiftInterest.objects.filter(shift=shift)
+    #     rejections_query = ShiftRejection.objects.filter(shift=shift)
+
+    #     if shift.single_user_only:
+    #         interests_query = interests_query.filter(slot__isnull=True)
+    #         rejections_query = rejections_query.filter(slot__isnull=True)
+    #     else: # Multi-slot (non-single_user_only)
+    #         interests_query = interests_query.filter(slot=slot_obj)
+    #         rejections_query = rejections_query.filter(slot=slot_obj)
+    #         if slot_obj and slot_obj.is_recurring and slot_date:
+    #             rejections_query = rejections_query.filter(slot_date=slot_date)
+
+    #     interested_user_ids = {i.user_id for i in interests_query}
+    #     rejected_user_ids = {r.user_id for r in rejections_query}
+
+    #     # Get eligible memberships based on shift visibility (THIS IS THE CORE OF THIS ENDPOINT)
+    #     memberships_qs = Membership.objects.filter(
+    #         is_active=True,
+    #         role=shift.role_needed
+    #     ).select_related('user')
+
+    #     if shift.visibility == 'FULL_PART_TIME':
+    #         memberships_qs = memberships_qs.filter(
+    #             pharmacy=shift.pharmacy,
+    #             employment_type__in=['FULL_TIME', 'PART_TIME'],
+    #         )
+    #     elif shift.visibility == 'LOCUM_CASUAL':
+    #         memberships_qs = memberships_qs.filter(
+    #             pharmacy=shift.pharmacy,
+    #             employment_type__in=['LOCUM', 'CASUAL'],
+    #         )
+    #     elif shift.visibility == 'OWNER_CHAIN':
+    #         owner_pharmacies = Pharmacy.objects.filter(owner=shift.pharmacy.owner)
+    #         memberships_qs = memberships_qs.filter(
+    #             pharmacy__in=owner_pharmacies
+    #         )
+    #     elif shift.visibility == 'ORG_CHAIN':
+    #         org_pharmacies = Pharmacy.objects.filter(organization=shift.pharmacy.organization)
+    #         memberships_qs = memberships_qs.filter(
+    #             pharmacy__in=org_pharmacies
+    #         )
+    #     else:
+    #         memberships_qs = Membership.objects.none() # Fallback for unexpected visibility
+
+    #     data = []
+    #     for membership in memberships_qs.distinct():
+    #         user = membership.user
+    #         status = 'no_response'
+
+    #         # Determine the name to display: prioritize invited_name, then user's full name
+    #         display_name = membership.invited_name if membership.invited_name else user.get_full_name()
+
+    #         # Check assignment status (highest priority)
+    #         is_assigned = False
+    #         if shift.single_user_only:
+    #             is_assigned = ShiftSlotAssignment.objects.filter(
+    #                 user=user,
+    #                 shift=shift
+    #             ).exists()
+    #         else:
+    #             is_assigned = ShiftSlotAssignment.objects.filter(
+    #                 user=user,
+    #                 slot=slot_obj,
+    #                 **({'slot_date': slot_date} if slot_obj and slot_obj.is_recurring and slot_date else {})
+    #             ).exists()
+
+    #         if is_assigned:
+    #             status = 'accepted'
+    #         elif user.id in interested_user_ids:
+    #             status = 'interested'
+    #         elif user.id in rejected_user_ids:
+    #             status = 'rejected'
+
+    #         data.append({
+    #             'user_id': user.id,
+    #             'name': display_name,
+    #             'employment_type': membership.employment_type,
+    #             'role': membership.role,
+    #             'status': status,
+    #             'is_member': True
+    #         })
+
+    #     return Response(data)
+
+    # @action(detail=True, methods=['post'])
+    # def escalate(self, request, pk=None):
+    #     shift = self.get_object()
+    #     user = request.user
+
+    #     # Only allow owner or org-admin to escalate
+    #     pharmacy = shift.pharmacy
+    #     if not (
+    #         (pharmacy.owner and pharmacy.owner.user == user) or
+    #         OrganizationMembership.objects.filter(
+    #             user=user,
+    #             role='ORG_ADMIN',
+    #             organization_id=pharmacy.organization_id
+    #         ).exists()
+    #     ):
+    #         return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+
+    #     # Escalation levels and mapping
+    #     escalation_flow = [
+    #         'FULL_PART_TIME',
+    #         'LOCUM_CASUAL',
+    #         'OWNER_CHAIN',
+    #         'ORG_CHAIN',
+    #         'PLATFORM'
+    #     ]
+    #     try:
+    #         current_index = escalation_flow.index(shift.visibility)
+    #     except ValueError:
+    #         return Response({'detail': 'Invalid current visibility level.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    #     if current_index == len(escalation_flow) - 1:
+    #         return Response({'detail': 'Already at highest escalation (Platform/Public).'}, status=status.HTTP_400_BAD_REQUEST)
+
+    #     # Advance to next escalation
+    #     next_visibility = escalation_flow[current_index + 1]
+    #     shift.visibility = next_visibility
+    #     shift.escalation_level = current_index + 1
+
+    #     # Optionally, set escalation timestamp if you want to track it
+    #     field_map = {
+    #         1: 'escalate_to_locum_casual',
+    #         2: 'escalate_to_owner_chain',
+    #         3: 'escalate_to_org_chain',
+    #         4: 'escalate_to_platform'
+    #     }
+    #     field = field_map.get(shift.escalation_level)
+    #     if field and hasattr(shift, field) and not getattr(shift, field):
+    #         setattr(shift, field, timezone.now())
+
+    #     shift.save()
+    #     return Response({'detail': f'Shift escalated to {next_visibility}.'}, status=status.HTTP_200_OK)
+
+
 class CommunityShiftViewSet(BaseShiftViewSet):
     """Community‐level shifts, only for users who are active members of that pharmacy."""
     def get_queryset(self):
-        # 1) start with all “community” shifts happening today or later
+        user = self.request.user
+
         qs = super().get_queryset().filter(
             visibility__in=COMMUNITY_LEVELS,
             slots__date__gte=date.today()
         )
 
-        user = self.request.user
-
-        # 2) restrict to only those pharmacies where this user has an active Membership
-        qs = qs.filter(
-            pharmacy__memberships__user=user,
-            pharmacy__memberships__is_active=True
+        # Q filters for all escalation levels:
+        eligible_q = (
+            # 1. Full/part time at this pharmacy
+            Q(
+                visibility='FULL_PART_TIME',
+                pharmacy__memberships__user=user,
+                pharmacy__memberships__employment_type__in=['FULL_TIME', 'PART_TIME'],
+                pharmacy__memberships__is_active=True,
+            )
+            |
+            # 2. Any active member at this pharmacy (for locum_casual)
+            Q(
+                visibility='LOCUM_CASUAL',
+                pharmacy__memberships__user=user,
+                pharmacy__memberships__is_active=True,
+            )
+            |
+            # 3. Any active member at any pharmacy with the same owner as the shift’s pharmacy
+            Q(
+                visibility='OWNER_CHAIN',
+                pharmacy__owner__in=Pharmacy.objects.filter(
+                    memberships__user=user,
+                    memberships__is_active=True
+                ).values_list('owner', flat=True)
+            )
+            |
+            # 4. Any active member at any pharmacy in the same organization as the shift’s pharmacy
+            Q(
+                visibility='ORG_CHAIN',
+                pharmacy__organization__in=Pharmacy.objects.filter(
+                    memberships__user=user,
+                    memberships__is_active=True
+                ).values_list('organization', flat=True)
+            )
         )
 
-        # 3) now apply your existing clinical‐role filter:
+        qs = qs.filter(eligible_q).distinct()
+
+        # Your clinical-role logic as before (can remain unchanged)
         top_role = getattr(user, 'role', None)
         if top_role == 'PHARMACIST':
             allowed = ['PHARMACIST']
@@ -1144,7 +1401,6 @@ class CommunityShiftViewSet(BaseShiftViewSet):
         elif top_role == 'EXPLORER':
             allowed = ['EXPLORER']
         else:
-            # Org‐admins / owners still see every community tier in pharmacies they belong to
             allowed = COMMUNITY_LEVELS
 
         return qs.filter(role_needed__in=allowed).distinct()
@@ -1235,6 +1491,162 @@ class ActiveShiftViewSet(BaseShiftViewSet):
 
         return qs.distinct()
 
+    @action(detail=True, methods=['get'])
+    def member_status(self, request, pk=None):
+        # You can call super() if you want to reuse the BaseShiftViewSet's logic
+        # return super().member_status(request, pk)
+        # OR, copy the entire logic from BaseShiftViewSet's member_status here:
+        shift = self.get_object() # get_object_or_404(Shift, pk=pk) - self.get_object() is already available
+
+        if shift.visibility == PUBLIC_LEVEL:
+            return Response({'detail': 'Member status is not applicable for Public shifts via this endpoint. Please query /shift-interests directly for public interests.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        slot_id_param = request.query_params.get('slot_id')
+        slot_date = request.query_params.get('slot_date')
+
+        slot_obj = None
+        if slot_id_param:
+            slot_obj = get_object_or_404(ShiftSlot, pk=slot_id_param, shift=shift)
+        elif not shift.single_user_only:
+            return Response({'detail': 'slot_id is required for multi-slot shifts via this endpoint.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        interests_query = ShiftInterest.objects.filter(shift=shift)
+        rejections_query = ShiftRejection.objects.filter(shift=shift)
+
+        if shift.single_user_only:
+            interests_query = interests_query.filter(slot__isnull=True)
+            rejections_query = rejections_query.filter(slot__isnull=True)
+        else: # Multi-slot (non-single_user_only)
+            interests_query = interests_query.filter(slot=slot_obj)
+            rejections_query = rejections_query.filter(slot=slot_obj)
+            if slot_obj and slot_obj.is_recurring and slot_date:
+                rejections_query = rejections_query.filter(slot_date=slot_date)
+
+        interested_user_ids = {i.user_id for i in interests_query}
+        rejected_user_ids = {r.user_id for r in rejections_query}
+
+        memberships_qs = Membership.objects.filter(
+            is_active=True,
+            role=shift.role_needed
+        ).select_related('user')
+
+        if shift.visibility == 'FULL_PART_TIME':
+            memberships_qs = memberships_qs.filter(
+                pharmacy=shift.pharmacy,
+                employment_type__in=['FULL_TIME', 'PART_TIME'],
+            )
+        elif shift.visibility == 'LOCUM_CASUAL':
+            memberships_qs = memberships_qs.filter(
+                pharmacy=shift.pharmacy,
+                employment_type__in=['LOCUM', 'CASUAL'],
+            )
+        elif shift.visibility == 'OWNER_CHAIN':
+            owner_pharmacies = Pharmacy.objects.filter(owner=shift.pharmacy.owner)
+            memberships_qs = memberships_qs.filter(
+                pharmacy__in=owner_pharmacies
+            )
+        elif shift.visibility == 'ORG_CHAIN':
+            org_pharmacies = Pharmacy.objects.filter(organization=shift.pharmacy.organization)
+            memberships_qs = memberships_qs.filter(
+                pharmacy__in=org_pharmacies
+            )
+        else:
+            memberships_qs = Membership.objects.none() # Fallback for unexpected visibility
+
+        data = []
+        for membership in memberships_qs.distinct():
+            user = membership.user
+            status = 'no_response'
+
+            display_name = membership.invited_name if membership.invited_name else user.get_full_name()
+
+            is_assigned = False
+            if shift.single_user_only:
+                is_assigned = ShiftSlotAssignment.objects.filter(
+                    user=user,
+                    shift=shift
+                ).exists()
+            else:
+                is_assigned = ShiftSlotAssignment.objects.filter(
+                    user=user,
+                    slot=slot_obj,
+                    **({'slot_date': slot_date} if slot_obj and slot_obj.is_recurring and slot_date else {})
+                ).exists()
+
+            if is_assigned:
+                status = 'accepted'
+            elif user.id in interested_user_ids:
+                status = 'interested'
+            elif user.id in rejected_user_ids:
+                status = 'rejected'
+
+            data.append({
+                'user_id': user.id,
+                'name': display_name,
+                'employment_type': membership.employment_type,
+                'role': membership.role,
+                'status': status,
+                'is_member': True
+            })
+
+        return Response(data)
+
+    # OVERRIDE/RE-DEFINE escalate to ensure URL generation for ActiveShiftViewSet
+    @action(detail=True, methods=['post'])
+    def escalate(self, request, pk=None):
+        # You can call super() if you want to reuse the BaseShiftViewSet's logic
+        # return super().escalate(request, pk)
+        # OR, copy the entire logic from BaseShiftViewSet's escalate here:
+        shift = self.get_object()
+        user = request.user
+
+        # Only allow owner or org-admin to escalate
+        pharmacy = shift.pharmacy
+        if not (
+            (pharmacy.owner and pharmacy.owner.user == user) or
+            OrganizationMembership.objects.filter(
+                user=user,
+                role='ORG_ADMIN',
+                organization_id=pharmacy.organization_id
+            ).exists()
+        ):
+            return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # Escalation levels and mapping
+        escalation_flow = [
+            'FULL_PART_TIME',
+            'LOCUM_CASUAL',
+            'OWNER_CHAIN',
+            'ORG_CHAIN',
+            'PLATFORM'
+        ]
+        try:
+            current_index = escalation_flow.index(shift.visibility)
+        except ValueError:
+            return Response({'detail': 'Invalid current visibility level.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if current_index == len(escalation_flow) - 1:
+            return Response({'detail': 'Already at highest escalation (Platform/Public).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Advance to next escalation
+        next_visibility = escalation_flow[current_index + 1]
+        shift.visibility = next_visibility
+        shift.escalation_level = current_index + 1
+
+        # Optionally, set escalation timestamp if you want to track it
+        field_map = {
+            1: 'escalate_to_locum_casual',
+            2: 'escalate_to_owner_chain',
+            3: 'escalate_to_org_chain',
+            4: 'escalate_to_platform'
+        }
+        field = field_map.get(shift.escalation_level)
+        if field and hasattr(shift, field) and not getattr(shift, field):
+            setattr(shift, field, timezone.now())
+
+        shift.save()
+        return Response({'detail': f'Shift escalated to {next_visibility}.'}, status=status.HTTP_200_OK)
+
 class ConfirmedShiftViewSet(BaseShiftViewSet):
     """Upcoming & in-progress fully assigned shifts."""
     def get_queryset(self):
@@ -1319,16 +1731,71 @@ class ShiftInterestViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = ShiftInterest.objects.select_related('shift', 'slot', 'user')
+        print(f"DEBUG: Initial ShiftInterest queryset count: {qs.count()}") # Add this line
+
+        shift_id = self.request.query_params.get('shift')
+        print(f"DEBUG: shift_id from query params: {shift_id}") # Add this line
+        if shift_id is not None:
+            qs = qs.filter(shift_id=shift_id)
+            print(f"DEBUG: ShiftInterest queryset count after shift_id filter: {qs.count()}") # Add this line
+
+        slot_param = self.request.query_params.get('slot')
+        print(f"DEBUG: slot_param from query params: {slot_param}") # Add this line
+        if slot_param == 'null':
+            qs = qs.filter(slot__isnull=True)
+            print(f"DEBUG: ShiftInterest queryset count after slot__isnull filter: {qs.count()}") # Add this line
+        elif slot_param is not None:
+            try:
+                slot_id_int = int(slot_param)
+                qs = qs.filter(slot_id=slot_id_int)
+                print(f"DEBUG: ShiftInterest queryset count after slot_id filter ({slot_id_int}): {qs.count()}") # Add this line
+            except ValueError:
+                print(f"DEBUG: Invalid slot ID format received: {slot_param}") # Add this line
+                raise Http400('Invalid slot ID provided. Must be an integer or "null".')
+
+        user_id = self.request.query_params.get('user')
+        print(f"DEBUG: user_id from query params: {user_id}") # Add this line
+        if user_id is not None:
+            qs = qs.filter(user_id=user_id)
+            print(f"DEBUG: ShiftInterest queryset count after user_id filter: {qs.count()}") # Add this line
+
+        return qs
+
+    # Add a custom list method to ensure a 200 OK with content
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK) # Ensure 200 OK
+
+
+class ShiftRejectionViewSet(viewsets.ModelViewSet):
+    queryset = ShiftRejection.objects.all()
+    serializer_class = ShiftRejectionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        qs = ShiftRejection.objects.select_related('shift', 'slot', 'user')
 
         shift_id = self.request.query_params.get('shift')
         if shift_id is not None:
             qs = qs.filter(shift_id=shift_id)
 
-        slot_id = self.request.query_params.get('slot')
-        if slot_id is not None:
-            qs = qs.filter(slot_id=slot_id)
+        slot_param = self.request.query_params.get('slot')
+        if slot_param == 'null':
+            qs = qs.filter(slot__isnull=True)
+        elif slot_param is not None:
+            try:
+                slot_id_int = int(slot_param)
+                qs = qs.filter(slot_id=slot_id_int)
+            except ValueError:
+                raise Http400('Invalid slot ID provided. Must be an integer or "null".')
 
-        # ← HERE: honor the ?user= param so you only see your own interests
         user_id = self.request.query_params.get('user')
         if user_id is not None:
             qs = qs.filter(user_id=user_id)

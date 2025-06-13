@@ -1,0 +1,10 @@
+Hi {{ user_first_name }},
+
+{{ rejector_name }} has declined the shift at {{ pharmacy_name }} ({{ role_needed }}).
+
+If you need to reach a wider audience, you can escalate this shift to the entire ChemistTasker platform.
+This gives your shift maximum visibility and increases your chances of filling it promptly.
+
+View & Manage Your Shift: {{ shift_link }}
+
+— The ChemistTasker Team 💚

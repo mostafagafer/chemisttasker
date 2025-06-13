@@ -13,7 +13,6 @@ import {
   CardContent,
   IconButton,
   Snackbar,
-  CircularProgress,
   Alert,
   Tabs,
   Tab,
@@ -31,6 +30,7 @@ import {
   List,
   ListItem,
   ListItemText,
+  Skeleton,
 
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -134,8 +134,9 @@ export default function PharmacyPage() {
   const [rolesNeeded, setRolesNeeded] = useState<string[]>([]);
 
   // Hours
+  // FIX: Corrected useState declarations from previous error.
   const [weekdaysStart, setWeekdaysStart] = useState('');
-  const [weekdaysEnd, setWeekdaysEnd] = useState('');
+  const [weekdaysEnd, setWeekdaysEnd] = useState(''); // Fixed here
   const [saturdaysStart, setSaturdaysStart] = useState('');
   const [saturdaysEnd, setSaturdaysEnd] = useState('');
   const [sundaysStart, setSundaysStart] = useState('');
@@ -178,26 +179,36 @@ export default function PharmacyPage() {
   useEffect(() => {
     if (!user) return; // Don't run until user is set
 
-    // const isOrgAdmin = user?.memberships?.some(m => m.role === 'ORG_ADMIN');
     const isOrgAdmin = Array.isArray(user?.memberships)
       ? user.memberships.some(m => m?.role === 'ORG_ADMIN')
       : false;
 
+    // Make 'load' an async function
+    const load = async () => {
+      try {
+        const res: AxiosResponse<Pharmacy[]> = await apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.pharmacies}`);
+        setPharmacies(res.data);
 
-    const load = () => {
-      apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.pharmacies}`)
-        .then((res: AxiosResponse<Pharmacy[]>) => {
-          setPharmacies(res.data);
-          res.data.forEach(ph => loadMembers(ph.id));
-        })
+        // Fetch memberships for all pharmacies concurrently and wait for them
+        const membershipPromises = res.data.map(ph => loadMembers(ph.id));
+        await Promise.all(membershipPromises); // Wait for all memberships to load before marking loading as false
+
+      } catch (err: unknown) { // FIX: Changed 'err: AxiosError' to 'err: unknown'
+        if (err instanceof AxiosError && err.response?.status === 404) setNeedsOnboarding(true); // Type guard for AxiosError
+        else console.error(err);
+      } finally {
+        setLoading(false); // Set loading to false only after all data (pharmacies + memberships) is fetched
+      }
     };
+
+    // This part remains the same, deciding whether to load directly or check onboarding
     if (isOrgAdmin) {
       load();
     } else {
       apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.onboardingDetail('owner')}`)
-        .then(load)
-        .catch((err: AxiosError) => {
-          if (err.response?.status === 404) setNeedsOnboarding(true);
+        .then(load) // Call the async load function
+        .catch((err: unknown) => { // FIX: Changed 'err: AxiosError' to 'err: unknown'
+          if (err instanceof AxiosError && err.response?.status === 404) setNeedsOnboarding(true); // Type guard for AxiosError
           else console.error(err);
         })
         .finally(() => setLoading(false));
@@ -323,9 +334,15 @@ export default function PharmacyPage() {
       }
       setSnackbarOpen(true);
       closeDialog();
-    } catch (err: any) {
-      console.error(err);
-      setError(err.response?.data?.detail || err.message);
+    } catch (err: unknown) { // FIX: Changed 'err: any' to 'err: unknown'
+      // You can add a type guard if you need to access properties of AxiosError
+      if (err instanceof AxiosError) {
+        console.error(err);
+        setError(err.response?.data?.detail || err.message);
+      } else {
+        console.error(err);
+        setError('An unexpected error occurred.');
+      }
     }
   };
 
@@ -341,21 +358,15 @@ export default function PharmacyPage() {
     }
   };
 
+  // loadMembers now explicitly returns the promise from apiClient.get
   function loadMembers(phId: string) {
-  apiClient
-    .get<any[]>(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${phId}`)
-    .then(res => setMemberships(m => ({ ...m, [phId]: res.data })))
-    .catch(console.error);
-}
+    return apiClient
+      .get<any[]>(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${phId}`)
+      .then(res => setMemberships(m => ({ ...m, [phId]: res.data })))
+      .catch(console.error);
+  }
 
   // ─── Early Returns ──────────────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <Box p={4} textAlign="center">
-        <CircularProgress />
-      </Box>
-    );
-  }
   if (needsOnboarding) {
     return (
       <Box p={4} textAlign="center">
@@ -1052,7 +1063,43 @@ export default function PharmacyPage() {
       />
 
       <Box mt={4}>
-        {pharmacies.length === 0 ? (
+        {loading ? ( // Render skeleton if loading is true
+          Array.from(new Array(itemsPerPage)).map((_, index) => (
+            <Box key={index} sx={{ mb: 3 }}>
+              <Card>
+                <CardContent>
+                  <Skeleton variant="text" width="60%" height={30} sx={{ mb: 1 }} />
+                  <Skeleton variant="text" width="40%" height={20} sx={{ mb: 0.5 }} />
+                  <Skeleton variant="text" width="80%" height={20} />
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
+                    <Skeleton variant="circular" width={40} height={40} sx={{ mr: 1 }} />
+                    <Skeleton variant="circular" width={40} height={40} />
+                  </Box>
+                </CardContent>
+              </Card>
+              <Accordion sx={{ mt: 1 }}>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Skeleton variant="text" width="50%" height={20} />
+                </AccordionSummary>
+                <AccordionDetails>
+                  <List dense>
+                    {Array.from(new Array(2)).map((_, idx) => ( // Placeholder for 2 staff members
+                      <ListItem key={idx}>
+                        <ListItemText
+                          primary={<Skeleton variant="text" width="70%" />}
+                          secondary={<Skeleton variant="text" width="90%" />}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </AccordionDetails>
+                <AccordionActions>
+                  <Skeleton variant="rectangular" width={100} height={36} />
+                </AccordionActions>
+              </Accordion>
+            </Box>
+          ))
+        ) : pharmacies.length === 0 ? (
           <Typography variant="h6">You have no pharmacies.</Typography>
         ) : (
           paginated.map(p => (
@@ -1130,7 +1177,7 @@ export default function PharmacyPage() {
             </Box>
           ))
         )}
-        {pharmacies.length > itemsPerPage && (
+        {pharmacies.length > itemsPerPage && !loading && (
           <Box display="flex" justifyContent="center" mt={2}>
             <Pagination
               count={Math.ceil(pharmacies.length / itemsPerPage)}

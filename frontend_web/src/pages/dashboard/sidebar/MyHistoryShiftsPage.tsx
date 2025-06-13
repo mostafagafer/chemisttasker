@@ -4,7 +4,7 @@ import {
   Typography,
   Paper,
   Box,
-  CircularProgress,
+  // CircularProgress,
   Snackbar,
   IconButton,
   Pagination,
@@ -14,6 +14,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Skeleton, // Added Skeleton import
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../../utils/apiClient';
@@ -58,7 +59,7 @@ interface Invoice {
 
 export default function MyHistoryShiftsPage() {
   const [shifts, setShifts] = useState<Shift[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // Set to true initially for skeleton loading
   const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string }>({
     open: false,
     msg: '',
@@ -74,6 +75,7 @@ export default function MyHistoryShiftsPage() {
   const displayed = shifts.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
   useEffect(() => {
+    setLoading(true); // Ensure loading is true when fetching starts
     apiClient
       .get(API_ENDPOINTS.getMyHistoryShifts)
       .then((res) => {
@@ -88,7 +90,7 @@ export default function MyHistoryShiftsPage() {
       .catch(() =>
         setSnackbar({ open: true, msg: 'Failed to load history shifts' })
       )
-      .finally(() => setLoading(false));
+      .finally(() => setLoading(false)); // Ensure loading is set to false
   }, []);
 
   const closeSnackbar = () => setSnackbar((s) => ({ ...s, open: false }));
@@ -126,7 +128,23 @@ export default function MyHistoryShiftsPage() {
   if (loading) {
     return (
       <Container sx={{ textAlign: 'center', py: 4 }}>
-        <CircularProgress />
+        {[...Array(3)].map((_, index) => ( // Render 3 skeleton papers
+          <Paper key={index} sx={{ p: 2, mb: 2 }}>
+            <Skeleton variant="text" width="70%" height={30} sx={{ mb: 1 }} />
+            <Skeleton variant="text" width="50%" height={20} sx={{ mb: 2 }} />
+            <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {[...Array(2)].map((__, slotIndex) => (
+                    <Box key={slotIndex} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Skeleton variant="text" width="40%" />
+                        <Rating readOnly size="small" value={0} /> {/* Placeholder for Rating */}
+                    </Box>
+                ))}
+            </Box>
+            <Box sx={{ mt: 2, textAlign: 'right' }}>
+              <Skeleton variant="rectangular" width={150} height={36} />
+            </Box>
+          </Paper>
+        ))}
       </Container>
     );
   }

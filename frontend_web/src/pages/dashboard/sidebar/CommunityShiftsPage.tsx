@@ -7,13 +7,14 @@ import {
   Card,
   CardContent,
   Button,
-  CircularProgress,
+  // CircularProgress,
   Chip,
   Box,
   Divider,
   Pagination,
   Snackbar,
   IconButton,
+  Skeleton, // Added Skeleton import
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../../utils/apiClient';
@@ -72,7 +73,7 @@ export default function CommunityShiftsPage() {
   const user = auth.user;
 
   const [shifts, setShifts] = useState<Shift[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Set to true initially for skeleton loading
   const [disabledSlots, setDisabledSlots] = useState<number[]>([]);
   const [disabledShifts, setDisabledShifts] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -412,7 +413,19 @@ export default function CommunityShiftsPage() {
   if (loading) {
     return (
       <Container sx={{ textAlign: 'center', py: 4 }}>
-        <CircularProgress />
+        {[...Array(3)].map((_, index) => ( // Render 3 skeleton cards
+          <Card key={index} sx={{ mb: 3 }}>
+            <CardContent>
+              <Skeleton variant="text" width="60%" height={30} sx={{ mb: 1 }} />
+              <Skeleton variant="text" width="80%" height={20} sx={{ mb: 2 }} />
+              <Skeleton variant="rectangular" width="100%" height={120} />
+              <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between' }}>
+                <Skeleton variant="text" width="30%" />
+                <Skeleton variant="rectangular" width={100} height={36} />
+              </Box>
+            </CardContent>
+          </Card>
+        ))}
       </Container>
     );
   }
@@ -548,7 +561,7 @@ export default function CommunityShiftsPage() {
                           <Button
                             size="small"
                             variant="outlined"
-                            disabled={shiftStatus === 'Partially Assigned'} // Disable if partially assigned, as it implies individual slots are handled
+                            disabled={shiftStatus === 'Partially Assigned'}
                             onClick={() => handleExpressInterest(shift.id, null)}
                             sx={{ mr: 1 }}
                           >
@@ -558,7 +571,7 @@ export default function CommunityShiftsPage() {
                             size="small"
                             variant="outlined"
                             color="error"
-                            disabled={shiftStatus === 'Partially Assigned'} // Disable if partially assigned
+                            disabled={shiftStatus === 'Partially Assigned'}
                             onClick={() => handleReject(shift.id, null)}
                           >
                             Reject Entire Shift

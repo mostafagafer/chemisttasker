@@ -7,13 +7,14 @@ import {
   Card,
   CardContent,
   Button,
-  CircularProgress,
+  // CircularProgress,
   Chip,
   Box,
   Divider,
   Pagination,
   Snackbar,
   IconButton,
+  Skeleton, // Added Skeleton import
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../../utils/apiClient';
@@ -72,7 +73,7 @@ export default function PublicShiftsPage() {
   const user = auth.user;
 
   const [shifts, setShifts] = useState<Shift[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Set to true initially for skeleton loading
   const [disabledSlots, setDisabledSlots] = useState<number[]>([]);
   const [disabledShifts, setDisabledShifts] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +114,7 @@ export default function PublicShiftsPage() {
             const assignedSlotCount = s.slot_assignments?.length ?? 0;
             return assignedSlotCount < s.slots.length;
           });
-          
+
           setShifts(
           available.map(s => ({
             ...s,
@@ -132,19 +133,19 @@ export default function PublicShiftsPage() {
         : Array.isArray(interestsRes.data)
         ? interestsRes.data
         : [];
-      
+
       // 1) all the per-slot interests
       const slotIds = rawInt
         .map(i => i.slot)
         .filter((id): id is number => id != null);
       setDisabledSlots(slotIds);
-      
+
       // 2) all the shift-level interests (slot === null)
       const shiftIds = rawInt
         .filter(i => i.slot === null)
         .map(i => i.shift);
       setDisabledShifts(shiftIds);
-      
+
       } catch {
         setError('Failed to load public shifts or interests');
       } finally {
@@ -167,7 +168,7 @@ export default function PublicShiftsPage() {
         showSnackbar(err.response?.data?.detail || 'Failed to express interest');
         setDisabledShifts(ds => ds.filter(id => id !== shiftId));
       }
-      
+
     } else {
       // per‐slot interest (your existing logic)
       setDisabledSlots(ds => [...ds, slotId]);
@@ -180,10 +181,10 @@ export default function PublicShiftsPage() {
         showSnackbar(err.response?.data?.detail || 'Failed to express interest');
         setDisabledSlots(ds => ds.filter(id => id !== slotId));
       }
-      
+
     }
   };
-  
+
 
   const handlePageChange = (_: React.ChangeEvent<unknown>, value: number) => {
     setPage(value);
@@ -215,11 +216,23 @@ export default function PublicShiftsPage() {
     setSnackbarMsg(msg);
     setSnackbarOpen(true);
   };
-  
+
   if (loading) {
     return (
       <Container sx={{ textAlign: 'center', py: 4 }}>
-        <CircularProgress />
+        {[...Array(3)].map((_, index) => ( // Render 3 skeleton cards
+          <Card key={index} sx={{ mb: 3 }}>
+            <CardContent>
+              <Skeleton variant="text" width="60%" height={30} sx={{ mb: 1 }} />
+              <Skeleton variant="text" width="80%" height={20} sx={{ mb: 2 }} />
+              <Skeleton variant="rectangular" width="100%" height={120} />
+              <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between' }}>
+                <Skeleton variant="text" width="30%" />
+                <Skeleton variant="rectangular" width={100} height={36} />
+              </Box>
+            </CardContent>
+          </Card>
+        ))}
       </Container>
     );
   }
@@ -292,7 +305,7 @@ export default function PublicShiftsPage() {
                    </Typography>
                  </Box>
 
-                
+
                 {/* Time Slots */}
                 <Box sx={{ mt: 2 }}>
                   <Typography variant="subtitle2">Time Slots</Typography>

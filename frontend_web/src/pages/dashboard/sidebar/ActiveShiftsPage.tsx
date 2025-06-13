@@ -31,6 +31,7 @@ import {
   Chip,
   Tooltip,
   Divider,
+  Skeleton, // Added Skeleton import
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -130,6 +131,7 @@ interface TabDataState {
 
 const ActiveShiftsPage: React.FC = () => {
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [loadingShifts, setLoadingShifts] = useState(true); // New state for initial shifts loading
   const [expandedShift, setExpandedShift] = useState<number | false>(false);
   const [activeTabs, setActiveTabs] = useState<Record<number, number>>({});
   const [tabData, setTabData] = useState<Record<string, TabDataState>>({});
@@ -164,9 +166,13 @@ const ActiveShiftsPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    setLoadingShifts(true); // Start loading when component mounts
     apiClient.get<Shift[]>(API_ENDPOINTS.getActiveShifts)
-      .then(res => setShifts(res.data))
-      .catch(() => setSnackbar({ open: true, message: 'Failed to load active shifts' }));
+      .then(res => {
+        setShifts(res.data);
+      })
+      .catch(() => setSnackbar({ open: true, message: 'Failed to load active shifts' }))
+      .finally(() => setLoadingShifts(false)); // End loading regardless of success or failure
   }, []);
 
   const loadTabData = useCallback(async (shift: Shift, levelIdx: number) => {
@@ -182,7 +188,6 @@ const ActiveShiftsPage: React.FC = () => {
       if (escLevel === PUBLIC_LEVEL_KEY) {
         const res = await apiClient.get<{ results: Interest[] }>(API_ENDPOINTS.getShiftInterests, { params: { shift: shift.id } });
         const interests: Interest[] = Array.isArray(res.data.results) ? res.data.results : []; // Access .results
-        // console.log('DEBUG: Processed interests array before populating maps:', interests); // Debug log
 
         const interestsBySlot: Record<number, Interest[]> = {};
         const interestsAll: Interest[] = [];
@@ -198,8 +203,6 @@ const ActiveShiftsPage: React.FC = () => {
             interestsBySlot[sid].push(interest);
           }
         });
-        // console.log('Populated interestsBySlot:', interestsBySlot); // Debug log
-        // console.log('Populated interestsAll:', interestsAll); // Debug log
 
         setTabData(td => ({
           ...td,
@@ -242,7 +245,7 @@ const ActiveShiftsPage: React.FC = () => {
         [tabKey]: { ...td[tabKey], loading: false },
       }));
     }
-  }, [getTabKey, findWholeShiftMembers]); // Removed `shifts` from dependencies as it's passed directly
+  }, [getTabKey, findWholeShiftMembers]);
 
   const handleAccordionChange = useCallback((shift: Shift) => (_: React.SyntheticEvent, expanded: boolean) => {
     setExpandedShift(expanded ? shift.id : false);
@@ -256,7 +259,7 @@ const ActiveShiftsPage: React.FC = () => {
         return { ...prevActiveTabs, [shift.id]: determinedActiveTabIdx };
       });
     }
-  }, [getTabKey, loadTabData, tabData]); // Removed `shifts` from dependencies as it's passed directly
+  }, [getTabKey, loadTabData, tabData]);
 
   const handleTabChange = useCallback((shift: Shift, newTabIndex: number) => {
     setActiveTabs(prevActiveTabs => ({ ...prevActiveTabs, [shift.id]: newTabIndex }));
@@ -353,393 +356,414 @@ const ActiveShiftsPage: React.FC = () => {
   return (
     <Container sx={{ py: 4 }}>
       <Typography variant="h4" gutterBottom>Active Shifts</Typography>
-      {shifts.length === 0 && <Typography>No active shifts.</Typography>}
 
-      {shifts.map(shift => {
-        const currentLevelIdx = ESCALATION_LEVELS.findIndex(l => l.key === shift.visibility);
-        const activeTabIdx = activeTabs[shift.id] ?? currentLevelIdx;
-        const currentTabData = tabData[getTabKey(shift.id, activeTabIdx)];
-
-        return (
-          <Accordion
-            key={shift.id}
-            expanded={expandedShift === shift.id}
-            onChange={handleAccordionChange(shift)}
-            sx={{
-              mb: 3,
-              border: `1px solid ${grey[300]}`,
-              borderRadius: 2,
-              boxShadow: '0 2px 10px 0 rgba(0,0,0,0.07)',
-              '&.Mui-expanded': {
-                margin: 'auto',
-                boxShadow: '0 4px 15px 0 rgba(0,0,0,0.1)',
-              },
-            }}
-          >
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
-                  <Chip label={shift.role_needed} size="small" color="primary" />
-                  <Typography variant="body2" sx={{ ml: 2 }}>
-                    Current Escalation: <b style={{ color: green[700] }}>{ESCALATION_LEVELS[currentLevelIdx]?.label}</b>
-                  </Typography>
-                  {shift.assigned_count === 0 && (
-                    <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
-                      <Tooltip title="Edit Shift">
-                        <IconButton onClick={(e) => { e.stopPropagation(); handleEdit(shift); }} size="small" color="info">
-                          <EditIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Cancel/Delete Shift">
-                        <IconButton onClick={(e) => { e.stopPropagation(); handleDelete(shift); }} size="small" color="error" disabled={deleting[shift.id]}>
-                          <DeleteIcon />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  )}
+      {/* Conditional rendering for loading, empty, or actual shifts */}
+      {loadingShifts ? (
+        // Skeleton placeholders while shifts are loading
+        <Box sx={{ py: 2 }}>
+          {[...Array(3)].map((_, index) => ( // Render 3 skeleton accordions
+            <Accordion key={index} expanded={false} sx={{ mb: 2 }}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <Skeleton variant="text" width="60%" height={30} />
+                  <Skeleton variant="text" width="40%" height={20} />
+                  <Skeleton variant="text" width="80%" height={20} />
                 </Box>
-                <Typography variant="body2" color="text.secondary">
-                  {shift.pharmacy_detail.address ? `${shift.pharmacy_detail.address}, ` : ''}
-                  {shift.pharmacy_detail.state || ''}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Slots: {shift.slots.map(s => `${s.date} ${s.start_time}–${s.end_time}`).join(' | ')}
-                </Typography>
-              </Box>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Tabs
-                value={activeTabIdx}
-                onChange={(_, v) => handleTabChange(shift, v)}
-                sx={{ mb: 2 }}
-                variant="scrollable"
-                scrollButtons="auto"
-              >
-                {ESCALATION_LEVELS
-                  .filter(level => shift.allowed_escalation_levels.includes(level.key))
-                  .map((level) => {
-                    const originalIdx = ESCALATION_LEVELS.findIndex(l => l.key === level.key);
-                    const isDisabled = originalIdx !== currentLevelIdx && !shift.allowed_escalation_levels.includes(level.key);
+              </AccordionSummary>
+            </Accordion>
+          ))}
+        </Box>
+      ) : shifts.length === 0 ? (
+        // Message when no active shifts are available after loading
+        <Typography>No active shifts.</Typography>
+      ) : (
+        // Render actual shifts when loaded
+        shifts.map(shift => {
+          const currentLevelIdx = ESCALATION_LEVELS.findIndex(l => l.key === shift.visibility);
+          const activeTabIdx = activeTabs[shift.id] ?? currentLevelIdx;
+          const currentTabData = tabData[getTabKey(shift.id, activeTabIdx)];
+
+          return (
+            <Accordion
+              key={shift.id}
+              expanded={expandedShift === shift.id}
+              onChange={handleAccordionChange(shift)}
+              sx={{
+                mb: 3,
+                border: `1px solid ${grey[300]}`,
+                borderRadius: 2,
+                boxShadow: '0 2px 10px 0 rgba(0,0,0,0.07)',
+                '&.Mui-expanded': {
+                  margin: 'auto',
+                  boxShadow: '0 4px 15px 0 rgba(0,0,0,0.1)',
+                },
+              }}
+            >
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
+                    <Chip label={shift.role_needed} size="small" color="primary" />
+                    <Typography variant="body2" sx={{ ml: 2 }}>
+                      Current Escalation: <b style={{ color: green[700] }}>{ESCALATION_LEVELS[currentLevelIdx]?.label}</b>
+                    </Typography>
+                    {shift.assigned_count === 0 && (
+                      <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
+                        <Tooltip title="Edit Shift">
+                          <IconButton onClick={(e) => { e.stopPropagation(); handleEdit(shift); }} size="small" color="info">
+                            <EditIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Cancel/Delete Shift">
+                          <IconButton onClick={(e) => { e.stopPropagation(); handleDelete(shift); }} size="small" color="error" disabled={deleting[shift.id]}>
+                            <DeleteIcon />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    )}
+                  </Box>
+                  <Typography variant="body2" color="text.secondary">
+                    {shift.pharmacy_detail.address ? `${shift.pharmacy_detail.address}, ` : ''}
+                    {shift.pharmacy_detail.state || ''}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Slots: {shift.slots.map(s => `${s.date} ${s.start_time}–${s.end_time}`).join(' | ')}
+                  </Typography>
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Tabs
+                  value={activeTabIdx}
+                  onChange={(_, v) => handleTabChange(shift, v)}
+                  sx={{ mb: 2 }}
+                  variant="scrollable"
+                  scrollButtons="auto"
+                >
+                  {ESCALATION_LEVELS
+                    .filter(level => shift.allowed_escalation_levels.includes(level.key))
+                    .map((level) => {
+                      const originalIdx = ESCALATION_LEVELS.findIndex(l => l.key === level.key);
+                      const isDisabled = originalIdx !== currentLevelIdx && !shift.allowed_escalation_levels.includes(level.key);
+
+                      return (
+                        <Tab
+                          key={level.key}
+                          label={level.label}
+                          value={originalIdx}
+                          disabled={isDisabled}
+                          sx={{
+                            bgcolor: originalIdx === currentLevelIdx ? theme.palette.success.light : undefined,
+                            color: originalIdx === currentLevelIdx ? theme.palette.success.contrastText : undefined,
+                            fontWeight: originalIdx === currentLevelIdx ? 'bold' : undefined,
+                            ...(originalIdx === currentLevelIdx + 1 && !escalating[shift.id] && !isDisabled && {
+                              color: theme.palette.success.main,
+                            }),
+                          }}
+                        />
+                      );
+                    })}
+                </Tabs>
+                {(() => {
+                  if (!currentTabData || currentTabData.loading) {
+                    return <Box sx={{ py: 4, textAlign: 'center' }}><CircularProgress /></Box>;
+                  }
+
+                  const selectedTabKey = ESCALATION_LEVELS[activeTabIdx].key;
+                  const isSelectedTabHigher = activeTabIdx > currentLevelIdx;
+                  const canEscalateToSelectedTab = shift.allowed_escalation_levels.includes(selectedTabKey);
+
+                  if (isSelectedTabHigher && canEscalateToSelectedTab) {
+                    return (
+                      <Box sx={{ py: 4, textAlign: 'center' }}>
+                        <Typography color="textSecondary" sx={{ mb: 2 }}>
+                          Shift is currently at "{ESCALATION_LEVELS[currentLevelIdx].label}". Click below to escalate.
+                        </Typography>
+                        <Button
+                          variant="contained"
+                          color="success"
+                          onClick={() => handleEscalate(shift, activeTabIdx)}
+                          disabled={escalating[shift.id]}
+                        >
+                          {escalating[shift.id] ? 'Escalating…' : `Escalate to ${ESCALATION_LEVELS[activeTabIdx].label}`}
+                        </Button>
+                      </Box>
+                    );
+                  }
+
+                  // --- PUBLIC LEVEL TAB RENDERING ---
+                  if (selectedTabKey === PUBLIC_LEVEL_KEY) {
+                    const interestsBySlot = currentTabData.interestsBySlot || {};
+                    const interestsAll = currentTabData.interestsAll || [];
+
+                    const publicCandidateCellSx = { padding: '4px', width: '40%' };
+                    const publicStatusCellSx = { padding: '4px', width: '30%' };
+                    const publicActionCellSx = { padding: '4px', width: '30%' };
 
                     return (
-                      <Tab
-                        key={level.key}
-                        label={level.label}
-                        value={originalIdx}
-                        disabled={isDisabled}
-                        sx={{
-                          bgcolor: originalIdx === currentLevelIdx ? theme.palette.success.light : undefined,
-                          color: originalIdx === currentLevelIdx ? theme.palette.success.contrastText : undefined,
-                          fontWeight: originalIdx === currentLevelIdx ? 'bold' : undefined,
-                          ...(originalIdx === currentLevelIdx + 1 && !escalating[shift.id] && !isDisabled && {
-                            color: theme.palette.success.main,
-                          }),
-                        }}
-                      />
+                      <>
+                        <Typography variant="subtitle2" sx={{ mb: 1 }}>Interests for each slot:</Typography>
+                        {shift.slots.length === 0 ? (
+                          <Typography color="textSecondary">No slots available for this shift.</Typography>
+                        ) : (
+                          shift.slots.map((slot) => {
+                            const slotInterests = interestsBySlot[Number(slot.id)] || [];
+                            return (
+                              <Box key={slot.id} sx={{ mb: 2, p: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}>
+                                <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
+                                  Slot: {slot.date} {slot.start_time}–{slot.end_time}
+                                </Typography>
+                                {slotInterests.length === 0 ? (
+                                  <Typography color="textSecondary">No one has shown interest for this slot.</Typography>
+                                ) : (
+                                  <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}>
+                                    <Table size="small" sx={{ tableLayout: 'fixed' }}>
+                                      <TableHead>
+                                        <TableRow>
+                                          <TableCell sx={publicCandidateCellSx}>Candidate</TableCell>
+                                          <TableCell sx={publicStatusCellSx}>Status</TableCell>
+                                          <TableCell sx={publicActionCellSx}>Action</TableCell>
+                                        </TableRow>
+                                      </TableHead>
+                                      <TableBody>
+                                        {slotInterests.map((interest: Interest) => (
+                                          <TableRow key={interest.id}>
+                                            <TableCell sx={publicCandidateCellSx}>{interest.user}</TableCell>
+                                            <TableCell sx={publicStatusCellSx}>
+                                              <Chip label="Interested" color="success" size="small" />
+                                            </TableCell>
+                                            <TableCell sx={publicActionCellSx}>
+                                              <Button
+                                                size="small"
+                                                variant={interest.revealed ? "outlined" : "contained"}
+                                                onClick={() => handleRevealPlatform(shift, interest)}
+                                              >
+                                                {interest.revealed ? "Review Candidate" : "Reveal Candidate"}
+                                              </Button>
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </TableContainer>
+                                )}
+                              </Box>
+                            );
+                          })
+                        )}
+
+                        <Divider sx={{ my: 2 }} />
+
+                        <Typography variant="subtitle2" sx={{ mb: 1 }}>Interest in All Slots (Whole Shift):</Typography>
+                        {interestsAll.length === 0 ? (
+                          <Typography color="textSecondary">No one has shown interest in all slots yet.</Typography>
+                        ) : (
+                          <TableContainer component={Paper} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}>
+                            <Table size="small" sx={{ tableLayout: 'fixed' }}>
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell sx={publicCandidateCellSx}>Candidate</TableCell>
+                                  <TableCell sx={publicStatusCellSx}>Status</TableCell>
+                                  <TableCell sx={publicActionCellSx}>Action</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {interestsAll.map((interest: Interest) => (
+                                  <TableRow key={interest.id}>
+                                    <TableCell sx={publicCandidateCellSx}>{interest.user}</TableCell>
+                                    <TableCell sx={publicStatusCellSx}>
+                                      <Chip label="Interested" color="success" size="small" />
+                                    </TableCell>
+                                    <TableCell sx={publicActionCellSx}>
+                                      <Button
+                                        size="small"
+                                        variant={interest.revealed ? "outlined" : "contained"}
+                                        onClick={() => handleRevealPlatform(shift, interest)}
+                                      >
+                                        {interest.revealed ? "Review Candidate" : "Reveal Candidate"}
+                                      </Button>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        )}
+                      </>
                     );
-                  })}
-              </Tabs>
-              {(() => {
-                if (!currentTabData || currentTabData.loading) {
-                  return <Box sx={{ py: 4, textAlign: 'center' }}><CircularProgress /></Box>;
-                }
+                  }
 
-                const selectedTabKey = ESCALATION_LEVELS[activeTabIdx].key;
-                const isSelectedTabHigher = activeTabIdx > currentLevelIdx;
-                const canEscalateToSelectedTab = shift.allowed_escalation_levels.includes(selectedTabKey);
+                  // --- COMMON LOGIC FOR COMMUNITY (NON-PUBLIC) LEVELS ---
+                  // This block will now execute for all non-PUBLIC tabs (My Pharmacy, Chain, Org)
+                  const membersBySlot = currentTabData.membersBySlot || {};
+                  const allEligibleMembersMap = new Map<number, MemberStatus>();
+                  for (const slotId in membersBySlot) {
+                    membersBySlot[slotId].forEach(member => {
+                      // Check if member is already in the map with an 'accepted' status
+                      const existing = allEligibleMembersMap.get(member.user_id);
+                      if (!existing || existing.status !== 'accepted') {
+                        allEligibleMembersMap.set(member.user_id, member);
+                      }
+                    });
+                  }
+                  const membersWithConsolidatedStatus = Array.from(allEligibleMembersMap.values());
 
-                if (isSelectedTabHigher && canEscalateToSelectedTab) {
-                  return (
-                    <Box sx={{ py: 4, textAlign: 'center' }}>
-                      <Typography color="textSecondary" sx={{ mb: 2 }}>
-                        Shift is currently at "{ESCALATION_LEVELS[currentLevelIdx].label}". Click below to escalate.
-                      </Typography>
-                      <Button
-                        variant="contained"
-                        color="success"
-                        onClick={() => handleEscalate(shift, activeTabIdx)}
-                        disabled={escalating[shift.id]}
-                      >
-                        {escalating[shift.id] ? 'Escalating…' : `Escalate to ${ESCALATION_LEVELS[activeTabIdx].label}`}
-                      </Button>
-                    </Box>
-                  );
-                }
+                  // Filter by status for display
+                  const interestedMembers = membersWithConsolidatedStatus.filter(m => m.status === 'interested');
+                  const rejectedMembers = membersWithConsolidatedStatus.filter(m => m.status === 'rejected');
+                  const noResponseMembers = membersWithConsolidatedStatus.filter(m => m.status === 'no_response');
+                  const assignedMembers = membersWithConsolidatedStatus.filter(m => m.status === 'accepted');
 
-                // --- PUBLIC LEVEL TAB RENDERING ---
-                if (selectedTabKey === PUBLIC_LEVEL_KEY) {
-                  const interestsBySlot = currentTabData.interestsBySlot || {};
-                  const interestsAll = currentTabData.interestsAll || [];
-
-                  const publicCandidateCellSx = { padding: '4px', width: '40%' };
-                  const publicStatusCellSx = { padding: '4px', width: '30%' };
-                  const publicActionCellSx = { padding: '4px', width: '30%' };
+                  const nameCellSx = { padding: '4px', width: '35%' };
+                  const empTypeCellSx = { padding: '4px', width: '25%' };
+                  const statusCellSx = { padding: '4px', width: '20%' };
+                  const actionCellSx = { padding: '4px', width: '20%' };
 
                   return (
                     <>
-                      <Typography variant="subtitle2" sx={{ mb: 1 }}>Interests for each slot:</Typography>
-                      {shift.slots.length === 0 ? (
-                        <Typography color="textSecondary">No slots available for this shift.</Typography>
-                      ) : (
-                        shift.slots.map((slot) => {
-                          const slotInterests = interestsBySlot[Number(slot.id)] || [];
-                          return (
-                            <Box key={slot.id} sx={{ mb: 2, p: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}>
-                              <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
-                                Slot: {slot.date} {slot.start_time}–{slot.end_time}
-                              </Typography>
-                              {slotInterests.length === 0 ? (
-                                <Typography color="textSecondary">No one has shown interest for this slot.</Typography>
-                              ) : (
-                                <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}>
-                                  <Table size="small" sx={{ tableLayout: 'fixed' }}>
-                                    <TableHead>
-                                      <TableRow>
-                                        <TableCell sx={publicCandidateCellSx}>Candidate</TableCell>
-                                        <TableCell sx={publicStatusCellSx}>Status</TableCell>
-                                        <TableCell sx={publicActionCellSx}>Action</TableCell>
-                                      </TableRow>
-                                    </TableHead>
-                                    <TableBody>
-                                      {slotInterests.map((interest: Interest) => (
-                                        <TableRow key={interest.id}>
-                                          <TableCell sx={publicCandidateCellSx}>{interest.user}</TableCell>
-                                          <TableCell sx={publicStatusCellSx}>
-                                            <Chip label="Interested" color="success" size="small" />
-                                          </TableCell>
-                                          <TableCell sx={publicActionCellSx}>
-                                            <Button
-                                              size="small"
-                                              variant={interest.revealed ? "outlined" : "contained"}
-                                              onClick={() => handleRevealPlatform(shift, interest)}
-                                            >
-                                              {interest.revealed ? "Review Candidate" : "Reveal Candidate"}
-                                            </Button>
-                                          </TableCell>
-                                        </TableRow>
-                                      ))}
-                                    </TableBody>
-                                  </Table>
-                                </TableContainer>
-                              )}
-                            </Box>
-                          );
-                        })
-                      )}
-
-                      <Divider sx={{ my: 2 }} />
-
-                      <Typography variant="subtitle2" sx={{ mb: 1 }}>Interest in All Slots (Whole Shift):</Typography>
-                      {interestsAll.length === 0 ? (
-                        <Typography color="textSecondary">No one has shown interest in all slots yet.</Typography>
-                      ) : (
-                        <TableContainer component={Paper} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}>
-                          <Table size="small" sx={{ tableLayout: 'fixed' }}>
-                            <TableHead>
-                              <TableRow>
-                                <TableCell sx={publicCandidateCellSx}>Candidate</TableCell>
-                                <TableCell sx={publicStatusCellSx}>Status</TableCell>
-                                <TableCell sx={publicActionCellSx}>Action</TableCell>
-                              </TableRow>
-                            </TableHead>
-                            <TableBody>
-                              {interestsAll.map((interest: Interest) => (
-                                <TableRow key={interest.id}>
-                                  <TableCell sx={publicCandidateCellSx}>{interest.user}</TableCell>
-                                  <TableCell sx={publicStatusCellSx}>
-                                    <Chip label="Interested" color="success" size="small" />
-                                  </TableCell>
-                                  <TableCell sx={publicActionCellSx}>
-                                    <Button
-                                      size="small"
-                                      variant={interest.revealed ? "outlined" : "contained"}
-                                      onClick={() => handleRevealPlatform(shift, interest)}
-                                    >
-                                      {interest.revealed ? "Review Candidate" : "Reveal Candidate"}
-                                    </Button>
-                                  </TableCell>
+                      {assignedMembers.length > 0 && (
+                        <Box sx={{ mb: 2, p: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            Assigned:
+                          </Typography>
+                          <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}>
+                            <Table size="small" sx={{ tableLayout: 'fixed' }}>
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell sx={nameCellSx}>Name</TableCell>
+                                  <TableCell sx={empTypeCellSx}>Emp. Type</TableCell>
+                                  <TableCell sx={statusCellSx}>Status</TableCell>
+                                  <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
                                 </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </TableContainer>
+                              </TableHead>
+                              <TableBody>
+                                {assignedMembers.map(member => (
+                                  <TableRow key={member.user_id}>
+                                    <TableCell sx={nameCellSx}>{member.name}</TableCell>
+                                    <TableCell sx={empTypeCellSx}>{member.employment_type.replace('_', ' ')}</TableCell>
+                                    <TableCell sx={statusCellSx}>
+                                      <Chip label="Assigned" color="success" variant="filled" sx={{ bgcolor: theme.palette.success.dark, color: theme.palette.success.contrastText }} size="small" />
+                                    </TableCell>
+                                    <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        </Box>
                       )}
-                    </>
-                  );
-                }
 
-                // --- COMMON LOGIC FOR COMMUNITY (NON-PUBLIC) LEVELS ---
-                // This block will now execute for all non-PUBLIC tabs (My Pharmacy, Chain, Org)
-                const membersBySlot = currentTabData.membersBySlot || {};
-                const allEligibleMembersMap = new Map<number, MemberStatus>();
-                for (const slotId in membersBySlot) {
-                  membersBySlot[slotId].forEach(member => {
-                    // Check if member is already in the map with an 'accepted' status
-                    const existing = allEligibleMembersMap.get(member.user_id);
-                    if (!existing || existing.status !== 'accepted') {
-                      allEligibleMembersMap.set(member.user_id, member);
-                    }
-                  });
-                }
-                const membersWithConsolidatedStatus = Array.from(allEligibleMembersMap.values());
-
-                // Filter by status for display
-                const interestedMembers = membersWithConsolidatedStatus.filter(m => m.status === 'interested');
-                const rejectedMembers = membersWithConsolidatedStatus.filter(m => m.status === 'rejected');
-                const noResponseMembers = membersWithConsolidatedStatus.filter(m => m.status === 'no_response');
-                const assignedMembers = membersWithConsolidatedStatus.filter(m => m.status === 'accepted');
-
-                const nameCellSx = { padding: '4px', width: '35%' };
-                const empTypeCellSx = { padding: '4px', width: '25%' };
-                const statusCellSx = { padding: '4px', width: '20%' };
-                const actionCellSx = { padding: '4px', width: '20%' };
-
-                return (
-                  <>
-                    {assignedMembers.length > 0 && (
                       <Box sx={{ mb: 2, p: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}>
                         <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          Assigned:
+                          Interested in Shift:
                         </Typography>
-                        <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}>
-                          <Table size="small" sx={{ tableLayout: 'fixed' }}>
-                            <TableHead>
-                              <TableRow>
-                                <TableCell sx={nameCellSx}>Name</TableCell>
-                                <TableCell sx={empTypeCellSx}>Emp. Type</TableCell>
-                                <TableCell sx={statusCellSx}>Status</TableCell>
-                                <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
-                              </TableRow>
-                            </TableHead>
-                            <TableBody>
-                              {assignedMembers.map(member => (
-                                <TableRow key={member.user_id}>
-                                  <TableCell sx={nameCellSx}>{member.name}</TableCell>
-                                  <TableCell sx={empTypeCellSx}>{member.employment_type.replace('_', ' ')}</TableCell>
-                                  <TableCell sx={statusCellSx}>
-                                    <Chip label="Assigned" color="success" variant="filled" sx={{ bgcolor: theme.palette.success.dark, color: theme.palette.success.contrastText }} size="small" />
-                                  </TableCell>
-                                  <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
+                        {interestedMembers.length === 0 ? (
+                          <Typography color="textSecondary" sx={{ mt: 0.5 }}>No members have shown interest in this shift.</Typography>
+                        ) : (
+                          <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}>
+                            <Table size="small" sx={{ tableLayout: 'fixed' }}>
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell sx={nameCellSx}>Name</TableCell>
+                                  <TableCell sx={empTypeCellSx}>Emp. Type</TableCell>
+                                  <TableCell sx={statusCellSx}>Status</TableCell>
+                                  <TableCell sx={actionCellSx}>Action</TableCell>
                                 </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </TableContainer>
+                              </TableHead>
+                              <TableBody>
+                                {interestedMembers.map(member => (
+                                  <TableRow key={member.user_id}>
+                                    <TableCell sx={nameCellSx}>{member.name}</TableCell>
+                                    <TableCell sx={empTypeCellSx}>{member.employment_type.replace('_', ' ')}</TableCell>
+                                    <TableCell sx={statusCellSx}><Chip label="Interested" color="success" size="small" /></TableCell>
+                                    <TableCell sx={actionCellSx}>
+                                      <Button
+                                        size="small"
+                                        variant="contained"
+                                        color="success"
+                                        onClick={() => handleAssign(shift, member.user_id, null)} // Pass null for slotId if single_user_only or whole shift
+                                      >
+                                        Assign
+                                      </Button>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        )}
                       </Box>
-                    )}
 
-                    <Box sx={{ mb: 2, p: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        Interested in Shift:
-                      </Typography>
-                      {interestedMembers.length === 0 ? (
-                        <Typography color="textSecondary" sx={{ mt: 0.5 }}>No members have shown interest in this shift.</Typography>
-                      ) : (
-                        <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}>
-                          <Table size="small" sx={{ tableLayout: 'fixed' }}>
-                            <TableHead>
-                              <TableRow>
-                                <TableCell sx={nameCellSx}>Name</TableCell>
-                                <TableCell sx={empTypeCellSx}>Emp. Type</TableCell>
-                                <TableCell sx={statusCellSx}>Status</TableCell>
-                                <TableCell sx={actionCellSx}>Action</TableCell>
-                              </TableRow>
-                            </TableHead>
-                            <TableBody>
-                              {interestedMembers.map(member => (
-                                <TableRow key={member.user_id}>
-                                  <TableCell sx={nameCellSx}>{member.name}</TableCell>
-                                  <TableCell sx={empTypeCellSx}>{member.employment_type.replace('_', ' ')}</TableCell>
-                                  <TableCell sx={statusCellSx}><Chip label="Interested" color="success" size="small" /></TableCell>
-                                  <TableCell sx={actionCellSx}>
-                                    <Button
-                                      size="small"
-                                      variant="contained"
-                                      color="success"
-                                      onClick={() => handleAssign(shift, member.user_id, null)} // Pass null for slotId if single_user_only or whole shift
-                                    >
-                                      Assign
-                                    </Button>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </TableContainer>
-                      )}
-                    </Box>
-
-                    <Box sx={{ mb: 2, p: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        Rejected Shift:
-                      </Typography>
-                      {rejectedMembers.length === 0 ? (
-                        <Typography color="textSecondary" sx={{ mt: 0.5 }}>No members rejected this shift.</Typography>
-                      ) : (
-                        <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}>
-                          <Table size="small" sx={{ tableLayout: 'fixed' }}>
-                            <TableHead>
-                              <TableRow>
-                                <TableCell sx={nameCellSx}>Name</TableCell>
-                                <TableCell sx={empTypeCellSx}>Emp. Type</TableCell>
-                                <TableCell sx={statusCellSx}>Status</TableCell>
-                                <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
-                              </TableRow>
-                            </TableHead>
-                            <TableBody>
-                              {rejectedMembers.map(member => (
-                                <TableRow key={member.user_id}>
-                                  <TableCell sx={nameCellSx}>{member.name}</TableCell>
-                                  <TableCell sx={empTypeCellSx}>{member.employment_type.replace('_', ' ')}</TableCell>
-                                  <TableCell sx={statusCellSx}><Chip label="Rejected" color="error" size="small" /></TableCell>
+                      <Box sx={{ mb: 2, p: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          Rejected Shift:
+                        </Typography>
+                        {rejectedMembers.length === 0 ? (
+                          <Typography color="textSecondary" sx={{ mt: 0.5 }}>No members rejected this shift.</Typography>
+                        ) : (
+                          <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}>
+                            <Table size="small" sx={{ tableLayout: 'fixed' }}>
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell sx={nameCellSx}>Name</TableCell>
+                                  <TableCell sx={empTypeCellSx}>Emp. Type</TableCell>
+                                  <TableCell sx={statusCellSx}>Status</TableCell>
                                   <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
                                 </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </TableContainer>
-                      )}
-                    </Box>
+                              </TableHead>
+                              <TableBody>
+                                {rejectedMembers.map(member => (
+                                  <TableRow key={member.user_id}>
+                                    <TableCell sx={nameCellSx}>{member.name}</TableCell>
+                                    <TableCell sx={empTypeCellSx}>{member.employment_type.replace('_', ' ')}</TableCell>
+                                    <TableCell sx={statusCellSx}><Chip label="Rejected" color="error" size="small" /></TableCell>
+                                    <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        )}
+                      </Box>
 
-                    <Box sx={{ mb: 2, p: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        No Response:
-                      </Typography>
-                      {noResponseMembers.length === 0 ? (
-                        <Typography color="textSecondary" sx={{ mt: 0.5 }}>All relevant members have responded for this shift.</Typography>
-                      ) : (
-                        <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}>
-                          <Table size="small" sx={{ tableLayout: 'fixed' }}>
-                            <TableHead>
-                              <TableRow>
-                                <TableCell sx={nameCellSx}>Name</TableCell>
-                                <TableCell sx={empTypeCellSx}>Emp. Type</TableCell>
-                                <TableCell sx={statusCellSx}>Status</TableCell>
-                                <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
-                              </TableRow>
-                            </TableHead>
-                            <TableBody>
-                              {noResponseMembers.map(member => (
-                                <TableRow key={member.user_id}>
-                                  <TableCell sx={nameCellSx}>{member.name}</TableCell>
-                                  <TableCell sx={empTypeCellSx}>{member.employment_type.replace('_', ' ')}</TableCell>
-                                  <TableCell sx={statusCellSx}><Chip label="No Response" variant="outlined" size="small" /></TableCell>
+                      <Box sx={{ mb: 2, p: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          No Response:
+                        </Typography>
+                        {noResponseMembers.length === 0 ? (
+                          <Typography color="textSecondary" sx={{ mt: 0.5 }}>All relevant members have responded for this shift.</Typography>
+                        ) : (
+                          <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}>
+                            <Table size="small" sx={{ tableLayout: 'fixed' }}>
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell sx={nameCellSx}>Name</TableCell>
+                                  <TableCell sx={empTypeCellSx}>Emp. Type</TableCell>
+                                  <TableCell sx={statusCellSx}>Status</TableCell>
                                   <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
                                 </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </TableContainer>
-                      )}
-                    </Box>
-                  </>
-                );
-              })()}
-            </AccordionDetails>
-          </Accordion>
-        );
-      })}
+                              </TableHead>
+                              <TableBody>
+                                {noResponseMembers.map(member => (
+                                  <TableRow key={member.user_id}>
+                                    <TableCell sx={nameCellSx}>{member.name}</TableCell>
+                                    <TableCell sx={empTypeCellSx}>{member.employment_type.replace('_', ' ')}</TableCell>
+                                    <TableCell sx={statusCellSx}><Chip label="No Response" variant="outlined" size="small" /></TableCell>
+                                    <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        )}
+                      </Box>
+                    </>
+                  );
+                })()}
+              </AccordionDetails>
+            </Accordion>
+          );
+        })
+      )}
 
       <Dialog open={platformInterestDialog.open} onClose={() => setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null })}>
         <DialogTitle>Candidate Details</DialogTitle>

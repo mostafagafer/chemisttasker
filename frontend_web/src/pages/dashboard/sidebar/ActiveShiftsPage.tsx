@@ -42,6 +42,7 @@ import { green, grey } from '@mui/material/colors';
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../../contexts/AuthContext'; // adjust path as needed
 
 // Unified Interface Definitions
 interface Slot {
@@ -144,6 +145,11 @@ const ActiveShiftsPage: React.FC = () => {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
   const [escalating, setEscalating] = useState<Record<number, boolean>>({});
   const [deleting, setDeleting] = useState<Record<number, boolean>>({});
+
+  // Correctly placed useState declarations for delete confirmation
+  const [openDeleteConfirm, setOpenDeleteConfirm] = useState(false);
+  const [shiftToDelete, setShiftToDelete] = useState<number | null>(null);
+
   const navigate = useNavigate();
   const theme = useTheme();
 
@@ -290,21 +296,49 @@ const ActiveShiftsPage: React.FC = () => {
     }
   };
 
+  // --- MODIFIED handleEdit and handleDelete to use new Dialog and fixed state ---
+
+  const { user } = useAuth(); // must be inside your component
+
   const handleEdit = (shift: Shift) => {
-    navigate(`/dashboard/sidebar/post-shift?edit=${shift.id}`);
+    let baseRoute = '/dashboard/owner/post-shift';
+    if (user?.role === 'ORG_ADMIN' || user?.role === 'ORG_OWNER' || user?.role === 'ORG_STAFF') {
+      baseRoute = '/dashboard/organization/post-shift';
+    }
+    navigate(`${baseRoute}?edit=${shift.id}`);
   };
 
+
   const handleDelete = (shift: Shift) => {
-    if (!window.confirm('Are you sure you want to cancel/delete this shift?')) return;
-    setDeleting(d => ({ ...d, [shift.id]: true }));
-    apiClient.delete(`${API_ENDPOINTS.getActiveShifts}${shift.id}/`)
-      .then(() => {
-        setSnackbar({ open: true, message: 'Shift cancelled/deleted.' });
-        setShifts(shs => shs.filter(s => s.id !== shift.id));
-      })
-      .catch(() => setSnackbar({ open: true, message: 'Failed to cancel shift.' }))
-      .finally(() => setDeleting(d => ({ ...d, [shift.id]: false })));
+    // Set the shift to be deleted and open the confirmation dialog
+    setShiftToDelete(shift.id);
+    setOpenDeleteConfirm(true);
   };
+
+  // New functions for the delete confirmation dialog
+  const confirmDelete = async () => {
+    if (shiftToDelete === null) return; // Should not happen if dialog is opened correctly
+
+    setDeleting(d => ({ ...d, [shiftToDelete]: true })); // Set deleting state for the specific shift
+    try {
+      await apiClient.delete(`${API_ENDPOINTS.getActiveShifts}${shiftToDelete}/`);
+      setSnackbar({ open: true, message: 'Shift cancelled/deleted successfully.' });
+      setShifts(shs => shs.filter(s => s.id !== shiftToDelete)); // Filter out the deleted shift
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err.response?.data?.detail || 'Failed to cancel shift.' });
+    } finally {
+      setDeleting(d => ({ ...d, [shiftToDelete]: false })); // Reset deleting state
+      setOpenDeleteConfirm(false); // Close the dialog
+      setShiftToDelete(null); // Clear the shift ID
+    }
+  };
+
+  const cancelDelete = () => {
+    setOpenDeleteConfirm(false);
+    setShiftToDelete(null);
+  };
+
+  // --- END MODIFIED FUNCTIONS ---
 
   const handleAssign = (shift: Shift, userId: number, slotId: number | null) => {
     apiClient.post(`${API_ENDPOINTS.getActiveShifts}${shift.id}/accept_user/`, { user_id: userId, slot_id: slotId })
@@ -314,7 +348,6 @@ const ActiveShiftsPage: React.FC = () => {
         if (currentActiveTabIdx >= 0) {
           loadTabData(shift, currentActiveTabIdx);
         }
-        // Also refresh the main shifts list to update assigned_count and potentially remove the shift if fully assigned
         apiClient.get<Shift[]>(API_ENDPOINTS.getActiveShifts)
           .then(res => setShifts(res.data))
           .catch(() => setSnackbar({ open: true, message: 'Failed to refresh active shifts after assignment' }));
@@ -331,7 +364,6 @@ const ActiveShiftsPage: React.FC = () => {
       })
       .catch((err: any) => setSnackbar({ open: true, message: err.response?.data?.detail || 'Failed to reveal candidate.' }));
   };
-
 
   const handleAssignPlatform = () => {
     const { shiftId, user, interest } = platformInterestDialog;
@@ -351,7 +383,6 @@ const ActiveShiftsPage: React.FC = () => {
       })
       .catch((err: any) => setSnackbar({ open: true, message: err.response?.data?.detail || 'Failed to assign user.' }));
   };
-
 
   return (
     <Container sx={{ py: 4 }}>
@@ -400,35 +431,49 @@ const ActiveShiftsPage: React.FC = () => {
               }}
             >
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
-                    <Chip label={shift.role_needed} size="small" color="primary" />
-                    <Typography variant="body2" sx={{ ml: 2 }}>
-                      Current Escalation: <b style={{ color: green[700] }}>{ESCALATION_LEVELS[currentLevelIdx]?.label}</b>
+                <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                  <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
+                      <Chip label={shift.role_needed} size="small" color="primary" />
+                      <Typography variant="body2" sx={{ ml: 2 }}>
+                        Current Escalation: <b style={{ color: green[700] }}>{ESCALATION_LEVELS[currentLevelIdx]?.label}</b>
+                      </Typography>
+                    </Box>
+                    <Typography variant="body2" color="text.secondary">
+                      {shift.pharmacy_detail.address ? `${shift.pharmacy_detail.address}, ` : ''}
+                      {shift.pharmacy_detail.state || ''}
                     </Typography>
-                    {shift.assigned_count === 0 && (
-                      <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
-                        <Tooltip title="Edit Shift">
-                          <IconButton onClick={(e) => { e.stopPropagation(); handleEdit(shift); }} size="small" color="info">
-                            <EditIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Cancel/Delete Shift">
-                          <IconButton onClick={(e) => { e.stopPropagation(); handleDelete(shift); }} size="small" color="error" disabled={deleting[shift.id]}>
-                            <DeleteIcon />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    )}
+                    <Typography variant="body2" color="text.secondary">
+                      Slots: {shift.slots.map(s => `${s.date} ${s.start_time}–${s.end_time}`).join(' | ')}
+                    </Typography>
                   </Box>
-                  <Typography variant="body2" color="text.secondary">
-                    {shift.pharmacy_detail.address ? `${shift.pharmacy_detail.address}, ` : ''}
-                    {shift.pharmacy_detail.state || ''}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Slots: {shift.slots.map(s => `${s.date} ${s.start_time}–${s.end_time}`).join(' | ')}
-                  </Typography>
+
+                  {/* --- START OF EDIT AND DELETE BUTTONS --- */}
+                  {/* Buttons now render regardless of assigned_count, as per your request. */}
+                  {/* The original condition {shift.assigned_count === 0 && (...)} is removed. */}
+                  <Box sx={{ display: 'flex', gap: 1, ml: 'auto' }}>
+                    <Tooltip title="Edit Shift">
+                      <IconButton
+                        onClick={(e) => { e.stopPropagation(); handleEdit(shift); }}
+                        size="small"
+                        color="info"
+                      >
+                        <EditIcon />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Cancel/Delete Shift">
+                      <IconButton
+                        onClick={(e) => { e.stopPropagation(); handleDelete(shift); }}
+                        size="small"
+                        color="error"
+                        disabled={deleting[shift.id]} // Disable while deletion is in progress
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                  {/* --- END OF EDIT AND DELETE BUTTONS --- */}
                 </Box>
               </AccordionSummary>
               <AccordionDetails>
@@ -557,7 +602,7 @@ const ActiveShiftsPage: React.FC = () => {
                         {interestsAll.length === 0 ? (
                           <Typography color="textSecondary">No one has shown interest in all slots yet.</Typography>
                         ) : (
-                          <TableContainer component={Paper} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}>
+                          <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}>
                             <Table size="small" sx={{ tableLayout: 'fixed' }}>
                               <TableHead>
                                 <TableRow>
@@ -593,12 +638,10 @@ const ActiveShiftsPage: React.FC = () => {
                   }
 
                   // --- COMMON LOGIC FOR COMMUNITY (NON-PUBLIC) LEVELS ---
-                  // This block will now execute for all non-PUBLIC tabs (My Pharmacy, Chain, Org)
                   const membersBySlot = currentTabData.membersBySlot || {};
                   const allEligibleMembersMap = new Map<number, MemberStatus>();
                   for (const slotId in membersBySlot) {
                     membersBySlot[slotId].forEach(member => {
-                      // Check if member is already in the map with an 'accepted' status
                       const existing = allEligibleMembersMap.get(member.user_id);
                       if (!existing || existing.status !== 'accepted') {
                         allEligibleMembersMap.set(member.user_id, member);
@@ -607,7 +650,6 @@ const ActiveShiftsPage: React.FC = () => {
                   }
                   const membersWithConsolidatedStatus = Array.from(allEligibleMembersMap.values());
 
-                  // Filter by status for display
                   const interestedMembers = membersWithConsolidatedStatus.filter(m => m.status === 'interested');
                   const rejectedMembers = membersWithConsolidatedStatus.filter(m => m.status === 'rejected');
                   const noResponseMembers = membersWithConsolidatedStatus.filter(m => m.status === 'no_response');
@@ -632,7 +674,7 @@ const ActiveShiftsPage: React.FC = () => {
                                   <TableCell sx={nameCellSx}>Name</TableCell>
                                   <TableCell sx={empTypeCellSx}>Emp. Type</TableCell>
                                   <TableCell sx={statusCellSx}>Status</TableCell>
-                                  <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
+                                  <TableCell sx={actionCellSx}></TableCell>
                                 </TableRow>
                               </TableHead>
                               <TableBody>
@@ -643,7 +685,7 @@ const ActiveShiftsPage: React.FC = () => {
                                     <TableCell sx={statusCellSx}>
                                       <Chip label="Assigned" color="success" variant="filled" sx={{ bgcolor: theme.palette.success.dark, color: theme.palette.success.contrastText }} size="small" />
                                     </TableCell>
-                                    <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
+                                    <TableCell sx={actionCellSx}></TableCell>
                                   </TableRow>
                                 ))}
                               </TableBody>
@@ -707,7 +749,7 @@ const ActiveShiftsPage: React.FC = () => {
                                   <TableCell sx={nameCellSx}>Name</TableCell>
                                   <TableCell sx={empTypeCellSx}>Emp. Type</TableCell>
                                   <TableCell sx={statusCellSx}>Status</TableCell>
-                                  <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
+                                  <TableCell sx={actionCellSx}></TableCell>
                                 </TableRow>
                               </TableHead>
                               <TableBody>
@@ -716,7 +758,7 @@ const ActiveShiftsPage: React.FC = () => {
                                     <TableCell sx={nameCellSx}>{member.name}</TableCell>
                                     <TableCell sx={empTypeCellSx}>{member.employment_type.replace('_', ' ')}</TableCell>
                                     <TableCell sx={statusCellSx}><Chip label="Rejected" color="error" size="small" /></TableCell>
-                                    <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
+                                    <TableCell sx={actionCellSx}></TableCell>
                                   </TableRow>
                                 ))}
                               </TableBody>
@@ -739,7 +781,7 @@ const ActiveShiftsPage: React.FC = () => {
                                   <TableCell sx={nameCellSx}>Name</TableCell>
                                   <TableCell sx={empTypeCellSx}>Emp. Type</TableCell>
                                   <TableCell sx={statusCellSx}>Status</TableCell>
-                                  <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
+                                  <TableCell sx={actionCellSx}></TableCell>
                                 </TableRow>
                               </TableHead>
                               <TableBody>
@@ -748,7 +790,7 @@ const ActiveShiftsPage: React.FC = () => {
                                     <TableCell sx={nameCellSx}>{member.name}</TableCell>
                                     <TableCell sx={empTypeCellSx}>{member.employment_type.replace('_', ' ')}</TableCell>
                                     <TableCell sx={statusCellSx}><Chip label="No Response" variant="outlined" size="small" /></TableCell>
-                                    <TableCell sx={actionCellSx}></TableCell> {/* Empty cell for alignment */}
+                                    <TableCell sx={actionCellSx}></TableCell>
                                   </TableRow>
                                 ))}
                               </TableBody>
@@ -765,6 +807,7 @@ const ActiveShiftsPage: React.FC = () => {
         })
       )}
 
+      {/* Dialog for revealing platform candidate details (existing) */}
       <Dialog open={platformInterestDialog.open} onClose={() => setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null })}>
         <DialogTitle>Candidate Details</DialogTitle>
         <DialogContent>
@@ -805,6 +848,30 @@ const ActiveShiftsPage: React.FC = () => {
           )}
         </DialogActions>
       </Dialog>
+
+      {/* --- START OF NEW DELETE CONFIRMATION DIALOG --- */}
+      <Dialog
+        open={openDeleteConfirm}
+        onClose={cancelDelete}
+        aria-labelledby="delete-confirmation-title"
+        aria-describedby="delete-confirmation-description"
+      >
+        <DialogTitle id="delete-confirmation-title">Confirm Delete</DialogTitle>
+        <DialogContent>
+          <Typography id="delete-confirmation-description">
+            Are you sure you want to cancel/delete this shift? This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={cancelDelete} color="primary" variant="outlined">
+            Cancel
+          </Button>
+          <Button onClick={confirmDelete} color="error" variant="contained" disabled={deleting[shiftToDelete || 0]}>
+            {deleting[shiftToDelete || 0] ? <CircularProgress size={24} /> : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      {/* --- END OF NEW DELETE CONFIRMATION DIALOG --- */}
 
       <Snackbar
         open={snackbar.open}

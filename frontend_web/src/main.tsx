@@ -11,6 +11,8 @@ import Login           from './pages/login';
 import Register        from './pages/register';
 import OTPVerify        from './pages/OTPVerify';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import PasswordResetRequestPage from './pages/PasswordResetRequestPage';
+import TermsOfServicePage from './pages/TermsOfServicePage';
 
 // Orgnization
 import OrganizationOverviewPage from './pages/dashboard/organization/OrganizationOverviewPage';
@@ -70,6 +72,8 @@ const router = createBrowserRouter([
       { path: 'login',    element: <Login /> },
       { path: 'otp-verify', element: <OTPVerify /> },
       { path: 'register', element: <Register /> },
+      { path: 'password-reset', element: <PasswordResetRequestPage /> },
+      { path: '/terms-of-service', element: <TermsOfServicePage /> },
 
       // PUBLIC referee confirmation page (add here)
       { path: 'onboarding/referee-confirm/:pk/:refIndex', element: <RefereeConfirmPage /> },

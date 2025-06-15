@@ -25,7 +25,6 @@ from users.utils import get_frontend_onboarding_url
 from datetime import timedelta
 from django.utils import timezone
 import random
-
 from .serializers import (
     UserRegistrationSerializer,
     CustomTokenObtainPairSerializer,
@@ -33,11 +32,30 @@ from .serializers import (
     CustomTokenRefreshSerializer
 )
 User = get_user_model()
+import requests
+
+def verify_recaptcha(token):
+    from django.conf import settings
+    secret_key = settings.RECAPTCHA_SECRET_KEY
+    url = 'https://www.google.com/recaptcha/api/siteverify'
+    data = {'secret': secret_key, 'response': token}
+    response = requests.post(url, data=data)
+    result = response.json()
+    return result.get('success', False)
 
 class RegisterView(generics.CreateAPIView):
     serializer_class = UserRegistrationSerializer
     permission_classes = [permissions.AllowAny]
     
+    def create(self, request, *args, **kwargs):
+        captcha_token = request.data.get('captcha_token')
+        if not captcha_token or not verify_recaptcha(captcha_token):
+            return Response(
+                {'captcha': ['reCAPTCHA validation failed. Please try again.']},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().create(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         user = serializer.save()
         otp_subject = "Your ChemistTasker Verification Code"
@@ -45,18 +63,18 @@ class RegisterView(generics.CreateAPIView):
         send_async_email(
             subject=otp_subject,
             recipient_list=[user.email],
-            template_name="emails/otp_email.html",  # You need to create this template
+            template_name="emails/otp_email.html",
             context=otp_context,
             text_template="emails/otp_email.txt"
-       )
+        )
 
 class VerifyOTPView(APIView):
     OTP_EXPIRY_MINUTES = 10
 
     def post(self, request):
-        email = request.data.get("email")
+        email = request.data.get("email", "").strip().lower()
         otp = request.data.get("otp")
-        user = User.objects.filter(email=email).first()
+        user = User.objects.filter(email__iexact=email).first()
 
         if not user or not otp:
             return Response({"detail": "Invalid credentials."}, status=400)
@@ -93,8 +111,8 @@ class VerifyOTPView(APIView):
 
 class ResendOTPView(APIView):
     def post(self, request):
-        email = request.data.get("email")
-        user = User.objects.filter(email=email).first()
+        email = request.data.get("email", "").strip().lower()
+        user = User.objects.filter(email__iexact=email).first()
         if not user:
             return Response({"detail": "No account with this email."}, status=400)
 
@@ -168,6 +186,27 @@ class PasswordResetConfirmAPIView(APIView):
         user.is_otp_verified = True
         user.save()
         return Response({'detail':'Password has been reset.'})
+
+class PasswordResetRequestAPIView(APIView):
+    permission_classes = []
+
+    def post(self, request):
+        email = request.data.get('email', '').strip().lower()
+        user = User.objects.filter(email__iexact=email).first()
+        if user:
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            reset_url = f"{settings.FRONTEND_BASE_URL}/reset-password/{uid}/{token}/"
+            # send email
+            send_async_email(
+                subject="Reset your password",
+                recipient_list=[user.email],
+                template_name="emails/password_reset_email.html",
+                context={'reset_url': reset_url, 'user': user},
+                text_template="emails/password_reset_email.txt",
+            )
+        # Always succeed (do not reveal which emails are registered)
+        return Response({'detail': 'If this email exists, a reset link has been sent.'})
 
 class InviteOrgUserView(generics.CreateAPIView):
     """

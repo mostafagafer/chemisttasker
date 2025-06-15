@@ -88,7 +88,7 @@ class OwnerOnboardingClaim(APIView):
             )
 
         # 2) Pull the email payload
-        email = request.data.get('email')
+        email = (request.data.get('email') or '').strip().lower()
         if not email:
             return Response(
                 {'detail': 'Email is required.'},
@@ -97,12 +97,13 @@ class OwnerOnboardingClaim(APIView):
 
         # 3) Look up the onboarding record
         try:
-            onboarding = OwnerOnboarding.objects.get(user__email=email)
+            onboarding = OwnerOnboarding.objects.get(user__email__iexact=email)
         except OwnerOnboarding.DoesNotExist:
             return Response(
                 {'detail': 'No onboarding profile found.'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
 
         # 4) Grab the admin’s own org
         membership = request.user.organization_memberships.filter(
@@ -434,7 +435,7 @@ class MembershipViewSet(viewsets.ModelViewSet):
                 return None, 'email, pharmacy, and role are required.'
 
             # Find or create user
-            user = User.objects.filter(email=email).first()
+            user = User.objects.filter(email__iexact=email).first()
             user_created = False
             
             if not user:
@@ -1171,168 +1172,6 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
         return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
-    # @action(detail=True, methods=['get'])
-    # def member_status(self, request, pk=None):
-    #     shift = get_object_or_404(Shift, pk=pk)
-
-    #     # CRITICAL FIX: This endpoint is ONLY for non-Public visibility levels.
-    #     # If a request comes for a Public shift, return an error/empty response.
-    #     if shift.visibility == PUBLIC_LEVEL:
-    #         # This endpoint is explicitly for internal member status.
-    #         # Public interests are handled via ShiftInterestViewSet directly on the frontend.
-    #         return Response({'detail': 'Member status is not applicable for Public shifts via this endpoint. Please query /shift-interests directly for public interests.'}, status=status.HTTP_400_BAD_REQUEST)
-
-    #     slot_id_param = request.query_params.get('slot_id')
-    #     slot_date = request.query_params.get('slot_date')
-
-    #     # Determine the specific ShiftSlot object for filtering assignments and interests/rejections
-    #     slot_obj = None
-    #     if slot_id_param:
-    #         slot_obj = get_object_or_404(ShiftSlot, pk=slot_id_param, shift=shift)
-    #     elif not shift.single_user_only:
-    #         # If it's a multi-slot, non-single-user shift, slot_id is mandatory.
-    #         return Response({'detail': 'slot_id is required for multi-slot shifts via this endpoint.'}, status=status.HTTP_400_BAD_REQUEST)
-
-    #     # Determine interests/rejections based on shift type:
-    #     # If single_user_only, look for slot__isnull=True.
-    #     # If multi-slot, look for interests/rejections tied to the specific slot_obj.
-    #     interests_query = ShiftInterest.objects.filter(shift=shift)
-    #     rejections_query = ShiftRejection.objects.filter(shift=shift)
-
-    #     if shift.single_user_only:
-    #         interests_query = interests_query.filter(slot__isnull=True)
-    #         rejections_query = rejections_query.filter(slot__isnull=True)
-    #     else: # Multi-slot (non-single_user_only)
-    #         interests_query = interests_query.filter(slot=slot_obj)
-    #         rejections_query = rejections_query.filter(slot=slot_obj)
-    #         if slot_obj and slot_obj.is_recurring and slot_date:
-    #             rejections_query = rejections_query.filter(slot_date=slot_date)
-
-    #     interested_user_ids = {i.user_id for i in interests_query}
-    #     rejected_user_ids = {r.user_id for r in rejections_query}
-
-    #     # Get eligible memberships based on shift visibility (THIS IS THE CORE OF THIS ENDPOINT)
-    #     memberships_qs = Membership.objects.filter(
-    #         is_active=True,
-    #         role=shift.role_needed
-    #     ).select_related('user')
-
-    #     if shift.visibility == 'FULL_PART_TIME':
-    #         memberships_qs = memberships_qs.filter(
-    #             pharmacy=shift.pharmacy,
-    #             employment_type__in=['FULL_TIME', 'PART_TIME'],
-    #         )
-    #     elif shift.visibility == 'LOCUM_CASUAL':
-    #         memberships_qs = memberships_qs.filter(
-    #             pharmacy=shift.pharmacy,
-    #             employment_type__in=['LOCUM', 'CASUAL'],
-    #         )
-    #     elif shift.visibility == 'OWNER_CHAIN':
-    #         owner_pharmacies = Pharmacy.objects.filter(owner=shift.pharmacy.owner)
-    #         memberships_qs = memberships_qs.filter(
-    #             pharmacy__in=owner_pharmacies
-    #         )
-    #     elif shift.visibility == 'ORG_CHAIN':
-    #         org_pharmacies = Pharmacy.objects.filter(organization=shift.pharmacy.organization)
-    #         memberships_qs = memberships_qs.filter(
-    #             pharmacy__in=org_pharmacies
-    #         )
-    #     else:
-    #         memberships_qs = Membership.objects.none() # Fallback for unexpected visibility
-
-    #     data = []
-    #     for membership in memberships_qs.distinct():
-    #         user = membership.user
-    #         status = 'no_response'
-
-    #         # Determine the name to display: prioritize invited_name, then user's full name
-    #         display_name = membership.invited_name if membership.invited_name else user.get_full_name()
-
-    #         # Check assignment status (highest priority)
-    #         is_assigned = False
-    #         if shift.single_user_only:
-    #             is_assigned = ShiftSlotAssignment.objects.filter(
-    #                 user=user,
-    #                 shift=shift
-    #             ).exists()
-    #         else:
-    #             is_assigned = ShiftSlotAssignment.objects.filter(
-    #                 user=user,
-    #                 slot=slot_obj,
-    #                 **({'slot_date': slot_date} if slot_obj and slot_obj.is_recurring and slot_date else {})
-    #             ).exists()
-
-    #         if is_assigned:
-    #             status = 'accepted'
-    #         elif user.id in interested_user_ids:
-    #             status = 'interested'
-    #         elif user.id in rejected_user_ids:
-    #             status = 'rejected'
-
-    #         data.append({
-    #             'user_id': user.id,
-    #             'name': display_name,
-    #             'employment_type': membership.employment_type,
-    #             'role': membership.role,
-    #             'status': status,
-    #             'is_member': True
-    #         })
-
-    #     return Response(data)
-
-    # @action(detail=True, methods=['post'])
-    # def escalate(self, request, pk=None):
-    #     shift = self.get_object()
-    #     user = request.user
-
-    #     # Only allow owner or org-admin to escalate
-    #     pharmacy = shift.pharmacy
-    #     if not (
-    #         (pharmacy.owner and pharmacy.owner.user == user) or
-    #         OrganizationMembership.objects.filter(
-    #             user=user,
-    #             role='ORG_ADMIN',
-    #             organization_id=pharmacy.organization_id
-    #         ).exists()
-    #     ):
-    #         return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
-
-    #     # Escalation levels and mapping
-    #     escalation_flow = [
-    #         'FULL_PART_TIME',
-    #         'LOCUM_CASUAL',
-    #         'OWNER_CHAIN',
-    #         'ORG_CHAIN',
-    #         'PLATFORM'
-    #     ]
-    #     try:
-    #         current_index = escalation_flow.index(shift.visibility)
-    #     except ValueError:
-    #         return Response({'detail': 'Invalid current visibility level.'}, status=status.HTTP_400_BAD_REQUEST)
-
-    #     if current_index == len(escalation_flow) - 1:
-    #         return Response({'detail': 'Already at highest escalation (Platform/Public).'}, status=status.HTTP_400_BAD_REQUEST)
-
-    #     # Advance to next escalation
-    #     next_visibility = escalation_flow[current_index + 1]
-    #     shift.visibility = next_visibility
-    #     shift.escalation_level = current_index + 1
-
-    #     # Optionally, set escalation timestamp if you want to track it
-    #     field_map = {
-    #         1: 'escalate_to_locum_casual',
-    #         2: 'escalate_to_owner_chain',
-    #         3: 'escalate_to_org_chain',
-    #         4: 'escalate_to_platform'
-    #     }
-    #     field = field_map.get(shift.escalation_level)
-    #     if field and hasattr(shift, field) and not getattr(shift, field):
-    #         setattr(shift, field, timezone.now())
-
-    #     shift.save()
-    #     return Response({'detail': f'Shift escalated to {next_visibility}.'}, status=status.HTTP_200_OK)
-
-
 class CommunityShiftViewSet(BaseShiftViewSet):
     """Community‐level shifts, only for users who are active members of that pharmacy."""
     def get_queryset(self):
@@ -1493,13 +1332,22 @@ class ActiveShiftViewSet(BaseShiftViewSet):
 
     @action(detail=True, methods=['get'])
     def member_status(self, request, pk=None):
-        # You can call super() if you want to reuse the BaseShiftViewSet's logic
-        # return super().member_status(request, pk)
-        # OR, copy the entire logic from BaseShiftViewSet's member_status here:
-        shift = self.get_object() # get_object_or_404(Shift, pk=pk) - self.get_object() is already available
+        shift = self.get_object()
 
+        # Check if the shift is public-level; if so, this endpoint is not applicable.
+        # This check remains as it was.
         if shift.visibility == PUBLIC_LEVEL:
             return Response({'detail': 'Member status is not applicable for Public shifts via this endpoint. Please query /shift-interests directly for public interests.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Retrieve the visibility parameter from the request query params.
+        # This is the key change: use the requested visibility for filtering.
+        requested_visibility = request.query_params.get('visibility')
+
+        # Fallback if requested_visibility is unexpectedly None, though the frontend should always provide it.
+        # In this case, we would use the shift's current visibility from the DB.
+        if not requested_visibility:
+            requested_visibility = shift.visibility
+
 
         slot_id_param = request.query_params.get('slot_id')
         slot_date = request.query_params.get('slot_date')
@@ -1508,6 +1356,7 @@ class ActiveShiftViewSet(BaseShiftViewSet):
         if slot_id_param:
             slot_obj = get_object_or_404(ShiftSlot, pk=slot_id_param, shift=shift)
         elif not shift.single_user_only:
+            # For multi-slot shifts that are not single-user-only, a slot_id is required for specific status.
             return Response({'detail': 'slot_id is required for multi-slot shifts via this endpoint.'}, status=status.HTTP_400_BAD_REQUEST)
 
         interests_query = ShiftInterest.objects.filter(shift=shift)
@@ -1530,28 +1379,34 @@ class ActiveShiftViewSet(BaseShiftViewSet):
             role=shift.role_needed
         ).select_related('user')
 
-        if shift.visibility == 'FULL_PART_TIME':
+        # Apply filtering based on the 'requested_visibility' from the query parameter
+        if requested_visibility == 'FULL_PART_TIME':
             memberships_qs = memberships_qs.filter(
                 pharmacy=shift.pharmacy,
                 employment_type__in=['FULL_TIME', 'PART_TIME'],
             )
-        elif shift.visibility == 'LOCUM_CASUAL':
+        elif requested_visibility == 'LOCUM_CASUAL':
             memberships_qs = memberships_qs.filter(
                 pharmacy=shift.pharmacy,
                 employment_type__in=['LOCUM', 'CASUAL'],
             )
-        elif shift.visibility == 'OWNER_CHAIN':
+        elif requested_visibility == 'OWNER_CHAIN':
             owner_pharmacies = Pharmacy.objects.filter(owner=shift.pharmacy.owner)
             memberships_qs = memberships_qs.filter(
                 pharmacy__in=owner_pharmacies
             )
-        elif shift.visibility == 'ORG_CHAIN':
+        elif requested_visibility == 'ORG_CHAIN':
             org_pharmacies = Pharmacy.objects.filter(organization=shift.pharmacy.organization)
             memberships_qs = memberships_qs.filter(
                 pharmacy__in=org_pharmacies
             )
         else:
-            memberships_qs = Membership.objects.none() # Fallback for unexpected visibility
+            # This 'else' branch handles cases where the requested_visibility
+            # doesn't match a specific membership filter (e.g., 'PLATFORM'
+            # which is handled by the early return, or an unexpected value).
+            # If no explicit membership type is needed for this visibility,
+            # it might return an empty queryset or a default set based on your business logic.
+            memberships_qs = Membership.objects.none() # Default to empty if no specific rule applies
 
         data = []
         for membership in memberships_qs.distinct():

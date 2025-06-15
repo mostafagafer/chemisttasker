@@ -27,6 +27,7 @@ import { useNavigate } from 'react-router-dom';
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useLocation } from 'react-router-dom';
 
 interface Pharmacy {
   id: number;
@@ -57,6 +58,10 @@ export default function PostShiftPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   if (!user) return null;
+
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const editingShiftId = params.get('edit');
 
   // — Load pharmacies —
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
@@ -102,7 +107,6 @@ export default function PostShiftPage() {
         allowed = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'];
       }
     }
-
     setAllowedVis(allowed);
     setVisibility(prev => (allowed.includes(prev) ? prev : allowed[0]));
     setEscalationDates({
@@ -111,8 +115,58 @@ export default function PostShiftPage() {
       ORG_CHAIN: '',
       PLATFORM: '',
     });
-
   }, [pharmacyId, pharmacies, user.role]);
+
+  // At the top of your component:
+  const [shiftPrefill, setShiftPrefill] = useState<any>(null);
+
+  useEffect(() => {
+    if (!editingShiftId) return;
+    apiClient
+      .get(`${API_ENDPOINTS.getActiveShifts}${editingShiftId}/`)
+      .then(res => setShiftPrefill(res.data))
+      .catch(() => showSnackbar('Failed to load shift for editing'));
+  }, [editingShiftId]);
+
+  useEffect(() => {
+    if (!shiftPrefill || pharmacies.length === 0) return;
+
+    // --- Pre-fill all fields ---
+    setPharmacyId(shiftPrefill.pharmacy); // For your <Select>
+    setRoleNeeded(shiftPrefill.role_needed);
+    setEmploymentType(shiftPrefill.employment_type);
+    setVisibility(shiftPrefill.visibility);
+
+    setWorkloadTags(shiftPrefill.workload_tags || []);
+    setMustHave(shiftPrefill.must_have || []);
+    setNiceToHave(shiftPrefill.nice_to_have || []);
+    setRateType(shiftPrefill.rate_type || '');
+    setFixedRate(shiftPrefill.fixed_rate || '');
+    setOwnerAdjustedRate(shiftPrefill.owner_adjusted_rate || '');
+    setSingleUserOnly(!!shiftPrefill.single_user_only);
+
+    setEscalationDates({
+      LOCUM_CASUAL: shiftPrefill.escalate_to_locum_casual || '',
+      OWNER_CHAIN:  shiftPrefill.escalate_to_owner_chain || '',
+      ORG_CHAIN:    shiftPrefill.escalate_to_org_chain || '',
+      PLATFORM:     shiftPrefill.escalate_to_platform || '',
+    });
+
+    setSlots(
+      (shiftPrefill.slots || []).map((s: any) => ({
+        date: s.date,
+        startTime: s.start_time,
+        endTime: s.end_time,
+        isRecurring: s.is_recurring,
+        recurringDays: s.recurring_days || [],
+        recurringEndDate: s.recurring_end_date || '',
+      }))
+    );
+
+    // --- Clear buffer to avoid looping ---
+    setShiftPrefill(null);
+  }, [shiftPrefill, pharmacies]);
+
 
   // — Other form fields —
   const [roleNeeded, setRoleNeeded] = useState<string>('');
@@ -226,36 +280,47 @@ export default function PostShiftPage() {
     if (!slots.length) return showSnackbar('Add at least one slot');
 
     setSubmitting(true);
+
+    // Prepare the payload as before
+    const payload = {
+      pharmacy: pharmacyId,
+      role_needed: roleNeeded,
+      employment_type: employmentType,
+      visibility,
+      escalate_to_locum_casual: escalationDates['LOCUM_CASUAL'] || null,
+      escalate_to_owner_chain:  escalationDates['OWNER_CHAIN'] || null,
+      escalate_to_org_chain:    escalationDates['ORG_CHAIN'] || null,
+      escalate_to_platform:     escalationDates['PLATFORM'] || null,
+      workload_tags: workloadTags,
+      must_have:     mustHave,
+      nice_to_have:  niceToHave,
+      rate_type:     roleNeeded === 'PHARMACIST' ? rateType : null,
+      fixed_rate:    roleNeeded === 'PHARMACIST' && rateType === 'FIXED' ? fixedRate : null,
+      owner_adjusted_rate: roleNeeded !== 'PHARMACIST' && ownerAdjustedRate ? Number(ownerAdjustedRate) : null,
+      single_user_only: singleUserOnly,
+      slots: slots.map(s => ({
+        date: s.date,
+        start_time: s.startTime,
+        end_time: s.endTime,
+        is_recurring: s.isRecurring,
+        recurring_days: s.recurringDays,
+        recurring_end_date: s.recurringEndDate || null,
+      })),
+    };
+
     try {
-      await apiClient.post(API_ENDPOINTS.getActiveShifts, {
-        pharmacy: pharmacyId,
-        role_needed: roleNeeded,
-        employment_type: employmentType,
-        visibility,
-        escalate_to_locum_casual: escalationDates['LOCUM_CASUAL'] || null,
-        escalate_to_owner_chain:  escalationDates['OWNER_CHAIN'] || null,
-        escalate_to_org_chain:    escalationDates['ORG_CHAIN'] || null,
-        escalate_to_platform:     escalationDates['PLATFORM'] || null,
-        workload_tags: workloadTags,
-        must_have:     mustHave,
-        nice_to_have:  niceToHave,
-        rate_type:     roleNeeded === 'PHARMACIST' ? rateType : null,
-        fixed_rate:    roleNeeded === 'PHARMACIST' && rateType === 'FIXED' ? fixedRate : null,
-        owner_adjusted_rate: roleNeeded !== 'PHARMACIST' && ownerAdjustedRate ? Number(ownerAdjustedRate) : null,
-        single_user_only: singleUserOnly,
-        slots: slots.map(s => ({
-          date: s.date,
-          start_time: s.startTime,
-          end_time: s.endTime,
-          is_recurring: s.isRecurring,
-          recurring_days: s.recurringDays,
-          recurring_end_date: s.recurringEndDate || null,
-        })),
-      });
-      showSnackbar('Shift created successfully');
+      if (editingShiftId) {
+        // PATCH (edit) if editingShiftId exists
+        await apiClient.patch(`${API_ENDPOINTS.getActiveShifts}${editingShiftId}/`, payload);
+        showSnackbar('Shift updated successfully');
+      } else {
+        // POST (create)
+        await apiClient.post(API_ENDPOINTS.getActiveShifts, payload);
+        showSnackbar('Shift created successfully');
+      }
       setTimeout(() => navigate('../shifts/active'), 500);
     } catch {
-      showSnackbar('Failed to create shift');
+      showSnackbar(editingShiftId ? 'Failed to update shift' : 'Failed to create shift');
     } finally {
       setSubmitting(false);
     }

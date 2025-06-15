@@ -35,6 +35,7 @@ export const API_ENDPOINTS = {
 
   // invite & claim
   inviteOrgUser: '/users/invite-org-user/',
+  passwordReset: '/users/password-reset/', 
   passwordResetConfirm: '/users/password-reset-confirm/',
   claimOnboarding: '/client-profile/owner-onboarding/claim/',
 

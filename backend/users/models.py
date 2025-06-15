@@ -61,6 +61,8 @@ class User(AbstractUser):
     otp_code = models.CharField(max_length=8, blank=True, null=True)
     otp_created_at = models.DateTimeField(blank=True, null=True)
     is_otp_verified = models.BooleanField(default=False)
+    accepted_terms = models.BooleanField(default=False)
+    accepted_terms_at = models.DateTimeField(null=True, blank=True)
 
 class OrganizationMembership(models.Model):
     """

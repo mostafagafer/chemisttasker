@@ -1,5 +1,3 @@
-// src/pages/Login.tsx
-
 import { useState } from 'react';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import axios from 'axios';
@@ -13,7 +11,10 @@ import {
   CircularProgress,
   Alert,
   Link,
+  InputAdornment,
+  IconButton,
 } from '@mui/material';
+import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants/api';
 import { ORG_ROLES } from '../constants/roles';
 import { useAuth } from '../contexts/AuthContext';
@@ -26,6 +27,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +42,7 @@ export default function Login() {
     try {
       const { data } = await axios.post(
         `${API_BASE_URL}${API_ENDPOINTS.login}`,
-        { email, password }
+        { email: email.toLowerCase(), password } // lowercased!
       );
       const { access, refresh, user: userInfo } = data;
       if (!access || !refresh) {
@@ -57,7 +59,6 @@ export default function Login() {
         navigate('/dashboard/organization/overview');
         return;
       }
-      // else by base role
       switch (userInfo.role) {
         case 'OWNER':
           navigate('/dashboard/owner/overview');
@@ -75,7 +76,6 @@ export default function Login() {
           navigate('/');
       }
     } catch (err) {
-      console.error('Login error:', err);
       if (axios.isAxiosError(err)) {
         const msg =
           err.response?.data?.detail ||
@@ -89,7 +89,7 @@ export default function Login() {
           msg &&
           msg.toLowerCase().includes("please verify your email address")
         ) {
-          navigate("/otp-verify", { state: { email } });
+          navigate("/otp-verify", { state: { email: email.toLowerCase() } });
         }
 
       } else {
@@ -120,16 +120,30 @@ export default function Login() {
             label="Email"
             type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => setEmail(e.target.value.toLowerCase())}
+            autoComplete="username"
           />
 
           <TextField
             fullWidth
             margin="normal"
             label="Password"
-            type="password"
+            type={showPassword ? 'text' : 'password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    onClick={() => setShowPassword((show) => !show)}
+                    edge="end"
+                  >
+                    {showPassword ? <VisibilityOff /> : <Visibility />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
           />
 
           <Box mt={3}>
@@ -146,7 +160,7 @@ export default function Login() {
         </form>
 
         <Box mt={2} textAlign="center">
-          <Link component={RouterLink} to="/password-reset-confirm">
+          <Link component={RouterLink} to="/password-reset">
             Forgot Password?
           </Link>
         </Box>

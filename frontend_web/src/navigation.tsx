@@ -21,12 +21,12 @@ import Chip from "@mui/material/Chip";
 
 
 export const ORGANIZATION_NAV: Navigation = [
-  { kind: 'header', title: 'Organization Management' },
+  { kind: 'header' as const, title: 'Organization Management' },
   { segment: 'dashboard/organization/overview', title: 'Overview',        icon: <GroupsIcon /> },
   { segment: 'dashboard/organization/invite',   title: 'Invite Staff',    icon: <ManageAccountsSharpIcon /> },
   { segment: 'dashboard/organization/claim',    title: 'Claim Pharmacies',icon: <StoreIcon /> },
-  { kind: 'divider' },
-  { kind: 'header', title: 'Manage Pharmacies and Shifts' },
+  { kind: 'divider' as const },
+  { kind: 'header' as const, title: 'Manage Pharmacies and Shifts' },
   { segment: 'dashboard/organization/manage-pharmacies',
     title: 'Manage Pharmacies',
     icon: <MedicationLiquidIcon />,
@@ -45,11 +45,11 @@ export const ORGANIZATION_NAV: Navigation = [
       { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
     ],
   },
-  { kind: 'divider' },
-  { kind: 'header', title: 'Learning & Explorer Hub' },
+  { kind: 'divider' as const },
+  { kind: 'header' as const, title: 'Learning & Explorer Hub' },
   { segment: 'dashboard/organization/interests',     title: 'Explore Interests', icon: <FavoriteIcon /> },
   { segment: 'dashboard/organization/learning',      title: 'Learning Materials',icon: <SchoolIcon /> },
-  { kind: 'divider' },
+  { kind: 'divider' as const },
   { segment: 'dashboard/organization/logout',        title: 'Logout',            icon: <LogoutIcon /> },
 ]
 
@@ -226,7 +226,7 @@ export function getExplorerNav(progress_percent: number) {
       ),
     },
   { kind: 'divider' as const },
-  { kind: 'header', title: 'Learning & Explorer Hub' },
+  { kind: 'header' as const, title: 'Learning & Explorer Hub' },
   { segment: 'dashboard/explorer/interests',     title: 'Explore Interests', icon: <FavoriteIcon /> },
   { segment: 'dashboard/explorer/learning',      title: 'Learning Materials',icon: <SchoolIcon /> },
   { kind: 'divider' as const },

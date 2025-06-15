@@ -19,11 +19,11 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     )
     password = serializers.CharField(write_only=True, min_length=8)
     confirm_password = serializers.CharField(write_only=True)
+    accepted_terms = serializers.BooleanField(write_only=True)
 
     class Meta:
         model = User
-        # note: username removed here; you'll collect it later in onboarding
-        fields = ['email', 'password', 'confirm_password', 'role']
+        fields = ['email', 'password', 'confirm_password', 'role', 'accepted_terms']
 
     def validate(self, attrs):
         if attrs.get('password') != attrs.pop('confirm_password'):
@@ -31,16 +31,33 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
                 'confirm_password': 'Passwords do not match.'
             })
         return attrs
+    
+    def validate_accepted_terms(self, value):
+        if not value:
+            raise serializers.ValidationError("You must accept the Terms of Service to register.")
+        return value
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("This email is already registered. Did you forget your password?")
+        return value
 
     def create(self, validated_data):
-        # validated_data now has: email, password, role
+        validated_data['email'] = validated_data['email'].strip().lower()
+        accepted_terms = validated_data.pop('accepted_terms')
         user = User.objects.create_user(
             email=validated_data['email'],
             password=validated_data['password'],
             role=validated_data['role']
         )
+        user.accepted_terms = accepted_terms
+        if accepted_terms:
+            from django.utils import timezone
+            user.accepted_terms_at = timezone.now()
+        user.save()
 
-        # ---- ONLY THIS BLOCK IS NEW ----
+        # ---- OTP verification ----
         otp = str(random.randint(100000, 999999))
         user.otp_code = otp
         user.otp_created_at = timezone.now()
@@ -49,7 +66,6 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         # ---- END NEW BLOCK ----
 
         return user
-
 
 class OrganizationMembershipSerializer(serializers.ModelSerializer):
     user_email   = serializers.EmailField(source='user.email', read_only=True)
@@ -69,7 +85,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'username', 'email', 'role', 'memberships']
         read_only_fields = fields
-
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
@@ -122,7 +137,6 @@ class CustomTokenRefreshSerializer(TokenRefreshSerializer):
             ]
         }
         return data
-
 
 class InviteOrgUserSerializer(serializers.Serializer):
     email        = serializers.EmailField()

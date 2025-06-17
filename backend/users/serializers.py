@@ -53,7 +53,6 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         )
         user.accepted_terms = accepted_terms
         if accepted_terms:
-            from django.utils import timezone
             user.accepted_terms_at = timezone.now()
         user.save()
 

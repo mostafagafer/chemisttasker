@@ -6,11 +6,9 @@ from users.serializers import UserProfileSerializer
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from decimal import Decimal
-# from users.tasks import send_async_email
-# from django.conf import settings
 from client_profile.utils import send_referee_emails, notify_superuser_on_onboarding
-from datetime import date # Import date
-from django.utils import timezone # Import timezone
+from datetime import date
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -964,7 +962,6 @@ class ShiftInterestSerializer(serializers.ModelSerializer):
         end_str   = slot.end_time.strftime('%H:%M')
         return f"{date_str} {start_str}–{end_str}"
 
-
 class ShiftRejectionSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
     user_id = serializers.IntegerField(source='user.id', read_only=True)
@@ -1031,6 +1028,32 @@ class MyShiftSerializer(serializers.ModelSerializer):
             return generate_preview_invoice_lines(shift=obj, user=user)
         except Exception:
             return []
+
+class SharedShiftSerializer(serializers.ModelSerializer):
+    """
+    A simplified serializer specifically for a shared shift link.
+    Excludes any sensitive or internal information.
+    """
+    pharmacy_detail = PharmacySerializer(source='pharmacy', read_only=True)
+    slots = ShiftSlotSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Shift
+        fields = [
+            'id',
+            'pharmacy_detail',
+            'role_needed',
+            'employment_type',
+            'workload_tags',
+            'must_have',
+            'nice_to_have',
+            'rate_type',
+            'fixed_rate',
+            'owner_adjusted_rate',
+            'slots',
+            'created_at',
+            'single_user_only',
+        ]
 
 class InvoiceLineItemSerializer(serializers.ModelSerializer):
     class Meta:
@@ -1135,7 +1158,6 @@ class InvoiceSerializer(serializers.ModelSerializer):
         instance.total = subtotal + gst_amt + super_amt
         instance.save()
         return instance
-
 
 # ExplorerPost Serializer
 class ExplorerPostSerializer(serializers.ModelSerializer):

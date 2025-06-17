@@ -14,6 +14,9 @@ import ResetPasswordPage from './pages/ResetPasswordPage';
 import PasswordResetRequestPage from './pages/PasswordResetRequestPage';
 import TermsOfServicePage from './pages/TermsOfServicePage';
 
+import PublicJobBoardPage from './pages/PublicJobBoardPage';
+import SharedShiftLandingPage from './pages/SharedShiftLandingPage';
+
 // Orgnization
 import OrganizationOverviewPage from './pages/dashboard/organization/OrganizationOverviewPage';
 import InviteStaffPage          from './pages/dashboard/organization/InviteStaffPage';
@@ -54,7 +57,8 @@ import ConfirmedShiftsPage from './pages/dashboard/sidebar/ConfirmedShiftsPage';
 import HistoryShiftsPage   from './pages/dashboard/sidebar/HistoryShiftsPage';
 import MyConfirmedShiftsPage from './pages/dashboard/sidebar/MyConfirmedShiftsPage';
 import MyHistoryShiftsPage   from './pages/dashboard/sidebar/MyHistoryShiftsPage';
-import ShiftDetailPage from './pages/dashboard/sidebar/ShiftDetailPage';
+import PosterShiftDetailPage from './pages/dashboard/sidebar/PosterShiftDetailPage';
+import WorkerShiftDetailPage from './pages/dashboard/sidebar/WorkerShiftDetailPage';
 
 
 // Invoice
@@ -75,13 +79,15 @@ const router = createBrowserRouter([
       { path: 'password-reset', element: <PasswordResetRequestPage /> },
       { path: '/terms-of-service', element: <TermsOfServicePage /> },
 
+
+      { path: 'shifts/public-board', element: <PublicJobBoardPage /> },
+      { path: 'shifts/link',         element: <SharedShiftLandingPage /> },
+
       // PUBLIC referee confirmation page (add here)
       { path: 'onboarding/referee-confirm/:pk/:refIndex', element: <RefereeConfirmPage /> },
 
       // Password reset confirm route
       { path: 'reset-password/:uid/:token', element: <ResetPasswordPage /> },
-
-      { path: 'dashboard/:role/shifts/:type/:id', element: <ShiftDetailPage /> },
 
       // Orgnization
       {
@@ -114,6 +120,8 @@ const router = createBrowserRouter([
               { path: 'active',    element: <ActiveShiftsPage /> },
               { path: 'confirmed', element: <ConfirmedShiftsPage /> },
               { path: 'history',   element: <HistoryShiftsPage /> },
+              { path: ':id', element: <PosterShiftDetailPage /> },
+
                 ],
           },
         ],
@@ -183,6 +191,7 @@ const router = createBrowserRouter([
               { path: 'active',    element: <ActiveShiftsPage /> },
               { path: 'confirmed', element: <ConfirmedShiftsPage /> },
               { path: 'history',   element: <HistoryShiftsPage /> },
+              { path: ':id', element: <PosterShiftDetailPage /> },
                 ],
           },
           { path: 'interests',    element: <ExplorerInterestsPage /> },
@@ -211,6 +220,7 @@ const router = createBrowserRouter([
               { path: 'community', element: <CommunityShiftsPage /> },
               { path: 'confirmed', element: <MyConfirmedShiftsPage /> },
               { path: 'history',   element: <MyHistoryShiftsPage /> },
+              { path: ':id', element: <WorkerShiftDetailPage /> },
             ],
           },
           { path: 'availability', element: <SetAvailabilityPage /> },
@@ -250,6 +260,7 @@ const router = createBrowserRouter([
               { path: 'community', element: <CommunityShiftsPage /> },
               { path: 'confirmed', element: <MyConfirmedShiftsPage /> },
               { path: 'history',   element: <MyHistoryShiftsPage /> },
+              { path: ':id', element: <WorkerShiftDetailPage /> },
             ],
           },
           { path: 'availability', element: <SetAvailabilityPage /> },

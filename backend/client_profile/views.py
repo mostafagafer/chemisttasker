@@ -22,7 +22,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 import json
 from django.db.models import Q, Count, F
 from django.utils import timezone
-from client_profile.services import get_locked_rate_for_slot
+from client_profile.services import get_locked_rate_for_slot, expand_shift_slots, generate_invoice_from_shifts, render_invoice_to_pdf, generate_preview_invoice_lines
 from users.tasks import send_async_email
 from client_profile.utils import build_shift_email_context, clean_email
 from django.utils.crypto import get_random_string
@@ -35,6 +35,7 @@ class Http400(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = 'Bad Request.'
     default_code = 'bad_request'
+from rest_framework.decorators import api_view, permission_classes
 
 # Onboardings
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -439,7 +440,6 @@ class MembershipViewSet(viewsets.ModelViewSet):
             user_created = False
             
             if not user:
-                print(f"Creating new user for: {email}")
                 try:
                     if role == "PHARMACIST":
                         user_role = "PHARMACIST"
@@ -455,9 +455,7 @@ class MembershipViewSet(viewsets.ModelViewSet):
                         is_otp_verified=False,
                     )
                     user_created = True
-                    print(f"Successfully created user: {email}")
                 except Exception as e:
-                    print(f"ERROR creating user {email}: {e}")
                     import traceback
                     traceback.print_exc()
                     return None, f'Failed to create user: {str(e)}'
@@ -483,9 +481,7 @@ class MembershipViewSet(viewsets.ModelViewSet):
                     role=role,
                     employment_type=employment_type,
                 )
-                print(f"Successfully created membership for: {email}")
             except Exception as e:
-                print(f"ERROR creating membership for {email}: {e}")
                 import traceback
                 traceback.print_exc()
                 return None, f'Failed to create membership: {str(e)}'
@@ -504,7 +500,6 @@ class MembershipViewSet(viewsets.ModelViewSet):
                     uid = urlsafe_base64_encode(force_bytes(user.pk))
                     token = default_token_generator.make_token(user)
                     context["magic_link"] = f"{settings.FRONTEND_BASE_URL}/reset-password/{uid}/{token}/"
-                    print("About to enqueue email for new user:", recipient_list)
                     transaction.on_commit(lambda: send_async_email.defer(
                         subject="You have been invited to join a pharmacy on ChemistTasker",
                         recipient_list=recipient_list,
@@ -512,10 +507,8 @@ class MembershipViewSet(viewsets.ModelViewSet):
                         context=context,
                         text_template="emails/pharmacy_invite_new_user.txt",
                     ))
-                    print("Successfully enqueued email for new user:", recipient_list)
                 else:
                     context["frontend_dashboard_link"] = f"{settings.FRONTEND_BASE_URL}/login"
-                    print("About to enqueue email for existing user:", recipient_list)
                     transaction.on_commit(lambda: send_async_email.defer(
                         subject="You have been added to a pharmacy on ChemistTasker",
                         recipient_list=recipient_list,
@@ -523,20 +516,16 @@ class MembershipViewSet(viewsets.ModelViewSet):
                         context=context,
                         text_template="emails/pharmacy_invite_existing_user.txt",
                     ))
-                    print("Successfully enqueued email for existing user:", recipient_list)
 
             except Exception as e:
-                print(f"ERROR sending email for {email}: {e}")
                 import traceback
                 traceback.print_exc()
                 # Don't return error here - membership was created successfully
                 # Just log the email error but continue
-                print(f"Membership created but email failed for: {email}")
 
             return membership, None
             
         except Exception as e:
-            print(f"UNEXPECTED ERROR in _create_membership_invite for {data.get('email', 'unknown')}: {e}")
             import traceback
             traceback.print_exc()
             return None, f'Unexpected error: {str(e)}'
@@ -563,52 +552,35 @@ class MembershipViewSet(viewsets.ModelViewSet):
     def bulk_invite(self, request):
         inviter = request.user
         invitations = request.data.get('invitations', [])
-        print("==== BULK INVITE ENTRY ====")
-        print("Request data:", request.data)
-        print("Invitations list:", invitations)
         if not invitations or not isinstance(invitations, list):
-            print("ERROR: Invitations missing or not a list!")
             return Response({'detail': 'Invitations must be a list.'}, status=400)
 
         # Permission: Only pharmacy owners or org admins may invite
         is_owner = OwnerOnboarding.objects.filter(user=inviter).exists()
         is_org_admin = OrganizationMembership.objects.filter(user=inviter, role='ORG_ADMIN').exists()
-        print(f"Inviter: {inviter.email}, Is owner? {is_owner}, Is org admin? {is_org_admin}")
         if not (is_owner or is_org_admin):
-            print("ERROR: Permission denied.")
             return Response({'detail': 'Only pharmacy owners or org admins may invite members.'}, status=403)
 
         results = []
         errors = []
         for idx, invite in enumerate(invitations):
-            print(f"--- Processing invite {idx+1}/{len(invitations)}: {invite} ---")
             membership, error = self._create_membership_invite(invite, inviter)
             if error:
-                print(f"!! Error for invite {idx+1}: {error}")
                 errors.append({'line': idx+1, 'email': invite.get('email'), 'error': error})
             else:
-                print(f"++ Successfully created membership and enqueued email for: {invite.get('email')}")
                 results.append({
                     'email': invite.get('email'),
                     'role': invite.get('role'),
                     'employment_type': invite.get('employment_type'),
                     'status': 'invited'
                 })
-
-        print("=== BULK INVITE SUMMARY ===")
-        print("RESULTS:", results)
-        print("ERRORS:", errors)
-
         response = {'results': results}
         if errors:
             response['errors'] = errors
             status_code = status.HTTP_207_MULTI_STATUS  # Partial success
         else:
             status_code = status.HTTP_201_CREATED
-
-        print("=== RETURNING FROM BULK INVITE ===")
         return Response(response, status=status_code)
-
 
 class ChainViewSet(viewsets.ModelViewSet):
     """
@@ -989,7 +961,7 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
         # ✅ CASE 1: SINGLE‐USER‐ONLY SHIFT — Expand all dates and assign per-day
         if shift.single_user_only:
-            from client_profile.services import expand_shift_slots, get_locked_rate_for_slot
+            # from client_profile.services import expand_shift_slots, get_locked_rate_for_slot
             assignment_ids = []
 
             for entry in expand_shift_slots(shift):
@@ -1029,7 +1001,7 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
         # ✅ CASE 2: MULTI‐SLOT BULK — assign user to all unassigned slot+dates
         if slot_id is None:
-            from client_profile.services import expand_shift_slots, get_locked_rate_for_slot
+            # from client_profile.services import expand_shift_slots, get_locked_rate_for_slot
             assignment_ids = []
 
             for entry in expand_shift_slots(shift):
@@ -1073,7 +1045,7 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_200_OK)
 
         # ✅ CASE 3: PER‐SLOT ASSIGNMENT — assign user to ALL dates of a single recurring slot
-        from client_profile.services import expand_shift_slots, get_locked_rate_for_slot
+        # from client_profile.services import expand_shift_slots, get_locked_rate_for_slot
         slot = get_object_or_404(shift.slots, pk=slot_id)
         assignment_ids = []
 
@@ -1172,6 +1144,23 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
         return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
+    @action(detail=True, methods=['post'], url_path='generate-share-link')
+    def generate_share_link(self, request, pk=None):
+        shift = self.get_object()
+
+        # ✅ SECURITY: Only allow sharing if shift is public
+        if shift.visibility != 'PLATFORM':
+            return Response(
+                {'detail': 'You must escalate this shift to platform level before it can be shared.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        shift.share_token = uuid.uuid4()
+        shift.save(update_fields=['share_token'])
+
+        return Response({'share_token': str(shift.share_token)})
+
+
 class CommunityShiftViewSet(BaseShiftViewSet):
     """Community‐level shifts, only for users who are active members of that pharmacy."""
     def get_queryset(self):
@@ -1257,38 +1246,27 @@ class PublicShiftViewSet(BaseShiftViewSet):
 
         if top_role == 'PHARMACIST':
             allowed = ['PHARMACIST']
-            # print('this is a pharmacist')
 
         elif top_role == 'OTHER_STAFF':
             onboard = OtherStaffOnboarding.objects.filter(user=user).first()
             sub = getattr(onboard, 'role_type', None)
-            # print('this is a OTHERSTAFF')
-            # print(sub)
             if sub == 'TECHNICIAN':
                 allowed = ['TECHNICIAN']
-                # print('this is a TECHNICIAN')
-
             elif sub == 'ASSISTANT':
                 allowed = ['ASSISTANT']
-                # print('this is a ASSISTANT')
             elif sub == 'INTERN':
                 allowed = ['INTERN']
-                # print('this is a INTERN')
             elif sub == 'STUDENT':
                 allowed = ['STUDENT']
-                # print('this is a STUDENT')
             else:
                 allowed = []
-                # print('this is a empty')
 
         elif top_role == 'EXPLORER':
             allowed = ['EXPLORER']
-            # print('this is a EXPLORER')
 
         else:
             # Owners / ORG_ADMIN see every role on public
             allowed = ['PHARMACIST', 'TECHNICIAN', 'ASSISTANT', 'EXPLORER', 'INTERN', 'STUDENT']
-            # print('this is all')
 
         return qs.filter(role_needed__in=allowed).distinct()
 
@@ -1299,30 +1277,27 @@ class ActiveShiftViewSet(BaseShiftViewSet):
         now  = timezone.now()
         today = date.today()
 
-        # Base filtered & escalated shifts
         qs = super().get_queryset()
 
-        # Org-Admins should also see claimed-owner pharmacies
         org_ids = OrganizationMembership.objects.filter(
             user=user, role='ORG_ADMIN'
         ).values_list('organization_id', flat=True)
         claimed_q = Q(
             pharmacy__owner__organization_claimed=True,
+            pharmacy__owner__organization__memberships__user=user, # <-- Potentially needs fix like this
+            pharmacy__owner__organization__memberships__role='ORG_ADMIN', # <-- Potentially needs fix like this
             pharmacy__owner__organization_id__in=org_ids
         )
 
-        # Only shifts they created OR claimed-owner shifts
         qs = qs.filter(
             Q(created_by=user) | claimed_q
         )
 
-       # Only keep shifts where assigned_count < total_slot_count
         qs = qs.annotate(
            slot_count=Count('slots', distinct=True),
            assigned_count=Count('slots__assignments', distinct=True)
         ).filter(assigned_count__lt=F('slot_count'))
 
-        # Only future slots
         qs = qs.filter(
             Q(slots__date__gt=today) |
             Q(slots__date=today, slots__end_time__gt=now.time())
@@ -1509,32 +1484,90 @@ class ConfirmedShiftViewSet(BaseShiftViewSet):
         now   = timezone.now()
         today = date.today()
 
-        # Start from the base filtered & escalated shifts
         qs = super().get_queryset()
 
-        # Allow owners/org-admins
         org_ids = OrganizationMembership.objects.filter(
             user=user, role='ORG_ADMIN'
         ).values_list('organization_id', flat=True)
         claimed_q = Q(
             pharmacy__owner__organization_claimed=True,
+            pharmacy__owner__organization__memberships__user=user, # <-- Potentially needs fix like this
+            pharmacy__owner__organization__memberships__role='ORG_ADMIN', # <-- Potentially needs fix like this
             pharmacy__owner__organization_id__in=org_ids
         )
         qs = qs.filter(Q(created_by=user) | claimed_q)
 
-        # Only keep shifts where every slot is assigned
         qs = qs.annotate(
             slot_count=Count('slots', distinct=True),
             assigned_count=Count('slots__assignments', distinct=True)
         ).filter(assigned_count__gte=F('slot_count'))
 
-        # **NEW**: show both upcoming and in-progress, not just in-progress
         qs = qs.filter(
             Q(slots__date__gt=today) |
             Q(slots__date=today, slots__end_time__gte=now.time())
         )
 
         return qs.distinct()
+
+    # Move this entire method OUTSIDE of get_queryset
+    @action(detail=True, methods=['post'], url_path='view_assigned_profile')
+    def view_assigned_profile(self, request, pk=None):
+        shift = self.get_object()
+        user_id = request.data.get('user_id')
+        if user_id is None:
+            return Response({'detail': 'user_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        candidate = get_object_or_404(User, pk=user_id)
+        slot_id = request.data.get('slot_id')
+
+        # Verify the user is actually assigned to this shift/slot
+        if shift.single_user_only:
+            if not ShiftSlotAssignment.objects.filter(shift=shift, user=candidate).exists():
+                return Response({'detail': 'User is not assigned to this shift.'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            if slot_id is None:
+                # If slot_id is not provided for a multi-slot shift, check if assigned to any slot of this shift
+                if not ShiftSlotAssignment.objects.filter(shift=shift, user=candidate).exists():
+                    return Response({'detail': 'User is not assigned to any slot in this shift.'}, status=status.HTTP_404_NOT_FOUND)
+            else:
+                if not ShiftSlotAssignment.objects.filter(shift=shift, slot_id=slot_id, user=candidate).exists():
+                    return Response({'detail': 'User is not assigned to this specific slot.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Retrieve profile data without sending an email
+        profile_data = {}
+        try:
+            po = PharmacistOnboarding.objects.get(user=candidate)
+            profile_data = {
+                'phone_number': po.phone_number,
+                'short_bio': po.short_bio,
+                'resume': request.build_absolute_uri(po.resume.url) if po.resume else None,
+                'rate_preference': po.rate_preference or None,
+            }
+        except PharmacistOnboarding.DoesNotExist:
+            try:
+                os = OtherStaffOnboarding.objects.get(user=candidate)
+                profile_data = {
+                    'phone_number': os.phone_number,
+                    'short_bio': os.short_bio,
+                    'resume': request.build_absolute_uri(os.resume.url) if os.resume else None,
+                }
+            except OtherStaffOnboarding.DoesNotExist:
+                # Handle cases where user might not have a full onboarding profile yet
+                profile_data = {
+                    'phone_number': None,
+                    'short_bio': None,
+                    'resume': None,
+                    'rate_preference': None,
+                }
+
+
+        return Response({
+            'id': candidate.id,
+            'first_name': candidate.first_name,
+            'last_name': candidate.last_name,
+            'email': candidate.email,
+            **profile_data
+        })
 
 class HistoryShiftViewSet(BaseShiftViewSet):
     """All‐past, fully assigned shifts (slots ended or recurring_end_date passed)."""
@@ -1586,33 +1619,24 @@ class ShiftInterestViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = ShiftInterest.objects.select_related('shift', 'slot', 'user')
-        print(f"DEBUG: Initial ShiftInterest queryset count: {qs.count()}") # Add this line
 
         shift_id = self.request.query_params.get('shift')
-        print(f"DEBUG: shift_id from query params: {shift_id}") # Add this line
         if shift_id is not None:
             qs = qs.filter(shift_id=shift_id)
-            print(f"DEBUG: ShiftInterest queryset count after shift_id filter: {qs.count()}") # Add this line
 
         slot_param = self.request.query_params.get('slot')
-        print(f"DEBUG: slot_param from query params: {slot_param}") # Add this line
         if slot_param == 'null':
             qs = qs.filter(slot__isnull=True)
-            print(f"DEBUG: ShiftInterest queryset count after slot__isnull filter: {qs.count()}") # Add this line
         elif slot_param is not None:
             try:
                 slot_id_int = int(slot_param)
                 qs = qs.filter(slot_id=slot_id_int)
-                print(f"DEBUG: ShiftInterest queryset count after slot_id filter ({slot_id_int}): {qs.count()}") # Add this line
             except ValueError:
-                print(f"DEBUG: Invalid slot ID format received: {slot_param}") # Add this line
                 raise Http400('Invalid slot ID provided. Must be an integer or "null".')
 
         user_id = self.request.query_params.get('user')
-        print(f"DEBUG: user_id from query params: {user_id}") # Add this line
         if user_id is not None:
             qs = qs.filter(user_id=user_id)
-            print(f"DEBUG: ShiftInterest queryset count after user_id filter: {qs.count()}") # Add this line
 
         return qs
 
@@ -1627,7 +1651,6 @@ class ShiftInterestViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK) # Ensure 200 OK
-
 
 class ShiftRejectionViewSet(viewsets.ModelViewSet):
     queryset = ShiftRejection.objects.all()
@@ -1656,6 +1679,137 @@ class ShiftRejectionViewSet(viewsets.ModelViewSet):
             qs = qs.filter(user_id=user_id)
 
         return qs
+
+class ShiftDetailViewSet(BaseShiftViewSet):
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+
+        if not user.is_authenticated:
+            return qs.none()
+
+        combined_filter = Q()
+
+        combined_filter |= Q(created_by=user)
+
+        # 2. Shifts associated with pharmacies owned/managed by the user/their organization
+        #    CORRECTED: Changed 'organizationmembership' to 'memberships' to match related_name
+        is_owner_admin_of_pharmacy_q = Q(
+            pharmacy__owner__user=user
+        ) | Q(
+            pharmacy__organization__memberships__user=user, # <-- CORRECTED HERE: use 'memberships'
+            pharmacy__organization__memberships__role='ORG_ADMIN' # <-- CORRECTED HERE: use 'memberships'
+        )
+        combined_filter |= is_owner_admin_of_pharmacy_q
+
+        # 3. Shifts visible through Membership relationship (client_profile.models.Membership)
+        eligible_membership_q = Q(
+            pharmacy__memberships__user=user,
+            pharmacy__memberships__is_active=True,
+        )
+        combined_filter |= eligible_membership_q
+
+        if user.role == 'OWNER':
+            try:
+                owner_onboarding = OwnerOnboarding.objects.get(user=user)
+                user_related_chains = Chain.objects.filter(owner=owner_onboarding)
+                combined_filter |= Q(
+                    visibility='OWNER_CHAIN',
+                    pharmacy__in=user_related_chains.values_list('pharmacies', flat=True),
+                    pharmacy__chains__is_active=True # Assuming Chain also has is_active and should be active
+                )
+            except OwnerOnboarding.DoesNotExist:
+                pass
+
+        # For ORG_CHAIN: Shift's pharmacy is related to an organization the user is a member of
+        # This section uses OrganizationMembership. The filter itself is on OrganizationMembership.
+        # It correctly uses `user=user` as filter on the OrganizationMembership model.
+        # This part looks correct after the initial import fix.
+        user_org_memberships = OrganizationMembership.objects.filter(user=user)
+        if user_org_memberships.exists():
+            combined_filter |= Q(
+                visibility='ORG_CHAIN',
+                pharmacy__organization__in=user_org_memberships.values_list('organization', flat=True)
+            )
+
+        # ... (rest of the get_queryset logic for public shifts and assigned shifts)
+        
+        eligible_platform_q = Q()
+        top_role = getattr(user, 'role', None)
+        allowed_roles_for_user = []
+        if top_role == 'PHARMACIST':
+            allowed_roles_for_user = ['PHARMACIST']
+        elif top_role == 'OTHER_STAFF':
+            onboard = OtherStaffOnboarding.objects.filter(user=user).first()
+            if onboard:
+                sub = getattr(onboard, 'role_type', None)
+                if sub == 'TECHNICIAN': allowed_roles_for_user = ['TECHNICIAN']
+                elif sub == 'ASSISTANT': allowed_roles_for_user = ['ASSISTANT']
+                elif sub == 'INTERN': allowed_roles_for_user = ['INTERN']
+                elif sub == 'STUDENT': allowed_roles_for_user = ['STUDENT']
+        elif top_role == 'EXPLORER':
+            allowed_roles_for_user = ['EXPLORER']
+
+        if allowed_roles_for_user:
+            eligible_platform_q |= Q(
+                visibility='PLATFORM',
+                role_needed__in=allowed_roles_for_user
+            )
+        combined_filter |= eligible_platform_q
+
+        combined_filter |= Q(slot_assignments__user=user)
+
+        return qs.filter(combined_filter).distinct()
+
+# Add these new View classes at the end of the file
+class PublicJobBoardView(generics.ListAPIView):
+    """ Lists all available shifts with PLATFORM visibility for the public job board. """
+    serializer_class = SharedShiftSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        """
+        This method ensures that only shifts with open, unassigned slots are returned.
+        """
+        return Shift.objects.filter(visibility='PLATFORM').annotate(
+            slot_count=Count('slots', distinct=True),
+            assigned_count=Count('slots__assignments', distinct=True)
+        ).filter(assigned_count__lt=F('slot_count')).order_by('-created_at')
+
+
+class SharedShiftDetailView(APIView):
+    """
+    Provides a read-only, public view for a single shared shift,
+    fetched either by its public ID or a secure share token.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        shift = None
+        token = request.query_params.get('token')
+        shift_id = request.query_params.get('id')
+
+        if token:
+            try:
+                shift = Shift.objects.get(share_token=token)
+            except (Shift.DoesNotExist, ValueError):
+                raise NotFound("This share link is invalid or has expired.")
+        elif shift_id:
+            try:
+                shift = Shift.objects.get(pk=shift_id, visibility='PLATFORM') #
+            except Shift.DoesNotExist:
+                raise NotFound("This shift is not public or could not be found.")
+        else:
+            return Response({"error": "An ID or token is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = SharedShiftSerializer(shift)
+        return Response(serializer.data)
+
+
+# class SimpleShiftDetailView(viewsets.ReadOnlyModelViewSet): # ReadOnly to prevent accidental modifications
+#     queryset = Shift.objects.all() # Get ALL shifts
+#     serializer_class = ShiftSerializer # Use your existing serializer
+#     permission_classes = [permissions.IsAuthenticated] # Still requires login, but no object-level checks
 
 # --- Mixin to enforce pharmacist or other_staff only ---
 class IsPharmacistOrOtherStaff(permissions.BasePermission):
@@ -1713,9 +1867,6 @@ class MyHistoryShiftsViewSet(BaseShiftViewSet):
 
         return qs.distinct()
 
-
-
-
 class ExplorerPostViewSet(viewsets.ModelViewSet):
     queryset = ExplorerPost.objects.all()
     serializer_class = ExplorerPostSerializer
@@ -1735,7 +1886,7 @@ class UserAvailabilityViewSet(viewsets.ModelViewSet):
 
 
 
-from client_profile.services import generate_invoice_from_shifts
+# from client_profile.services import generate_invoice_from_shifts
 class InvoiceListView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = InvoiceSerializer
@@ -1811,8 +1962,7 @@ class GenerateInvoiceView(APIView):
 
         return Response(InvoiceSerializer(invoice).data, status=status.HTTP_201_CREATED)
 
-from rest_framework.decorators import api_view, permission_classes
-from .services import generate_preview_invoice_lines
+# from .services import generate_preview_invoice_lines
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -1823,12 +1973,11 @@ def preview_invoice_lines(request, shift_id):
         return Response({"error": "Shift not found"}, status=404)
 
     line_items = generate_preview_invoice_lines(shift, request.user)
-    # print(f"🔍 {len(line_items)} line items for user {request.user} on shift {shift_id}")
     return Response(line_items)
 
 
 from django.http import HttpResponse
-from .services import render_invoice_to_pdf
+# from .services import render_invoice_to_pdf
 
 def invoice_pdf_view(request, invoice_id):
     invoice = Invoice.objects.get(pk=invoice_id)

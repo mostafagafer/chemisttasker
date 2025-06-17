@@ -3,33 +3,75 @@ from users.tasks import send_async_email
 import re
 from django.contrib.auth import get_user_model
 
-def determine_shift_type_string(shift):
-    """
-    Convert backend shift visibility or status into the frontend 'type' string for URLs.
-    """
-    if shift.visibility == 'PLATFORM':
-        return 'public'
-    elif shift.visibility in ['PHARMACY', 'OWNER_CHAIN', 'ORG_CHAIN']:
-        return 'community'
-    # You could extend here for 'active', 'confirmed', etc., if you add them.
-    return 'public'  # fallback
+# def determine_shift_type_string(shift):
+#     """
+#     Convert backend shift visibility or status into the frontend 'type' string for URLs.
+#     """
+#     if shift.visibility == 'PLATFORM':
+#         return 'public'
+#     elif shift.visibility in ['PHARMACY', 'OWNER_CHAIN', 'ORG_CHAIN']:
+#         return 'community'
+#     # You could extend here for 'active', 'confirmed', etc., if you add them.
+#     return 'public'  # fallback
+
+# def build_shift_email_context(shift, user=None, extra=None, role=None, shift_type=None):
+#     """
+#     Build the context for shift notification emails.
+#     Ensures the link is always correct for the ShiftDetailPage.
+#     """
+#     # Compute role and type if not explicitly provided
+#     frontend_role = role or (user.role.lower() if user else 'owner')
+#     frontend_shift_type = shift_type or determine_shift_type_string(shift)
+
+#     ctx = {
+#         "shift_id": shift.id,
+#         "pharmacy_name": shift.pharmacy.name,
+#         "role_needed": shift.role_needed,
+#         "frontend_role": frontend_role,
+#         "frontend_shift_type": frontend_shift_type,
+#         "shift_link": f"{settings.FRONTEND_BASE_URL}/dashboard/{frontend_role}/shifts/{frontend_shift_type}/{shift.id}",
+#     }
+#     if user:
+#         ctx.update({
+#             "user_first_name": user.first_name,
+#             "user_last_name": user.last_name,
+#             "user_email": user.email,
+#         })
+#     if extra:
+#         ctx.update(extra)
+#     return ctx
 
 def build_shift_email_context(shift, user=None, extra=None, role=None, shift_type=None):
     """
-    Build the context for shift notification emails.
-    Ensures the link is always correct for the ShiftDetailPage.
+    Build context for shift notification emails with robust worker and owner links.
     """
-    # Compute role and type if not explicitly provided
     frontend_role = role or (user.role.lower() if user else 'owner')
-    frontend_shift_type = shift_type or determine_shift_type_string(shift)
+    shift_link = ""
+
+    if user:
+        if user.role == 'OWNER':
+            shift_link = f"{settings.FRONTEND_BASE_URL}/dashboard/owner/shifts/{shift.id}"
+        elif hasattr(user, 'organization_memberships') and user.organization_memberships.filter(role='ORG_ADMIN').exists():
+            shift_link = f"{settings.FRONTEND_BASE_URL}/dashboard/organization/shifts/{shift.id}"
+        elif user.role == 'PHARMACIST':
+            shift_link = f"{settings.FRONTEND_BASE_URL}/dashboard/pharmacist/shifts/{shift.id}"
+        elif user.role == 'OTHER_STAFF':
+            shift_link = f"{settings.FRONTEND_BASE_URL}/dashboard/otherstaff/shifts/{shift.id}"
+        elif user.role == 'EXPLORER':
+            shift_link = f"{settings.FRONTEND_BASE_URL}/dashboard/explorer/shifts/{shift.id}"
+        else:
+            shift_link = f"{settings.FRONTEND_BASE_URL}/dashboard/{frontend_role}/shifts/{shift.id}"
+
+    else:
+        shift_link = f"{settings.FRONTEND_BASE_URL}/dashboard/owner/shifts/active/{shift.id}"
+
 
     ctx = {
         "shift_id": shift.id,
         "pharmacy_name": shift.pharmacy.name,
         "role_needed": shift.role_needed,
         "frontend_role": frontend_role,
-        "frontend_shift_type": frontend_shift_type,
-        "shift_link": f"{settings.FRONTEND_BASE_URL}/dashboard/{frontend_role}/shifts/{frontend_shift_type}/{shift.id}",
+        "shift_link": shift_link,
     }
     if user:
         ctx.update({

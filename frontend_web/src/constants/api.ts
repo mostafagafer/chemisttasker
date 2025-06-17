@@ -90,7 +90,13 @@ export const API_ENDPOINTS = {
   escalateCommunityShift: (shiftId: string | number) => `/client-profile/community-shifts/${shiftId}/escalate/`,
   getCommunityShiftMemberStatus: (shiftId: string | number) => `/client-profile/community-shifts/${shiftId}/member_status/`,
   rejectCommunityShift: (shiftId: string | number) => `/client-profile/community-shifts/${shiftId}/reject/`,
+  getWorkerShiftDetail: (id: string | number) => `/client-profile/shifts/${id}/`,
+  viewAssignedShiftProfile: (shiftId: string | number) => `/client-profile/shifts/confirmed/${shiftId}/view_assigned_profile/`,
 
+  // Publicshifts
+  generateShareLink: (shiftId: string | number) => `/client-profile/shifts/${shiftId}/generate-share-link/`,
+  getPublicJobBoard: '/client-profile/public-job-board/',
+  getViewSharedShift: '/client-profile/view-shared-shift/',
 
 
   // invoice

@@ -7,7 +7,6 @@ import {
   Paper,
   Box,
   Button,
-  // CircularProgress,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -15,12 +14,14 @@ import {
   Snackbar,
   IconButton,
   Pagination,
-  Skeleton, // Added Skeleton import
+  Skeleton,
+  CircularProgress, // Import CircularProgress for dialog loading
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
 
+// Unified Interface Definitions (RE-ADDED)
 interface Slot {
   id: number;
   date: string;
@@ -61,19 +62,21 @@ interface Profile {
 
 export default function ConfirmedShiftsPage() {
   // 1) State
-  const [shifts, setShifts]       = useState<Shift[]>([]);
-  const [loading, setLoading]     = useState(true); // Set to true initially for skeleton loading
-  const [profile, setProfile]     = useState<Profile | null>(null);
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [loadingShifts, setLoadingShifts] = useState(true); // Renamed for clarity
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(false); // New state for profile loading
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [snackbar, setSnackbar]   = useState<{ open: boolean; msg: string }>({
-    open: false, msg: ''
+  const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string }>({
+    open: false,
+    msg: ''
   });
 
   // 2) Pagination setup
-  const itemsPerPage = 10;  // adjust as desired
-  const [page, setPage]   = useState(1);
-  const pageCount        = Math.ceil(shifts.length / itemsPerPage);
-  const displayedShifts  = shifts.slice(
+  const itemsPerPage = 10;
+  const [page, setPage] = useState(1);
+  const pageCount = Math.ceil(shifts.length / itemsPerPage);
+  const displayedShifts = shifts.slice(
     (page - 1) * itemsPerPage,
     page * itemsPerPage
   );
@@ -84,7 +87,7 @@ export default function ConfirmedShiftsPage() {
 
   // 3) Load confirmed shifts
   useEffect(() => {
-    setLoading(true); // Ensure loading is true when fetching starts
+    setLoadingShifts(true);
     apiClient
       .get(API_ENDPOINTS.getConfirmedShifts)
       .then(res => {
@@ -98,19 +101,26 @@ export default function ConfirmedShiftsPage() {
       .catch(() =>
         setSnackbar({ open: true, msg: 'Failed to load confirmed shifts' })
       )
-      .finally(() => setLoading(false)); // Ensure loading is set to false
+      .finally(() => setLoadingShifts(false));
   }, []);
 
   const closeSnackbar = () => setSnackbar(s => ({ ...s, open: false }));
-  const closeDialog   = () => setDialogOpen(false);
+  const closeDialog = () => {
+    setDialogOpen(false);
+    setProfile(null); // Clear profile data when dialog closes
+  };
 
-  // 4) Reveal profile pop-over
+  // 4) View profile logic - MODIFIED for loading state and clearing
   const openProfile = (
     shiftId: number,
     slotId: number | null,
     userId: number
   ) => {
-    const url     = `${API_ENDPOINTS.getConfirmedShifts}${shiftId}/reveal_profile/`;
+    setProfile(null); // Clear previous profile data immediately
+    setLoadingProfile(true); // Start loading profile data
+    setDialogOpen(true); // Open the dialog immediately with a loading state
+
+    const url = API_ENDPOINTS.viewAssignedShiftProfile(shiftId);
     const payload = slotId == null
       ? { user_id: userId }
       : { slot_id: slotId, user_id: userId };
@@ -119,125 +129,131 @@ export default function ConfirmedShiftsPage() {
       .post(url, payload)
       .then(res => {
         setProfile(res.data);
-        setDialogOpen(true);
       })
-      .catch(() =>
-        setSnackbar({ open: true, msg: 'Failed to load profile' })
-      );
+      .catch((err: any) => {
+        console.error("Failed to load assigned profile:", err.response?.data || err);
+        setSnackbar({ open: true, msg: err.response?.data?.detail || 'Failed to load assigned profile' });
+        setDialogOpen(false); // Close dialog if fetch fails
+      })
+      .finally(() => {
+        setLoadingProfile(false); // End loading profile data
+      });
   };
 
-  // 5) Loading / empty states
-  if (loading) {
+  // 5) Conditional rendering logic for skeleton vs. actual content for main page
+  const renderMainContent = () => {
+    if (loadingShifts && shifts.length === 0) {
+      return (
+        <Box sx={{ textAlign: 'center', py: 4 }}>
+          {[...Array(3)].map((_, index) => (
+            <Paper key={index} sx={{ p: 2, mb: 2 }}>
+              <Skeleton variant="text" width="70%" height={30} sx={{ mb: 1 }} />
+              <Skeleton variant="text" width="50%" height={20} sx={{ mb: 2 }} />
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {[...Array(2)].map((__, slotIndex) => (
+                  <Box key={slotIndex} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Skeleton variant="text" width="40%" />
+                    <Skeleton variant="rectangular" width={100} height={36} />
+                  </Box>
+                ))}
+              </Box>
+            </Paper>
+          ))}
+        </Box>
+      );
+    }
+
+    if (!loadingShifts && shifts.length === 0) {
+      return <Typography>No confirmed shifts available.</Typography>;
+    }
+
     return (
-      <Container sx={{ textAlign: 'center', py: 4 }}>
-        {[...Array(3)].map((_, index) => ( // Render 3 skeleton papers
-          <Paper key={index} sx={{ p: 2, mb: 2 }}>
-            <Skeleton variant="text" width="70%" height={30} sx={{ mb: 1 }} />
-            <Skeleton variant="text" width="50%" height={20} sx={{ mb: 2 }} />
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              {[...Array(2)].map((__, slotIndex) => (
-                <Box key={slotIndex} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Skeleton variant="text" width="40%" />
-                  <Skeleton variant="rectangular" width={100} height={36} />
-                </Box>
-              ))}
+      <>
+        {displayedShifts.map((shift: Shift) => ( // Explicitly type 'shift'
+          <Paper key={shift.id} sx={{ p: 2, mb: 2 }}>
+            <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
+            <Typography>Role: {shift.role_needed}</Typography>
+
+            <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {shift.single_user_only ? (
+                <>
+                  {shift.slots.map((s: Slot) => ( // Explicitly type 's'
+                    <Typography key={s.id} variant="body2">
+                      {s.date} {s.start_time}–{s.end_time}
+                    </Typography>
+                  ))}
+                  {shift.slot_assignments.length > 0 && (
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() =>
+                          openProfile(shift.id, null, shift.slot_assignments[0].user_id)
+                        }
+                      >
+                        View Assigned
+                      </Button>
+                    </Box>
+                  )}
+                </>
+              ) : (
+                shift.slots.map((slot: Slot) => { // Explicitly type 'slot'
+                  const assign = shift.slot_assignments.find(
+                    (a: { slot_id: number; user_id: number }) => a.slot_id === slot.id // Explicitly type 'a'
+                  );
+                  return assign ? (
+                    <Box
+                      key={slot.id}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <Typography variant="body2">
+                        {slot.date} {slot.start_time}–{slot.end_time}
+                      </Typography>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() =>
+                          openProfile(shift.id, slot.id, assign.user_id)
+                        }
+                      >
+                        View Assigned
+                      </Button>
+                    </Box>
+                  ) : null;
+                })
+              )}
             </Box>
           </Paper>
         ))}
-      </Container>
-    );
-  }
-  if (!shifts.length) {
-    return (
-      <Container sx={{ py: 4 }}>
-        <Typography>No confirmed shifts available.</Typography>
-      </Container>
-    );
-  }
 
-  // 6) Render paginated list
+        {pageCount > 1 && (
+          <Box display="flex" justifyContent="center" mt={4}>
+            <Pagination
+              count={pageCount}
+              page={page}
+              onChange={handlePageChange}
+              color="primary"
+            />
+          </Box>
+        )}
+      </>
+    );
+  };
+
+  // 6) Main render function
   return (
     <Container sx={{ py: 4 }}>
       <Typography variant="h4" gutterBottom>
         Confirmed Shifts
       </Typography>
 
-      {displayedShifts.map(shift => (
-        <Paper key={shift.id} sx={{ p: 2, mb: 2 }}>
-          <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
-          <Typography>Role: {shift.role_needed}</Typography>
+      {renderMainContent()}
 
-          <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {shift.single_user_only ? (
-              <>
-                {shift.slots.map(s => (
-                  <Typography key={s.id} variant="body2">
-                    {s.date} {s.start_time}–{s.end_time}
-                  </Typography>
-                ))}
-                {/* ✅ NEW LOGIC FOR SINGLE-USER SHIFT */}
-                {shift.slot_assignments.length > 0 && (
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() =>
-                        openProfile(shift.id, null, shift.slot_assignments[0].user_id)
-                      }
-                    >
-                      View Assigned
-                    </Button>
-                  </Box>
-                )}
-
-              </>
-            ) : (
-              shift.slots.map(slot => {
-                const assign = shift.slot_assignments.find(
-                  a => a.slot_id === slot.id
-                );
-                return assign ? (
-                  <Box
-                    key={slot.id}
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <Typography variant="body2">
-                      {slot.date} {slot.start_time}–{slot.end_time}
-                    </Typography>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() =>
-                        openProfile(shift.id, slot.id, assign.user_id)
-                      }
-                    >
-                      View Assigned
-                    </Button>
-                  </Box>
-                ) : null;
-              })
-            )}
-          </Box>
-        </Paper>
-      ))}
-
-      {/* 7) Pagination Controls */}
-      {pageCount > 1 && (
-        <Box display="flex" justifyContent="center" mt={4}>
-          <Pagination
-            count={pageCount}
-            page={page}
-            onChange={handlePageChange}
-            color="primary"
-          />
-        </Box>
-      )}
-
-      {/* 8) Snackbar & Dialog */}
+      {/* 7) Snackbar & Dialog */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}
@@ -252,7 +268,11 @@ export default function ConfirmedShiftsPage() {
       <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="sm">
         <DialogTitle>Assigned Profile</DialogTitle>
         <DialogContent>
-          {profile && (
+          {loadingProfile ? ( // Show CircularProgress/Skeleton while loading profile
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+              <CircularProgress />
+            </Box>
+          ) : profile ? (
             <>
               <Typography>
                 <strong>Name:</strong> {profile.first_name}{' '}
@@ -261,12 +281,16 @@ export default function ConfirmedShiftsPage() {
               <Typography>
                 <strong>Email:</strong> {profile.email}
               </Typography>
-              <Typography>
-                <strong>Phone:</strong> {profile.phone_number}
-              </Typography>
-              <Typography>
-                <strong>Bio:</strong> {profile.short_bio}
-              </Typography>
+              {profile.phone_number && (
+                <Typography>
+                  <strong>Phone:</strong> {profile.phone_number}
+                </Typography>
+              )}
+              {profile.short_bio && (
+                <Typography>
+                  <strong>Bio:</strong> {profile.short_bio}
+                </Typography>
+              )}
               {profile.resume && (
                 <Button href={profile.resume} target="_blank">
                   Download CV
@@ -287,8 +311,9 @@ export default function ConfirmedShiftsPage() {
                   </ul>
                 </Box>
               )}
-
             </>
+          ) : (
+            <Typography>No profile data available.</Typography> // Fallback if profile is null after loading
           )}
         </DialogContent>
         <DialogActions>

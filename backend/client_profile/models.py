@@ -3,8 +3,7 @@ from django.db import models
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from datetime import date
-# from django.utils import timezone
-
+import uuid
 
 class Organization(models.Model):
     """
@@ -541,6 +540,8 @@ class Shift(models.Model):
         default=False,
         help_text="If true, only one user may take the entire shift (all slots)."
     )
+    share_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, null=True)
+
     def clean(self):
         # Validate JSON lists are lists of strings
         for field in ['workload_tags', 'must_have', 'nice_to_have']:

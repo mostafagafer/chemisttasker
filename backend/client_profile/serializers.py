@@ -175,12 +175,13 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
             obj.phone_number,
             obj.role,
         ]
-        # Only count AHPRA for pharmacists:
+        # Only count AHPRA verification for pharmacists
         if obj.role == "PHARMACIST":
-            required_fields.append(obj.ahpra_number)
+            required_fields.append(obj.ahpra_verified)
         filled = sum(bool(field) for field in required_fields)
-        percent = int(100 * filled / len(required_fields))
+        percent = int(100 * filled / len(required_fields)) if required_fields else 0
         return percent
+
 
 class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
     file_fields = ['government_id', 'gst_file', 'tfn_declaration', 'resume']

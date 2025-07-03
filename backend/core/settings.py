@@ -3,6 +3,14 @@ import os
 from environ import Env
 from datetime import timedelta
 import dj_database_url
+# import asyncio
+# import sys
+
+# if sys.platform == "win32":
+#     try:
+#         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+#     except AttributeError:
+#         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 
@@ -57,6 +65,9 @@ CORS_ALLOW_HEADERS = [
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
+    # Async tasks
+    'django_q',
+
     "users.apps.UsersConfig",
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -70,15 +81,24 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'corsheaders',
 
-    # Async tasks
-    "procrastinate.contrib.django",
-
     # Azure blob
     'storages',
 
     # my apps
     "client_profile.apps.ClientProfileConfig",
 ]
+
+
+Q_CLUSTER = {
+    'name': 'DjangoQ',
+    'workers': 4,
+    'timeout': 60,
+    'retry': 120,
+    'queue_limit': 50,
+    'bulk': 10,
+    'orm': 'default',
+}
+
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -266,46 +286,14 @@ EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL')
 
 
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "procrastinate": {
-            "format": "%(asctime)s %(levelname)-7s %(name)s %(message)s"
-        },
-    },
-    "handlers": {
-        "procrastinate": {
-            "level": "DEBUG",
-            "class": "logging.StreamHandler",
-            "formatter": "procrastinate",
-        },
-    },
-    "loggers": {
-        "procrastinate": {
-            "handlers": ["procrastinate"],
-            "level": "INFO",
-            "propagate": False,
-        },
-    },
-}
-
-
-# # Function to run when the app is ready
-# PROCRASTINATE_ON_APP_READY = "myapp.procrastinate.on_app_ready"
-
-# # Module name for auto-discovering tasks (default is "tasks")
-# PROCRASTINATE_AUTODISCOVER_MODULE_NAME = "tasks"
-
-# # Additional modules to import tasks from
-# PROCRASTINATE_IMPORT_PATHS = ["myapp.extra_tasks"]
-
-# # Database alias to use (default is "default")
-# PROCRASTINATE_DATABASE_ALIAS = "default"
-
 # Twilio Settings
 TWILIO_ACCOUNT_SID = env('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN = env('TWILIO_AUTH_TOKEN')
 
 # RECAPTCHA
 RECAPTCHA_SECRET_KEY = env('RECAPTCHA_SECRET_KEY')
+
+AZURE_OCR_ENDPOINT=env('AZURE_OCR_ENDPOINT')
+AZURE_OCR_KEY=env('AZURE_OCR_KEY')
+
+SCRAPINGBEE_API_KEY=env('SCRAPINGBEE_API_KEY')

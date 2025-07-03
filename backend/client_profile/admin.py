@@ -14,7 +14,7 @@ class OrganizationAdmin(admin.ModelAdmin):
 class OwnerOnboardingAdmin(admin.ModelAdmin):
     list_display = [
         'user', 'role', 'chain_pharmacy', 'verified',
-        'organization', 'organization_claimed'
+        'organization', 'organization_claimed', 'ahpra_verified','ahpra_verification_note'
     ]
     list_filter = [
         'role', 'chain_pharmacy', 'verified',
@@ -26,7 +26,7 @@ class OwnerOnboardingAdmin(admin.ModelAdmin):
     ]
     fields = [
         'user', 'phone_number', 'role', 'chain_pharmacy',
-        'ahpra_number', 'verified', 'organization', 'organization_claimed'
+        'ahpra_number','ahpra_verified', 'verified', 'organization', 'organization_claimed'
     ]
     def save_model(self, request, obj, form, change):
         obj.full_clean()
@@ -36,7 +36,16 @@ class OwnerOnboardingAdmin(admin.ModelAdmin):
 class PharmacistOnboardingAdmin(admin.ModelAdmin):
     list_display = [
         'user', 'payment_preference', 'verified', 'member_of_chain',
-        'referee1_confirmed', 'referee2_confirmed', 'submitted_for_verification'
+        'referee1_confirmed', 'referee2_confirmed', 'submitted_for_verification',             'gov_id_verified',
+            # Verification files
+            'gst_file_verified',
+            'tfn_declaration_verified',
+            'abn_verified',
+            'ahpra_verified',
+            'ahpra_registration_status',
+            'ahpra_registration_type',
+            'ahpra_expiry_date',
+            'ahpra_verification_note',
     ]
     list_filter  = ['verified', 'member_of_chain', 'payment_preference']
     search_fields = [
@@ -66,7 +75,20 @@ class OtherStaffOnboardingAdmin(admin.ModelAdmin):
     list_display = [
         'user', 'role_type', 'classification_level', 'student_year',
         'intern_half', 'payment_preference', 'verified',
-        'referee1_confirmed', 'referee2_confirmed', 'submitted_for_verification'
+        'referee1_confirmed', 'referee2_confirmed', 'submitted_for_verification',
+
+            'gov_id_verified',
+            'ahpra_proof_verified',
+            'hours_proof_verified',
+            'certificate_verified',
+            'university_id_verified',
+            'cpr_certificate_verified',
+            's8_certificate_verified',
+            'gst_file_verified',
+            'tfn_declaration_verified',
+            'abn_verified',
+            'ahpra_verified',
+
     ]
     list_filter = [
         'verified', 'payment_preference', 'role_type',

@@ -15,6 +15,7 @@ from .models import OrganizationMembership
 from .serializers import InviteOrgUserSerializer
 from .permissions import OrganizationRolePermission  # our consolidated guard
 from django.conf import settings
+from django_q.tasks import async_task
 
 from rest_framework.views import APIView
 from django.utils.encoding import force_str
@@ -100,7 +101,8 @@ class VerifyOTPView(APIView):
             "email": user.email,
             "onboarding_link": onboarding_link,
         }
-        send_async_email.defer(
+        async_task(
+            'users.tasks.send_async_email',
             subject="🎉 Welcome to ChemistTasker! Let’s Get You Started 🌟",
             recipient_list=[user.email],
             template_name="emails/welcome_email.html",
@@ -262,7 +264,8 @@ class InviteOrgUserView(generics.CreateAPIView):
         }
         recipient_list = [user.email]
 
-        send_async_email.defer(
+        async_task(
+            'users.tasks.send_async_email',
             subject=f"You've been invited to join {data['organization'].name} on ChemistTasker",
             recipient_list=recipient_list,
             template_name="emails/org_invite_new_user.html",

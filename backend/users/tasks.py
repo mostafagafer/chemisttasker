@@ -1,11 +1,8 @@
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.conf import settings
-from procrastinate.contrib.django import app
 import traceback
-print("TASK DECORATOR APP:", app)
 
-@app.task
 def send_async_email(subject, recipient_list, template_name, context, from_email=None, text_template=None):
 
     print("=== EMAIL TASK ENTRY ===")

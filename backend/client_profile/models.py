@@ -14,7 +14,6 @@ class Organization(models.Model):
     def __str__(self):
         return self.name
 
-
 class OwnerOnboarding(models.Model):
     ROLE_CHOICES = [
         ("MANAGER", "Pharmacy Manager"),
@@ -43,6 +42,13 @@ class OwnerOnboarding(models.Model):
                           )
     organization_claimed = models.BooleanField(default=False)
     
+    # Verification Fields
+    ahpra_verified = models.BooleanField(default=False, db_index=True)
+    ahpra_registration_status = models.CharField(max_length=100, blank=True, null=True)
+    ahpra_registration_type = models.CharField(max_length=100, blank=True, null=True)
+    ahpra_expiry_date = models.DateField(blank=True, null=True)
+    ahpra_verification_note = models.TextField(blank=True, null=True)
+
     class Meta:
         indexes = [
             models.Index(fields=['user']),
@@ -52,7 +58,6 @@ class OwnerOnboarding(models.Model):
     def __str__(self):
         # Always show the user’s login email
         return self.user.email
-
 
 class PharmacistOnboarding(models.Model):
     REFEREE_REL_CHOICES = [
@@ -100,9 +105,19 @@ class PharmacistOnboarding(models.Model):
     verified = models.BooleanField(default=False)
     member_of_chain = models.BooleanField(default=False)
 
+    # Verification Fields
+    gov_id_verified = models.BooleanField(default=False, db_index=True)
+    gst_file_verified = models.BooleanField(default=False, db_index=True)
+    tfn_declaration_verified = models.BooleanField(default=False, db_index=True)
+    abn_verified = models.BooleanField(default=False, db_index=True)
+    ahpra_verified = models.BooleanField(default=False, db_index=True)
+    ahpra_registration_status = models.CharField(max_length=100, blank=True, null=True)
+    ahpra_registration_type = models.CharField(max_length=100, blank=True, null=True)
+    ahpra_expiry_date = models.DateField(blank=True, null=True)
+    ahpra_verification_note = models.TextField(blank=True, null=True)
+
     def __str__(self):
         return f"{self.user.get_full_name()} - Onboarding"
-
 
 class OtherStaffOnboarding(models.Model):
     ROLE_CHOICES = [
@@ -189,9 +204,21 @@ class OtherStaffOnboarding(models.Model):
     verified = models.BooleanField(default=False)
     submitted_for_verification = models.BooleanField(default=False)
 
+    # Verification Fields
+    gov_id_verified = models.BooleanField(default=False, db_index=True)
+    ahpra_proof_verified = models.BooleanField(default=False, db_index=True)
+    hours_proof_verified = models.BooleanField(default=False, db_index=True)
+    certificate_verified = models.BooleanField(default=False, db_index=True)
+    university_id_verified = models.BooleanField(default=False, db_index=True)
+    cpr_certificate_verified = models.BooleanField(default=False, db_index=True)
+    s8_certificate_verified = models.BooleanField(default=False, db_index=True)
+    gst_file_verified = models.BooleanField(default=False, db_index=True)
+    tfn_declaration_verified = models.BooleanField(default=False, db_index=True)
+    abn_verified = models.BooleanField(default=False, db_index=True)
+    ahpra_verified = models.BooleanField(default=False, db_index=True)
+
     def __str__(self):
         return f"{self.user.get_full_name()} - {self.role_type} Onboarding"
-
 
 class ExplorerOnboarding(models.Model):
     ROLE_CHOICES = [
@@ -234,9 +261,11 @@ class ExplorerOnboarding(models.Model):
     verified = models.BooleanField(default=False)
     submitted_for_verification = models.BooleanField(default=False)
 
+    # Verification Fields
+    gov_id_verified = models.BooleanField(default=False, db_index=True)
+
     def __str__(self):
         return f"{self.user.get_full_name()} - Explorer Onboarding"
-
 
 # Pharmacy Model - Represents an individual pharmacy
 class Pharmacy(models.Model):
@@ -326,6 +355,9 @@ class Pharmacy(models.Model):
                              )
 
     about                  = models.TextField(blank=True)
+
+    # verfications
+    abn_verified = models.BooleanField(default=False, db_index=True)
    
     class Meta:
         indexes = [
@@ -445,7 +477,6 @@ class Chain(models.Model):
 
     def __str__(self):
         return self.name
-
 
 # Shift Model - Represents an available shift in a pharmacy
 class Shift(models.Model):
@@ -574,7 +605,6 @@ class Shift(models.Model):
         def __str__(self):
             return f"Shift at {self.pharmacy.name}"
 
-
 class ShiftSlot(models.Model):
     shift = models.ForeignKey(
         Shift,
@@ -622,7 +652,6 @@ class ShiftSlot(models.Model):
     def __str__(self):
         return f"{self.shift} slot on {self.date}"
 
-
 class ShiftInterest(models.Model):
     shift = models.ForeignKey(
         Shift,
@@ -648,7 +677,6 @@ class ShiftInterest(models.Model):
     def __str__(self):
         slot_info = f' (slot {self.slot.id})' if self.slot else ''
         return f"{self.user.get_full_name()} interested in {self.shift.pharmacy.name}{slot_info}"
-
 
 class ShiftSlotAssignment(models.Model):
     # link back to the parent Shift for easy filtering
@@ -740,8 +768,6 @@ class ShiftRejection(models.Model):
         # If both slot and slot_date are None, slotinfo remains an empty string.
 
         return f"{self.user.get_full_name()} rejected shift at {self.shift.pharmacy.name}{slotinfo}"
-
-
 
 ## Invoice model
 class Invoice(models.Model):

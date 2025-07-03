@@ -43,4 +43,6 @@ frontend_web/.env.production
 # Trash / docs folders you don’t want in Git
 trash/
 Documents/
+verification_outputs/
+ocr_verification
 **/jobs/

@@ -23,7 +23,6 @@ import json
 from django.db.models import Q, Count, F
 from django.utils import timezone
 from client_profile.services import get_locked_rate_for_slot, expand_shift_slots, generate_invoice_from_shifts, render_invoice_to_pdf, generate_preview_invoice_lines
-from users.tasks import send_async_email
 from client_profile.utils import build_shift_email_context, clean_email
 from django.utils.crypto import get_random_string
 from django.contrib.auth.tokens import default_token_generator
@@ -36,6 +35,7 @@ class Http400(APIException):
     default_detail = 'Bad Request.'
     default_code = 'bad_request'
 from rest_framework.decorators import api_view, permission_classes
+from django_q.tasks import async_task
 
 # Onboardings
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -295,7 +295,7 @@ class OtherStaffDashboard(APIView):
         data = {
             "user": user_serializer.data,
             "message": "Welcome Other Staff!",
-            "tasks": [],  # Can be populated later with tasks
+            "tasks": [],
         }
         return Response(data)
 
@@ -500,7 +500,8 @@ class MembershipViewSet(viewsets.ModelViewSet):
                     uid = urlsafe_base64_encode(force_bytes(user.pk))
                     token = default_token_generator.make_token(user)
                     context["magic_link"] = f"{settings.FRONTEND_BASE_URL}/reset-password/{uid}/{token}/"
-                    transaction.on_commit(lambda: send_async_email.defer(
+                    transaction.on_commit(lambda: async_task(
+                        'users.tasks.send_async_email',
                         subject="You have been invited to join a pharmacy on ChemistTasker",
                         recipient_list=recipient_list,
                         template_name="emails/pharmacy_invite_new_user.html",
@@ -509,7 +510,8 @@ class MembershipViewSet(viewsets.ModelViewSet):
                     ))
                 else:
                     context["frontend_dashboard_link"] = f"{settings.FRONTEND_BASE_URL}/login"
-                    transaction.on_commit(lambda: send_async_email.defer(
+                    transaction.on_commit(lambda: async_task(
+                        'users.tasks.send_async_email',
                         subject="You have been added to a pharmacy on ChemistTasker",
                         recipient_list=recipient_list,
                         template_name="emails/pharmacy_invite_existing_user.html",
@@ -845,7 +847,8 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 user=shift.created_by,
                 role=shift.created_by.role.lower(),      
             )
-            send_async_email.defer(
+            async_task(
+                'users.tasks.send_async_email',
                 subject=f"New interest in your shift at {shift.pharmacy.name}",
                 recipient_list=[shift.created_by.email],
                 template_name="emails/shift_interest.html",
@@ -911,7 +914,8 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
         # Send email and return profile data...
         ctx = build_shift_email_context(shift, user=candidate, role=candidate.role.lower())
-        send_async_email.defer(
+        async_task(
+            'users.tasks.send_async_email',
             subject=f"Your profile was revealed for a shift at {shift.pharmacy.name}",
             recipient_list=[candidate.email],
             template_name="emails/shift_reveal.html",
@@ -985,7 +989,8 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             user=candidate,
             role=candidate.role.lower(),
             )
-            send_async_email.defer(
+            async_task(
+                'users.tasks.send_async_email',
                 subject=f"You’ve been accepted for a shift at {shift.pharmacy.name}",
                 recipient_list=[candidate.email],
                 template_name="emails/shift_accept.html",
@@ -1031,7 +1036,8 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             user=candidate,
             role=candidate.role.lower(),
             )
-            send_async_email.defer(
+            async_task(
+                'users.tasks.send_async_email',
                 subject=f"You’ve been accepted for a shift at {shift.pharmacy.name}",
                 recipient_list=[candidate.email],
                 template_name="emails/shift_accept.html",
@@ -1073,7 +1079,8 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         user=candidate,
         role=candidate.role.lower(),
         )
-        send_async_email.defer(
+        async_task(
+            'users.tasks.send_async_email',
             subject=f"You’ve been accepted for a shift at {shift.pharmacy.name}",
             recipient_list=[candidate.email],
             template_name="emails/shift_accept.html",
@@ -1134,7 +1141,8 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 "making it visible to the entire ChemistTasker community. This can help you find the right fit, faster."
             )
 
-            send_async_email.defer(
+            async_task(
+                'users.tasks.send_async_email',
                 subject=f"Shift Update: {user.get_full_name() or user.email} has declined your shift",
                 recipient_list=[shift.created_by.email],
                 template_name="emails/shift_rejected.html",

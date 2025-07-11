@@ -1,23 +1,23 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Box, CircularProgress, Typography, Paper, Alert } from "@mui/material";
+import { Box, CircularProgress, Typography, Alert } from "@mui/material";
 import axios from "axios";
 import { API_BASE_URL, API_ENDPOINTS } from "../../constants/api";
+import AuthLayout from "../../layouts/AuthLayout"; // Make sure this path is correct
 
 export default function RefereeConfirmPage() {
-  // Only get pk and refIndex
   const { pk, refIndex } = useParams<{ pk: string; refIndex: string }>();
 
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [message, setMessage] = useState<string>("");
 
+  // This logic remains completely unchanged
   useEffect(() => {
     if (!pk || !refIndex) {
       setStatus("error");
       setMessage("Missing reference information.");
       return;
     }
-    // Build endpoint: NO role, only pk and refIndex
     const url = `${API_BASE_URL}${API_ENDPOINTS.refereeConfirm(pk, refIndex)}`;
     
     axios
@@ -38,8 +38,8 @@ export default function RefereeConfirmPage() {
   }, [pk, refIndex]);
 
   return (
-    <Box sx={{ display: "flex", minHeight: "70vh", alignItems: "center", justifyContent: "center" }}>
-      <Paper sx={{ p: 4, maxWidth: 430, textAlign: "center", borderRadius: 3, boxShadow: 2 }}>
+    <AuthLayout title="Reference Confirmation">
+      <Box sx={{ textAlign: 'center', width: '100%' }}>
         {status === "loading" && (
           <>
             <CircularProgress />
@@ -47,7 +47,7 @@ export default function RefereeConfirmPage() {
           </>
         )}
         {status === "success" && (
-          <Alert severity="success">
+          <Alert severity="success" sx={{ textAlign: 'left' }}>
             <Typography variant="h5" gutterBottom>
               🎉 Reference Confirmed!
             </Typography>
@@ -55,14 +55,14 @@ export default function RefereeConfirmPage() {
           </Alert>
         )}
         {status === "error" && (
-          <Alert severity="error">
+          <Alert severity="error" sx={{ textAlign: 'left' }}>
             <Typography variant="h6" gutterBottom>
               Could not confirm
             </Typography>
             <Typography>{message}</Typography>
           </Alert>
         )}
-      </Paper>
-    </Box>
+      </Box>
+    </AuthLayout>
   );
 }

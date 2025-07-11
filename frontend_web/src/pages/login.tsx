@@ -2,8 +2,6 @@ import { useState } from 'react';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import axios from 'axios';
 import {
-  Container,
-  Paper,
   Typography,
   TextField,
   Button,
@@ -18,11 +16,13 @@ import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants/api';
 import { ORG_ROLES } from '../constants/roles';
 import { useAuth } from '../contexts/AuthContext';
+import AuthLayout from '../layouts/AuthLayout';
 
 export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
 
+  // All your state and logic functions are unchanged
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading]   = useState(false);
@@ -42,7 +42,7 @@ export default function Login() {
     try {
       const { data } = await axios.post(
         `${API_BASE_URL}${API_ENDPOINTS.login}`,
-        { email: email.toLowerCase(), password } // lowercased!
+        { email: email.toLowerCase(), password }
       );
       const { access, refresh, user: userInfo } = data;
       if (!access || !refresh) {
@@ -101,77 +101,77 @@ export default function Login() {
   };
 
   return (
-    <Container maxWidth="sm" sx={{ mt: 8 }}>
-      <Paper elevation={3} sx={{ p: 4, borderRadius: 3 }}>
-        <Typography variant="h4" textAlign="center" mb={3}>
-          Login
-        </Typography>
+    <AuthLayout title="Welcome Back">
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
+      <form onSubmit={handleLogin}>
+        <TextField
+          fullWidth
+          margin="normal"
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value.toLowerCase())}
+          autoComplete="username"
+        />
 
-        <form onSubmit={handleLogin}>
-          <TextField
+        <TextField
+          fullWidth
+          margin="normal"
+          label="Password"
+          type={showPassword ? 'text' : 'password'}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+          InputProps={{
+            endAdornment: (
+              <InputAdornment position="end">
+                <IconButton
+                  onClick={() => setShowPassword((show) => !show)}
+                  edge="end"
+                >
+                  {showPassword ? <VisibilityOff /> : <Visibility />}
+                </IconButton>
+              </InputAdornment>
+            ),
+          }}
+        />
+
+        <Box mt={3}>
+          <Button
             fullWidth
-            margin="normal"
-            label="Email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value.toLowerCase())}
-            autoComplete="username"
-          />
-
-          <TextField
-            fullWidth
-            margin="normal"
-            label="Password"
-            type={showPassword ? 'text' : 'password'}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            InputProps={{
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton
-                    onClick={() => setShowPassword((show) => !show)}
-                    edge="end"
-                  >
-                    {showPassword ? <VisibilityOff /> : <Visibility />}
-                  </IconButton>
-                </InputAdornment>
-              ),
+            type="submit"
+            variant="contained"
+            disabled={loading}
+            sx={{ 
+              py: 1.5,
+              backgroundColor: '#00a99d', // Themed button color
+              '&:hover': {
+                  backgroundColor: '#00877d'
+              }
             }}
-          />
-
-          <Box mt={3}>
-            <Button
-              fullWidth
-              type="submit"
-              variant="contained"
-              disabled={loading}
-              sx={{ py: 1.5 }}
-            >
-              {loading ? <CircularProgress size={24} /> : 'Login'}
-            </Button>
-          </Box>
-        </form>
-
-        <Box mt={2} textAlign="center">
-          <Link component={RouterLink} to="/password-reset">
-            Forgot Password?
-          </Link>
+          >
+            {loading ? <CircularProgress size={24} color="inherit" /> : 'Login'}
+          </Button>
         </Box>
+      </form>
 
-        <Typography variant="body2" mt={3} textAlign="center">
-          Don&apos;t have an account?{' '}
-          <Link component={RouterLink} to="/register">
-            Register
-          </Link>
-        </Typography>
-      </Paper>
-    </Container>
+      <Box mt={2} textAlign="center">
+        <Link component={RouterLink} to="/password-reset" color="#00a99d">
+          Forgot Password?
+        </Link>
+      </Box>
+
+      <Typography variant="body2" mt={3} textAlign="center">
+        Don&apos;t have an account?{' '}
+        <Link component={RouterLink} to="/register" fontWeight="bold" color="#00a99d">
+          Register
+        </Link>
+      </Typography>
+    </AuthLayout>
   );
 }

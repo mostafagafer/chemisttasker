@@ -33,6 +33,7 @@ export const ORGANIZATION_NAV: Navigation = [
     children: [
       { segment: 'my-pharmacies', title: 'My Pharmacies', icon: <StoreIcon /> },
       { segment: 'my-chain',      title: 'My Chain',      icon: <CorporateFareIcon /> },
+      { segment: 'roster', title: 'Internal Roster', icon: <EventAvailableIcon /> },
     ],
   },
   { segment: 'dashboard/organization/post-shift', title: 'Post Shift', icon: <PostAddIcon /> },
@@ -78,6 +79,7 @@ export function getOwnerNav(progress_percent: number) {
     children: [
       { segment: 'my-pharmacies', title: 'My Pharmacies', icon: <StoreIcon /> },
       { segment: 'my-chain',      title: 'My Chain',      icon: <CorporateFareIcon /> },
+      { segment: 'roster', title: 'Internal Roster', icon: <EventAvailableIcon /> },
     ],
   },
   { segment: 'dashboard/owner/post-shift',     title: 'Post Shift',        icon: <PostAddIcon /> },
@@ -106,6 +108,7 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
         { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
         { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
         { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
+        { segment: 'roster', title: 'My Roster', icon: <EventAvailableIcon /> },
       ]
     : [
         { segment: 'public',    title: 'Public Shifts',    icon: <PublicIcon /> },
@@ -164,6 +167,8 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
         { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
         { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
         { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
+        { segment: 'roster', title: 'My Roster', icon: <EventAvailableIcon /> },
+
       ]
     : [
         { segment: 'public', title: 'Public Shifts', icon: <PublicIcon /> },

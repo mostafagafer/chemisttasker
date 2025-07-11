@@ -36,6 +36,7 @@ class Http400(APIException):
     default_code = 'bad_request'
 from rest_framework.decorators import api_view, permission_classes
 from django_q.tasks import async_task
+from datetime import date, datetime # Ensure datetime is imported for parsing
 
 # Onboardings
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -419,7 +420,6 @@ class MembershipViewSet(viewsets.ModelViewSet):
 
         return qs.distinct()
     
-    # --- Helper for single membership invite ---
     def _create_membership_invite(self, data, inviter):
         """
         Helper to create or invite a user as a membership and send emails.
@@ -471,20 +471,30 @@ class MembershipViewSet(viewsets.ModelViewSet):
             if Membership.objects.filter(user=user, pharmacy_id=pharmacy_id).exists():
                 return None, 'User is already a member of this pharmacy.'
 
-            # Create membership
+            # --- START OF THE FIX ---
+            # Prepare data for Membership creation, including new classification fields
+            membership_data = {
+                'user': user,
+                'pharmacy_id': pharmacy_id,
+                'invited_by': inviter,
+                'invited_name': data.get('invited_name', ''),
+                'role': role,
+                'employment_type': employment_type,
+                # Add classification fields from the request data
+                'pharmacist_award_level': data.get('pharmacist_award_level', None),
+                'otherstaff_classification_level': data.get('otherstaff_classification_level', None),
+                'intern_half': data.get('intern_half', None),
+                'student_year': data.get('student_year', None),
+            }
+
+            # Create membership using the prepared dictionary
             try:
-                membership = Membership.objects.create(
-                    user=user,
-                    pharmacy_id=pharmacy_id,
-                    invited_by=inviter,
-                    invited_name=data.get('invited_name', ''),
-                    role=role,
-                    employment_type=employment_type,
-                )
+                membership = Membership.objects.create(**membership_data)
             except Exception as e:
                 import traceback
                 traceback.print_exc()
                 return None, f'Failed to create membership: {str(e)}'
+            # --- END OF THE FIX ---
 
             # Prepare and send email
             try:
@@ -531,7 +541,8 @@ class MembershipViewSet(viewsets.ModelViewSet):
             import traceback
             traceback.print_exc()
             return None, f'Unexpected error: {str(e)}'
-        
+
+
     # --- Single Invite (unchanged logic, now uses helper) ---
     def create(self, request, *args, **kwargs):
         data = request.data.copy()
@@ -960,6 +971,14 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         if user_id is None:
             return Response({'detail': 'user_id is required'}, status=status.HTTP_400_BAD_REQUEST)
         candidate = get_object_or_404(User, pk=user_id)
+        
+        # Prevent Full/Part-Time employees from being accepted through this flow
+        membership = Membership.objects.filter(user=candidate, pharmacy=shift.pharmacy).first()
+        if membership and membership.employment_type in ['FULL_TIME', 'PART_TIME']:
+            return Response(
+                {"detail": "Full/Part-Time employees must be rostered via manual assignment, not accepted here."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         slot_id = request.data.get('slot_id')
 
@@ -1167,6 +1186,325 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         shift.save(update_fields=['share_token'])
 
         return Response({'share_token': str(shift.share_token)})
+
+    @action(detail=True, methods=['post'], url_path='manual-assign')
+    def manual_assign(self, request, pk=None):
+        """
+        Owner/Admin directly assigns staff to slots based on calendar selection.
+        Accepts a list of slot/date combinations.
+        """
+        shift = self.get_object()
+        user_id = request.data.get('user_id')
+        assignments = request.data.get('assignments', [])  # Expect list of {slot_id, slot_date}
+
+        self.check_permissions(request)
+        self.check_object_permissions(request, shift.pharmacy)
+
+        if not user_id or not isinstance(assignments, list):
+            return Response({"detail": "user_id and assignments list are required."}, status=400)
+
+        candidate = get_object_or_404(User, pk=user_id)
+        membership = Membership.objects.filter(user=candidate, pharmacy=shift.pharmacy).first()
+
+        # Optionally: keep employment_type check or adjust as needed
+        if not membership or membership.employment_type not in ['FULL_TIME', 'PART_TIME']:
+            return Response({"detail": "Only Full/Part-Time employees can be rostered to this slot."}, status=400)
+
+        assignment_ids = []
+
+        for entry in assignments:
+            slot_id = entry.get('slot_id')
+            slot_date = entry.get('slot_date')
+            # Remove checks for start_time/end_time
+
+            if not slot_id or not slot_date:
+                continue  # Skip invalid
+
+            slot = get_object_or_404(shift.slots, pk=slot_id)
+
+            assn, _ = ShiftSlotAssignment.objects.update_or_create(
+                slot=slot,
+                slot_date=slot_date,
+                defaults={
+                    "shift": shift,
+                    "user": candidate,
+                    "unit_rate": Decimal('0.00'),
+                    "rate_reason": {"source": "Rostered manual assign"},
+                    "is_rostered": True
+                }
+            )
+            assignment_ids.append(assn.id)
+
+        return Response({
+            "detail": f"{len(assignment_ids)} slot(s) rostered for {candidate.get_full_name()}",
+            "assignment_ids": assignment_ids
+        }, status=200)
+
+# UPDATE: Change ReadOnlyModelViewSet to ModelViewSet to enable deleting assignments
+class RosterOwnerViewSet(viewsets.ModelViewSet):
+    """
+    Lists rostered assignments and allows DELETING a specific assignment.
+    """
+    serializer_class = RosterAssignmentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # This queryset logic is correct as you provided.
+        user = self.request.user
+        qs = ShiftSlotAssignment.objects.filter(is_rostered=True)
+
+        owned_pharmacies = Pharmacy.objects.none()
+        if hasattr(user, 'owneronboarding'):
+            owned_pharmacies |= Pharmacy.objects.filter(owner=user.owneronboarding)
+
+        org_pharmacies = Pharmacy.objects.none()
+        if OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').exists():
+            org_ids = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').values_list('organization', flat=True)
+            org_pharmacies |= Pharmacy.objects.filter(
+                Q(organization_id__in=org_ids) | Q(owner__organization_id__in=org_ids)
+            )
+
+        controlled_pharmacies = owned_pharmacies | org_pharmacies
+        qs = qs.filter(
+            shift__pharmacy__in=controlled_pharmacies
+        ).select_related('shift__pharmacy', 'slot', 'user').distinct()
+
+        start_date_str = self.request.query_params.get('start_date')
+        end_date_str = self.request.query_params.get('end_date')
+
+        if start_date_str:
+            try:
+                start_date = date.fromisoformat(start_date_str)
+                qs = qs.filter(slot_date__gte=start_date)
+            except ValueError:
+                pass
+
+        if end_date_str:
+            try:
+                end_date = date.fromisoformat(end_date_str)
+                qs = qs.filter(slot_date__lte=end_date)
+            except ValueError:
+                pass
+        return qs
+
+    @action(detail=False, methods=['get'], url_path='members-for-roster')
+    def members_for_roster(self, request):
+        # This action is correct as you provided.
+        user = request.user
+        pharmacy_id = request.query_params.get('pharmacy_id')
+        target_role = request.query_params.get('role')
+
+        controlled_pharmacies_query = Pharmacy.objects.none()
+        if hasattr(user, 'owneronboarding'):
+            controlled_pharmacies_query |= Pharmacy.objects.filter(owner=user.owneronboarding)
+
+        if OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').exists():
+            org_ids = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').values_list('organization', flat=True)
+            controlled_pharmacies_query |= Pharmacy.objects.filter(
+                Q(organization_id__in=org_ids) | Q(owner__organization_id__in=org_ids)
+            )
+
+        qs = Membership.objects.filter(
+            is_active=True,
+            pharmacy__in=controlled_pharmacies_query
+        )
+
+        if pharmacy_id:
+            qs = qs.filter(pharmacy_id=pharmacy_id)
+        if target_role:
+            qs = qs.filter(role=target_role)
+
+        serializer = MembershipSerializer(qs.select_related('user'), many=True)
+        return Response(serializer.data)
+
+
+# NEW: Add this entire new viewset for managing the Shift itself from the roster
+class RosterShiftManageViewSet(viewsets.ModelViewSet):
+    """
+    Handles EDITING, DELETING, and ESCALATING a Shift from the roster context.
+    """
+    queryset = Shift.objects.all()
+    serializer_class = ShiftSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # This logic is correct and remains unchanged
+        user = self.request.user
+        controlled_pharmacies = Pharmacy.objects.none()
+        if hasattr(user, 'owneronboarding'):
+            controlled_pharmacies |= Pharmacy.objects.filter(owner=user.owneronboarding)
+        if OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').exists():
+            org_ids = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').values_list('organization', flat=True)
+            controlled_pharmacies |= Pharmacy.objects.filter(Q(organization_id__in=org_ids) | Q(owner__organization_id__in=org_ids))
+        return Shift.objects.filter(pharmacy__in=controlled_pharmacies)
+
+    def update(self, request, *args, **kwargs):
+        """
+        Handles PATCH requests to edit a shift.
+        It now supports re-assigning a new user at the same time.
+        """
+        shift_instance = self.get_object()
+        
+        # First, let the serializer handle the update of the Shift and its Slots
+        response = super().update(request, *args, **kwargs)
+        
+        # After updating, clear any previous assignments from all slots of this shift.
+        shift_instance.slot_assignments.all().delete()
+
+        # Now, check if a new user was selected to be assigned.
+        new_user_id = request.data.get('user_id')
+        if new_user_id:
+            newly_assigned_user = get_object_or_404(User, pk=new_user_id)
+            
+            # Re-assign the new user to all slots of this shift
+            for slot in shift_instance.slots.all():
+                rate, rate_reason = get_locked_rate_for_slot(
+                    slot=slot,
+                    shift=shift_instance,
+                    user=newly_assigned_user,
+                    override_date=slot.date # Assuming one-off shifts for simplicity in this context
+                )
+                ShiftSlotAssignment.objects.create(
+                    shift=shift_instance,
+                    slot=slot,
+                    slot_date=slot.date,
+                    user=newly_assigned_user,
+                    unit_rate=rate,
+                    rate_reason=rate_reason,
+                    is_rostered=True
+                )
+        
+        return response
+
+    @action(detail=True, methods=['post'])
+    def escalate(self, request, pk=None):
+        """
+        Escalates the shift's visibility to the NEXT level and removes any assigned staff.
+        """
+        shift = self.get_object()
+        
+        # Un-assign any current user
+        shift.slot_assignments.all().delete()
+        
+        # This logic correctly finds the next level in your defined flow
+        escalation_flow = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM']
+        try:
+            current_index = escalation_flow.index(shift.visibility)
+        except ValueError:
+            # If current visibility isn't in the flow, reset to the start
+            current_index = -1
+
+        if current_index >= len(escalation_flow) - 1:
+            return Response({'detail': 'Already at highest escalation level (Platform).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        next_visibility = escalation_flow[current_index + 1]
+        shift.visibility = next_visibility
+        shift.escalation_level = current_index + 1 # The integer representation
+        shift.save()
+        
+        return Response({
+            'detail': f'Shift escalated to {next_visibility} and is now unassigned.'
+        }, status=status.HTTP_200_OK)
+
+
+class RosterWorkerViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Pharmacist or staff member sees their own rostered assignments.
+    """
+    serializer_class = RosterAssignmentSerializer # Also uses the detailed serializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        return ShiftSlotAssignment.objects.filter(
+            user=user,
+            is_rostered=True
+        ).select_related('shift__pharmacy', 'slot', 'user').distinct()
+
+# This view is correct for the frontend workflow. Keep it as is.
+class CreateShiftAndAssignView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        pharmacy_id = request.data.get('pharmacy_id')
+        role_needed = request.data.get('role_needed')
+        slot_date_str = request.data.get('slot_date')
+        start_time_str = request.data.get('start_time')
+        end_time_str = request.data.get('end_time')
+        user_id = request.data.get('user_id')
+
+        if not all([pharmacy_id, role_needed, slot_date_str, start_time_str, end_time_str, user_id]):
+            return Response({"detail": "Missing required fields for shift creation and assignment."}, status=status.HTTP_400_BAD_REQUEST)
+
+        pharmacy = get_object_or_404(Pharmacy, pk=pharmacy_id)
+        candidate_user = get_object_or_404(User, pk=user_id)
+
+        try:
+            slot_date = date.fromisoformat(slot_date_str)
+            start_time = datetime.strptime(start_time_str, '%H:%M').time()
+            end_time = datetime.strptime(end_time_str, '%H:%M').time()
+            if start_time >= end_time:
+                return Response({"detail": "End time must be after start time."}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError:
+            return Response({"detail": "Invalid date or time format. Use YYYY-MM-DD and HH:MM."}, status=status.HTTP_400_BAD_REQUEST)
+
+        requesting_user = request.user
+        has_permission = False
+        if hasattr(requesting_user, 'owneronboarding') and pharmacy.owner == requesting_user.owneronboarding:
+            has_permission = True
+        elif OrganizationMembership.objects.filter(
+            user=requesting_user,
+            role='ORG_ADMIN',
+            organization_id=pharmacy.organization_id
+        ).exists():
+            has_permission = True
+
+        if not has_permission:
+            return Response({'detail': 'Permission denied: Not authorized to create shifts for this pharmacy.'}, status=status.HTTP_403_FORBIDDEN)
+
+        new_shift = Shift.objects.create(
+            pharmacy=pharmacy,
+            role_needed=role_needed,
+            employment_type='FULL_TIME',
+            visibility='FULL_PART_TIME',
+            single_user_only=True,
+            created_by=requesting_user,
+            rate_type='FLEXIBLE',
+        )
+
+        new_slot = ShiftSlot.objects.create(
+            shift=new_shift,
+            date=slot_date,
+            start_time=start_time,
+            end_time=end_time,
+            is_recurring=False,
+            recurring_days=[],
+            recurring_end_date=None
+        )
+
+        rate, rate_reason = get_locked_rate_for_slot(
+            slot=new_slot,
+            shift=new_shift,
+            user=candidate_user,
+            override_date=slot_date
+        )
+
+        assignment = ShiftSlotAssignment.objects.create(
+            shift=new_shift,
+            slot=new_slot,
+            slot_date=slot_date,
+            user=candidate_user,
+            unit_rate=rate,
+            rate_reason=rate_reason,
+            is_rostered=True
+        )
+
+        return Response({
+            "detail": "Shift created and assigned successfully.",
+            "shift_id": new_shift.id,
+            "slot_id": new_slot.id,
+            "assignment_id": assignment.id
+        }, status=status.HTTP_201_CREATED)
 
 
 class CommunityShiftViewSet(BaseShiftViewSet):
@@ -1814,10 +2152,16 @@ class SharedShiftDetailView(APIView):
         return Response(serializer.data)
 
 
-# class SimpleShiftDetailView(viewsets.ReadOnlyModelViewSet): # ReadOnly to prevent accidental modifications
-#     queryset = Shift.objects.all() # Get ALL shifts
-#     serializer_class = ShiftSerializer # Use your existing serializer
-#     permission_classes = [permissions.IsAuthenticated] # Still requires login, but no object-level checks
+class RosterWorkerViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = RosterAssignmentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return ShiftSlotAssignment.objects.filter(
+            is_rostered=True,
+            user=self.request.user
+        ).select_related('shift', 'slot', 'user').distinct()
+
 
 # --- Mixin to enforce pharmacist or other_staff only ---
 class IsPharmacistOrOtherStaff(permissions.BasePermission):

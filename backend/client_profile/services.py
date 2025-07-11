@@ -4,11 +4,11 @@ from decimal import Decimal
 from pathlib import Path
 
 from django.conf import settings
-from client_profile.models import PharmacistOnboarding, OtherStaffOnboarding, Pharmacy, Shift, ShiftSlotAssignment, InvoiceLineItem, Invoice
+from client_profile.models import PharmacistOnboarding, OtherStaffOnboarding, Pharmacy, Shift, ShiftSlotAssignment, InvoiceLineItem, Invoice, Membership
 
 # Load static JSON data
 BASE_DIR = Path(settings.BASE_DIR)
-AWARD_RATES = json.load(open(BASE_DIR / 'client_profile/data/award_rates.json'))
+AWARD_RATES = json.load(open(BASE_DIR / 'client_profile/data/updated_award_rates.json'))
 PUBLIC_HOLIDAYS = json.load(open(BASE_DIR / 'client_profile/data/public_holidays.json'))
 
 EARLY_MORNING_END = time(7, 0)
@@ -32,80 +32,89 @@ def get_time_category(start, end):
     return None
 
 def get_locked_rate_for_slot(slot, shift, user, override_date=None):
+    """
+    Calculates the correct rate for a given user and shift slot,
+    considering role, classification, employment type, day, and time.
+    """
     slot_date = override_date or slot.date
-    start_time  = slot.start_time
-    end_time    = slot.end_time
-    state       = shift.pharmacy.state
-    day_type    = get_day_type(slot_date, state)         # eg. 'sunday', 'public_holiday'
-    time_type   = get_time_category(start_time, end_time)  # eg. 'late_night'
-    owner_bonus = shift.owner_adjusted_rate or Decimal('0.00')
+    start_time = slot.start_time
+    end_time = slot.end_time
+    state = shift.pharmacy.state
 
-    try:
-        ob = PharmacistOnboarding.objects.get(user=user)
-        preference = ob.rate_preference or {}
+    # Determine the context for the rate lookup
+    day_type = get_day_type(slot_date, state)
+    time_category = get_time_category(start_time, end_time)
+    rate_lookup_key = time_category or day_type # e.g., 'early_morning' or 'weekday'
 
-        if shift.rate_type == 'FIXED':
-            rate = Decimal(shift.fixed_rate)
+    # Determine employment type (full/part-time vs. casual)
+    membership = Membership.objects.filter(user=user, pharmacy=shift.pharmacy).first()
+    employment_category = 'casual' # Default to casual
+    if membership and membership.employment_type in ['FULL_TIME', 'PART_TIME']:
+        employment_category = 'full_part_time'
+
+    # Handle Pharmacist Rates
+    if shift.role_needed == 'PHARMACIST':
+        # For pharmacists, the award level is stored on the Membership model
+        award_level = 'PHARMACIST' # Default if not set
+        if membership and membership.pharmacist_award_level:
+            award_level = membership.pharmacist_award_level
+
+        try:
+            # Correctly look up the rate using all necessary keys
+            rate = AWARD_RATES['PHARMACIST'][award_level][employment_category][rate_lookup_key]
             reason = {
-                "type": day_type,
-                "role_key": None,
-                "source": "Fixed",
-                "bonus_applied": False
+                "type": rate_lookup_key,
+                "role_key": award_level,
+                "employment": employment_category,
+                "source": "Award"
             }
-            return rate, reason
+            return Decimal(rate), reason
+        except KeyError:
+            # Fallback if the specific rate combination is not found
+            return Decimal('0.00'), {"error": "Rate not found for pharmacist classification"}
 
-        if shift.rate_type == 'PHARMACIST_PROVIDED':
-            key = time_type or day_type
-            rate_str = preference.get(key)
-            if rate_str is None:
-                return Decimal('0.00'), {
-                    "type": key,
-                    "role_key": None,
-                    "source": "Pharmacist Provided",
-                    "bonus_applied": False,
-                    "error": f"Missing rate for key: {key}"
-                }
-            rate = Decimal(rate_str)
+    # Handle Other Staff Rates (Intern, Student, Assistant, Technician)
+    else:
+        try:
+            onboarding = OtherStaffOnboarding.objects.get(user=user)
+            classification_key = None
+            
+            if shift.role_needed == 'INTERN':
+                classification_key = onboarding.intern_half or 'FIRST_HALF'
+            elif shift.role_needed == 'STUDENT':
+                classification_key = onboarding.student_year or 'YEAR_1'
+            elif shift.role_needed in ['ASSISTANT', 'TECHNICIAN']:
+                # Both Assistant and Technician use the same LEVEL_1-4 keys in the JSON
+                classification_key = onboarding.classification_level or 'LEVEL_1'
+
+            if not classification_key:
+                 return Decimal('0.00'), {"error": "User classification not found in onboarding profile."}
+
+            # Correctly look up the rate for other staff
+            rate = AWARD_RATES[shift.role_needed][classification_key][employment_category][rate_lookup_key]
+            
+            # Add owner bonus only for casual staff, as per original logic
+            owner_bonus = shift.owner_adjusted_rate or Decimal('0.00')
+            final_rate = Decimal(rate)
+            bonus_applied = False
+            if employment_category == 'casual' and owner_bonus > 0:
+                final_rate += owner_bonus
+                bonus_applied = True
+
             reason = {
-                "type": key,
-                "role_key": None,
-                "source": "Pharmacist Provided",
-                "bonus_applied": False
+                "type": rate_lookup_key,
+                "role_key": classification_key,
+                "employment": employment_category,
+                "source": "Award",
+                "bonus_applied": bonus_applied
             }
-            return rate, reason
+            return final_rate, reason
 
-        # fallback: FLEXIBLE
-        key = time_type or day_type
-        rate_str = preference.get(key)
-        rate = Decimal(rate_str or '0.00')
-        reason = {
-            "type": key,
-            "role_key": None,
-            "source": "Flexible",
-            "bonus_applied": False
-        }
-        return rate, reason
+        except OtherStaffOnboarding.DoesNotExist:
+            return Decimal('0.00'), {"error": "OtherStaffOnboarding profile not found for user."}
+        except KeyError:
+            return Decimal('0.00'), {"error": f"Rate not found for {shift.role_needed} classification"}
 
-    except PharmacistOnboarding.DoesNotExist:
-        # Fallback: Non-pharmacist (Intern, Tech, Student)
-        ob = OtherStaffOnboarding.objects.get(user=user)
-
-        if shift.role_needed == 'INTERN':
-            key = 'FIRST_HALF' if ob.intern_half == 'FIRST_HALF' else 'SECOND_HALF'
-        elif shift.role_needed == 'STUDENT':
-            key = ob.student_year
-        else:
-            key = ob.classification_level
-
-        base_rate = Decimal(AWARD_RATES[shift.role_needed][key][time_type or day_type])
-        rate = base_rate + owner_bonus
-        reason = {
-            "type": time_type or day_type,
-            "role_key": key,
-            "source": "Award",
-            "bonus_applied": owner_bonus > 0
-        }
-        return rate, reason
 
 def expand_shift_slots(shift):
     entries = []

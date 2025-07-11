@@ -368,6 +368,34 @@ class Pharmacy(models.Model):
     def __str__(self):
         return self.name
 
+
+PHARMACIST_AWARD_LEVEL_CHOICES = [
+    ('PHARMACIST', 'Pharmacist'),
+    ('EXPERIENCED_PHARMACIST', 'Experienced Pharmacist'),
+    ('PHARMACIST_IN_CHARGE', 'Pharmacist In Charge'),
+    ('PHARMACIST_MANAGER', 'Pharmacist Manager'),
+] #cite: 1
+
+OTHERSTAFF_CLASSIFICATION_CHOICES = [
+    ('LEVEL_1', 'Level 1'),
+    ('LEVEL_2', 'Level 2'),
+    ('LEVEL_3', 'Level 3'),
+    ('LEVEL_4', 'Level 4'),
+]
+
+INTERN_HALF_CHOICES = [
+    ('FIRST_HALF', 'First Half'),
+    ('SECOND_HALF', 'Second Half'),
+]
+
+STUDENT_YEAR_CHOICES = [
+    ('YEAR_1', 'Year 1'),
+    ('YEAR_2', 'Year 2'),
+    ('YEAR_3', 'Year 3'),
+    ('YEAR_4', 'Year 4'),
+]
+
+
 # Membership Model - Manages the user roles within each pharmacy
 class Membership(models.Model):
     ROLE_CHOICES = [
@@ -420,10 +448,36 @@ class Membership(models.Model):
         help_text="Employment type"
     )
 
-
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # FIX 1.1.2: Add fields to store award level/classification details on Membership with choices
+    pharmacist_award_level = models.CharField(
+        max_length=50,
+        choices=PHARMACIST_AWARD_LEVEL_CHOICES,
+        blank=True, null=True,
+        help_text="Pharmacist award level as per award rates"
+    )
+    otherstaff_classification_level = models.CharField(
+        max_length=50,
+        choices=OTHERSTAFF_CLASSIFICATION_CHOICES,
+        blank=True, null=True,
+        help_text="Other staff (Assistant/Technician) award classification"
+    )
+    intern_half = models.CharField(
+        max_length=50,
+        choices=INTERN_HALF_CHOICES,
+        blank=True, null=True,
+        help_text="Intern pharmacist half of training"
+    )
+    student_year = models.CharField(
+        max_length=50,
+        choices=STUDENT_YEAR_CHOICES,
+        blank=True, null=True,
+        help_text="Pharmacy student year of study"
+    )
+
 
     class Meta:
         unique_together = ('user', 'pharmacy')
@@ -722,7 +776,7 @@ class ShiftSlotAssignment(models.Model):
             models.Index(fields=['user', 'slot_date']),      # Fast lookup for all slots by user for a day
         ]
 
-
+    is_rostered = models.BooleanField(default=False) 
 
     def __str__(self):
         return f"{self.user.get_full_name()} assigned to slot {self.slot.id}"

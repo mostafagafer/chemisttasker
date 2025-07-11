@@ -98,6 +98,17 @@ export const API_ENDPOINTS = {
   getPublicJobBoard: '/client-profile/public-job-board/',
   getViewSharedShift: '/client-profile/view-shared-shift/',
 
+  // Roster
+  getRosterOwner: '/client-profile/roster-owner/',
+  getRosterWorker: '/client-profile/roster-worker/',
+  createShiftAndAssign: '/client-profile/roster/create-and-assign-shift/',
+  
+  // NEW: Endpoints for managing a SHIFT from the roster view
+  rosterManageShift: (shiftId: number) => `/client-profile/roster/manage-shifts/${shiftId}/`, // For EDIT (PATCH) and DELETE
+  rosterEscalateShift: (shiftId: number) => `/client-profile/roster/manage-shifts/${shiftId}/escalate/`, // For ESCALATE (POST)
+
+  // NOTE: Deleting an ASSIGNMENT still uses getRosterOwner
+  rosterDeleteAssignment: (assignmentId: number) => `/client-profile/roster-owner/${assignmentId}/`,
 
   // invoice
   // Create (manual or shift-based) & list invoices

@@ -13,6 +13,7 @@ import OTPVerify        from './pages/OTPVerify';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import PasswordResetRequestPage from './pages/PasswordResetRequestPage';
 import TermsOfServicePage from './pages/TermsOfServicePage';
+import NotFoundPage     from './pages/NotFoundPage';
 
 import PublicJobBoardPage from './pages/PublicJobBoardPage';
 import SharedShiftLandingPage from './pages/SharedShiftLandingPage';
@@ -29,6 +30,8 @@ import PharmacistOnboarding from './pages/onboarding/PharmacistOnboarding';
 import OtherStaffOnboarding from './pages/onboarding/OtherStaffOnboarding';
 import ExplorerOnboarding from './pages/onboarding/ExplorerOnboarding';
 import RefereeConfirmPage from './pages/onboarding/RefereeConfirmPage';
+import RosterOwnerPage from './pages/dashboard/sidebar/RosterOwnerPage';
+import RosterWorkerPage from './pages/dashboard/sidebar/RosterWorkerPage';
 
 
 
@@ -108,6 +111,8 @@ const router = createBrowserRouter([
               { index: true, element: <PharmacyPage /> },
               { path: 'my-pharmacies',    element: <PharmacyPage /> },
               { path: 'my-chain', element: <ChainPage /> },
+              { path: 'roster', element: <RosterOwnerPage /> },
+
             ],
           },
           { path: 'post-shift', element: <PostShiftPage /> },
@@ -179,6 +184,7 @@ const router = createBrowserRouter([
               { index: true, element: <PharmacyPage /> },
               { path: 'my-pharmacies',    element: <PharmacyPage /> },
               { path: 'my-chain', element: <ChainPage /> },
+              { path: 'roster', element: <RosterOwnerPage /> },
             ],
           },
           { path: 'post-shift', element: <PostShiftPage /> },
@@ -221,6 +227,7 @@ const router = createBrowserRouter([
               { path: 'confirmed', element: <MyConfirmedShiftsPage /> },
               { path: 'history',   element: <MyHistoryShiftsPage /> },
               { path: ':id', element: <WorkerShiftDetailPage /> },
+              { path: 'roster', element: <RosterWorkerPage /> },
             ],
           },
           { path: 'availability', element: <SetAvailabilityPage /> },
@@ -261,6 +268,7 @@ const router = createBrowserRouter([
               { path: 'confirmed', element: <MyConfirmedShiftsPage /> },
               { path: 'history',   element: <MyHistoryShiftsPage /> },
               { path: ':id', element: <WorkerShiftDetailPage /> },
+              { path: 'roster', element: <RosterWorkerPage /> },
             ],
           },
           { path: 'availability', element: <SetAvailabilityPage /> },
@@ -305,7 +313,7 @@ const router = createBrowserRouter([
           { path: 'logout',       element: <LogoutPage /> },
         ],
       },      
-      { path: '*', element: <LandingPage /> },
+      { path: '*', element: <NotFoundPage /> },
     ],
   },
 ]);

@@ -153,7 +153,7 @@ export default function MyConfirmedShiftsPage() {
       rateLabel = 'Flexible (Fair Work)';
     }
   } else {
-    rateLabel = 'Award Rate (Fair Work Commission, May 2025)';
+    rateLabel = 'Award Rate (Fair Work Commission, July 2025)';
   }
 
   return (

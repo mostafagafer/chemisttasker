@@ -1,9 +1,11 @@
 import React, { useState } from "react";
-import { Container, Paper, TextField, Button, Alert, Typography, CircularProgress } from "@mui/material";
-import axios from "axios"; // <-- use plain axios
+import { TextField, Button, Alert, CircularProgress } from "@mui/material";
+import axios from "axios";
 import { API_BASE_URL, API_ENDPOINTS } from '../constants/api';
+import AuthLayout from "../layouts/AuthLayout"; // Import the new layout
 
 export default function PasswordResetRequestPage() {
+  // --- All logic is unchanged ---
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -15,7 +17,7 @@ export default function PasswordResetRequestPage() {
     setError("");
     setMessage("");
     try {
-      await axios.post(`${API_BASE_URL}${API_ENDPOINTS.passwordReset}`, { email }); // <-- no auth header
+      await axios.post(`${API_BASE_URL}${API_ENDPOINTS.passwordReset}`, { email });
       setMessage("If this email is registered, a reset link has been sent.");
     } catch (err) {
       setError("Something went wrong. Please try again.");
@@ -25,32 +27,15 @@ export default function PasswordResetRequestPage() {
   };
 
   return (
-    <Container maxWidth="sm" sx={{ mt: 8 }}>
-      <Paper elevation={3} sx={{ p: 4, borderRadius: 3 }}>
-        <Typography variant="h5" mb={2} textAlign="center">Reset Your Password</Typography>
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}
-        <form onSubmit={handleSubmit}>
-          <TextField
-            fullWidth
-            margin="normal"
-            label="Email"
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            required
-          />
-          <Button
-            fullWidth
-            type="submit"
-            variant="contained"
-            disabled={loading}
-            sx={{ mt: 2, py: 1.5 }}
-          >
-            {loading ? <CircularProgress size={24} /> : "Send Reset Link"}
-          </Button>
-        </form>
-      </Paper>
-    </Container>
+    <AuthLayout title="Reset Your Password">
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}
+      <form onSubmit={handleSubmit}>
+        <TextField fullWidth margin="normal" label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+        <Button fullWidth type="submit" variant="contained" disabled={loading} sx={{ mt: 2, py: 1.5, backgroundColor: '#00a99d', '&:hover': {backgroundColor: '#00877d'} }}>
+          {loading ? <CircularProgress size={24} color="inherit"/> : "Send Reset Link"}
+        </Button>
+      </form>
+    </AuthLayout>
   );
 }

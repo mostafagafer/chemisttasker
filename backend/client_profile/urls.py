@@ -21,7 +21,11 @@ router.register(r'shifts/active',    ActiveShiftViewSet,    basename='active-shi
 router.register(r'shifts/confirmed', ConfirmedShiftViewSet, basename='confirmed-shifts')
 router.register(r'shifts/history',   HistoryShiftViewSet,   basename='history-shifts')
 router.register(r'shifts', ShiftDetailViewSet, basename='shift')
-# router.register(r'shifts/test-detail', SimpleShiftDetailView, basename='simple-shift-detail') # <--- TEMPORARY TEST REGISTRATION
+
+# Roster endpoints
+router.register(r'roster-owner', RosterOwnerViewSet, basename='roster-owner')
+router.register(r'roster-worker', RosterWorkerViewSet, basename='roster-worker')
+router.register(r'roster/manage-shifts', RosterShiftManageViewSet, basename='roster-manage-shift')
 # Interest endpoint
 router.register(r'shift-interests', ShiftInterestViewSet,  basename='shift-interests')
 router.register(r'shift-rejections', ShiftRejectionViewSet, basename='shift-rejections')
@@ -53,6 +57,9 @@ urlpatterns = [
 
     path('public-job-board/', PublicJobBoardView.as_view(), name='public-job-board'),
     path('view-shared-shift/', SharedShiftDetailView.as_view(), name='view-shared-shift'),
+
+
+    path('roster/create-and-assign-shift/', CreateShiftAndAssignView.as_view(), name='create-shift-and-assign'),
 
     # Invoice
     # list and create (manual or via shifts)

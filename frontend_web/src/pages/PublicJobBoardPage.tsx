@@ -4,7 +4,6 @@ import { Container, Typography, Card, CardContent, Button, Skeleton, Box, Chip }
 import apiClient from '../utils/apiClient';
 import { API_ENDPOINTS } from '../constants/api';
 import { formatDistanceToNow } from 'date-fns';
-console.log("Attempting to fetch from:", `${apiClient.defaults.baseURL}${API_ENDPOINTS.getPublicJobBoard}`);
 
 interface Shift {
   id: number;

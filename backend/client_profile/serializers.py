@@ -1,5 +1,5 @@
 # client_profile/serializers.py
-from rest_framework import serializers
+from rest_framework import viewsets, permissions, serializers
 from .models import *
 from users.models import OrganizationMembership
 from users.serializers import UserProfileSerializer
@@ -10,6 +10,7 @@ from client_profile.utils import send_referee_emails, notify_superuser_on_onboar
 from datetime import date
 from django.utils import timezone
 from django_q.tasks import async_task
+from django.db.models import Q
 
 User = get_user_model()
 
@@ -850,9 +851,6 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
             required_fields.append(obj.super_usi)
             required_fields.append(obj.super_member_number)
 
-        # AHPRA (if exists for some roles)
-        if obj.ahpra_number:
-            required_fields.append(obj.ahpra_verified)           # << Use verified field
 
         filled = sum(bool(field) for field in required_fields)
         percent = int(100 * filled / len(required_fields)) if required_fields else 0
@@ -1138,26 +1136,41 @@ class MembershipSerializer(serializers.ModelSerializer):
     class Meta:
         model = Membership
         fields = [
-            'id',
-            'user',
-            'user_details',
-            'pharmacy',
-            'invited_by',
-            'invited_by_details',
-            'invited_name',
-            'role',
-            'employment_type',
-            'is_active',
-            'created_at',
-            'updated_at'
+            'id', 'user', 'user_details', 'pharmacy', 'invited_by', 'invited_by_details',
+            'invited_name', 'role', 'employment_type', 'is_active', 'created_at', 'updated_at',
+            # All classification fields are included and will be handled automatically
+            'pharmacist_award_level',
+            'otherstaff_classification_level',
+            'intern_half',
+            'student_year',
         ]
-        read_only_fields = ['invited_by', 'invited_by_details', 'created_at', 'updated_at']
+        read_only_fields = [
+            'invited_by', 'invited_by_details', 'created_at', 'updated_at',
+        ]
 
-    def create(self, validated_data):
-        request = self.context.get('request')
-        if request and not validated_data.get('invited_by'):
-            validated_data['invited_by'] = request.user
-        return super().create(validated_data)
+    # No 'create' method needed. The default ModelSerializer.create() works perfectly
+    # because all the classification fields are listed in Meta.fields. It will
+    # create the new Membership object and save all provided fields in one step.
+
+    def update(self, instance, validated_data):
+        """
+        This override is only needed to add one piece of custom logic: if the user's role
+        is changing, we want to clear out the old, irrelevant classification level.
+        """
+        # Check if the role is being changed to something different.
+        if 'role' in validated_data and instance.role != validated_data['role']:
+            # If so, reset all classification fields to None.
+            # This prevents keeping old data (e.g., a pharmacist_award_level for a user now assigned as a STUDENT).
+            instance.pharmacist_award_level = None
+            instance.otherstaff_classification_level = None
+            instance.intern_half = None
+            instance.student_year = None
+
+        # After our custom logic, we let the default .update() method do the rest.
+        # It will efficiently update all fields from validated_data in a single database operation.
+        return super().update(instance, validated_data)
+
+
 
 class ShiftSlotSerializer(serializers.ModelSerializer):
     class Meta:
@@ -1481,6 +1494,34 @@ class SharedShiftSerializer(serializers.ModelSerializer):
             'created_at',
             'single_user_only',
         ]
+
+class RosterUserDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'first_name', 'last_name', 'email']
+
+class RosterShiftDetailSerializer(serializers.ModelSerializer):
+    pharmacy_name = serializers.CharField(source='pharmacy.name', read_only=True)
+    class Meta:
+        model = Shift
+        fields = ['id', 'role_needed', 'pharmacy_name', 'visibility']
+
+# === REPLACE YOUR OLD RosterAssignmentSerializer WITH THIS ===
+class RosterAssignmentSerializer(serializers.ModelSerializer):
+    user_detail = RosterUserDetailSerializer(source='user', read_only=True)
+    slot_detail = ShiftSlotSerializer(source='slot', read_only=True) # Reuses your existing ShiftSlotSerializer
+    shift_detail = RosterShiftDetailSerializer(source='shift', read_only=True)
+
+    class Meta:
+        model = ShiftSlotAssignment
+        fields = [
+            "id", "slot_date", "unit_rate", "rate_reason", "is_rostered",
+            "user", "slot", "shift",
+            "user_detail",
+            "slot_detail",
+            "shift_detail"
+        ]
+
 
 class InvoiceLineItemSerializer(serializers.ModelSerializer):
     class Meta:

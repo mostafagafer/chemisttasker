@@ -43,9 +43,10 @@ import OtherstaffDashboardWrapper from './layouts/otherStaffDashboard';
 import ExplorerDashboardWrapper from './layouts/explorerDashboard';
 
 
-
+OverviewPageOwner
 // owner stub pages
-import OverviewPage          from './pages/dashboard/sidebar/OverviewPage';
+import OverviewPageOwner          from './pages/dashboard/sidebar/OverviewPageOwner';
+import OverviewPageStaff          from './pages/dashboard/sidebar/OverviewPageStaff';
 import ChainPage       from './pages/dashboard/sidebar/ChainPage';
 import PharmacyPage          from './pages/dashboard/sidebar/PharmacyPage';
 import PostShiftPage         from './pages/dashboard/sidebar/PostShiftPage';
@@ -175,8 +176,8 @@ const router = createBrowserRouter([
           </ProtectedRoute>
         ),
         children: [
-          { index: true, element: <OverviewPage /> },
-          { path: 'overview', element: <OverviewPage /> },
+          { index: true, element: <OverviewPageOwner /> },
+          { path: 'overview', element: <OverviewPageOwner /> },
           { path: 'onboarding', element: <OwnerOnboarding /> },
           {
             path: 'manage-pharmacies',
@@ -215,8 +216,8 @@ const router = createBrowserRouter([
           </ProtectedRoute>
         ),
         children: [
-          { index: true, element: <OverviewPage /> },
-          { path: 'overview', element: <OverviewPage /> },
+          { index: true, element: <OverviewPageStaff /> },
+          { path: 'overview', element: <OverviewPageStaff /> },
           { path: 'onboarding', element: <PharmacistOnboarding /> },
           {
             path: 'shifts',
@@ -256,8 +257,8 @@ const router = createBrowserRouter([
           </ProtectedRoute>
         ),
         children: [
-          { index: true, element: <OverviewPage /> },
-          { path: 'overview', element: <OverviewPage /> },
+          { index: true, element: <OverviewPageStaff /> },
+          { path: 'overview', element: <OverviewPageStaff /> },
           { path: 'onboarding', element: <OtherStaffOnboarding /> },
           {
             path: 'shifts',
@@ -297,8 +298,8 @@ const router = createBrowserRouter([
           </ProtectedRoute>
         ),
         children: [
-          { index: true, element: <OverviewPage /> },
-          { path: 'overview', element: <OverviewPage /> },
+          { index: true, element: <OverviewPageStaff /> },
+          { path: 'overview', element: <OverviewPageStaff /> },
           { path: 'onboarding', element: <ExplorerOnboarding /> },
           {
             path: 'shifts',

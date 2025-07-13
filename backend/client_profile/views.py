@@ -267,12 +267,55 @@ class OwnerDashboard(APIView):
     permission_classes = [IsAuthenticated, IsOwner]
 
     def get(self, request):
-        user_serializer = UserProfileSerializer(request.user)
+        user = request.user
+        user_serializer = UserProfileSerializer(user)
+
+        try:
+            owner = OwnerOnboarding.objects.get(user=user)
+        except OwnerOnboarding.DoesNotExist:
+            return Response({"detail": "Owner onboarding profile not found."}, status=404)
+
+        pharmacies = Pharmacy.objects.filter(owner=owner)
+        shifts_qs = Shift.objects.filter(pharmacy__in=pharmacies).distinct()
+
+        today = date.today()
+        now = timezone.now().time()
+
+        # Upcoming shifts
+        upcoming_shifts = shifts_qs.filter(
+            slots__date__gt=today
+        ) | shifts_qs.filter(
+            slots__date=today,
+            slots__end_time__gt=now
+        )
+        upcoming_shifts = upcoming_shifts.distinct()
+
+        # ---- Correct confirmed shifts logic ----
+        # Confirmed shifts: at least one assignment
+        confirmed_shifts = shifts_qs.filter(slot_assignments__isnull=False).distinct()
+
+        # Build shift summary boxes
+        shift_boxes = []
+        for shift in upcoming_shifts:
+            slot = shift.slots.order_by('date').first()
+            shift_date = slot.date if slot else None
+            shift_boxes.append({
+                'id': shift.id,
+                'pharmacy_name': shift.pharmacy.name if shift.pharmacy else '',
+                'date': shift_date,
+            })
+
+        bills_summary = {
+            "total_billed": "Coming soon",
+            "points": "Gamification placeholder"
+        }
+
         data = {
             "user": user_serializer.data,
-            "message": "Welcome Pharmacy Owner!",
-            "pharmacies": [],  # Can be populated later with pharmacy data
-            "chain_info": []  # Can be populated with chain info
+            "upcoming_shifts_count": upcoming_shifts.count(),
+            "confirmed_shifts_count": confirmed_shifts.count(),
+            "shifts": shift_boxes,
+            "bills_summary": bills_summary,
         }
         return Response(data)
 
@@ -280,25 +323,141 @@ class PharmacistDashboard(APIView):
     permission_classes = [IsAuthenticated, IsPharmacist]
 
     def get(self, request):
-        user_serializer = UserProfileSerializer(request.user)
+        user = request.user
+        user_serializer = UserProfileSerializer(user)
+        today = date.today()
+        now = timezone.now().time()
+
+        # Upcoming shifts: assigned to the user, future
+        upcoming_assignments = ShiftSlotAssignment.objects.filter(
+            user=user,
+            slot__date__gt=today
+        ) | ShiftSlotAssignment.objects.filter(
+            user=user,
+            slot__date=today,
+            slot__end_time__gt=now
+        )
+        upcoming_assignments = upcoming_assignments.distinct()
+        upcoming_shifts = Shift.objects.filter(
+            slots__assignments__in=upcoming_assignments
+        ).distinct()
+
+        # Confirmed shifts: for this user, same as upcoming for now (can refine if needed)
+        confirmed_shifts = upcoming_shifts
+
+        # Community shifts: future, pharmacy__isnull, NO assignments yet
+        community_shifts = Shift.objects.filter(
+            pharmacy__isnull=True,
+            slots__date__gte=today
+        ).exclude(
+            slots__assignments__isnull=False
+        ).distinct()
+
+        shifts_data = []
+        for shift in upcoming_shifts:
+            pharmacy_name = shift.pharmacy.name if shift.pharmacy else "Community"
+            slot = shift.slots.order_by('date').first()
+            shift_date = slot.date if slot else None
+            shifts_data.append({
+                'id': shift.id,
+                'pharmacy_name': pharmacy_name,
+                'date': shift_date,
+            })
+
+        community_shifts_data = []
+        for shift in community_shifts:
+            slot = shift.slots.order_by('date').first()
+            shift_date = slot.date if slot else None
+            community_shifts_data.append({
+                'id': shift.id,
+                'pharmacy_name': "Community",
+                'date': shift_date,
+            })
+
+        bills_summary = {
+            "total_billed": "Coming soon",
+            "points": "Gamification placeholder"
+        }
+
         data = {
             "user": user_serializer.data,
             "message": "Welcome Pharmacist!",
-            "available_shifts": [],  # Can be populated later with available shifts
+            "upcoming_shifts_count": upcoming_shifts.count(),
+            "confirmed_shifts_count": confirmed_shifts.count(),
+            "community_shifts_count": community_shifts.count(),
+            "shifts": shifts_data,
+            "community_shifts": community_shifts_data,
+            "bills_summary": bills_summary,
         }
-        return Response(data)
+        return Response(PharmacistDashboardResponseSerializer(data).data)
 
 class OtherStaffDashboard(APIView):
     permission_classes = [IsAuthenticated, IsOtherstaff]
 
     def get(self, request):
-        user_serializer = UserProfileSerializer(request.user)
+        user = request.user
+        user_serializer = UserProfileSerializer(user)
+        today = date.today()
+        now = timezone.now().time()
+
+        upcoming_assignments = ShiftSlotAssignment.objects.filter(
+            user=user,
+            slot__date__gt=today
+        ) | ShiftSlotAssignment.objects.filter(
+            user=user,
+            slot__date=today,
+            slot__end_time__gt=now
+        )
+        upcoming_assignments = upcoming_assignments.distinct()
+        upcoming_shifts = Shift.objects.filter(
+            slots__assignments__in=upcoming_assignments
+        ).distinct()
+        confirmed_shifts = upcoming_shifts
+
+        community_shifts = Shift.objects.filter(
+            pharmacy__isnull=True,
+            slots__date__gte=today
+        ).exclude(
+            slots__assignments__isnull=False
+        ).distinct()
+
+        shifts_data = []
+        for shift in upcoming_shifts:
+            pharmacy_name = shift.pharmacy.name if shift.pharmacy else "Community"
+            slot = shift.slots.order_by('date').first()
+            shift_date = slot.date if slot else None
+            shifts_data.append({
+                'id': shift.id,
+                'pharmacy_name': pharmacy_name,
+                'date': shift_date,
+            })
+
+        community_shifts_data = []
+        for shift in community_shifts:
+            slot = shift.slots.order_by('date').first()
+            shift_date = slot.date if slot else None
+            community_shifts_data.append({
+                'id': shift.id,
+                'pharmacy_name': "Community",
+                'date': shift_date,
+            })
+
+        bills_summary = {
+            "total_billed": "Coming soon",
+            "points": "Gamification placeholder"
+        }
+
         data = {
             "user": user_serializer.data,
             "message": "Welcome Other Staff!",
-            "tasks": [],
+            "upcoming_shifts_count": upcoming_shifts.count(),
+            "confirmed_shifts_count": confirmed_shifts.count(),
+            "community_shifts_count": community_shifts.count(),
+            "shifts": shifts_data,
+            "community_shifts": community_shifts_data,
+            "bills_summary": bills_summary,
         }
-        return Response(data)
+        return Response(OtherStaffDashboardResponseSerializer(data).data)
 
 class ExplorerDashboard(APIView):
     permission_classes = [IsAuthenticated, IsExplorer]

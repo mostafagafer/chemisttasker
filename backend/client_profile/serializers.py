@@ -183,7 +183,6 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
         percent = int(100 * filled / len(required_fields)) if required_fields else 0
         return percent
 
-
 class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
     file_fields = ['government_id', 'gst_file', 'tfn_declaration', 'resume']
 
@@ -503,7 +502,6 @@ class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
         filled = sum(bool(field) for field in required_fields)
         percent = int(100 * filled / len(required_fields))
         return percent
-
 
 class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
     file_fields = [
@@ -1021,18 +1019,39 @@ class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serialize
         return percent
 
 # Dashboards
+class ShiftSummarySerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    pharmacy_name = serializers.CharField()
+    date = serializers.DateField()
+
+
 class OwnerDashboardResponseSerializer(serializers.Serializer):
     user = UserProfileSerializer()
     message = serializers.CharField()
-    total_applications_received = serializers.IntegerField()
+    upcoming_shifts_count = serializers.IntegerField()
+    confirmed_shifts_count = serializers.IntegerField()
+    shifts = ShiftSummarySerializer(many=True)
+    bills_summary = serializers.DictField()
 
 class PharmacistDashboardResponseSerializer(serializers.Serializer):
     user = UserProfileSerializer()
     message = serializers.CharField()
+    upcoming_shifts_count = serializers.IntegerField()
+    confirmed_shifts_count = serializers.IntegerField()
+    community_shifts_count = serializers.IntegerField()
+    shifts = ShiftSummarySerializer(many=True)
+    community_shifts = ShiftSummarySerializer(many=True)
+    bills_summary = serializers.DictField()
 
 class OtherStaffDashboardResponseSerializer(serializers.Serializer):
     user = UserProfileSerializer()
     message = serializers.CharField()
+    upcoming_shifts_count = serializers.IntegerField()
+    confirmed_shifts_count = serializers.IntegerField()
+    community_shifts_count = serializers.IntegerField()
+    shifts = ShiftSummarySerializer(many=True)
+    community_shifts = ShiftSummarySerializer(many=True)
+    bills_summary = serializers.DictField()
 
 class ExplorerDashboardResponseSerializer(serializers.Serializer):
     user = UserProfileSerializer()

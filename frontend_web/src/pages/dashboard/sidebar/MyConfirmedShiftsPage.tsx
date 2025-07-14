@@ -146,9 +146,9 @@ export default function MyConfirmedShiftsPage() {
     if (shift.rate_type === 'FIXED') {
       rateLabel = `Fixed – ${shift.fixed_rate} AUD/hr`;
     } else if (shift.rate_type === 'FLEXIBLE') {
-      rateLabel = 'Flexible – see slot rates';
+      rateLabel = 'Flexible';
     } else if (shift.rate_type === 'PHARMACIST_PROVIDED') {
-      rateLabel = 'Pharmacist Provided – see preferences';
+      rateLabel = 'Pharmacist Provided';
     } else {
       rateLabel = 'Flexible (Fair Work)';
     }

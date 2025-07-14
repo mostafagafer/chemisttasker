@@ -1514,6 +1514,16 @@ class SharedShiftSerializer(serializers.ModelSerializer):
             'single_user_only',
         ]
 
+class LeaveRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LeaveRequest
+        fields = [
+            'id', 'slot_assignment', 'user', 'leave_type', 'note',
+            'status', 'date_applied', 'date_resolved'
+        ]
+        read_only_fields = ['id', 'user', 'status', 'date_applied', 'date_resolved']
+
+# === Rosters ===
 class RosterUserDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
@@ -1521,15 +1531,46 @@ class RosterUserDetailSerializer(serializers.ModelSerializer):
 
 class RosterShiftDetailSerializer(serializers.ModelSerializer):
     pharmacy_name = serializers.CharField(source='pharmacy.name', read_only=True)
+    # ADD THIS LINE:
+    allowed_escalation_levels = serializers.SerializerMethodField()
+
     class Meta:
         model = Shift
-        fields = ['id', 'role_needed', 'pharmacy_name', 'visibility']
+        fields = ['id', 'role_needed', 'pharmacy_name', 'visibility', 'allowed_escalation_levels']
 
-# === REPLACE YOUR OLD RosterAssignmentSerializer WITH THIS ===
+    def get_allowed_escalation_levels(self, obj):
+        request = self.context.get('request')
+        if not request:
+            return []
+
+        pharmacy = obj.pharmacy
+        user = request.user
+
+        # This logic determines which tiers are available based on the user and pharmacy
+        is_org_admin = OrganizationMembership.objects.filter(
+            user=user, role='ORG_ADMIN', organization_id=pharmacy.organization_id
+        ).exists()
+
+        owner = pharmacy.owner
+        claimed = getattr(owner, 'organization_claimed', False) if owner else False
+        has_chain = Chain.objects.filter(owner=owner).exists() if owner else False
+
+        if is_org_admin:
+            return ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM']
+
+        tiers = ['FULL_PART_TIME', 'LOCUM_CASUAL']
+        if has_chain:
+            tiers.append('OWNER_CHAIN')
+        if claimed:
+            tiers.append('ORG_CHAIN')
+        tiers.append('PLATFORM')
+        return tiers
+
 class RosterAssignmentSerializer(serializers.ModelSerializer):
     user_detail = RosterUserDetailSerializer(source='user', read_only=True)
-    slot_detail = ShiftSlotSerializer(source='slot', read_only=True) # Reuses your existing ShiftSlotSerializer
+    slot_detail = ShiftSlotSerializer(source='slot', read_only=True)
     shift_detail = RosterShiftDetailSerializer(source='shift', read_only=True)
+    leave_request = serializers.SerializerMethodField()
 
     class Meta:
         model = ShiftSlotAssignment
@@ -1538,10 +1579,25 @@ class RosterAssignmentSerializer(serializers.ModelSerializer):
             "user", "slot", "shift",
             "user_detail",
             "slot_detail",
-            "shift_detail"
+            "shift_detail",
+            "leave_request",
         ]
 
+    def get_leave_request(self, obj):
+        # Get latest leave request with status PENDING or APPROVED
+        leave = obj.leave_requests.filter(status__in=['PENDING', 'APPROVED']).order_by('-date_applied').first()
+        if leave:
+            return {
+                "id": leave.id,
+                "leave_type": leave.leave_type,
+                "status": leave.status,
+                "note": leave.note,
+                "date_applied": leave.date_applied,
+                "date_resolved": leave.date_resolved,
+            }
+        return None
 
+# === Invoice ===
 class InvoiceLineItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvoiceLineItem

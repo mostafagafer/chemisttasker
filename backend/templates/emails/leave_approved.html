@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Your Leave Request Approved</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
+        .wave { font-size: 2.5rem; }
+        .btn {
+            display: inline-block;
+            background: #23b59c;
+            color: #fff;
+            padding: 12px 28px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.15rem;
+            margin: 16px 0;
+            box-shadow: 0 1px 3px #e0e0e0;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #199982; }
+        .emoji { font-size: 1.25rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="wave">✅</div>
+        <h2>Your Leave Request Was Approved</h2>
+        <p>
+            Hi {{ worker_name }},
+        </p>
+        <p>
+            Your request for <b>{{ leave_type }}</b> on <b>{{ shift_date }}</b> at <b>{{ pharmacy_name }}</b> has been <span style="color: #23b59c; font-weight: bold;">approved</span>.
+        </p>
+        <a class="btn" href="{{ shift_link }}">View Your Roster</a>
+        <p>
+            Please reach out if you have any questions.<br>
+        </p>
+        <p class="emoji">— The ChemistTasker Team 💚</p>
+    </div>
+</body>
+</html>

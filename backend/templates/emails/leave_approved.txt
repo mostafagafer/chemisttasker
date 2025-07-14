@@ -1,0 +1,7 @@
+Hi {{ worker_name }},
+
+Your leave request for {{ leave_type }} on {{ shift_date }} at {{ pharmacy_name }} has been APPROVED.
+
+You can view your roster here: {{ shift_link }}
+
+— The ChemistTasker Team

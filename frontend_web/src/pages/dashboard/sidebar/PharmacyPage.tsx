@@ -140,8 +140,6 @@ export default function PharmacyPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const getFilename = (url: string) => url.split('/').pop() || url;
-
   // --- State ---
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   const [memberships, setMemberships] = useState<Record<string, any[]>>({});
@@ -367,6 +365,21 @@ export default function PharmacyPage() {
     }
   };
 
+  const handleOpenInviteDialog = (pharmacy: Pharmacy) => {
+    setCurrentPh(pharmacy);
+    // Reset the invitation forms to their initial state
+    setMemberInvites([
+        { email: '', invited_name: '', role: 'PHARMACIST', employment_type: 'FULL_TIME', pharmacist_award_level: 'PHARMACIST' }
+    ]);
+    setLocumInvites([
+        { email: '', invited_name: '', role: 'PHARMACIST', employment_type: 'LOCUM', pharmacist_award_level: 'PHARMACIST' }
+    ]);
+    // Reset the tab to the first one
+    setStaffTab(0);
+    // Open the dialog
+    setOpenStaffDlg(true);
+  };
+
   const handleSendInvites = async () => {
     const invites = (staffTab === 0 ? memberInvites : locumInvites)
       .filter(row => row.email && row.role && row.employment_type)
@@ -428,25 +441,68 @@ export default function PharmacyPage() {
           </Box>}
           {tabIndex === 1 && <Box sx={{ p: 2 }}> {/* Regulatory */}
             <Typography>Approval Certificate <Typography component="span" color="error">*</Typography></Typography>
-            {existingApprovalCert && <Typography variant="body2">Current:&nbsp;<Link href={getFileUrl(existingApprovalCert)} target="_blank">{getFilename(existingApprovalCert)}</Link></Typography>}
-            <Button variant="outlined" component="label" fullWidth sx={{ my: 2 }}>Upload Certificate<input hidden type="file" onChange={e => setApprovalCertFile(e.target.files?.[0] || null)} /></Button>
-            {approvalCertFile && <Typography variant="body2">Selected: {approvalCertFile.name}</Typography>}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}>
+                <Button variant="outlined" component="label">
+                    Upload Certificate
+                    <input hidden type="file" onChange={e => setApprovalCertFile(e.target.files?.[0] || null)} />
+                </Button>
+                {approvalCertFile ? (
+                    <Typography variant="body2">{approvalCertFile.name}</Typography>
+                ) : existingApprovalCert ? (
+                    <Link href={getFileUrl(existingApprovalCert)} target="_blank" rel="noopener noreferrer">View</Link>
+                ) : (
+                    <Typography variant="body2" color="text.secondary">No file uploaded</Typography>
+                )}
+            </Box>
+
             <TextField label="ASIC Number" required fullWidth margin="normal" value={asicNumber} onChange={e => setAsicNumber(e.target.value)} />
             <TextField label="ABN (optional)" fullWidth margin="normal" value={abn} onChange={e => setAbn(e.target.value)} />
           </Box>}
           {tabIndex === 2 && <Box sx={{ p: 2 }}> {/* Docs */}
             <Typography>SOPs (optional)</Typography>
-            {existingSops && <Typography variant="body2">Current:&nbsp;<Link href={getFileUrl(existingSops)} target="_blank">{getFilename(existingSops)}</Link></Typography>}
-            <Button variant="outlined" component="label" fullWidth sx={{ mb: 2 }}>Upload SOPs<input hidden type="file" onChange={e => setSopsFile(e.target.files?.[0] || null)} /></Button>
-            {sopsFile && <Typography variant="body2">Selected: {sopsFile.name}</Typography>}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1, mb: 2 }}>
+                <Button variant="outlined" component="label">
+                    Upload SOPs
+                    <input hidden type="file" onChange={e => setSopsFile(e.target.files?.[0] || null)} />
+                </Button>
+                {sopsFile ? (
+                    <Typography variant="body2">{sopsFile.name}</Typography>
+                ) : existingSops ? (
+                    <Link href={getFileUrl(existingSops)} target="_blank" rel="noopener noreferrer">View</Link>
+                ) : (
+                    <Typography variant="body2" color="text.secondary">No file uploaded</Typography>
+                )}
+            </Box>
+
             <Typography>Induction Guides (optional)</Typography>
-            {existingInductionGuides && <Typography variant="body2">Current:&nbsp;<Link href={getFileUrl(existingInductionGuides)} target="_blank">{getFilename(existingInductionGuides)}</Link></Typography>}
-            <Button variant="outlined" component="label" fullWidth sx={{ mb: 2 }}>Upload Induction Guides<input hidden type="file" onChange={e => setInductionGuidesFile(e.target.files?.[0] || null)} /></Button>
-            {inductionGuidesFile && <Typography variant="body2">Selected: {inductionGuidesFile.name}</Typography>}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1, mb: 2 }}>
+                <Button variant="outlined" component="label">
+                    Upload Induction Guides
+                    <input hidden type="file" onChange={e => setInductionGuidesFile(e.target.files?.[0] || null)} />
+                </Button>
+                {inductionGuidesFile ? (
+                    <Typography variant="body2">{inductionGuidesFile.name}</Typography>
+                ) : existingInductionGuides ? (
+                    <Link href={getFileUrl(existingInductionGuides)} target="_blank" rel="noopener noreferrer">View</Link>
+                ) : (
+                    <Typography variant="body2" color="text.secondary">No file uploaded</Typography>
+                )}
+            </Box>
+
             <Typography>S8/SUMP Docs (optional)</Typography>
-            {existingSumpDocs && <Typography variant="body2">Current:&nbsp;<Link href={getFileUrl(existingSumpDocs)} target="_blank">{getFilename(existingSumpDocs)}</Link></Typography>}
-            <Button variant="outlined" component="label" fullWidth>Upload S8/SUMP<input hidden type="file" onChange={e => setSumpDocsFile(e.target.files?.[0] || null)} /></Button>
-            {sumpDocsFile && <Typography variant="body2">Selected: {sumpDocsFile.name}</Typography>}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}>
+                <Button variant="outlined" component="label">
+                    Upload S8/SUMP
+                    <input hidden type="file" onChange={e => setSumpDocsFile(e.target.files?.[0] || null)} />
+                </Button>
+                {sumpDocsFile ? (
+                    <Typography variant="body2">{sumpDocsFile.name}</Typography>
+                ) : existingSumpDocs ? (
+                    <Link href={getFileUrl(existingSumpDocs)} target="_blank" rel="noopener noreferrer">View</Link>
+                ) : (
+                    <Typography variant="body2" color="text.secondary">No file uploaded</Typography>
+                )}
+            </Box>
           </Box>}
           {tabIndex === 3 && <Box sx={{ p: 2 }}> {/* Employment & Roles */}
             <Typography variant="h6">Employment Types</Typography>
@@ -599,7 +655,7 @@ export default function PharmacyPage() {
 
                 </AccordionDetails>
                 <AccordionActions>
-                  <Button onClick={() => { setCurrentPh(p); setOpenStaffDlg(true); }}>Invite Staff</Button>
+                  <Button onClick={() => handleOpenInviteDialog(p)}>Invite Staff</Button>
                 </AccordionActions>
               </Accordion>
             </Box>

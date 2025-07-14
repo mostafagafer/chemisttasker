@@ -105,14 +105,13 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
   // 1. Define dynamic children for the "Shifts" section, changing based on workspace
   const shiftsChildren = workspace === 'internal'
     ? [
+        { segment: 'roster', title: 'My Roster', icon: <EventAvailableIcon /> },
         { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
         { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
         { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
-        { segment: 'roster', title: 'My Roster', icon: <EventAvailableIcon /> },
       ]
     : [
         { segment: 'public',    title: 'Public Shifts',    icon: <PublicIcon /> },
-        { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
         { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
         { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
       ];
@@ -164,15 +163,14 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
 export function getPharmacistNavDynamic(progress_percent: number, workspace: 'internal' | 'platform') {
   const shiftsChildren = workspace === 'internal' 
     ? [
+        { segment: 'roster', title: 'My Roster', icon: <EventAvailableIcon /> },
         { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
         { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
         { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
-        { segment: 'roster', title: 'My Roster', icon: <EventAvailableIcon /> },
 
       ]
     : [
         { segment: 'public', title: 'Public Shifts', icon: <PublicIcon /> },
-        { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
         { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
         { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
       ];

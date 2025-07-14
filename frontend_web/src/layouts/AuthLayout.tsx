@@ -18,6 +18,7 @@ export default function AuthLayout({ children, title }: AuthLayoutProps) {
             height: '100%',
             width: '100%',
             overflow: 'hidden', // Prevent the main page from scrolling
+            fontFamily: '"Bai Jamjuree", "Helvetica", "Arial", sans-serif', // <-- ADD THIS LINE
           },
         }}
       />

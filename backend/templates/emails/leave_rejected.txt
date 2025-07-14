@@ -1,0 +1,9 @@
+Hi {{ worker_name }},
+
+Your leave request for {{ leave_type }} on {{ shift_date }} at {{ pharmacy_name }} was REJECTED.
+
+You can view your roster here: {{ shift_link }}
+
+If you have any questions, please contact your pharmacy manager.
+
+— The ChemistTasker Team

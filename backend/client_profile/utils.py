@@ -47,6 +47,35 @@ def build_shift_email_context(shift, user=None, extra=None, role=None, shift_typ
         ctx.update(extra)
     return ctx
 
+def build_roster_email_link(user, pharmacy=None):
+    """
+    Build the correct frontend roster URL for the email button,
+    using org-admin/role logic (matches build_shift_email_context).
+    """
+    frontend_url = getattr(settings, "FRONTEND_BASE_URL", "http://localhost:3000")
+    roster_link = ""
+
+    if user:
+        # Org admin check via memberships (most specific!)
+        if hasattr(user, 'organization_memberships') and user.organization_memberships.filter(role='ORG_ADMIN').exists():
+            roster_link = f"{frontend_url}/dashboard/organization/manage-pharmacies/roster"
+        elif getattr(user, 'role', None) == 'OWNER':
+            roster_link = f"{frontend_url}/dashboard/owner/manage-pharmacies/roster"
+        elif getattr(user, 'role', None) == 'PHARMACIST':
+            roster_link = f"{frontend_url}/dashboard/pharmacist/shifts/roster"
+        elif getattr(user, 'role', None) == 'OTHER_STAFF' or getattr(user, 'role', None) == 'ASSISTANT' or getattr(user, 'role', None) == 'INTERN':
+            roster_link = f"{frontend_url}/dashboard/otherstaff/shifts/roster"
+        elif getattr(user, 'role', None) == 'EXPLORER':
+            roster_link = f"{frontend_url}/dashboard/explorer/roster"
+        else:
+            frontend_role = getattr(user, 'role', 'owner').lower()
+            roster_link = f"{frontend_url}/dashboard/{frontend_role}/roster"
+    else:
+        roster_link = f"{frontend_url}/dashboard/owner/manage-pharmacies/roster"
+
+    # You can extend here to add ?pharmacy={pharmacy.id} if desired in the future
+    return roster_link
+
 def clean_email(email):
     """Remove hidden unicode chars and spaces from email."""
     if not email:

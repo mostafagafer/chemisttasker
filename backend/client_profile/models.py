@@ -823,6 +823,41 @@ class ShiftRejection(models.Model):
 
         return f"{self.user.get_full_name()} rejected shift at {self.shift.pharmacy.name}{slotinfo}"
 
+class LeaveRequest(models.Model):
+    LEAVE_TYPE_CHOICES = [
+        ('SICK', 'Sick Leave'),
+        ('ANNUAL', 'Annual Leave'),
+        ('COMPASSIONATE', 'Compassionate Leave'),
+        ('STUDY', 'Study Leave'),
+        ('CARER', 'Carer\'s Leave'),
+        ('UNPAID', 'Unpaid Leave'),
+        ('OTHER', 'Other'),
+    ]
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+    ]
+
+    slot_assignment = models.ForeignKey(
+        'ShiftSlotAssignment', 
+        on_delete=models.CASCADE, 
+        related_name='leave_requests'
+    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    leave_type = models.CharField(max_length=20, choices=LEAVE_TYPE_CHOICES)
+    note = models.TextField(blank=True)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='PENDING')
+    date_applied = models.DateTimeField(auto_now_add=True)
+    date_resolved = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('slot_assignment', 'user', 'leave_type', 'status')  # Prevent duplicate pending leaves
+
+    def __str__(self):
+        return f"{self.user} requests {self.leave_type} for {self.slot_assignment} ({self.status})"
+
+
 ## Invoice model
 class Invoice(models.Model):
     STATUS_CHOICES = [
@@ -901,7 +936,6 @@ class Invoice(models.Model):
         client = self.custom_bill_to_name if self.external else self.pharmacy_name_snapshot
         return f"Invoice {self.id} to {client}"
 
-
 class InvoiceLineItem(models.Model):
     CATEGORY_CHOICES = [
         ('ProfessionalServices', 'Professional services'),
@@ -976,7 +1010,6 @@ class ExplorerPost(models.Model):
 
     def __str__(self):
         return f"{self.headline} - {self.explorer_profile.user.get_full_name()}"
-
 
 class UserAvailability(models.Model):
     """

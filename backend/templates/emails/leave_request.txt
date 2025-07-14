@@ -1,0 +1,14 @@
+Hi {{ owner_name }},
+
+{{ worker_name }} ({{ worker_email }}) has requested {{ leave_type }} for their shift at {{ pharmacy_name }}.
+
+Date: {{ shift_date }}
+Time: {{ shift_time }}
+{% if note %}
+Reason: {{ note }}
+{% endif %}
+
+Please review and action this leave request in your ChemistTasker dashboard.
+Go to your roster: {{ shift_link }}
+
+— The ChemistTasker Team

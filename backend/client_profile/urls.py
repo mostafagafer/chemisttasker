@@ -32,6 +32,7 @@ router.register(r'shift-rejections', ShiftRejectionViewSet, basename='shift-reje
 
 router.register(r'my-confirmed-shifts',MyConfirmedShiftsViewSet,basename='my-confirmed-shifts')
 router.register(r'my-history-shifts',MyHistoryShiftsViewSet,basename='my-history-shifts')
+router.register(r'leave-requests', LeaveRequestViewSet, basename='leaverequest')
 
 urlpatterns = [
     path('owner/onboarding/', OwnerOnboardingCreate.as_view(), name='owner-onboarding-create'),

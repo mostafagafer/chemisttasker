@@ -102,7 +102,13 @@ export const API_ENDPOINTS = {
   getRosterOwner: '/client-profile/roster-owner/',
   getRosterWorker: '/client-profile/roster-worker/',
   createShiftAndAssign: '/client-profile/roster/create-and-assign-shift/',
-  
+
+  // Leave Requests
+  leaveRequests: '/client-profile/leave-requests/',
+  createLeaveRequest: '/client-profile/leave-requests/',
+  approveLeaveRequest: (leaveId: number) => `/client-profile/leave-requests/${leaveId}/approve/`,
+  rejectLeaveRequest: (leaveId: number) => `/client-profile/leave-requests/${leaveId}/reject/`,
+
   // NEW: Endpoints for managing a SHIFT from the roster view
   rosterManageShift: (shiftId: number) => `/client-profile/roster/manage-shifts/${shiftId}/`, // For EDIT (PATCH) and DELETE
   rosterEscalateShift: (shiftId: number) => `/client-profile/roster/manage-shifts/${shiftId}/escalate/`, // For ESCALATE (POST)

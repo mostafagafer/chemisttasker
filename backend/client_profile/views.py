@@ -1,16 +1,12 @@
 # client_profile/views.py
-from rest_framework import generics, permissions, status
-# from .models import PharmacistOnboarding
+from rest_framework import generics, permissions, status, viewsets
 from .serializers import *
-from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
-# from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import IsAuthenticated, SAFE_METHODS
 from rest_framework.generics import CreateAPIView, RetrieveUpdateAPIView
-from rest_framework.exceptions import NotFound
-from rest_framework import viewsets
-from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, APIException, PermissionDenied, ValidationError
+from rest_framework.decorators import action, api_view, permission_classes
 from .models import *
 from users.permissions import *
 from users.serializers import (
@@ -28,15 +24,12 @@ from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode
 from django.utils.encoding import force_bytes
 from django.conf import settings
-from rest_framework.exceptions import APIException
 class Http400(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = 'Bad Request.'
     default_code = 'bad_request'
-from rest_framework.decorators import api_view, permission_classes
 from django_q.tasks import async_task
-from datetime import date, datetime # Ensure datetime is imported for parsing
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from datetime import date, datetime
 
 # Onboardings
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -188,13 +181,14 @@ class RefereeConfirmView(APIView):
     """
 
     def post(self, request, profile_pk, ref_idx):
-        # Try all models (pharmacist, owner, otherstaff, etc.)
-        onboarding_models = [PharmacistOnboarding, OwnerOnboarding, OtherStaffOnboarding]  # etc
+        onboarding_models = [PharmacistOnboarding, OtherStaffOnboarding, ExplorerOnboarding]
 
         instance = None
+        model_name = None
         for Model in onboarding_models:
             try:
                 instance = Model.objects.get(pk=profile_pk)
+                model_name = Model._meta.model_name
                 break
             except Model.DoesNotExist:
                 continue
@@ -202,8 +196,6 @@ class RefereeConfirmView(APIView):
         if not instance:
             return Response({'detail': 'Onboarding profile not found.'}, status=404)
 
-        # Your custom logic: mark referee as confirmed, log event, whatever you want
-        # Example: set referee1_confirmed or referee2_confirmed field based on ref_idx
         if str(ref_idx) == "1":
             instance.referee1_confirmed = True
         elif str(ref_idx) == "2":
@@ -212,6 +204,12 @@ class RefereeConfirmView(APIView):
             return Response({'detail': 'Invalid referee index.'}, status=400)
 
         instance.save()
+
+        # <<< --- 2. ADD THIS CRITICAL LINE ---
+        # After saving, trigger a re-evaluation. If the referee was the last missing piece,
+        # this will mark the entire profile as verified.
+        async_task('client_profile.tasks.final_evaluation', model_name, instance.pk)
+        
         return Response({'success': True, 'message': 'Referee confirmed.'}, status=200)
 
 # Dashboards
@@ -900,6 +898,7 @@ class ChainViewSet(viewsets.ModelViewSet):
 
 
 
+# Shifts Mangment
 COMMUNITY_LEVELS = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN','ORG_CHAIN']
 PUBLIC_LEVEL = 'PLATFORM'
 
@@ -1143,7 +1142,6 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
         # ✅ CASE 1: SINGLE‐USER‐ONLY SHIFT — Expand all dates and assign per-day
         if shift.single_user_only:
-            # from client_profile.services import expand_shift_slots, get_locked_rate_for_slot
             assignment_ids = []
 
             for entry in expand_shift_slots(shift):
@@ -1184,7 +1182,6 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
         # ✅ CASE 2: MULTI‐SLOT BULK — assign user to all unassigned slot+dates
         if slot_id is None:
-            # from client_profile.services import expand_shift_slots, get_locked_rate_for_slot
             assignment_ids = []
 
             for entry in expand_shift_slots(shift):
@@ -1229,7 +1226,6 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_200_OK)
 
         # ✅ CASE 3: PER‐SLOT ASSIGNMENT — assign user to ALL dates of a single recurring slot
-        # from client_profile.services import expand_shift_slots, get_locked_rate_for_slot
         slot = get_object_or_404(shift.slots, pk=slot_id)
         assignment_ids = []
 
@@ -1398,7 +1394,6 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             "detail": f"{len(assignment_ids)} slot(s) rostered for {candidate.get_full_name()}",
             "assignment_ids": assignment_ids
         }, status=200)
-
 
 class CommunityShiftViewSet(BaseShiftViewSet):
     """Community‐level shifts, only for users who are active members of that pharmacy."""
@@ -2000,7 +1995,6 @@ class ShiftDetailViewSet(BaseShiftViewSet):
 
         return qs.filter(combined_filter).distinct()
 
-# Add these new View classes at the end of the file
 class PublicJobBoardView(generics.ListAPIView):
     """ Lists all available shifts with PLATFORM visibility for the public job board. """
     serializer_class = SharedShiftSerializer
@@ -2014,7 +2008,6 @@ class PublicJobBoardView(generics.ListAPIView):
             slot_count=Count('slots', distinct=True),
             assigned_count=Count('slots__assignments', distinct=True)
         ).filter(assigned_count__lt=F('slot_count')).order_by('-created_at')
-
 
 class SharedShiftDetailView(APIView):
     """
@@ -2378,7 +2371,6 @@ class RosterWorkerViewSet(viewsets.ReadOnlyModelViewSet):
         ]
         return Response(data)
 
-        
 class LeaveRequestViewSet(viewsets.ModelViewSet):
     queryset = LeaveRequest.objects.all()
     serializer_class = LeaveRequestSerializer
@@ -2595,7 +2587,7 @@ class UserAvailabilityViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
-# from client_profile.services import generate_invoice_from_shifts
+# Invoices
 class InvoiceListView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = InvoiceSerializer
@@ -2671,8 +2663,6 @@ class GenerateInvoiceView(APIView):
 
         return Response(InvoiceSerializer(invoice).data, status=status.HTTP_201_CREATED)
 
-# from .services import generate_preview_invoice_lines
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def preview_invoice_lines(request, shift_id):
@@ -2686,8 +2676,6 @@ def preview_invoice_lines(request, shift_id):
 
 
 from django.http import HttpResponse
-# from .services import render_invoice_to_pdf
-
 def invoice_pdf_view(request, invoice_id):
     invoice = Invoice.objects.get(pk=invoice_id)
     pdf_bytes = render_invoice_to_pdf(invoice)

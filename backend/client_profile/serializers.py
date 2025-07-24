@@ -1,5 +1,5 @@
 # client_profile/serializers.py
-from rest_framework import viewsets, permissions, serializers
+from rest_framework import serializers
 from .models import *
 from users.models import OrganizationMembership
 from users.serializers import UserProfileSerializer
@@ -7,13 +7,41 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from decimal import Decimal
 from client_profile.utils import send_referee_emails, notify_superuser_on_onboarding
-from datetime import date
+from datetime import date, timedelta
 from django.utils import timezone
 from django_q.tasks import async_task
-from django.db.models import Q
-
 User = get_user_model()
 
+
+
+# === Onboardings ===
+
+
+class OrganizationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Organization
+        fields = ['id', 'name']
+        read_only_fields = ['id']
+
+
+def verification_fields_changed(instance, validated_data, fields):
+    for field in fields:
+        old = getattr(instance, field, None)
+        if field in validated_data:
+            new = validated_data[field]
+        else:
+            continue
+        if hasattr(old, "name") or hasattr(new, "name"):
+            old_name = getattr(old, "name", None)
+            new_name = getattr(new, "name", None)
+            if (old_name or "").strip() != (new_name or "").strip():
+                print(f"[DEBUG] FileField '{field}' changed: {old_name} -> {new_name}")
+                return True
+        else:
+            if (old or "").strip() != (new or "").strip():
+                print(f"[DEBUG] Field '{field}' changed: {old!r} -> {new!r}")
+                return True
+    return False
 
 class RemoveOldFilesMixin:
     """
@@ -22,46 +50,78 @@ class RemoveOldFilesMixin:
     file_fields: list[str] = []
 
     def update(self, instance, validated_data):
-        # Delete old blobs for any file_fields being replaced
-        for field in self.file_fields:
-            if field in validated_data:
-                old = getattr(instance, field)
-                if old:
-                    old.delete(save=False)
+        for field_name in self.file_fields:
+            if field_name in validated_data:
+                new_file = validated_data[field_name]
+                old_file = getattr(instance, field_name)
+
+                if old_file and old_file.name:
+                    if new_file is None or old_file.name != new_file.name:
+                        old_file.delete(save=False)
+            elif field_name in validated_data and validated_data[field_name] is None:
+                old_file = getattr(instance, field_name)
+                if old_file:
+                    old_file.delete(save=False)
         return super().update(instance, validated_data)
 
 class SyncUserMixin:
     """
     Mixin to sync user fields (username, first_name, last_name) from validated_data.
+    Provides a helper static method `sync_user_fields`.
     """
     USER_FIELDS = ['username', 'first_name', 'last_name']
 
-    def perform_user_sync(self, validated_data):
-        user = getattr(self, 'instance', None)
-        if user and hasattr(user, 'user'):
-            user = user.user
-        else:
-            user = self.context['request'].user
+    @staticmethod # Changed to staticmethod
+    def sync_user_fields(user_data_from_pop, user_instance):
+        """
+        Helper method to sync user fields.
+        """
+        updated_fields = []
+        # Access USER_FIELDS directly if static, or pass them in.
+        # For simplicity, let's hardcode for now as it's small. Or make USER_FIELDS a class attr.
+        # Sticking with class attr and accessing via SyncUserMixin.USER_FIELDS
+        for attr in SyncUserMixin.USER_FIELDS: # Access via class name
+            if attr in user_data_from_pop:
+                if getattr(user_instance, attr) != user_data_from_pop[attr]:
+                    setattr(user_instance, attr, user_data_from_pop[attr])
+                    updated_fields.append(attr)
+        if updated_fields:
+            user_instance.save(update_fields=updated_fields)
 
-        user_data = validated_data.pop('user', {})  # Remove 'user' dict if present
-        updated = []
-        for attr in self.USER_FIELDS:
-            if attr in user_data:
-                val = user_data[attr]
-                setattr(user, attr, val)
-                updated.append(attr)
-        if updated:
-            user.save(update_fields=updated)
+class OnboardingVerificationMixin:
+    """
+    Triggers individual verification tasks and one initial evaluation task.
+    The evaluation task will then handle waiting and rescheduling itself.
+    This approach avoids async_chain completely.
+    """
+    def _trigger_verification_tasks(self, instance, is_create=False):
+        # ... (This method is correct as you have it, calling Schedule.objects.create) ...
+        # For completeness, here is the final version:
+        from django_q.models import Schedule
+        from django.utils import timezone
+        from datetime import timedelta
+        from django.db import transaction
 
-# Onboardings
-class OrganizationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Organization
-        fields = ['id', 'name']
-        read_only_fields = ['id']
+        verification_fields_to_reset = [f for f in instance._meta.fields if f.name.endswith('_verified')]
+        for field in verification_fields_to_reset: setattr(instance, field.name, False)
+        note_fields_to_reset = [f for f in instance._meta.fields if f.name.endswith('_verification_note')]
+        for field in note_fields_to_reset: setattr(instance, field.name, "")
+        instance.verified = False
+        update_fields = [f.name for f in verification_fields_to_reset] + [f.name for f in note_fields_to_reset] + ['verified']
+        if update_fields: instance.save(update_fields=update_fields)
 
-class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
-    file_fields = []  # no file uploads on owner onboarding
+        def schedule_orchestrator():
+            Schedule.objects.create(
+                func='client_profile.tasks.run_all_verifications',
+                args=f"'{instance._meta.model_name}',{instance.pk}",
+                kwargs={'is_create': is_create},
+                schedule_type=Schedule.ONCE,
+                next_run=timezone.now() + timedelta(minutes=1),
+            )
+        transaction.on_commit(schedule_orchestrator)
+
+class OwnerOnboardingSerializer(OnboardingVerificationMixin, SyncUserMixin, serializers.ModelSerializer):
+    file_fields = []
 
     username   = serializers.CharField(source='user.username',   required=False)
     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
@@ -73,7 +133,7 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
         fields = [
             'username', 'first_name', 'last_name',
             'phone_number', 'role', 'chain_pharmacy',
-            'ahpra_number', 'verified', 
+            'ahpra_number', 'verified',
             'organization', 'organization_claimed', 'progress_percent',
             'ahpra_verified',
             'ahpra_registration_status',
@@ -85,7 +145,7 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
             'verified': {'read_only': True},
             'organization': {'read_only': True},
             'organization_claimed': {'read_only': True},
-        }  
+        }
         read_only_fields = [
             'ahpra_verified',
             'ahpra_registration_status',
@@ -97,76 +157,30 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
     def create(self, validated_data):
         user_data = validated_data.pop('user', {})
         user = self.context['request'].user
-        for attr, value in user_data.items():
-            setattr(user, attr, value)
-        user.save()
+        self.sync_user_fields(user_data, user) # Calling staticmethod from SyncUserMixin
+
         obj = OwnerOnboarding.objects.create(user=user, **validated_data)
-        old_ahpra_number = ''
-        new_ahpra_number = (validated_data.get('ahpra_number') or '').strip().lower()
-        self._trigger_verification_tasks(
-            obj, validated_data, old_ahpra_number=old_ahpra_number, new_ahpra_number=new_ahpra_number, is_create=True
-        )
+        print("[DEBUG] About to trigger verification tasks")
+
+        self._trigger_verification_tasks(obj, is_create=True)
+
         notify_superuser_on_onboarding(obj)
-        self._maybe_auto_verify(obj)
         return obj
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})
-        old_ahpra_number = (instance.ahpra_number or '').strip().lower()
+        user = instance.user
+        self.sync_user_fields(user_data, user)
+
+        VERIFICATION_FIELDS = [
+            "ahpra_number", "role"
+        ]
+
         obj = super().update(instance, validated_data)
-        user = obj.user
-        for attr, value in user_data.items():
-            setattr(user, attr, value)
-        user.save()
-        new_ahpra_number = (validated_data.get('ahpra_number') or '').strip().lower()
-        self._trigger_verification_tasks(
-            obj, validated_data, old_ahpra_number=old_ahpra_number, new_ahpra_number=new_ahpra_number, is_create=False
-        )
-        notify_superuser_on_onboarding(obj)
-        self._maybe_auto_verify(obj)
+        if verification_fields_changed(instance, validated_data, VERIFICATION_FIELDS):
+            notify_superuser_on_onboarding(obj)
+            self._trigger_verification_tasks(obj, is_create=False)
         return obj
-
-
-    def _maybe_auto_verify(self, obj):
-        checks = []
-        # Only verify if ahpra_number present
-        if obj.ahpra_number:
-            checks.append(obj.ahpra_verified)
-        # Add any other fields if needed for your business logic
-
-        if checks and all(checks):
-            if not obj.verified:
-                obj.verified = True
-                obj.save(update_fields=['verified'])
-        else:
-            if obj.verified:
-                obj.verified = False
-                obj.save(update_fields=['verified'])
-
-    def _trigger_verification_tasks(self, instance, validated_data, old_ahpra_number=None, new_ahpra_number=None, is_create=False):
-        """
-        Triggers AHPRA verification only if ahpra_number is actually changed or on create.
-        """
-        if old_ahpra_number is None:
-            old_ahpra_number = ''
-        if new_ahpra_number is None:
-            new_ahpra_number = (validated_data.get('ahpra_number') or '').strip().lower()
-        print(f"[AHPRA DEBUG] old_num='{old_ahpra_number}', new_num='{new_ahpra_number}'")
-        if is_create or old_ahpra_number != new_ahpra_number:
-            print(f"[AHPRA DEBUG] Number changed, triggering verify_ahpra_task for {instance.pk}")
-            instance.ahpra_verified = False
-            instance.save(update_fields=["ahpra_verified"])
-            async_task(
-                'client_profile.tasks.verify_ahpra_task',
-                model_name='OwnerOnboarding',
-                object_pk=instance.pk,
-                ahpra_number=new_ahpra_number,
-                first_name=instance.user.first_name,
-                last_name=instance.user.last_name,
-                email=instance.user.email,
-            )
-        else:
-            print(f"[AHPRA DEBUG] Number unchanged, not triggering async task for {instance.pk}")
 
     def get_progress_percent(self, obj):
         required_fields = [
@@ -183,7 +197,8 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
         percent = int(100 * filled / len(required_fields)) if required_fields else 0
         return percent
 
-class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
+
+class PharmacistOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
     file_fields = ['government_id', 'gst_file', 'tfn_declaration', 'resume']
 
     username   = serializers.CharField(source='user.username',   required=False)
@@ -205,11 +220,10 @@ class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
 
             'rate_preference', 'verified', 'member_of_chain', 'progress_percent',
             'submitted_for_verification',
-            # Add the new verification fields here
-            'gov_id_verified',
-            'gst_file_verified',
-            'tfn_declaration_verified',
-            'abn_verified',
+            'gov_id_verified', 'gov_id_verification_note',
+            'gst_file_verified', 'gst_file_verification_note',
+            'tfn_declaration_verified', 'tfn_declaration_verification_note',
+            'abn_verified', 'abn_verification_note',
             'ahpra_verified',
             'ahpra_registration_status',
             'ahpra_registration_type',
@@ -220,7 +234,6 @@ class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
             'verified':        {'read_only': True},
             'member_of_chain': {'read_only': True},
             'submitted_for_verification': {'required': False},
-            # For PATCH compatibility, so you don't get errors on partial updates:
             'first_name': {'required': False, 'allow_blank': True},
             'last_name':  {'required': False, 'allow_blank': True},
             'government_id': {'required': False, 'allow_null': True},
@@ -244,12 +257,12 @@ class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
             'super_usi': {'required': False, 'allow_blank': True, 'allow_null': True},
             'super_member_number': {'required': False, 'allow_blank': True, 'allow_null': True},
         }
-    
+
         read_only_fields = [
-            'gov_id_verified',
-            'gst_file_verified',
-            'tfn_declaration_verified',
-            'abn_verified',
+            'gov_id_verified', 'gov_id_verification_note',
+            'gst_file_verified', 'gst_file_verification_note',
+            'tfn_declaration_verified', 'tfn_declaration_verification_note',
+            'abn_verified', 'abn_verification_note',
             'ahpra_verified',
             'ahpra_registration_status',
             'ahpra_registration_type',
@@ -258,165 +271,44 @@ class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
             'verified',
             'progress_percent',
         ]
-        
+
     def create(self, validated_data):
         user_data = validated_data.pop('user', {})
         user = self.context['request'].user
-        for attr, value in user_data.items():
-            setattr(user, attr, value)
-        user.save()
+        self.sync_user_fields(user_data, user) # Calling staticmethod from SyncUserMixin
+
         obj = PharmacistOnboarding.objects.create(user=user, **validated_data)
 
         submitted_now = validated_data.get('submitted_for_verification', False)
         if submitted_now:
             send_referee_emails(obj, validated_data, creation=True)
             notify_superuser_on_onboarding(obj)
-            self._trigger_verification_tasks(obj, validated_data, is_create=True)
-        else:
-            # Reset all verifications
-            for field in [
-                'gov_id_verified', 'abn_verified', 'ahpra_verified', 
-                'gst_file_verified', 'tfn_declaration_verified'
-            ]:
-                setattr(obj, field, False)
-            obj.save(update_fields=[
-                'gov_id_verified', 'abn_verified', 'ahpra_verified',
-                'gst_file_verified', 'tfn_declaration_verified'
-            ])
-        self._maybe_auto_verify(obj)
+            self._trigger_verification_tasks(obj, is_create=True)
+
         return obj
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})
         user = instance.user
-        for attr, value in user_data.items():
-            setattr(user, attr, value)
-        user.save()
+        self.sync_user_fields(user_data, user)
 
-        # Save current fields to compare for changes
-        old_data = {
-            "abn": (instance.abn or '').strip(),
-            "ahpra_number": (instance.ahpra_number or '').strip().lower(),
-            "government_id": instance.government_id,
-            "gst_file": instance.gst_file,
-            "tfn_declaration": instance.tfn_declaration,
-        }
+        VERIFICATION_FIELDS = [
+            "ahpra_number", "government_id", "abn", "gst_file", "tfn_declaration",
+            "payment_preference", "gst_registered"
+        ]
+
+        verification_changed = verification_fields_changed(instance, validated_data, VERIFICATION_FIELDS)
+
+        submitted_before = instance.submitted_for_verification
+        submitted_now = validated_data.get('submitted_for_verification', submitted_before)
 
         obj = super().update(instance, validated_data)
 
-        submitted_now = validated_data.get('submitted_for_verification', False)
-        if submitted_now:
+        if (not submitted_before and submitted_now) or verification_changed:
             send_referee_emails(obj, validated_data, creation=False)
             notify_superuser_on_onboarding(obj)
-            self._trigger_verification_tasks(obj, validated_data, old_data=old_data, is_create=False)
-        else:
-            # Reset all verifications
-            for field in [
-                'gov_id_verified', 'abn_verified', 'ahpra_verified', 
-                'gst_file_verified', 'tfn_declaration_verified'
-            ]:
-                setattr(obj, field, False)
-            obj.save(update_fields=[
-                'gov_id_verified', 'abn_verified', 'ahpra_verified',
-                'gst_file_verified', 'tfn_declaration_verified'
-            ])
-        self._maybe_auto_verify(obj)
+            self._trigger_verification_tasks(obj, is_create=False)
         return obj
-
-    def _trigger_verification_tasks(self, instance, validated_data, old_data=None, is_create=False):
-        """
-        Run only if the key field changed or on create.
-        """
-        user = instance.user
-
-        # 1. Government ID (OCR)
-        new_gov_id = instance.government_id
-        changed = is_create or (old_data and old_data.get("government_id") != new_gov_id)
-        if new_gov_id and changed:
-            print("[DEBUG] Gov ID changed, re-running OCR verification.")
-            instance.gov_id_verified = False
-            instance.save(update_fields=["gov_id_verified"])
-            async_task('client_profile.tasks.verify_filefield_task', 
-                model_name=instance._meta.model_name, object_pk=instance.pk,
-                file_field='government_id',
-                first_name=user.first_name, last_name=user.last_name,
-                email=user.email,
-                verification_field='gov_id_verified',
-            )
-
-        # 2. ABN Verification
-        new_abn = (instance.abn or '').strip()
-        changed = is_create or (old_data and old_data.get("abn") != new_abn)
-        if new_abn and changed:
-            print("[DEBUG] ABN changed, re-running ABN verification.")
-            instance.abn_verified = False
-            instance.save(update_fields=["abn_verified"])
-            async_task('client_profile.tasks.verify_abn_task',
-                model_name=instance._meta.model_name, object_pk=instance.pk,
-                abn_number=new_abn, first_name=user.first_name, last_name=user.last_name, email=user.email
-            )
-
-        # 3. AHPRA Verification
-        new_ahpra = (instance.ahpra_number or '').strip().lower()
-        changed = is_create or (old_data and old_data.get("ahpra_number") != new_ahpra)
-        if new_ahpra and changed:
-            print("[DEBUG] AHPRA number changed, re-running AHPRA verification.")
-            instance.ahpra_verified = False
-            instance.save(update_fields=["ahpra_verified"])
-            async_task('client_profile.tasks.verify_ahpra_task',
-                model_name=instance._meta.model_name, object_pk=instance.pk,
-                ahpra_number=new_ahpra, first_name=user.first_name, last_name=user.last_name, email=user.email
-            )
-
-        # 4. GST File
-        gst_file = instance.gst_file
-        changed = is_create or (old_data and old_data.get("gst_file") != gst_file)
-        if instance.gst_registered and gst_file and changed:
-            print("[DEBUG] GST File changed, re-running GST verification.")
-            instance.gst_file_verified = False
-            instance.save(update_fields=["gst_file_verified"])
-            async_task('client_profile.tasks.verify_filefield_task', 
-                model_name=instance._meta.model_name, object_pk=instance.pk,
-                file_field='gst_file',
-                first_name=user.first_name, last_name=user.last_name,
-                email=user.email,
-                verification_field='gst_file_verified',
-            )
-
-        # 5. TFN Declaration
-        tfn_file = instance.tfn_declaration
-        changed = is_create or (old_data and old_data.get("tfn_declaration") != tfn_file)
-        if instance.payment_preference and instance.payment_preference.lower() == "tfn" and tfn_file and changed:
-            print("[DEBUG] TFN Declaration changed, re-running TFN verification.")
-            instance.tfn_declaration_verified = False
-            instance.save(update_fields=["tfn_declaration_verified"])
-            async_task('client_profile.tasks.verify_filefield_task', 
-                model_name=instance._meta.model_name, object_pk=instance.pk,
-                file_field='tfn_declaration',
-                first_name=user.first_name, last_name=user.last_name,
-                email=user.email,
-                verification_field='tfn_declaration_verified',
-            )
-
-    def _maybe_auto_verify(self, obj):
-        checks = [obj.gov_id_verified]
-        pay = (obj.payment_preference or '').lower() if obj.payment_preference else ''
-        if pay == 'abn':
-            checks.append(obj.abn_verified)
-            if obj.gst_registered:
-                checks.append(obj.gst_file_verified)
-        elif pay == 'tfn':
-            checks.append(obj.tfn_declaration_verified)
-        checks.append(obj.ahpra_verified)
-
-        if all(checks):
-            if not obj.verified:
-                obj.verified = True
-                obj.save(update_fields=['verified'])
-        else:
-            if obj.verified:
-                obj.verified = False
-                obj.save(update_fields=['verified'])
 
     def validate(self, data):
         submit = data.get('submitted_for_verification') \
@@ -472,7 +364,7 @@ class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
         if errors:
             raise serializers.ValidationError(errors)
         return data
-    
+
     def get_progress_percent(self, obj):
         required_fields = [
             obj.user.username,
@@ -503,7 +395,8 @@ class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
         percent = int(100 * filled / len(required_fields))
         return percent
 
-class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
+
+class OtherStaffOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
     file_fields = [
         'government_id', 'ahpra_proof', 'hours_proof',
         'certificate', 'university_id', 'cpr_certificate', 's8_certificate',
@@ -530,19 +423,18 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
             'short_bio', 'resume',
             'verified', 'progress_percent',
             'submitted_for_verification',
-            # verification fields:
-            'gov_id_verified',
-            'ahpra_proof_verified',
-            'hours_proof_verified',
-            'certificate_verified',
-            'university_id_verified',
-            'cpr_certificate_verified',
-            's8_certificate_verified',
-            'gst_file_verified',
-            'tfn_declaration_verified',
-            'abn_verified',
-            'ahpra_verified',
-
+            # verification fields (including new note fields):
+            'gov_id_verified', 'gov_id_verification_note',
+            'ahpra_proof_verified', 'ahpra_proof_verification_note',
+            'hours_proof_verified', 'hours_proof_verification_note',
+            'certificate_verified', 'certificate_verification_note',
+            'university_id_verified', 'university_id_verification_note',
+            'cpr_certificate_verified', 'cpr_certificate_verification_note',
+            's8_certificate_verified', 's8_certificate_verification_note',
+            'gst_file_verified', 'gst_file_verification_note',
+            'tfn_declaration_verified', 'tfn_declaration_verification_note',
+            'abn_verified', 'abn_verification_note',
+            # ahpra_verified and related fields removed from model, so removed from fields too
         ]
         extra_kwargs = {
             'verified': {'read_only': True},
@@ -574,7 +466,7 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
             'referee1_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
             'referee1_email': {'required': False, 'allow_blank': True, 'allow_null': True},
             'referee1_confirmed': {'required': False},
-            'referee2_name': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_name': {'required': False, 'allow_blank': True},
             'referee2_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
             'referee2_email': {'required': False, 'allow_blank': True, 'allow_null': True},
             'referee2_confirmed': {'required': False},
@@ -583,17 +475,16 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
         }
 
         read_only_fields = [
-            'gov_id_verified',
-            'ahpra_proof_verified',
-            'hours_proof_verified',
-            'certificate_verified',
-            'university_id_verified',
-            'cpr_certificate_verified',
-            's8_certificate_verified',
-            'gst_file_verified',
-            'tfn_declaration_verified',
-            'abn_verified',
-            'ahpra_verified',
+            'gov_id_verified', 'gov_id_verification_note',
+            'ahpra_proof_verified', 'ahpra_proof_verification_note',
+            'hours_proof_verified', 'hours_proof_verification_note',
+            'certificate_verified', 'certificate_verification_note',
+            'university_id_verified', 'university_id_verification_note',
+            'cpr_certificate_verified', 'cpr_certificate_verification_note',
+            's8_certificate_verified', 's8_certificate_verification_note',
+            'gst_file_verified', 'gst_file_verification_note',
+            'tfn_declaration_verified', 'tfn_declaration_verification_note',
+            'abn_verified', 'abn_verification_note',
             'verified',
             'progress_percent',
         ]
@@ -601,126 +492,37 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
     def create(self, validated_data):
         user_data = validated_data.pop('user', {})
         user = self.context['request'].user
-        for attr, value in user_data.items():
-            setattr(user, attr, value)
-        user.save()
+        self._sync_user_fields(user_data, user)
+
         obj = OtherStaffOnboarding.objects.create(user=user, **validated_data)
         submitted_now = validated_data.get('submitted_for_verification', False)
         if submitted_now:
             send_referee_emails(obj, validated_data, creation=True)
             notify_superuser_on_onboarding(obj)
-            self._trigger_verification_tasks(obj, validated_data, old_data=None, is_create=True)
-        else:
-            # Reset all verifications
-            for field in self.Meta.read_only_fields:
-                if field.endswith('_verified'):
-                    setattr(obj, field, False)
-            obj.save(update_fields=[f for f in self.Meta.read_only_fields if f.endswith('_verified')])
-        self._maybe_auto_verify(obj)
+            self._trigger_verification_tasks(obj, is_create=True)
+
         return obj
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})
         user = instance.user
-        for attr, value in user_data.items():
-            setattr(user, attr, value)
-        user.save()
-        # Track old values for change detection
-        verification_fields = [
-            'abn', 'ahpra_number', 'government_id', 'ahpra_proof',
-            'hours_proof', 'certificate', 'university_id', 'cpr_certificate',
-            's8_certificate', 'gst_file', 'tfn_declaration'
+        self.sync_user_fields(user_data, user)
+
+        VERIFICATION_FIELDS = [
+            "abn", "government_id", "ahpra_proof", "hours_proof", "certificate", "university_id",
+            "cpr_certificate", "s8_certificate", "gst_file", "tfn_declaration",
+            "gst_registered", "payment_preference", "role_type"
         ]
-        old_data = {f: getattr(instance, f, None) for f in verification_fields}
         obj = super().update(instance, validated_data)
-        submitted_now = validated_data.get('submitted_for_verification', False)
-        if submitted_now:
+        submitted_before = instance.submitted_for_verification
+        submitted_now = validated_data.get('submitted_for_verification', submitted_before)
+
+        if (not submitted_before and submitted_now) or verification_fields_changed(instance, validated_data, VERIFICATION_FIELDS):
+
             send_referee_emails(obj, validated_data, creation=False)
             notify_superuser_on_onboarding(obj)
-            self._trigger_verification_tasks(obj, validated_data, old_data=old_data, is_create=False)
-        else:
-            for field in self.Meta.read_only_fields:
-                if field.endswith('_verified'):
-                    setattr(obj, field, False)
-            obj.save(update_fields=[f for f in self.Meta.read_only_fields if f.endswith('_verified')])
-        self._maybe_auto_verify(obj)
+            self._trigger_verification_tasks(obj, is_create=False)
         return obj
-
-    def _trigger_verification_tasks(self, instance, validated_data, old_data=None, is_create=False):
-        user = instance.user
-        # --- ABN ---
-        abn = getattr(instance, 'abn', None)
-        abn_changed = is_create or (old_data and old_data.get('abn') != abn)
-        if abn and abn_changed:
-            async_task(
-                'client_profile.tasks.verify_abn_task',
-                'OtherStaffOnboarding', instance.pk,
-                abn, user.first_name, user.last_name, user.email,
-            )
-        # --- AHPRA ---
-        ahpra_number = getattr(instance, 'ahpra_number', None)
-        ahpra_changed = is_create or (old_data and old_data.get('ahpra_number') != ahpra_number)
-        if ahpra_number and ahpra_changed:
-            async_task(
-                'client_profile.tasks.verify_ahpra_task',
-                'OtherStaffOnboarding', instance.pk,
-                ahpra_number, user.first_name, user.last_name, user.email,
-            )
-        # --- Filefield verifications ---
-        for ffield in [
-            ('government_id', 'gov_id_verified'),
-            ('ahpra_proof', 'ahpra_proof_verified'),
-            ('hours_proof', 'hours_proof_verified'),
-            ('certificate', 'certificate_verified'),
-            ('university_id', 'university_id_verified'),
-            ('cpr_certificate', 'cpr_certificate_verified'),
-            ('s8_certificate', 's8_certificate_verified'),
-            ('gst_file', 'gst_file_verified'),
-            ('tfn_declaration', 'tfn_declaration_verified'),
-        ]:
-            field, ver_field = ffield
-            fval = getattr(instance, field, None)
-            changed = is_create or (old_data and old_data.get(field) != fval)
-            if fval and changed:
-                async_task(
-                    'client_profile.tasks.verify_filefield_task',
-                    'OtherStaffOnboarding', instance.pk,
-                    field, user.first_name, user.last_name, user.email, ver_field
-                )
-
-    def _maybe_auto_verify(self, obj):
-        checks = [obj.gov_id_verified]
-        if obj.ahpra_proof:
-            checks.append(obj.ahpra_proof_verified)
-        if obj.hours_proof:
-            checks.append(obj.hours_proof_verified)
-        if obj.certificate:
-            checks.append(obj.certificate_verified)
-        if obj.university_id:
-            checks.append(obj.university_id_verified)
-        if obj.cpr_certificate:
-            checks.append(obj.cpr_certificate_verified)
-        if obj.s8_certificate:
-            checks.append(obj.s8_certificate_verified)
-        if obj.gst_registered:
-            checks.append(obj.gst_file_verified)
-        if obj.payment_preference and obj.payment_preference.lower() == 'abn':
-            checks.append(obj.abn_verified)
-        if obj.payment_preference and obj.payment_preference.lower() == 'tfn':
-            checks.append(obj.tfn_declaration_verified)
-        # ADD referee confirmations here!
-        checks.append(obj.referee1_confirmed)
-        checks.append(obj.referee2_confirmed)
-
-        # Only consider as verified if ALL submitted/required docs have their verified flags True
-        if all(checks):
-            if not obj.verified:
-                obj.verified = True
-                obj.save(update_fields=['verified'])
-        else:
-            if obj.verified:
-                obj.verified = False
-                obj.save(update_fields=['verified'])
 
     def validate(self, data):
         submit = data.get('submitted_for_verification') \
@@ -811,7 +613,7 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
             obj.referee2_confirmed,
             obj.resume,
             obj.short_bio,
-            obj.gov_id_verified,             # << Use verified field
+            obj.gov_id_verified,
         ]
 
         # Student
@@ -854,7 +656,8 @@ class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, seriali
         percent = int(100 * filled / len(required_fields)) if required_fields else 0
         return percent
 
-class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
+
+class ExplorerOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
     file_fields = ['government_id', 'resume']
 
     username   = serializers.CharField(source='user.username',   required=False)
@@ -871,7 +674,7 @@ class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serialize
             'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
             'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
             'short_bio', 'resume',
-            'verified', 'progress_percent', 'gov_id_verified',
+            'verified', 'progress_percent', 'gov_id_verified', 'gov_id_verification_note',
 
             'submitted_for_verification',
         ]
@@ -884,11 +687,11 @@ class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serialize
             'role_type': {'required': False, 'allow_blank': True, 'allow_null': True},
             'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
             'interests': {'required': False, 'allow_null': True},
-            'referee1_name': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_name': {'required': False, 'allow_blank': True},
             'referee1_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
             'referee1_email': {'required': False, 'allow_blank': True, 'allow_null': True},
             'referee1_confirmed': {'required': False},
-            'referee2_name': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_name': {'required': False, 'allow_blank': True},
             'referee2_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
             'referee2_email': {'required': False, 'allow_blank': True, 'allow_null': True},
             'referee2_confirmed': {'required': False},
@@ -897,7 +700,7 @@ class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serialize
         }
 
         read_only_fields = [
-            'gov_id_verified',
+            'gov_id_verified', 'gov_id_verification_note',
             'verified',
             'progress_percent',
         ]
@@ -905,67 +708,34 @@ class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serialize
     def create(self, validated_data):
         user_data = validated_data.pop('user', {})
         user = self.context['request'].user
-        for attr, value in user_data.items():
-            setattr(user, attr, value)
-        user.save()
+        self._sync_user_fields(user_data, user)
+
         obj = ExplorerOnboarding.objects.create(user=user, **validated_data)
         submitted_now = validated_data.get('submitted_for_verification', False)
         if submitted_now:
             send_referee_emails(obj, validated_data, creation=True)
             notify_superuser_on_onboarding(obj)
-            self._trigger_verification_tasks(obj, validated_data, old_data=None, is_create=True)
-        else:
-            obj.gov_id_verified = False
-            obj.save(update_fields=['gov_id_verified'])
-        self._maybe_auto_verify(obj)
+            self._trigger_verification_tasks(obj, is_create=True)
+
         return obj
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})
         user = instance.user
-        for attr, value in user_data.items():
-            setattr(user, attr, value)
-        user.save()
-        old_data = {'government_id': getattr(instance, 'government_id', None)}
+        self.sync_user_fields(user_data, user)
+
+        VERIFICATION_FIELDS = [
+            "government_id"
+        ]
         obj = super().update(instance, validated_data)
-        submitted_now = validated_data.get('submitted_for_verification', False)
-        if submitted_now:
+        submitted_before = instance.submitted_for_verification
+        submitted_now = validated_data.get('submitted_for_verification', submitted_before)
+
+        if (not submitted_before and submitted_now) or verification_fields_changed(instance, validated_data, VERIFICATION_FIELDS):
             send_referee_emails(obj, validated_data, creation=False)
             notify_superuser_on_onboarding(obj)
-            self._trigger_verification_tasks(obj, validated_data, old_data=old_data, is_create=False)
-        else:
-            obj.gov_id_verified = False
-            obj.save(update_fields=['gov_id_verified'])
-        self._maybe_auto_verify(obj)
+            self._trigger_verification_tasks(obj, is_create=False)
         return obj
-
-    def _maybe_auto_verify(self, obj):
-        # Only require gov_id_verified for explorers
-        checks = [obj.gov_id_verified]
-        # ADD referee confirmations here!
-        checks.append(obj.referee1_confirmed)
-        checks.append(obj.referee2_confirmed)
-        if all(checks):
-            if not obj.verified:
-                obj.verified = True
-                obj.save(update_fields=['verified'])
-        else:
-            if obj.verified:
-                obj.verified = False
-                obj.save(update_fields=['verified'])
-
-    def _trigger_verification_tasks(self, instance, validated_data, old_data=None, is_create=False):
-        user = instance.user
-        field = 'government_id'
-        ver_field = 'gov_id_verified'
-        fval = getattr(instance, field, None)
-        changed = is_create or (old_data and old_data.get(field) != fval)
-        if fval and changed:
-            async_task(
-                'client_profile.tasks.verify_filefield_task',
-                'ExplorerOnboarding', instance.pk,
-                field, user.first_name, user.last_name, user.email, ver_field
-            )
 
     def validate(self, data):
         submit = data.get('submitted_for_verification') \
@@ -1018,12 +788,11 @@ class ExplorerOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serialize
         percent = int(100 * filled / len(required_fields)) if required_fields else 0
         return percent
 
-# Dashboards
+# === Dashboards ===
 class ShiftSummarySerializer(serializers.Serializer):
     id = serializers.IntegerField()
     pharmacy_name = serializers.CharField()
     date = serializers.DateField()
-
 
 class OwnerDashboardResponseSerializer(serializers.Serializer):
     user = UserProfileSerializer()
@@ -1190,7 +959,7 @@ class MembershipSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-
+# === Shifts ===
 class ShiftSlotSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShiftSlot

@@ -688,7 +688,6 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElemen
             onChange={handleChange}
             SelectProps={{ native: true }}
           >
-            <option value="">Select relation</option>
             {REFEREE_REL_CHOICES.map(opt => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}

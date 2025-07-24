@@ -1,9 +1,8 @@
 from django.conf import settings
 import re
 from django.contrib.auth import get_user_model
-import time
 from django_q.tasks import async_task
-import sys
+import difflib
 
 def build_shift_email_context(shift, user=None, extra=None, role=None, shift_type=None):
     """
@@ -56,16 +55,16 @@ def build_roster_email_link(user, pharmacy=None):
     roster_link = ""
 
     if user:
-        # Org admin check via memberships (most specific!)
+        # Org admin check via memberships (most specific, matches shift email context)
         if hasattr(user, 'organization_memberships') and user.organization_memberships.filter(role='ORG_ADMIN').exists():
             roster_link = f"{frontend_url}/dashboard/organization/manage-pharmacies/roster"
-        elif getattr(user, 'role', None) == 'OWNER':
+        elif user.role == 'OWNER':
             roster_link = f"{frontend_url}/dashboard/owner/manage-pharmacies/roster"
-        elif getattr(user, 'role', None) == 'PHARMACIST':
+        elif user.role == 'PHARMACIST':
             roster_link = f"{frontend_url}/dashboard/pharmacist/shifts/roster"
-        elif getattr(user, 'role', None) == 'OTHER_STAFF' or getattr(user, 'role', None) == 'ASSISTANT' or getattr(user, 'role', None) == 'INTERN':
+        elif user.role == 'OTHER_STAFF':
             roster_link = f"{frontend_url}/dashboard/otherstaff/shifts/roster"
-        elif getattr(user, 'role', None) == 'EXPLORER':
+        elif user.role == 'EXPLORER':
             roster_link = f"{frontend_url}/dashboard/explorer/roster"
         else:
             frontend_role = getattr(user, 'role', 'owner').lower()
@@ -73,7 +72,7 @@ def build_roster_email_link(user, pharmacy=None):
     else:
         roster_link = f"{frontend_url}/dashboard/owner/manage-pharmacies/roster"
 
-    # You can extend here to add ?pharmacy={pharmacy.id} if desired in the future
+    # If you ever want to add a pharmacy param: .../roster?pharmacy={pharmacy.id}
     return roster_link
 
 def clean_email(email):
@@ -159,40 +158,46 @@ def notify_superuser_on_onboarding(obj):
         text_template="emails/admin_onboarding_notification.txt",
     )
 
-def simple_name_match(extracted_text, first_name, last_name):
-    """
-    Returns True if BOTH first_name and last_name (case-insensitive, stripped) appear in the extracted_text.
-    Ignores word order, spacing, and case.
-    """
-    # Defensive: handle None
+def simple_name_match(extracted_text, first_name, last_name, cutoff=0.8):
     if not extracted_text or not first_name or not last_name:
         return False
-
-    # Clean up: lowercase and strip accents/whitespace
     text = extracted_text.lower()
+    text = re.sub(r'\b(mr|mrs|ms|dr|miss|prof|sir)\b[.]*', '', text)
+    words = text.split()
     f_name = first_name.lower().strip()
     l_name = last_name.lower().strip()
+    def phrase_match(target, words):
+        n = len(words)
+        t_len = len(target.split())
+        for i in range(n):
+            for j in range(i+1, min(i+1+t_len+2, n+1)):
+                phrase = " ".join(words[i:j]).strip()
+                if target == phrase or difflib.SequenceMatcher(None, phrase, target).ratio() >= cutoff:
+                    return True
+        for word in words:
+            if word == target or difflib.SequenceMatcher(None, word, target).ratio() >= cutoff:
+                return True
+        return False
+    return phrase_match(f_name, words) and phrase_match(l_name, words)
 
-    # Optional: Remove common prefixes/titles
-    text = re.sub(r'\b(mr|mrs|ms|dr|miss|prof|sir)\b[.]*', '', text)
+def get_frontend_dashboard_url(user):
+    """
+    Returns the appropriate frontend dashboard URL based on the user's role.
+    Handles 'OTHER_STAFF' to 'otherstaff' conversion.
+    """
+    if not user or not hasattr(user, 'role'):
+        return f"{settings.FRONTEND_BASE_URL}/dashboard/" # Default fallback
 
-    # Check both names exist somewhere (can be far apart)
-    return f_name in text and l_name in text
-
-
-# def run_abn(): # No kwargs here either
-#     print('running verify_abn_task code in utils', file=sys.stderr, flush=True)
-#     async_task('client_profile.tasks.verify_abn_new')
-#     time.sleep(2)
-
-# def run_ahpra(): # No kwargs here either
-#     print('running verify_ahpra_task code in utils', file=sys.stderr, flush=True)
-#     async_task('client_profile.tasks.verify_ahpra_new')
-#     time.sleep(2)
-
-# def run_filefield(): # No kwargs here either
-#     print('running verify_filefield_task code in utils', file=sys.stderr, flush=True)
-#     async_task('client_profile.tasks.verify_file_new')
-#     time.sleep(2)
-
+    role_slug = user.role.lower()
+    if role_slug == 'other_staff': # Your specific conversion rule
+        role_slug = 'otherstaff'
+    elif role_slug == 'owner':
+        # Check for organization admin role first if it influences dashboard path
+        # Assuming 'ORGANIZATION' role is handled within the 'owner' dashboard structure or has its own path
+        if hasattr(user, 'organization_memberships') and user.organization_memberships.filter(role='ORG_ADMIN').exists():
+            return f"{settings.FRONTEND_BASE_URL}/dashboard/organization/" # Or whatever your org admin path is
+        else:
+            return f"{settings.FRONTEND_BASE_URL}/dashboard/owner/"
+    
+    return f"{settings.FRONTEND_BASE_URL}/dashboard/{role_slug}/"
 

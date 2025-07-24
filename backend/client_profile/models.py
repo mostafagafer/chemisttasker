@@ -114,7 +114,13 @@ class PharmacistOnboarding(models.Model):
     ahpra_registration_status = models.CharField(max_length=100, blank=True, null=True)
     ahpra_registration_type = models.CharField(max_length=100, blank=True, null=True)
     ahpra_expiry_date = models.DateField(blank=True, null=True)
+
+    # Verification notes
     ahpra_verification_note = models.TextField(blank=True, null=True)
+    gov_id_verification_note = models.TextField(blank=True, null=True)
+    gst_file_verification_note = models.TextField(blank=True, null=True)
+    tfn_declaration_verification_note = models.TextField(blank=True, null=True)
+    abn_verification_note = models.TextField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.user.get_full_name()} - Onboarding"
@@ -206,16 +212,35 @@ class OtherStaffOnboarding(models.Model):
 
     # Verification Fields
     gov_id_verified = models.BooleanField(default=False, db_index=True)
+    gov_id_verification_note = models.TextField(blank=True, null=True)
+
     ahpra_proof_verified = models.BooleanField(default=False, db_index=True)
+    ahpra_proof_verification_note = models.TextField(blank=True, null=True)
+
     hours_proof_verified = models.BooleanField(default=False, db_index=True)
+    hours_proof_verification_note = models.TextField(blank=True, null=True)
+
     certificate_verified = models.BooleanField(default=False, db_index=True)
+    certificate_verification_note = models.TextField(blank=True, null=True)
+
     university_id_verified = models.BooleanField(default=False, db_index=True)
+    university_id_verification_note = models.TextField(blank=True, null=True)
+
     cpr_certificate_verified = models.BooleanField(default=False, db_index=True)
+    cpr_certificate_verification_note = models.TextField(blank=True, null=True)
+
     s8_certificate_verified = models.BooleanField(default=False, db_index=True)
+    s8_certificate_verification_note = models.TextField(blank=True, null=True)
+
     gst_file_verified = models.BooleanField(default=False, db_index=True)
+    gst_file_verification_note = models.TextField(blank=True, null=True)
+
     tfn_declaration_verified = models.BooleanField(default=False, db_index=True)
+    tfn_declaration_verification_note = models.TextField(blank=True, null=True)
+
     abn_verified = models.BooleanField(default=False, db_index=True)
-    ahpra_verified = models.BooleanField(default=False, db_index=True)
+    abn_verification_note = models.TextField(blank=True, null=True)
+
 
     def __str__(self):
         return f"{self.user.get_full_name()} - {self.role_type} Onboarding"
@@ -263,6 +288,7 @@ class ExplorerOnboarding(models.Model):
 
     # Verification Fields
     gov_id_verified = models.BooleanField(default=False, db_index=True)
+    gov_id_verification_note = models.TextField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.user.get_full_name()} - Explorer Onboarding"
@@ -999,7 +1025,7 @@ class InvoiceLineItem(models.Model):
 
 
 
-# ExplorerPost Model - Represents a post made by an explorer (student, junior, career switcher)
+# ExplorerPost Model
 class ExplorerPost(models.Model):
     explorer_profile = models.ForeignKey('ExplorerOnboarding', on_delete=models.CASCADE)  # The explorer posting the interest
     headline = models.CharField(max_length=255)  # Title of the post

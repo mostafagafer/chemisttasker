@@ -1,0 +1,15 @@
+Your Profile is Verified! 🎉
+
+Hi {{ user_first_name }},
+
+We're thrilled to let you know that your ChemistTasker profile has been fully verified!
+You're all set!
+
+You can now fully explore opportunities, manage your settings, and engage with the ChemistTasker community.
+
+Go to Your Dashboard: {{ frontend_profile_link }}
+
+If you have any questions or need assistance, our friendly team is always here to help.
+We're excited to have you fully onboard!
+
+— The ChemistTasker Team

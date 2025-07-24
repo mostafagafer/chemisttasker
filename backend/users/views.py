@@ -1,26 +1,17 @@
-from rest_framework import generics, permissions
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from django.contrib.auth import get_user_model
-from rest_framework import viewsets, permissions
-from rest_framework import viewsets, permissions, filters
-from django.contrib.auth import get_user_model
+from rest_framework import viewsets, permissions, filters, generics, status
 from django.contrib.auth.tokens import default_token_generator
-# from django.core.mail import send_mail
-from django.utils.http import urlsafe_base64_encode
-from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
 from django.utils.crypto import get_random_string
-from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from .models import OrganizationMembership
 from .serializers import InviteOrgUserSerializer
-from .permissions import OrganizationRolePermission  # our consolidated guard
+from .permissions import OrganizationRolePermission
 from django.conf import settings
 from django_q.tasks import async_task
-
 from rest_framework.views import APIView
-from django.utils.encoding import force_str
-from django.utils.http import urlsafe_base64_decode
-
 from users.tasks import send_async_email
 from users.utils import get_frontend_onboarding_url
 from datetime import timedelta

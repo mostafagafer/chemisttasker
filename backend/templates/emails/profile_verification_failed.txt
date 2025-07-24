@@ -1,0 +1,23 @@
+Action Required: Your Profile Verification Needs Attention
+
+Hello {{ user_first_name }},
+
+We encountered some issues while verifying your ChemistTasker profile ({{ model_type|title }}).
+Don't worry, this is usually easy to fix!
+
+Here’s what needs your attention:
+{% for reason in verification_reasons %}
+- {{ reason }}
+{% endfor %}
+{% if not verification_reasons %}
+- Some required verification steps are pending or failed. Please check your profile for details.
+{% endif %}
+
+Please log in to your dashboard to review the details and make the necessary updates.
+
+Review Your Profile: {{ frontend_profile_link }}
+
+If you need any help or have questions, please don't hesitate to reach out to our support team.
+We're here to assist you!
+
+— The ChemistTasker Team

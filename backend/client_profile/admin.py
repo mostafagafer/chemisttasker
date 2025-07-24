@@ -87,7 +87,6 @@ class OtherStaffOnboardingAdmin(admin.ModelAdmin):
             'gst_file_verified',
             'tfn_declaration_verified',
             'abn_verified',
-            'ahpra_verified',
 
     ]
     list_filter = [

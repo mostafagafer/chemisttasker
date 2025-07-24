@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Action Required: Your Profile Verification Needs Attention</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
+        .wave { font-size: 2.5rem; }
+        .btn {
+            display: inline-block;
+            background: #e74c3c; /* A more urgent color for failed status */
+            color: #fff;
+            padding: 12px 28px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.15rem;
+            margin: 16px 0;
+            box-shadow: 0 1px 3px #e0e0e0;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #c0392b; } /* Darker red on hover */
+        .emoji { font-size: 1.25rem; }
+        ul { list-style-type: disc; margin-left: 20px; padding-left: 0; }
+        li { margin-bottom: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="wave">⚠️🚧</div>
+        <h2>Hello {{ user_first_name }}, Your Profile Verification Needs Attention.</h2>
+
+        <p>
+            We encountered some issues while verifying your <b>ChemistTasker</b> profile ({{ model_type|title }}).
+            Don't worry, this is usually easy to fix!
+        </p>
+
+        <p>
+            Here’s what needs your attention:
+        </p>
+        <ul>
+            {% for reason in verification_reasons %}
+                <li>{{ reason }}</li>
+            {% endfor %}
+            {% if not verification_reasons %}
+                <li>Some required verification steps are pending or failed. Please check your profile for details.</li>
+            {% endif %}
+        </ul>
+
+        <p>
+            Please log in to your dashboard to review the details and make the necessary updates.
+        </p>
+        <a class="btn" href="{{ frontend_profile_link }}">Review Your Profile</a>
+        <p>
+            If you need any help or have questions, please don't hesitate to reach out to our support team.
+            We're here to assist you!
+        </p>
+        <p class="emoji">— The ChemistTasker Team 💚</p>
+    </div>
+</body>
+</html>

@@ -2,7 +2,6 @@ import json
 from datetime import datetime, timedelta, date, time
 from decimal import Decimal
 from pathlib import Path
-
 from django.conf import settings
 from client_profile.models import PharmacistOnboarding, OtherStaffOnboarding, Pharmacy, Shift, ShiftSlotAssignment, InvoiceLineItem, Invoice, Membership
 

@@ -30,6 +30,7 @@ import PharmacistOnboarding from './pages/onboarding/PharmacistOnboarding';
 import OtherStaffOnboarding from './pages/onboarding/OtherStaffOnboarding';
 import ExplorerOnboarding from './pages/onboarding/ExplorerOnboarding';
 import RefereeConfirmPage from './pages/onboarding/RefereeConfirmPage';
+import RefereeRejectPage from './pages/onboarding/RefereeRejectPage';
 import RosterOwnerPage from './pages/dashboard/sidebar/RosterOwnerPage';
 import RosterWorkerPage from './pages/dashboard/sidebar/RosterWorkerPage';
 
@@ -89,6 +90,7 @@ const router = createBrowserRouter([
 
       // PUBLIC referee confirmation page (add here)
       { path: 'onboarding/referee-confirm/:pk/:refIndex', element: <RefereeConfirmPage /> },
+      { path: 'onboarding/referee-reject/:pk/:refIndex', element: <RefereeRejectPage /> },
 
       // Password reset confirm route
       { path: 'reset-password/:uid/:token', element: <ResetPasswordPage /> },

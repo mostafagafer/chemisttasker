@@ -3,6 +3,7 @@ import re
 from django.contrib.auth import get_user_model
 from django_q.tasks import async_task
 import difflib
+from django.utils import timezone
 
 def build_shift_email_context(shift, user=None, extra=None, role=None, shift_type=None):
     """
@@ -83,33 +84,40 @@ def clean_email(email):
     # \u200e (LTR), \u200f (RTL), \u202a-\u202e (bidi), \u200b (zero-width space), \s (any space)
     return re.sub(r'[\u200e\u200f\u202a-\u202e\u200b\s]', '', email)
 
-def send_referee_emails(obj, validated_data, creation=False):
-    submitted_now = validated_data.get('submitted_for_verification', False)
-    if submitted_now:
-        for idx in [1, 2]:
-            email_raw = getattr(obj, f'referee{idx}_email', None)
-            confirmed = getattr(obj, f'referee{idx}_confirmed', None)
-            name = getattr(obj, f'referee{idx}_name', '')
-            relation = getattr(obj, f'referee{idx}_relation', '')
-            email = clean_email(email_raw)
-            if email and not confirmed:
-                confirm_url = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-confirm/{obj.pk}/{idx}"
-                async_task(
-                    'users.tasks.send_async_email',
-
-                    subject="Reference Request: Please Confirm for ChemistTasker",
-                    recipient_list=[email],
-                    template_name="emails/referee_request.html",
-                    context={
-                        "referee_name": name,
-                        "referee_relation": relation,
-                        "candidate_name": obj.user.get_full_name(),
-                        "candidate_first_name": obj.user.first_name,
-                        "candidate_last_name": obj.user.last_name,
-                        "confirm_url": confirm_url,
-                    },
-                    text_template="emails/referee_request.txt"
-                )
+def send_referee_emails(obj):
+    """
+    Sends referee email(s) for both referees if they are pending.
+    Always safe to call: it will only send to referees who are neither confirmed nor rejected.
+    """
+    for idx in [1, 2]:
+        email_raw = getattr(obj, f'referee{idx}_email', None)
+        confirmed = getattr(obj, f'referee{idx}_confirmed', None)
+        rejected = getattr(obj, f'referee{idx}_rejected', None)
+        name = getattr(obj, f'referee{idx}_name', '')
+        relation = getattr(obj, f'referee{idx}_relation', '')
+        email = clean_email(email_raw)
+        if email and not confirmed and not rejected:
+            confirm_url = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-confirm/{obj.pk}/{idx}"
+            reject_url  = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-reject/{obj.pk}/{idx}"
+            async_task(
+                'users.tasks.send_async_email',
+                subject="Reference Request: Please Confirm for ChemistTasker",
+                recipient_list=[email],
+                template_name="emails/referee_request.html",
+                context={
+                    "referee_name": name,
+                    "referee_relation": relation,
+                    "candidate_name": obj.user.get_full_name(),
+                    "candidate_first_name": obj.user.first_name,
+                    "candidate_last_name": obj.user.last_name,
+                    "confirm_url": confirm_url,
+                    "reject_url": reject_url,
+                },
+                text_template="emails/referee_request.txt"
+            )
+            # Update last sent time (used to space out reminders)
+            setattr(obj, f'referee{idx}_last_sent', timezone.now())
+    obj.save()
 
 def summarize_onboarding_fields(obj):
     summary = {}

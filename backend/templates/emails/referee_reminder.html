@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Reference Confirmation Request</title>
+    <title>Gentle Reminder: Reference Request</title>
     <style>
         body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
         .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
@@ -16,23 +16,30 @@
             border-radius: 8px;
             font-weight: bold;
             font-size: 1.15rem;
-            margin: 16px 0;
+            margin: 16px 0 0 0;
             box-shadow: 0 1px 3px #e0e0e0;
             transition: background 0.2s;
         }
         .btn:hover { background: #199982; }
+        .btn-reject {
+            background: #e74c3c;
+            margin-left: 10px;
+        }
+        .btn-reject:hover { background: #b93a27; }
         .emoji { font-size: 1.25rem; }
+        .small { color: #888; font-size: 0.98rem; margin-top: 20px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="wave">👋📝</div>
-        <h2>Reference Request for {{ candidate_name }}</h2>
+        <div class="wave">⏰🙋</div>
+        <h2>Gentle Reminder: Reference Request</h2>
+
         <p>
-            Hi {{ referee_name|default:"there" }},
+            Hello {{ referee_name }},
         </p>
         <p>
-            {{ candidate_name }} has listed you as a reference ({{ referee_relation|default:"Reference" }}) for their ChemistTasker application.
+            This is a gentle reminder to please <b>confirm or reject your reference</b> for <b>{{ candidate_name }}</b> at ChemistTasker.
         </p>
         <p>
             Please confirm you are happy to be a referee by clicking the button below:
@@ -44,9 +51,8 @@
         </p>
         <a class="btn" style="background:#e74c3c;" href="{{ reject_url }}">No, I do not wish to be a referee</a>
 
-        <p>
-            If you have questions, reply to this email or contact ChemistTasker support.<br>
-            Thank you for your help!
+        <p style="margin-top:1.7rem;">
+            If you have any questions, just reply to this email and our team will assist you.
         </p>
         <p class="emoji">— The ChemistTasker Team 💚</p>
     </div>

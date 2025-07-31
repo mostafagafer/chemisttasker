@@ -3,14 +3,7 @@ import os
 from environ import Env
 from datetime import timedelta
 import dj_database_url
-# import asyncio
-# import sys
-
-# if sys.platform == "win32":
-#     try:
-#         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-#     except AttributeError:
-#         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+import sys
 
 
 
@@ -275,6 +268,55 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # # Use console backend for local testing
 # EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 # DEFAULT_FROM_EMAIL = 'no-reply@localhost'
+
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[%(levelname)s %(asctime)s %(process)d] %(name)s %(message)s',
+            'datefmt': "%Y-%m-%d %H:%M:%S",
+        },
+        'simple': {
+            'format': '[%(levelname)s] %(name)s: %(message)s'
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+            'stream': sys.stdout,
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django_q': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Your app modules
+        'client_profile': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False, 
+        },
+        'users': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False, 
+        },
+    }
+}
 
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'

@@ -2,7 +2,6 @@ import sys
 import os
 import json
 import tempfile
-import traceback
 import shutil
 from pathlib import Path
 from datetime import timedelta
@@ -14,12 +13,12 @@ from django.core.files.storage import default_storage
 from django_q.tasks import async_task
 import time
 import requests
-import re
 import dateutil.parser
 from bs4 import BeautifulSoup
 from scrapingbee import ScrapingBeeClient
 from users.tasks import send_async_email
-from client_profile.models import ShiftSlotAssignment
+from client_profile.models import ShiftSlotAssignment, OnboardingNotification
+from django.contrib.contenttypes.models import ContentType
 from client_profile.utils import build_shift_email_context, simple_name_match, get_frontend_dashboard_url 
 import logging
 logger = logging.getLogger(__name__)
@@ -31,14 +30,14 @@ ENV_PATH = BASE_DIR / "core" / ".env"
 env = Env()
 if ENV_PATH.exists():
     env.read_env(str(ENV_PATH))
-    print(f"[ENV] Loaded environment variables from {ENV_PATH}")
+    logger.info(f"[ENV] Loaded environment variables from {ENV_PATH}")
 else:
-    print(f"[ENV] No .env file at {ENV_PATH}, using system environment.")
+    logger.info(f"[ENV] No .env file at {ENV_PATH}, using system environment.")
 
 # ==== OUTPUTS DIRECTORY ====
 OUTPUT_DIR = BASE_DIR / "verification_outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-print(f"[SETUP] Output files will be saved to {OUTPUT_DIR}")
+logger.info(f"[SETUP] Output files will be saved to {OUTPUT_DIR}")
 
 
 def fetch_instance_with_retries(model, pk, max_retries=10, sleep_sec=0.4):
@@ -46,30 +45,30 @@ def fetch_instance_with_retries(model, pk, max_retries=10, sleep_sec=0.4):
         try:
             return model.objects.get(pk=pk)
         except ObjectDoesNotExist:
-            print(f"[fetch_instance_with_retries] Not found pk={pk}, try {i+1}/{max_retries}", file=sys.stderr)
+            logger.error(f"[fetch_instance_with_retries] Not found pk={pk}, try {i+1}/{max_retries}", file=sys.stderr)
             time.sleep(sleep_sec)
     raise model.DoesNotExist(f"Object with pk={pk} not found after {max_retries} tries")
 
 def get_local_file_or_download(filefield):
     if not filefield:
-        print("[get_local_file_or_download] filefield is empty.")
+        logger.info("[get_local_file_or_download] filefield is empty.")
         return None
     try:
         if hasattr(filefield, "path") and os.path.exists(filefield.path):
-            print(f"[get_local_file_or_download] Using local path: {filefield.path}")
+            logger.info(f"[get_local_file_or_download] Using local path: {filefield.path}")
             return filefield.path
     except Exception as e:
-        print(f"[get_local_file_or_download] Could not access .path: {e}")
+        logger.info(f"[get_local_file_or_download] Could not access .path: {e}")
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=Path(filefield.name).suffix)
     with default_storage.open(filefield.name, "rb") as remote_file:
         shutil.copyfileobj(remote_file, temp_file)
     temp_file.close()
-    print(f"[get_local_file_or_download] Downloaded to temp: {temp_file.name}")
+    logger.info(f"[get_local_file_or_download] Downloaded to temp: {temp_file.name}")
     return temp_file.name
 
 def save_output_file(task_name, object_pk, extension="json"):
     out_path = OUTPUT_DIR / f"{task_name}_{object_pk}_{timezone.now().strftime('%Y%m%d_%H%M%S')}.{extension}"
-    print(f"[save_output_file] Will write output to: {out_path}")
+    logger.info(f"[save_output_file] Will write output to: {out_path}")
     return str(out_path)
 
 # --- Inline OCR with Azure (direct call, not subprocess!) ---
@@ -97,19 +96,19 @@ def azure_ocr(file_path):
         for block in result.read.blocks:
             for line in block.lines:
                 lines.append(line.text)
-    print(f"[azure_ocr] OCR done for {file_path}, found {len(lines)} lines.")
+    logger.info(f"[azure_ocr] OCR done for {file_path}, found {len(lines)} lines.")
     return {"lines": lines}
 
 def verify_filefield_task(model_name, object_pk, file_field, first_name, last_name, email, verification_field, **kwargs):
     note_field = kwargs.get('note_field')
-    print(f"[VERIFY FILEFIELD TASK] model={model_name}, pk={object_pk}, field={file_field}")
+    logger.info(f"[VERIFY FILEFIELD TASK] model={model_name}, pk={object_pk}, field={file_field}")
     Model = apps.get_model("client_profile", model_name)
     obj = fetch_instance_with_retries(Model, object_pk)
     
     # --- THIS IS THE FIX ---
     # If a verification note already exists, the task has already run.
     if note_field and getattr(obj, note_field, None):
-        print(f"[FILEFIELD TASK] SKIPPING: Verification for pk={object_pk}, field={file_field} already has a result.")
+        logger.info(f"[FILEFIELD TASK] SKIPPING: Verification for pk={object_pk}, field={file_field} already has a result.")
         return # Exit immediately
     # --- END OF FIX ---
 
@@ -127,12 +126,12 @@ def verify_filefield_task(model_name, object_pk, file_field, first_name, last_na
 
     if not file_obj:
         failure_note = "No file uploaded for this verification."
-        print(f"[verify_filefield_task] {failure_note} Setting as not verified.")
+        logger.info(f"[verify_filefield_task] {failure_note} Setting as not verified.")
     else:
         local_path = get_local_file_or_download(file_obj)
         if not local_path or not os.path.exists(local_path):
             failure_note = f"Could not obtain file for OCR: {local_path}."
-            print(f"[verify_filefield_task] {failure_note}")
+            logger.info(f"[verify_filefield_task] {failure_note}")
         else:
             try:
                 ocr_data = azure_ocr(local_path)
@@ -146,14 +145,14 @@ def verify_filefield_task(model_name, object_pk, file_field, first_name, last_na
 
                 if is_name_match:
                     is_verified = True
-                    print(f"[verify_filefield_task] Name match result: {is_name_match} (first={first_name}, last={last_name})")
+                    logger.info(f"[verify_filefield_task] Name match result: {is_name_match} (first={first_name}, last={last_name})")
                 else:
                     failure_note = f"Name mismatch found in your uploaded document"
-                    print(f"[verify_filefield_task] {failure_note}")
+                    logger.info(f"[verify_filefield_task] {failure_note}")
 
             except Exception as e:
                 failure_note = f"OCR processing failed: {e}."
-                print(f"[verify_filefield_task] {failure_note}")
+                logger.info(f"[verify_filefield_task] {failure_note}")
             finally:
                 if local_path and os.path.exists(local_path) and Path(local_path).parent == Path(tempfile.gettempdir()):
                     os.remove(local_path)
@@ -168,12 +167,12 @@ def verify_filefield_task(model_name, object_pk, file_field, first_name, last_na
 def abn_lookup(abn_number):
     """Fetch the ABN details using the exact logic in your script."""
     url = f"https://abr.business.gov.au/ABN/View?id={abn_number}"
-    print(f"[abn_lookup] Fetching {url}")
+    logger.info(f"[abn_lookup] Fetching {url}")
     try:
         resp = requests.get(url, timeout=15)
         resp.raise_for_status()
     except Exception as e:
-        print(f"[abn_lookup] Error fetching ABN: {e}")
+        logger.info(f"[abn_lookup] Error fetching ABN: {e}")
         return None, None
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -183,14 +182,14 @@ def abn_lookup(abn_number):
 
 def verify_abn_task(model_name, object_pk, abn_number, first_name, last_name, email, **kwargs):
     note_field = kwargs.get('note_field')
-    print(f"[VERIFY ABN TASK] model={model_name}, pk={object_pk}, abn={abn_number}")
+    logger.info(f"[VERIFY ABN TASK] model={model_name}, pk={object_pk}, abn={abn_number}")
     Model = apps.get_model("client_profile", model_name)
     obj = fetch_instance_with_retries(Model, object_pk)
     
     # --- THIS IS THE FIX ---
     # If a verification note already exists, the task has already run.
     if note_field and getattr(obj, note_field, None):
-        print(f"[ABN TASK] SKIPPING: Verification for pk={object_pk} already has a result.")
+        logger.info(f"[ABN TASK] SKIPPING: Verification for pk={object_pk} already has a result.")
         return # Exit immediately
     # --- END OF FIX ---
 
@@ -209,16 +208,16 @@ def verify_abn_task(model_name, object_pk, abn_number, first_name, last_name, em
 
     if not abn_legal_name:
         failure_note = "Failed to fetch ABN details. ABN might be invalid or unresponsive."
-        print(f"[verify_abn_task] {failure_note}. Marking as not verified.")
+        logger.info(f"[verify_abn_task] {failure_note}. Marking as not verified.")
     else:
         name_match = simple_name_match(abn_legal_name, first_name, last_name)
 
         if name_match:
             is_verified = True
-            print(f"[verify_abn_task] Name match: {name_match} (expected: {first_name} {last_name}, actual: {abn_legal_name})")
+            logger.info(f"[verify_abn_task] Name match: {name_match} (expected: {first_name} {last_name}, actual: {abn_legal_name})")
         else:
             failure_note = f"ABN legal name mismatch: Expected '{first_name} {last_name}', Found '{abn_legal_name}'."
-            print(f"[verify_abn_task] {failure_note}")
+            logger.info(f"[verify_abn_task] {failure_note}")
 
     output_html = save_output_file("abn_html", object_pk, "html")
     with open(output_html, "w", encoding="utf-8") as f:
@@ -273,14 +272,14 @@ def ahpra_lookup(ahpra_number, output_html_path, api_key=None):
     # --- START OF FIX: Add a retry loop ---
     max_retries = 3
     for attempt in range(max_retries):
-        print(f"[ahpra_lookup] Requesting ScrapingBee for: {ahpra_number} (Attempt {attempt + 1}/{max_retries})")
+        logger.info(f"[ahpra_lookup] Requesting ScrapingBee for: {ahpra_number} (Attempt {attempt + 1}/{max_retries})")
         try:
             response = client.get(url, params=params)
             
             # Check if the response from ScrapingBee itself is an error
             if response.status_code >= 400:
                 # This is a ScrapingBee error (e.g., 500, 403)
-                print(f"[ahpra_lookup] ScrapingBee returned an error status: {response.status_code}. Content: {response.text[:200]}")
+                logger.info(f"[ahpra_lookup] ScrapingBee returned an error status: {response.status_code}. Content: {response.text[:200]}")
                 # If it's the last attempt, raise an exception to be caught by the task
                 if attempt == max_retries - 1:
                     raise Exception(f"An Error occured in during the verification of your AHPRA details")
@@ -292,11 +291,11 @@ def ahpra_lookup(ahpra_number, output_html_path, api_key=None):
             with open(output_html_path, "w", encoding="utf-8") as f:
                 f.write(response.text)
             
-            print(f"[ahpra_lookup] ScrapingBee request successful.")
+            logger.info(f"[ahpra_lookup] ScrapingBee request successful.")
             return output_html_path
 
         except Exception as e:
-            print(f"[ahpra_lookup] An exception occurred on attempt {attempt + 1}: {e}")
+            logger.info(f"[ahpra_lookup] An exception occurred on attempt {attempt + 1}: {e}")
             if attempt == max_retries - 1:
                 # If this was the last retry, re-raise the exception so the task fails gracefully
                 raise e
@@ -342,7 +341,7 @@ def parse_ahpra_html(html_file_path):
     }
 
 def verify_ahpra_task(model_name, object_pk, ahpra_number, first_name, last_name, email, **kwargs):
-    print(f"[AHPRA TASK ENTRY] Attempting to process for model={model_name}, pk={object_pk}, ahpra={ahpra_number}")
+    logger.info(f"[AHPRA TASK ENTRY] Attempting to process for model={model_name}, pk={object_pk}, ahpra={ahpra_number}")
 
     Model = apps.get_model("client_profile", model_name)
     obj = fetch_instance_with_retries(Model, object_pk)
@@ -350,7 +349,7 @@ def verify_ahpra_task(model_name, object_pk, ahpra_number, first_name, last_name
     # --- THIS IS THE FIX ---
     # If a verification note already exists for the *current* AHPRA number, the task has already run.
     if (obj.ahpra_number or '').strip().lower() == ahpra_number.strip().lower() and obj.ahpra_verification_note:
-        print(f"[AHPRA TASK] SKIPPING: Verification for pk={object_pk} with number {ahpra_number} already has a result.")
+        logger.info(f"[AHPRA TASK] SKIPPING: Verification for pk={object_pk} with number {ahpra_number} already has a result.")
         return # Exit immediately
     # --- END OF FIX ---
 
@@ -369,7 +368,7 @@ def verify_ahpra_task(model_name, object_pk, ahpra_number, first_name, last_name
         return
 
     ahpra_data = parse_ahpra_html(output_html)
-    print(f"[verify_ahpra_task] Parsed: {ahpra_data}")
+    logger.info(f"[verify_ahpra_task] Parsed: {ahpra_data}")
 
     practitioner_name = ahpra_data.get("practitioner_name", "")
     registration_type = (ahpra_data.get("registration_type") or "").strip()
@@ -377,7 +376,7 @@ def verify_ahpra_task(model_name, object_pk, ahpra_number, first_name, last_name
     expiry_date_str = ahpra_data.get("expiry_date", "")
 
     is_name_match = simple_name_match(practitioner_name, first_name, last_name)
-    print(f"[verify_ahpra_task] Name match: {is_name_match} (expected={first_name} {last_name}, found={practitioner_name})")
+    logger.info(f"[verify_ahpra_task] Name match: {is_name_match} (expected={first_name} {last_name}, found={practitioner_name})")
 
     note = ""
     expiry_date = None
@@ -429,7 +428,7 @@ def _update_ahpra_fields(model_name, object_pk, verified, note, reg_type=None, r
     try:
         obj = fetch_instance_with_retries(Model, object_pk)
     except Model.DoesNotExist:
-        print(f"[AHPRA TASK] Skipping update: record {model_name} with pk={object_pk} does not exist.")
+        logger.info(f"[AHPRA TASK] Skipping update: record {model_name} with pk={object_pk} does not exist.")
         return
     obj.ahpra_verified = verified
     obj.ahpra_verification_note = note
@@ -443,31 +442,37 @@ def _update_ahpra_fields(model_name, object_pk, verified, note, reg_type=None, r
         "ahpra_verified", "ahpra_verification_note",
         "ahpra_registration_type", "ahpra_registration_status", "ahpra_expiry_date"
     ])
-    print(f"[AHPRA TASK] Saved verification note for {model_name} pk={object_pk}: {note}")
+    logger.info(f"[AHPRA TASK] Saved verification note for {model_name} pk={object_pk}: {note}")
 
 
 # --- ORCHESTRATOR AND FINAL EVALUATOR ---
 def run_all_verifications(model_name, object_pk, is_create=False):
     """
-    This is the ORCHESTRATOR task.
-    It starts all necessary verification tasks in parallel based on the object's state.
-    After triggering them, it schedules the single final evaluation to run after a delay.
+    MODIFIED: This orchestrator now also sends the initial admin notification.
     """
     from django.apps import apps
     from django.utils import timezone
     from datetime import timedelta
+    from client_profile.utils import send_referee_emails, notify_superuser_on_onboarding
 
     Model = apps.get_model("client_profile", model_name)
     try:
         obj = Model.objects.get(pk=object_pk)
     except Model.DoesNotExist:
+        logger.error(f"[ORCHESTRATOR] Cannot find {model_name} with pk={object_pk}. Aborting.")
         return
+
+    # --- NOTIFY SUPERUSER IMMEDIATELY ON SUBMISSION ---
+    if not notification_already_sent(obj, 'admin_notify'):
+        logger.info(f"[ORCHESTRATOR] Sending admin notification for {model_name} pk={object_pk}.")
+        notify_superuser_on_onboarding(obj)
+        mark_notification_sent(obj, 'admin_notify')
 
     user = obj.user
     model_name_lower = model_name.lower()
 
-    # --- This logic dynamically decides which tasks to START ---
 
+    # --- 1. Trigger all automated verification tasks (ABN, AHPRA, Files) ---
     if model_name_lower == 'pharmacistonboarding':
         if obj.ahpra_number:
             async_task('client_profile.tasks.verify_ahpra_task', model_name, object_pk, obj.ahpra_number, user.first_name, user.last_name, user.email, q_options={'timeout': 300})
@@ -508,7 +513,14 @@ def run_all_verifications(model_name, object_pk, is_create=False):
         if obj.s8_certificate:
             async_task('client_profile.tasks.verify_filefield_task', model_name, object_pk, 's8_certificate', user.first_name, user.last_name, user.email, 's8_certificate_verified', note_field='s8_certificate_verification_note')
 
-    print(f"[ORCHESTRATOR] All verification tasks for {model_name} pk={object_pk} have been triggered. Scheduling final evaluation.")
+    # --- 2. Send initial referee emails ---
+    referee_models = ['pharmacistonboarding', 'otherstaffonboarding', 'exploreronboarding']
+    if model_name_lower in referee_models:
+        logger.info(f"[ORCHESTRATOR] Sending initial referee requests for {model_name} pk={object_pk}.")
+        send_referee_emails(obj)
+
+    # --- 3. Schedule the final evaluation ---
+    logger.info(f"[ORCHESTRATOR] All tasks for {model_name} pk={object_pk} triggered. Scheduling evaluation.")
     async_task(
         'client_profile.tasks.final_evaluation',
         model_name,
@@ -516,35 +528,61 @@ def run_all_verifications(model_name, object_pk, is_create=False):
         q_options={'eta': timezone.now() + timedelta(minutes=3)}
     )
 
-def final_evaluation(model_name, object_pk, retry_count=0):
+
+def notification_already_sent(obj, notif_type):
+    content_type = ContentType.objects.get_for_model(obj)
+    return OnboardingNotification.objects.filter(
+        content_type=content_type,
+        object_id=obj.pk,
+        notification_type=notif_type
+    ).exists()
+
+def mark_notification_sent(obj, notif_type):
+    content_type = ContentType.objects.get_for_model(obj)
+    OnboardingNotification.objects.get_or_create(
+        content_type=content_type,
+        object_id=obj.pk,
+        notification_type=notif_type
+    )
+
+def final_evaluation(model_name, object_pk, retry_count=0, is_reminder=False):
     """
-    Final, robust evaluator. It checks if all tasks are done.
-    If not, it reschedules itself to check again in 20 seconds.
-    This is the final safeguard against running too early.
+    REVISED: This task now correctly handles all states and cleans up scheduled tasks.
     """
     from django.apps import apps
     from django.utils import timezone
     from datetime import timedelta
-    from client_profile.utils import get_frontend_dashboard_url
     from django_q.models import Schedule
+    from client_profile.utils import get_frontend_dashboard_url, send_referee_emails
+    from django.contrib.contenttypes.models import ContentType
+    from django_q.tasks import async_task
+    import logging
 
-    # Prevent infinite loops
-    if retry_count > 15: # Stop after 15 retries * 20 seconds = 5 minutes
-        print(f"[FINAL EVALUATION] ERROR: Timed out for pk={object_pk}.")
-        return
+    logger = logging.getLogger("client_profile.tasks")
 
     Model = apps.get_model("client_profile", model_name)
     try:
         obj = Model.objects.get(pk=object_pk)
     except Model.DoesNotExist:
+        logger.error(f"[FINAL EVALUATION] ERROR: No object for pk={object_pk}")
         return
 
-    # --- 1. Dynamically build the list of required checks ---
+    def cancel_pending_reminders():
+        Schedule.objects.filter(
+            func='client_profile.tasks.final_evaluation',
+            args=f"'{model_name}',{object_pk}"
+        ).delete()
+        logger.info(f"[FINAL EVALUATION] pk={object_pk} reached a final state. All pending reminders cancelled.")
+
+    if retry_count > 15:
+        logger.error(f"[FINAL EVALUATION] Timed out waiting for automated tasks for {model_name} pk={object_pk}.")
+        cancel_pending_reminders()
+        return
+
     required_checks = []
     model_name_lower = model_name.lower()
-
     if model_name_lower == 'owneronboarding':
-        if obj.role == "PHARMACIST": required_checks.append('ahpra')
+        if getattr(obj, 'role', None) == "PHARMACIST": required_checks.append('ahpra')
     elif model_name_lower == 'pharmacistonboarding':
         required_checks.extend(['gov_id', 'ahpra'])
         if obj.payment_preference == "ABN":
@@ -554,75 +592,74 @@ def final_evaluation(model_name, object_pk, retry_count=0):
             required_checks.append('tfn_declaration')
     elif model_name_lower == 'otherstaffonboarding':
         required_checks.append('gov_id')
-        if obj.payment_preference == 'ABN': required_checks.append('abn')
-        if obj.payment_preference == 'TFN': required_checks.append('tfn_declaration')
-        if obj.gst_registered: required_checks.append('gst_file')
-        if obj.role_type == 'INTERN': required_checks.extend(['ahpra_proof', 'hours_proof'])
-        if obj.role_type in ['ASSISTANT', 'TECHNICIAN']: required_checks.append('certificate')
-        if obj.role_type == 'STUDENT': required_checks.append('university_id')
-        if obj.cpr_certificate: required_checks.append('cpr_certificate')
-        if obj.s8_certificate: required_checks.append('s8_certificate')
+        if obj.payment_preference == 'ABN' and obj.abn: required_checks.append('abn')
+        if obj.payment_preference == 'TFN' and obj.tfn_declaration: required_checks.append('tfn_declaration')
+        if obj.gst_registered and obj.gst_file: required_checks.append('gst_file')
+        if getattr(obj, 'role_type', None) == 'INTERN': required_checks.extend(['ahpra_proof', 'hours_proof'])
+        if getattr(obj, 'role_type', None) in ['ASSISTANT', 'TECHNICIAN']: required_checks.append('certificate')
+        if getattr(obj, 'role_type', None) == 'STUDENT': required_checks.append('university_id')
+        if getattr(obj, 'cpr_certificate', None): required_checks.append('cpr_certificate')
+        if getattr(obj, 's8_certificate', None): required_checks.append('s8_certificate')
     elif model_name_lower == 'exploreronboarding':
         required_checks.append('gov_id')
 
+    has_failed_check, is_pending_check, failure_reasons = False, False, []
+    for check in required_checks:
+        verified_flag, note_flag = f"{check}_verified", f"{check}_verification_note"
+        if hasattr(obj, verified_flag):
+            is_verified, note = getattr(obj, verified_flag), getattr(obj, note_flag, "")
+            if not is_verified and note:
+                has_failed_check = True
+                failure_reasons.append(note)
+            elif not is_verified and not note:
+                is_pending_check = True
 
-    # --- 2. CHECK IF REQUIRED TASKS ARE FINISHED OR HAVE FAILED ---
-    pending_checks = []
-    has_concrete_failure = False
-    for check_prefix in required_checks:
-        verified_flag = f"{check_prefix}_verified"
-        note_flag = f"{check_prefix}_verification_note"
-        if hasattr(obj, verified_flag) and hasattr(obj, note_flag):
-            is_verified = getattr(obj, verified_flag)
-            note = getattr(obj, note_flag)
-            if not is_verified and not note:
-                pending_checks.append(check_prefix)
-            elif not is_verified and note:
-                # A task has finished and failed!
-                has_concrete_failure = True
+    referees_needed = model_name_lower in ['pharmacistonboarding', 'otherstaffonboarding', 'exploreronboarding']
+    is_pending_referee = False
+    if referees_needed:
+        for idx in [1, 2]:
+            if getattr(obj, f"referee{idx}_rejected", False):
+                has_failed_check = True
+                failure_reasons.append(f"Referee {idx} has declined the request.")
+            elif not getattr(obj, f"referee{idx}_confirmed", False):
+                is_pending_referee = True
 
-    # --- THIS IS THE CRITICAL FIX ---
-    # If there is a concrete failure, we stop polling and proceed immediately to the end.
-    if not has_concrete_failure and pending_checks:
-        print(f"[FINAL EVALUATION] pk={object_pk} is waiting for: {pending_checks}. Re-checking in 20 seconds...")
-        Schedule.objects.create(
-            func='client_profile.tasks.final_evaluation',
-            args=f"'{model_name}',{object_pk}",
-            kwargs={'retry_count': retry_count + 1},
-            schedule_type=Schedule.ONCE,
-            next_run=timezone.now() + timedelta(seconds=20)
-        )
+    if has_failed_check:
+        logger.info(f"[FINAL EVALUATION] pk={object_pk} has FAILED. Reason(s): {failure_reasons}")
+        obj.verified = False
+        obj.save(update_fields=['verified'])
+        if not notification_already_sent(obj, 'failed'):
+            async_task('users.tasks.send_async_email', subject="Action Required: Your Profile Verification Needs Attention", recipient_list=[obj.user.email], template_name="emails/profile_verification_failed.html", context={"user_first_name": obj.user.first_name, "model_type": model_name, "verification_reasons": failure_reasons, "frontend_profile_link": get_frontend_dashboard_url(obj.user)}, text_template="emails/profile_verification_failed.txt")
+            mark_notification_sent(obj, 'failed')
+        cancel_pending_reminders()
         return
 
-    # --- 3. IF WE GET HERE, TASKS ARE EITHER ALL PASSED, OR ONE HAS FAILED. ---
-    print(f"[FINAL EVALUATION] All required tasks for pk={object_pk} are complete or a failure was detected.")
-    
-    all_checks_passed = True
-    verification_reasons = []
+    if is_pending_check:
+        logger.info(f"[FINAL EVALUATION] pk={object_pk} is waiting for automated tasks. Re-checking in 20s.")
+        Schedule.objects.create(func='client_profile.tasks.final_evaluation', args=f"'{model_name}',{object_pk}", kwargs={'retry_count': retry_count + 1}, schedule_type=Schedule.ONCE, next_run=timezone.now() + timedelta(seconds=20))
+        return
 
-    # Re-build the reasons list from the final object state
-    for check in required_checks:
-        if not getattr(obj, f"{check}_verified", False):
-            all_checks_passed = False
-            note = getattr(obj, f"{check}_verification_note", f"{check.upper()} verification pending.")
-            if note: verification_reasons.append(note)
-    
-    if model_name_lower in ['pharmacistonboarding', 'otherstaffonboarding', 'exploreronboarding']:
-        if not obj.referee1_confirmed: all_checks_passed = False; verification_reasons.append("Referee 1 confirmation pending.")
-        if not obj.referee2_confirmed: all_checks_passed = False; verification_reasons.append("Referee 2 confirmation pending.")
+    if is_pending_referee:
+        logger.info(f"[FINAL EVALUATION] pk={object_pk} is waiting for referee confirmation.")
+        obj.verified = False
+        obj.save(update_fields=['verified'])
+        if is_reminder:
+            logger.info(f"[FINAL EVALUATION] Sending 24-hour reminder emails for pk={object_pk}.")
+            send_referee_emails(obj)
+        cancel_pending_reminders()
+        Schedule.objects.create(func='client_profile.tasks.final_evaluation', args=f"'{model_name}',{object_pk}", kwargs={'is_reminder': True}, schedule_type=Schedule.ONCE, next_run=timezone.now() + timedelta(hours=24))
+        logger.info(f"[FINAL EVALUATION] Scheduled next referee check for pk={object_pk} in 24h.")
+        return
 
-    # --- 4. Final Email and Status Logic ---
-    was_verified = obj.verified
-    target_verified_status = all_checks_passed
-    obj.verified = target_verified_status
+    logger.info(f"[FINAL EVALUATION] pk={object_pk} has been successfully VERIFIED.")
+    obj.verified = True
     obj.save(update_fields=['verified'])
-
-    if target_verified_status and not was_verified:
+    if not notification_already_sent(obj, 'verified'):
         async_task('users.tasks.send_async_email', subject="🎉 Your Profile is Verified! 🎉", recipient_list=[obj.user.email], template_name="emails/profile_verified.html", context={"user_first_name": obj.user.first_name, "model_type": model_name, "frontend_profile_link": get_frontend_dashboard_url(obj.user)}, text_template="emails/profile_verified.txt")
-        print(f"[FINAL EVALUATION] pk={object_pk} is now VERIFIED. Success email sent.")
-    elif not target_verified_status and verification_reasons:
-        async_task('users.tasks.send_async_email', subject="Action Required: Your Profile Verification Needs Attention", recipient_list=[obj.user.email], template_name="emails/profile_verification_failed.html", context={"user_first_name": obj.user.first_name, "model_type": model_name, "verification_reasons": verification_reasons, "frontend_profile_link": get_frontend_dashboard_url(obj.user)}, text_template="emails/profile_verification_failed.txt")
-        print(f"[FINAL EVALUATION] pk={object_pk} is NOT verified. Failure report sent.")
+        mark_notification_sent(obj, 'verified')
+    cancel_pending_reminders()
+    return
+
 
 
 # ========== Shift Reminder (Scheduled) ==========
@@ -639,7 +676,7 @@ def send_shift_reminders():
             slot__start_time__lt=window_end.time(),
         )
 
-    print(f"[send_shift_reminders] Found {assignments.count()} assignments for reminders.")
+    logger.info(f"[send_shift_reminders] Found {assignments.count()} assignments for reminders.")
     for assignment in assignments:
         shift = assignment.shift
         candidate = assignment.user
@@ -660,5 +697,5 @@ def send_shift_reminders():
             text_template="emails/shift_reminder.txt"
         )
 
-    print("[send_shift_reminders] Completed sending reminders.")
+    logger.info("[send_shift_reminders] Completed sending reminders.")
 

@@ -7,6 +7,11 @@ Hi {{ referee_name|default:"there" }},
 Please confirm you are happy to be a referee by clicking the link below:
 {{ confirm_url }}
 
+Or reject this request:
+{{ reject_url }}
+
+If you want to stop receiving these emails, please reject the reference request using the link above.
+
 If you have questions, reply to this email or contact ChemistTasker support.
 
 — The ChemistTasker Team

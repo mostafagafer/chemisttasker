@@ -10,13 +10,14 @@ from client_profile.utils import send_referee_emails, notify_superuser_on_onboar
 from datetime import date, timedelta
 from django.utils import timezone
 from django_q.tasks import async_task
+import logging
+logger = logging.getLogger(__name__)
 User = get_user_model()
+from django_q.models import Schedule
 
 
 
 # === Onboardings ===
-
-
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
@@ -35,29 +36,21 @@ def verification_fields_changed(instance, validated_data, fields):
             old_name = getattr(old, "name", None)
             new_name = getattr(new, "name", None)
             if (old_name or "").strip() != (new_name or "").strip():
-                print(f"[DEBUG] FileField '{field}' changed: {old_name} -> {new_name}")
                 return True
         else:
-            if (old or "").strip() != (new or "").strip():
-                print(f"[DEBUG] Field '{field}' changed: {old!r} -> {new!r}")
+            # Important: Convert both to string to handle bools, numbers, etc.
+            if str(old or "").strip() != str(new or "").strip():
                 return True
     return False
 
 class RemoveOldFilesMixin:
-    """
-    Mixin to delete old file blobs before saving new uploads on specified file fields.
-    """
     file_fields: list[str] = []
-
     def update(self, instance, validated_data):
         for field_name in self.file_fields:
             if field_name in validated_data:
-                new_file = validated_data[field_name]
-                old_file = getattr(instance, field_name)
-
-                if old_file and old_file.name:
-                    if new_file is None or old_file.name != new_file.name:
-                        old_file.delete(save=False)
+                new_file, old_file = validated_data[field_name], getattr(instance, field_name)
+                if old_file and old_file.name and (new_file is None or old_file.name != new_file.name):
+                    old_file.delete(save=False)
             elif field_name in validated_data and validated_data[field_name] is None:
                 old_file = getattr(instance, field_name)
                 if old_file:
@@ -65,50 +58,49 @@ class RemoveOldFilesMixin:
         return super().update(instance, validated_data)
 
 class SyncUserMixin:
-    """
-    Mixin to sync user fields (username, first_name, last_name) from validated_data.
-    Provides a helper static method `sync_user_fields`.
-    """
     USER_FIELDS = ['username', 'first_name', 'last_name']
-
-    @staticmethod # Changed to staticmethod
+    @staticmethod
     def sync_user_fields(user_data_from_pop, user_instance):
-        """
-        Helper method to sync user fields.
-        """
         updated_fields = []
-        # Access USER_FIELDS directly if static, or pass them in.
-        # For simplicity, let's hardcode for now as it's small. Or make USER_FIELDS a class attr.
-        # Sticking with class attr and accessing via SyncUserMixin.USER_FIELDS
-        for attr in SyncUserMixin.USER_FIELDS: # Access via class name
-            if attr in user_data_from_pop:
-                if getattr(user_instance, attr) != user_data_from_pop[attr]:
-                    setattr(user_instance, attr, user_data_from_pop[attr])
-                    updated_fields.append(attr)
+        for attr in SyncUserMixin.USER_FIELDS:
+            if attr in user_data_from_pop and getattr(user_instance, attr) != user_data_from_pop[attr]:
+                setattr(user_instance, attr, user_data_from_pop[attr])
+                updated_fields.append(attr)
         if updated_fields:
             user_instance.save(update_fields=updated_fields)
 
+# === CORRECTED OnboardingVerificationMixin ===
 class OnboardingVerificationMixin:
     """
     Triggers individual verification tasks and one initial evaluation task.
-    The evaluation task will then handle waiting and rescheduling itself.
-    This approach avoids async_chain completely.
     """
     def _trigger_verification_tasks(self, instance, is_create=False):
-        # ... (This method is correct as you have it, calling Schedule.objects.create) ...
-        # For completeness, here is the final version:
-        from django_q.models import Schedule
-        from django.utils import timezone
-        from datetime import timedelta
-        from django.db import transaction
-
+        # Reset automated verification fields
         verification_fields_to_reset = [f for f in instance._meta.fields if f.name.endswith('_verified')]
-        for field in verification_fields_to_reset: setattr(instance, field.name, False)
+        for field in verification_fields_to_reset:
+            setattr(instance, field.name, False)
+        
         note_fields_to_reset = [f for f in instance._meta.fields if f.name.endswith('_verification_note')]
-        for field in note_fields_to_reset: setattr(instance, field.name, "")
+        for field in note_fields_to_reset:
+            setattr(instance, field.name, "")
+            
         instance.verified = False
+        
         update_fields = [f.name for f in verification_fields_to_reset] + [f.name for f in note_fields_to_reset] + ['verified']
-        if update_fields: instance.save(update_fields=update_fields)
+
+        # FIX: ADD THIS BLOCK TO RESET REFEREE STATUSES
+        # This ensures that when a referee is changed, the old rejection/confirmation is cleared.
+        referee_fields_to_reset = [
+            'referee1_confirmed', 'referee1_rejected',
+            'referee2_confirmed', 'referee2_rejected'
+        ]
+        for field_name in referee_fields_to_reset:
+            if hasattr(instance, field_name):
+                setattr(instance, field_name, False)
+                update_fields.append(field_name)
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
 
         def schedule_orchestrator():
             Schedule.objects.create(
@@ -120,7 +112,8 @@ class OnboardingVerificationMixin:
             )
         transaction.on_commit(schedule_orchestrator)
 
-class OwnerOnboardingSerializer(OnboardingVerificationMixin, SyncUserMixin, serializers.ModelSerializer):
+
+class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
     file_fields = []
 
     username   = serializers.CharField(source='user.username',   required=False)
@@ -154,33 +147,34 @@ class OwnerOnboardingSerializer(OnboardingVerificationMixin, SyncUserMixin, seri
             'ahpra_verification_note',
         ]
 
+    def _schedule_verification(self, instance):
+        Schedule.objects.create(
+            func='client_profile.tasks.run_all_verifications',
+            args=f"'{instance._meta.model_name}',{instance.pk}",
+            schedule_type=Schedule.ONCE,
+            next_run=timezone.now() + timedelta(seconds=10)
+        )
+
     def create(self, validated_data):
         user_data = validated_data.pop('user', {})
         user = self.context['request'].user
-        self.sync_user_fields(user_data, user) # Calling staticmethod from SyncUserMixin
-
-        obj = OwnerOnboarding.objects.create(user=user, **validated_data)
-        print("[DEBUG] About to trigger verification tasks")
-
-        self._trigger_verification_tasks(obj, is_create=True)
-
-        notify_superuser_on_onboarding(obj)
-        return obj
+        self.sync_user_fields(user_data, user)
+        instance = OwnerOnboarding.objects.create(user=user, **validated_data)
+        self._schedule_verification(instance)
+        return instance
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})
-        user = instance.user
-        self.sync_user_fields(user_data, user)
+        self.sync_user_fields(user_data, instance.user)
 
-        VERIFICATION_FIELDS = [
-            "ahpra_number", "role"
-        ]
+        if verification_fields_changed(instance, validated_data, ["ahpra_number", "role"]):
+            instance.ahpra_verified = False
+            instance.ahpra_verification_note = ""
+            instance.verified = False
+            instance.save(update_fields=['ahpra_verified', 'ahpra_verification_note', 'verified'])
+            self._schedule_verification(instance)
 
-        obj = super().update(instance, validated_data)
-        if verification_fields_changed(instance, validated_data, VERIFICATION_FIELDS):
-            notify_superuser_on_onboarding(obj)
-            self._trigger_verification_tasks(obj, is_create=False)
-        return obj
+        return super().update(instance, validated_data)
 
     def get_progress_percent(self, obj):
         required_fields = [
@@ -198,7 +192,7 @@ class OwnerOnboardingSerializer(OnboardingVerificationMixin, SyncUserMixin, seri
         return percent
 
 
-class PharmacistOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
+class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
     file_fields = ['government_id', 'gst_file', 'tfn_declaration', 'resume']
 
     username   = serializers.CharField(source='user.username',   required=False)
@@ -272,43 +266,96 @@ class PharmacistOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFiles
             'progress_percent',
         ]
 
+    def _schedule_verification(self, instance):
+        """Helper to cancel any old tasks and schedule a new one."""
+        # This is CRITICAL to prevent race conditions from multiple saves.
+        Schedule.objects.filter(
+            func='client_profile.tasks.run_all_verifications',
+            args=f"'{instance._meta.model_name}',{instance.pk}"
+        ).delete()
+        Schedule.objects.create(
+            func='client_profile.tasks.run_all_verifications',
+            args=f"'{instance._meta.model_name}',{instance.pk}",
+            schedule_type=Schedule.ONCE,
+            next_run=timezone.now() + timedelta(seconds=10)
+        )
+
     def create(self, validated_data):
         user_data = validated_data.pop('user', {})
         user = self.context['request'].user
-        self.sync_user_fields(user_data, user) # Calling staticmethod from SyncUserMixin
-
-        obj = PharmacistOnboarding.objects.create(user=user, **validated_data)
-
-        submitted_now = validated_data.get('submitted_for_verification', False)
-        if submitted_now:
-            send_referee_emails(obj, validated_data, creation=True)
-            notify_superuser_on_onboarding(obj)
-            self._trigger_verification_tasks(obj, is_create=True)
-
-        return obj
+        self.sync_user_fields(user_data, user)
+        instance = PharmacistOnboarding.objects.create(user=user, **validated_data)
+        if validated_data.get('submitted_for_verification', False):
+            self._schedule_verification(instance)
+        return instance
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})
-        user = instance.user
-        self.sync_user_fields(user_data, user)
+        self.sync_user_fields(user_data, instance.user)
 
-        VERIFICATION_FIELDS = [
-            "ahpra_number", "government_id", "abn", "gst_file", "tfn_declaration",
-            "payment_preference", "gst_registered"
-        ]
-
-        verification_changed = verification_fields_changed(instance, validated_data, VERIFICATION_FIELDS)
-
+        # IMPORTANT: Check for changes *before* saving the instance
         submitted_before = instance.submitted_for_verification
-        submitted_now = validated_data.get('submitted_for_verification', submitted_before)
+        
+        # Check which specific groups of fields have changed
+        ahpra_changed = verification_fields_changed(instance, validated_data, ["ahpra_number"])
+        gov_id_changed = verification_fields_changed(instance, validated_data, ["government_id"])
+        payment_changed = verification_fields_changed(instance, validated_data, ["payment_preference", "abn", "gst_registered", "gst_file", "tfn_declaration"])
+        referee1_changed = verification_fields_changed(instance, validated_data, ["referee1_name", "referee1_relation", "referee1_email"])
+        referee2_changed = verification_fields_changed(instance, validated_data, ["referee2_name", "referee2_relation", "referee2_email"])
 
-        obj = super().update(instance, validated_data)
+        # Apply the user's changes to the instance
+        instance = super().update(instance, validated_data)
 
-        if (not submitted_before and submitted_now) or verification_changed:
-            send_referee_emails(obj, validated_data, creation=False)
-            notify_superuser_on_onboarding(obj)
-            self._trigger_verification_tasks(obj, is_create=False)
-        return obj
+        # Now, check if we need to do any resets
+        submitted_now = instance.submitted_for_verification
+        needs_reschedule = False
+        update_fields = []
+
+        # On first-time submission, reset everything
+        if not submitted_before and submitted_now:
+            needs_reschedule = True
+            # Reset all verification fields
+            for f in instance._meta.fields:
+                if f.name.endswith('_verified') or f.name.endswith('_verification_note'):
+                    setattr(instance, f.name, False if f.name.endswith('_verified') else "")
+                    update_fields.append(f.name)
+            # Reset referee statuses
+            instance.referee1_confirmed, instance.referee1_rejected = False, False
+            instance.referee2_confirmed, instance.referee2_rejected = False, False
+            update_fields.extend(['referee1_confirmed', 'referee1_rejected', 'referee2_confirmed', 'referee2_rejected'])
+        else: # For subsequent updates, only reset what changed
+            if ahpra_changed:
+                instance.ahpra_verified, instance.ahpra_verification_note = False, ""
+                update_fields.extend(['ahpra_verified', 'ahpra_verification_note'])
+                needs_reschedule = True
+            if gov_id_changed:
+                instance.gov_id_verified, instance.gov_id_verification_note = False, ""
+                update_fields.extend(['gov_id_verified', 'gov_id_verification_note'])
+                needs_reschedule = True
+            if payment_changed:
+                instance.abn_verified, instance.abn_verification_note = False, ""
+                instance.gst_file_verified, instance.gst_file_verification_note = False, ""
+                instance.tfn_declaration_verified, instance.tfn_declaration_verification_note = False, ""
+                update_fields.extend(['abn_verified', 'abn_verification_note', 'gst_file_verified', 'gst_file_verification_note', 'tfn_declaration_verified', 'tfn_declaration_verification_note'])
+                needs_reschedule = True
+            if referee1_changed:
+                instance.referee1_confirmed, instance.referee1_rejected = False, False
+                update_fields.extend(['referee1_confirmed', 'referee1_rejected'])
+                needs_reschedule = True
+            if referee2_changed:
+                instance.referee2_confirmed, instance.referee2_rejected = False, False
+                update_fields.extend(['referee2_confirmed', 'referee2_rejected'])
+                needs_reschedule = True
+
+        # If any resets were performed, save them
+        if needs_reschedule:
+            instance.verified = False
+            update_fields.append('verified')
+            instance.save(update_fields=list(set(update_fields)))
+            self._schedule_verification(instance)
+            
+        return instance
+
 
     def validate(self, data):
         submit = data.get('submitted_for_verification') \
@@ -396,7 +443,7 @@ class PharmacistOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFiles
         return percent
 
 
-class OtherStaffOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
+class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
     file_fields = [
         'government_id', 'ahpra_proof', 'hours_proof',
         'certificate', 'university_id', 'cpr_certificate', 's8_certificate',
@@ -489,40 +536,72 @@ class OtherStaffOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFiles
             'progress_percent',
         ]
 
+    def _schedule_verification(self, instance):
+        Schedule.objects.filter(func='client_profile.tasks.run_all_verifications', args=f"'{instance._meta.model_name}',{instance.pk}").delete()
+        Schedule.objects.create(
+            func='client_profile.tasks.run_all_verifications',
+            args=f"'{instance._meta.model_name}',{instance.pk}",
+            schedule_type=Schedule.ONCE,
+            next_run=timezone.now() + timedelta(seconds=10)
+        )
+
     def create(self, validated_data):
         user_data = validated_data.pop('user', {})
         user = self.context['request'].user
-        self._sync_user_fields(user_data, user)
-
-        obj = OtherStaffOnboarding.objects.create(user=user, **validated_data)
-        submitted_now = validated_data.get('submitted_for_verification', False)
-        if submitted_now:
-            send_referee_emails(obj, validated_data, creation=True)
-            notify_superuser_on_onboarding(obj)
-            self._trigger_verification_tasks(obj, is_create=True)
-
-        return obj
+        self.sync_user_fields(user_data, user)
+        instance = OtherStaffOnboarding.objects.create(user=user, **validated_data)
+        if validated_data.get('submitted_for_verification', False):
+            self._schedule_verification(instance)
+        return instance
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})
-        user = instance.user
-        self.sync_user_fields(user_data, user)
+        self.sync_user_fields(user_data, instance.user)
 
-        VERIFICATION_FIELDS = [
-            "abn", "government_id", "ahpra_proof", "hours_proof", "certificate", "university_id",
-            "cpr_certificate", "s8_certificate", "gst_file", "tfn_declaration",
-            "gst_registered", "payment_preference", "role_type"
-        ]
-        obj = super().update(instance, validated_data)
         submitted_before = instance.submitted_for_verification
-        submitted_now = validated_data.get('submitted_for_verification', submitted_before)
+        fields_to_reset = []
+        
+        verifiable_fields = {
+            "gov_id": ["government_id"], "payment": ["payment_preference", "abn", "gst_registered", "gst_file", "tfn_declaration"],
+            "role_docs": ["role_type", "ahpra_proof", "hours_proof", "certificate", "university_id", "cpr_certificate", "s8_certificate"],
+            "referee1": ["referee1_name", "referee1_relation", "referee1_email"], "referee2": ["referee2_name", "referee2_relation", "referee2_email"],
+        }
+        
+        for key, fields in verifiable_fields.items():
+            if verification_fields_changed(instance, validated_data, fields):
+                if key == "gov_id": fields_to_reset.extend(['gov_id_verified', 'gov_id_verification_note'])
+                if key == "payment": fields_to_reset.extend(['abn_verified', 'abn_verification_note', 'gst_file_verified', 'gst_file_verification_note', 'tfn_declaration_verified', 'tfn_declaration_verification_note'])
+                if key == "role_docs": fields_to_reset.extend(['ahpra_proof_verified', 'ahpra_proof_verification_note', 'hours_proof_verified', 'hours_proof_verification_note', 'certificate_verified', 'certificate_verification_note', 'university_id_verified', 'university_id_verification_note', 'cpr_certificate_verified', 'cpr_certificate_verification_note', 's8_certificate_verified', 's8_certificate_verification_note'])
+                if key == "referee1": fields_to_reset.extend(['referee1_confirmed', 'referee1_rejected'])
+                if key == "referee2": fields_to_reset.extend(['referee2_confirmed', 'referee2_rejected'])
+        
+        instance = super().update(instance, validated_data)
+        
+        submitted_now = instance.submitted_for_verification
+        needs_reschedule = bool(fields_to_reset)
 
-        if (not submitted_before and submitted_now) or verification_fields_changed(instance, validated_data, VERIFICATION_FIELDS):
+        if not submitted_before and submitted_now:
+            for f in instance._meta.fields:
+                if f.name.endswith(('_verified', '_confirmed', '_rejected')):
+                    setattr(instance, f.name, False)
+                    fields_to_reset.append(f.name)
+                elif f.name.endswith('_verification_note'):
+                    setattr(instance, f.name, "")
+                    fields_to_reset.append(f.name)
+            instance.verified = False
+            fields_to_reset.append('verified')
+            needs_reschedule = True
+        elif needs_reschedule:
+            for field in fields_to_reset:
+                setattr(instance, field, False if field.endswith(('_verified', '_confirmed', '_rejected')) else "")
+            instance.verified = False
+            fields_to_reset.append('verified')
 
-            send_referee_emails(obj, validated_data, creation=False)
-            notify_superuser_on_onboarding(obj)
-            self._trigger_verification_tasks(obj, is_create=False)
-        return obj
+        if needs_reschedule:
+            instance.save(update_fields=list(set(fields_to_reset)))
+            self._schedule_verification(instance)
+            
+        return instance
 
     def validate(self, data):
         submit = data.get('submitted_for_verification') \
@@ -705,38 +784,65 @@ class ExplorerOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFilesMi
             'progress_percent',
         ]
 
+    def _schedule_verification(self, instance):
+        Schedule.objects.filter(func='client_profile.tasks.run_all_verifications', args=f"'{instance._meta.model_name}',{instance.pk}").delete()
+        Schedule.objects.create(
+            func='client_profile.tasks.run_all_verifications',
+            args=f"'{instance._meta.model_name}',{instance.pk}",
+            schedule_type=Schedule.ONCE,
+            next_run=timezone.now() + timedelta(seconds=10)
+        )
+
     def create(self, validated_data):
         user_data = validated_data.pop('user', {})
         user = self.context['request'].user
-        self._sync_user_fields(user_data, user)
-
-        obj = ExplorerOnboarding.objects.create(user=user, **validated_data)
-        submitted_now = validated_data.get('submitted_for_verification', False)
-        if submitted_now:
-            send_referee_emails(obj, validated_data, creation=True)
-            notify_superuser_on_onboarding(obj)
-            self._trigger_verification_tasks(obj, is_create=True)
-
-        return obj
+        self.sync_user_fields(user_data, user)
+        instance = ExplorerOnboarding.objects.create(user=user, **validated_data)
+        if validated_data.get('submitted_for_verification', False):
+            self._schedule_verification(instance)
+        return instance
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})
-        user = instance.user
-        self.sync_user_fields(user_data, user)
+        self.sync_user_fields(user_data, instance.user)
 
-        VERIFICATION_FIELDS = [
-            "government_id"
-        ]
-        obj = super().update(instance, validated_data)
         submitted_before = instance.submitted_for_verification
-        submitted_now = validated_data.get('submitted_for_verification', submitted_before)
+        fields_to_reset = []
 
-        if (not submitted_before and submitted_now) or verification_fields_changed(instance, validated_data, VERIFICATION_FIELDS):
-            send_referee_emails(obj, validated_data, creation=False)
-            notify_superuser_on_onboarding(obj)
-            self._trigger_verification_tasks(obj, is_create=False)
-        return obj
+        if verification_fields_changed(instance, validated_data, ["government_id"]):
+            fields_to_reset.extend(['gov_id_verified', 'gov_id_verification_note'])
+        if verification_fields_changed(instance, validated_data, ["referee1_name", "referee1_relation", "referee1_email"]):
+            fields_to_reset.extend(['referee1_confirmed', 'referee1_rejected'])
+        if verification_fields_changed(instance, validated_data, ["referee2_name", "referee2_relation", "referee2_email"]):
+            fields_to_reset.extend(['referee2_confirmed', 'referee2_rejected'])
 
+        instance = super().update(instance, validated_data)
+        
+        submitted_now = instance.submitted_for_verification
+        needs_reschedule = bool(fields_to_reset)
+
+        if not submitted_before and submitted_now:
+            for f in instance._meta.fields:
+                if f.name.endswith(('_verified', '_confirmed', '_rejected')):
+                    setattr(instance, f.name, False)
+                    fields_to_reset.append(f.name)
+                elif f.name.endswith('_verification_note'):
+                    setattr(instance, f.name, "")
+                    fields_to_reset.append(f.name)
+            instance.verified = False
+            fields_to_reset.append('verified')
+            needs_reschedule = True
+        elif needs_reschedule:
+            for field in fields_to_reset:
+                setattr(instance, field, False if field.endswith(('_verified', '_confirmed', '_rejected')) else "")
+            instance.verified = False
+            fields_to_reset.append('verified')
+
+        if needs_reschedule:
+            instance.save(update_fields=list(set(fields_to_reset)))
+            self._schedule_verification(instance)
+            
+        return instance
     def validate(self, data):
         submit = data.get('submitted_for_verification') \
             or (self.instance and getattr(self.instance, 'submitted_for_verification', False))

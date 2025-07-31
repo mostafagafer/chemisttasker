@@ -1,31 +1,30 @@
-// RefereeConfirmPage.tsx
+// RefereeRejectPage.tsx
+
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Box, CircularProgress, Typography, Alert } from "@mui/material";
 import axios from "axios";
 import { API_BASE_URL, API_ENDPOINTS } from "../../constants/api";
-import AuthLayout from "../../layouts/AuthLayout"; // Make sure this path is correct
+import AuthLayout from "../../layouts/AuthLayout";
 
-export default function RefereeConfirmPage() {
+export default function RefereeRejectPage() {
   const { pk, refIndex } = useParams<{ pk: string; refIndex: string }>();
 
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [message, setMessage] = useState<string>("");
 
-  // This logic remains completely unchanged
   useEffect(() => {
     if (!pk || !refIndex) {
       setStatus("error");
       setMessage("Missing reference information.");
       return;
     }
-    const url = `${API_BASE_URL}${API_ENDPOINTS.refereeConfirm(pk, refIndex)}`;
-    
+    const url = `${API_BASE_URL}${API_ENDPOINTS.refereeReject(pk, refIndex)}`;
     axios
       .post(url)
       .then((res) => {
         setStatus("success");
-        setMessage(res.data?.detail || "Thank you! You have confirmed your reference for this candidate.");
+        setMessage(res.data?.message || "You have declined to be a referee for this candidate.");
       })
       .catch((err) => {
         setStatus("error");
@@ -39,18 +38,18 @@ export default function RefereeConfirmPage() {
   }, [pk, refIndex]);
 
   return (
-    <AuthLayout title="Reference Confirmation">
+    <AuthLayout title="Reference Declined">
       <Box sx={{ textAlign: 'center', width: '100%' }}>
         {status === "loading" && (
           <>
             <CircularProgress />
-            <Typography sx={{ mt: 2 }}>Confirming your reference...</Typography>
+            <Typography sx={{ mt: 2 }}>Declining your reference...</Typography>
           </>
         )}
         {status === "success" && (
-          <Alert severity="success" sx={{ textAlign: 'left' }}>
+          <Alert severity="info" sx={{ textAlign: 'left' }}>
             <Typography variant="h5" gutterBottom>
-              🎉 Reference Confirmed!
+              Reference Declined
             </Typography>
             <Typography>{message}</Typography>
           </Alert>
@@ -58,7 +57,7 @@ export default function RefereeConfirmPage() {
         {status === "error" && (
           <Alert severity="error" sx={{ textAlign: 'left' }}>
             <Typography variant="h6" gutterBottom>
-              Could not confirm
+              Could not decline
             </Typography>
             <Typography>{message}</Typography>
           </Alert>

@@ -4,6 +4,9 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from datetime import date
 import uuid
+from django.contrib.contenttypes.fields import GenericRelation, GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
+
 
 class Organization(models.Model):
     """
@@ -13,6 +16,28 @@ class Organization(models.Model):
 
     def __str__(self):
         return self.name
+
+class OnboardingNotification(models.Model):
+    # Links to any onboarding model (PharmacistOnboarding, OtherStaffOnboarding, etc.)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    onboarding = GenericForeignKey('content_type', 'object_id')
+
+    NOTIFICATION_TYPE_CHOICES = [
+        ('referee1', 'Referee 1 Email'),
+        ('referee2', 'Referee 2 Email'),
+        ('admin_notify', 'Admin/Superuser Notification'),
+        ('verified', 'Profile Verified Email'),
+        ('failed', 'Profile Verification Failed Email'),
+    ]
+    notification_type = models.CharField(max_length=32, choices=NOTIFICATION_TYPE_CHOICES)
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('content_type', 'object_id', 'notification_type')
+
+    def __str__(self):
+        return f"{self.onboarding} – {self.notification_type} sent at {self.sent_at}"
 
 class OwnerOnboarding(models.Model):
     ROLE_CHOICES = [
@@ -48,6 +73,9 @@ class OwnerOnboarding(models.Model):
     ahpra_registration_type = models.CharField(max_length=100, blank=True, null=True)
     ahpra_expiry_date = models.DateField(blank=True, null=True)
     ahpra_verification_note = models.TextField(blank=True, null=True)
+
+    # Notifications
+    notifications = GenericRelation(OnboardingNotification)
 
     class Meta:
         indexes = [
@@ -93,11 +121,15 @@ class PharmacistOnboarding(models.Model):
     referee1_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
     referee1_email = models.EmailField(blank=True, null=True)
     referee1_confirmed = models.BooleanField(default=False)
+    referee1_rejected = models.BooleanField(default=False)
+    referee1_last_sent = models.DateTimeField(null=True, blank=True)
 
     referee2_name = models.CharField(max_length=150, blank=True, null=True)
     referee2_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
     referee2_email = models.EmailField(blank=True, null=True)
     referee2_confirmed = models.BooleanField(default=False)
+    referee2_rejected = models.BooleanField(default=False)
+    referee2_last_sent = models.DateTimeField(null=True, blank=True)
 
     rate_preference = models.JSONField(blank=True, null=True)
 
@@ -121,6 +153,9 @@ class PharmacistOnboarding(models.Model):
     gst_file_verification_note = models.TextField(blank=True, null=True)
     tfn_declaration_verification_note = models.TextField(blank=True, null=True)
     abn_verification_note = models.TextField(blank=True, null=True)
+
+    # Notifications
+    notifications = GenericRelation(OnboardingNotification)
 
     def __str__(self):
         return f"{self.user.get_full_name()} - Onboarding"
@@ -196,12 +231,15 @@ class OtherStaffOnboarding(models.Model):
     referee1_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
     referee1_email = models.EmailField(blank=True, null=True)
     referee1_confirmed = models.BooleanField(default=False)
+    referee1_rejected = models.BooleanField(default=False)
+    referee1_last_sent = models.DateTimeField(null=True, blank=True)
 
     referee2_name = models.CharField(max_length=150, blank=True, null=True)
     referee2_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
     referee2_email = models.EmailField(blank=True, null=True)
     referee2_confirmed = models.BooleanField(default=False)
-
+    referee2_rejected = models.BooleanField(default=False)
+    referee2_last_sent = models.DateTimeField(null=True, blank=True)
 
     # Additional info
     short_bio = models.TextField(blank=True, null=True)
@@ -241,6 +279,8 @@ class OtherStaffOnboarding(models.Model):
     abn_verified = models.BooleanField(default=False, db_index=True)
     abn_verification_note = models.TextField(blank=True, null=True)
 
+    # Notifications
+    notifications = GenericRelation(OnboardingNotification)
 
     def __str__(self):
         return f"{self.user.get_full_name()} - {self.role_type} Onboarding"
@@ -268,17 +308,20 @@ class ExplorerOnboarding(models.Model):
     interests = models.JSONField(default=list, blank=True, null=True)
     # e.g. ['Shadowing','Volunteering','Placement','Junior Assistant Role']
 
-    # Referee 1
+    # Referees
     referee1_name = models.CharField(max_length=150, blank=True, null=True)
     referee1_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
     referee1_email = models.EmailField(blank=True, null=True)
     referee1_confirmed = models.BooleanField(default=False)
+    referee1_rejected = models.BooleanField(default=False)
+    referee1_last_sent = models.DateTimeField(null=True, blank=True)
 
-    # Referee 2
     referee2_name = models.CharField(max_length=150, blank=True, null=True)
     referee2_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
     referee2_email = models.EmailField(blank=True, null=True)
     referee2_confirmed = models.BooleanField(default=False)
+    referee2_rejected = models.BooleanField(default=False)
+    referee2_last_sent = models.DateTimeField(null=True, blank=True)
 
     short_bio = models.TextField(blank=True, null=True)
     resume = models.FileField(upload_to='resumes/', blank=True, null=True)
@@ -289,6 +332,10 @@ class ExplorerOnboarding(models.Model):
     # Verification Fields
     gov_id_verified = models.BooleanField(default=False, db_index=True)
     gov_id_verification_note = models.TextField(blank=True, null=True)
+
+
+    # Notifications
+    notifications = GenericRelation(OnboardingNotification)
 
     def __str__(self):
         return f"{self.user.get_full_name()} - Explorer Onboarding"

@@ -30,6 +30,7 @@ class Http400(APIException):
     default_code = 'bad_request'
 from django_q.tasks import async_task
 from datetime import date, datetime
+from django_q.models import Schedule
 
 # Onboardings
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -175,42 +176,66 @@ class ExplorerOnboardingDetailView(RetrieveUpdateAPIView):
             raise NotFound("Onboarding profile not found for this user.")
 
 class RefereeConfirmView(APIView):
-    """
-    POST /api/client-profile/onboarding/referee-confirm/<profile_pk>/<ref_idx>/
-    Generic for ALL onboarding profiles.
-    """
-
-    def post(self, request, profile_pk, ref_idx):
+    def post(self, request, profile_pk, ref_idx, *args, **kwargs):
         onboarding_models = [PharmacistOnboarding, OtherStaffOnboarding, ExplorerOnboarding]
-
-        instance = None
-        model_name = None
+        instance, model_name = None, None
         for Model in onboarding_models:
             try:
                 instance = Model.objects.get(pk=profile_pk)
                 model_name = Model._meta.model_name
                 break
-            except Model.DoesNotExist:
-                continue
-
-        if not instance:
-            return Response({'detail': 'Onboarding profile not found.'}, status=404)
+            except Model.DoesNotExist: continue
+        if not instance: return Response({'detail': 'Onboarding profile not found.'}, status=404)
 
         if str(ref_idx) == "1":
             instance.referee1_confirmed = True
+            instance.referee1_rejected = False
         elif str(ref_idx) == "2":
             instance.referee2_confirmed = True
-        else:
-            return Response({'detail': 'Invalid referee index.'}, status=400)
-
+            instance.referee2_rejected = False
+        else: return Response({'detail': 'Invalid referee index.'}, status=400)
         instance.save()
 
-        # <<< --- 2. ADD THIS CRITICAL LINE ---
-        # After saving, trigger a re-evaluation. If the referee was the last missing piece,
-        # this will mark the entire profile as verified.
+        # FIX: Cancel any old, scheduled tasks to prevent race conditions.
+        Schedule.objects.filter(
+            func='client_profile.tasks.final_evaluation',
+            args=f"'{model_name}',{instance.pk}"
+        ).delete()
+
+        # Now, safely trigger a new, immediate evaluation.
         async_task('client_profile.tasks.final_evaluation', model_name, instance.pk)
-        
         return Response({'success': True, 'message': 'Referee confirmed.'}, status=200)
+
+class RefereeRejectView(APIView):
+    def post(self, request, profile_pk, ref_idx, *args, **kwargs):
+        onboarding_models = [PharmacistOnboarding, OtherStaffOnboarding, ExplorerOnboarding]
+        instance, model_name = None, None
+        for Model in onboarding_models:
+            try:
+                instance = Model.objects.get(pk=profile_pk)
+                model_name = Model._meta.model_name
+                break
+            except Model.DoesNotExist: continue
+        if not instance: return Response({'detail': 'Onboarding profile not found.'}, status=404)
+
+        if str(ref_idx) == "1":
+            instance.referee1_confirmed = False
+            instance.referee1_rejected = True
+        elif str(ref_idx) == "2":
+            instance.referee2_confirmed = False
+            instance.referee2_rejected = True
+        else: return Response({'detail': 'Invalid referee index.'}, status=400)
+        instance.save()
+        
+        # FIX: Also cancel pending tasks on rejection.
+        Schedule.objects.filter(
+            func='client_profile.tasks.final_evaluation',
+            args=f"'{model_name}',{instance.pk}"
+        ).delete()
+        
+        # Trigger an immediate failure evaluation.
+        async_task('client_profile.tasks.final_evaluation', model_name, instance.pk)
+        return Response({'success': True, 'message': 'Referee rejected.'}, status=200)
 
 # Dashboards
 class OrganizationDashboardView(APIView):

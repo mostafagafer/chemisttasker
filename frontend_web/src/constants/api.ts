@@ -33,6 +33,9 @@ export const API_ENDPOINTS = {
   refereeConfirm: (pk: string | number, refIndex: string | number) =>
     `/client-profile/onboarding/referee-confirm/${pk}/${refIndex}/`,
 
+  refereeReject: (pk: string | number, refIndex: string | number) =>
+  `/client-profile/onboarding/referee-reject/${pk}/${refIndex}/`,
+
   // invite & claim
   inviteOrgUser: '/users/invite-org-user/',
   passwordReset: '/users/password-reset/', 

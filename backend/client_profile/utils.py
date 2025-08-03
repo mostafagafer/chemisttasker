@@ -84,10 +84,10 @@ def clean_email(email):
     # \u200e (LTR), \u200f (RTL), \u202a-\u202e (bidi), \u200b (zero-width space), \s (any space)
     return re.sub(r'[\u200e\u200f\u202a-\u202e\u200b\s]', '', email)
 
-def send_referee_emails(obj):
+def send_referee_emails(obj, is_reminder=False):
     """
-    Sends referee email(s) for both referees if they are pending.
-    Always safe to call: it will only send to referees who are neither confirmed nor rejected.
+    Sends referee email(s). Now handles both initial requests and reminders
+    by choosing the correct template based on the `is_reminder` flag.
     """
     for idx in [1, 2]:
         email_raw = getattr(obj, f'referee{idx}_email', None)
@@ -96,14 +96,27 @@ def send_referee_emails(obj):
         name = getattr(obj, f'referee{idx}_name', '')
         relation = getattr(obj, f'referee{idx}_relation', '')
         email = clean_email(email_raw)
+
         if email and not confirmed and not rejected:
+            # --- FIX: CHOOSE TEMPLATE AND SUBJECT BASED ON THE REMINDER FLAG ---
+            if is_reminder:
+                subject = f"Gentle Reminder: Reference Request for {obj.user.get_full_name()}"
+                template_name = "emails/referee_reminder.html"
+                text_template = "emails/referee_reminder.txt" # Assumes you have a .txt version
+            else:
+                subject = "Reference Request: Please Confirm for ChemistTasker"
+                template_name = "emails/referee_request.html"
+                text_template = "emails/referee_request.txt"
+            # --- END OF FIX ---
+
             confirm_url = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-confirm/{obj.pk}/{idx}"
             reject_url  = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-reject/{obj.pk}/{idx}"
+            
             async_task(
                 'users.tasks.send_async_email',
-                subject="Reference Request: Please Confirm for ChemistTasker",
+                subject=subject,
                 recipient_list=[email],
-                template_name="emails/referee_request.html",
+                template_name=template_name,
                 context={
                     "referee_name": name,
                     "referee_relation": relation,
@@ -113,11 +126,12 @@ def send_referee_emails(obj):
                     "confirm_url": confirm_url,
                     "reject_url": reject_url,
                 },
-                text_template="emails/referee_request.txt"
+                text_template=text_template
             )
-            # Update last sent time (used to space out reminders)
             setattr(obj, f'referee{idx}_last_sent', timezone.now())
-    obj.save()
+            
+    # Save last_sent timestamps if they were updated
+    obj.save(update_fields=['referee1_last_sent', 'referee2_last_sent'])
 
 def summarize_onboarding_fields(obj):
     summary = {}

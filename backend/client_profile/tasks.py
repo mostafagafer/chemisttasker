@@ -559,26 +559,22 @@ def final_evaluation(model_name, object_pk, retry_count=0, is_reminder=False):
     import logging
 
     logger = logging.getLogger("client_profile.tasks")
-
     Model = apps.get_model("client_profile", model_name)
     try:
         obj = Model.objects.get(pk=object_pk)
     except Model.DoesNotExist:
         logger.error(f"[FINAL EVALUATION] ERROR: No object for pk={object_pk}")
         return
-
     def cancel_pending_reminders():
         Schedule.objects.filter(
             func='client_profile.tasks.final_evaluation',
             args=f"'{model_name}',{object_pk}"
         ).delete()
         logger.info(f"[FINAL EVALUATION] pk={object_pk} reached a final state. All pending reminders cancelled.")
-
     if retry_count > 15:
         logger.error(f"[FINAL EVALUATION] Timed out waiting for automated tasks for {model_name} pk={object_pk}.")
         cancel_pending_reminders()
         return
-
     required_checks = []
     model_name_lower = model_name.lower()
     if model_name_lower == 'owneronboarding':
@@ -602,7 +598,6 @@ def final_evaluation(model_name, object_pk, retry_count=0, is_reminder=False):
         if getattr(obj, 's8_certificate', None): required_checks.append('s8_certificate')
     elif model_name_lower == 'exploreronboarding':
         required_checks.append('gov_id')
-
     has_failed_check, is_pending_check, failure_reasons = False, False, []
     for check in required_checks:
         verified_flag, note_flag = f"{check}_verified", f"{check}_verification_note"
@@ -613,7 +608,6 @@ def final_evaluation(model_name, object_pk, retry_count=0, is_reminder=False):
                 failure_reasons.append(note)
             elif not is_verified and not note:
                 is_pending_check = True
-
     referees_needed = model_name_lower in ['pharmacistonboarding', 'otherstaffonboarding', 'exploreronboarding']
     is_pending_referee = False
     if referees_needed:
@@ -623,7 +617,6 @@ def final_evaluation(model_name, object_pk, retry_count=0, is_reminder=False):
                 failure_reasons.append(f"Referee {idx} has declined the request.")
             elif not getattr(obj, f"referee{idx}_confirmed", False):
                 is_pending_referee = True
-
     if has_failed_check:
         logger.info(f"[FINAL EVALUATION] pk={object_pk} has FAILED. Reason(s): {failure_reasons}")
         obj.verified = False
@@ -633,10 +626,15 @@ def final_evaluation(model_name, object_pk, retry_count=0, is_reminder=False):
             mark_notification_sent(obj, 'failed')
         cancel_pending_reminders()
         return
-
     if is_pending_check:
         logger.info(f"[FINAL EVALUATION] pk={object_pk} is waiting for automated tasks. Re-checking in 20s.")
-        Schedule.objects.create(func='client_profile.tasks.final_evaluation', args=f"'{model_name}',{object_pk}", kwargs={'retry_count': retry_count + 1}, schedule_type=Schedule.ONCE, next_run=timezone.now() + timedelta(seconds=20))
+        async_task(
+            'client_profile.tasks.final_evaluation',
+            model_name,
+            object_pk,
+            retry_count=retry_count + 1,
+            q_options={'eta': timezone.now() + timedelta(seconds=20)}
+        )
         return
 
     if is_pending_referee:
@@ -644,11 +642,13 @@ def final_evaluation(model_name, object_pk, retry_count=0, is_reminder=False):
         obj.verified = False
         obj.save(update_fields=['verified'])
         if is_reminder:
-            logger.info(f"[FINAL EVALUATION] Sending 24-hour reminder emails for pk={object_pk}.")
-            send_referee_emails(obj)
+            logger.info(f"[FINAL EVALUATION] Sending 48-hour reminder emails for pk={object_pk}.")
+            # --- THIS IS THE ONE-LINE FIX ---
+            # We now pass `is_reminder=True` so the function uses the correct template.
+            send_referee_emails(obj, is_reminder=True)
         cancel_pending_reminders()
-        Schedule.objects.create(func='client_profile.tasks.final_evaluation', args=f"'{model_name}',{object_pk}", kwargs={'is_reminder': True}, schedule_type=Schedule.ONCE, next_run=timezone.now() + timedelta(hours=24))
-        logger.info(f"[FINAL EVALUATION] Scheduled next referee check for pk={object_pk} in 24h.")
+        Schedule.objects.create(func='client_profile.tasks.final_evaluation', args=f"'{model_name}',{object_pk}", kwargs={'is_reminder': True}, schedule_type=Schedule.ONCE, next_run=timezone.now() + timedelta(hours=48))
+        logger.info(f"[FINAL EVALUATION] Scheduled next referee check for pk={object_pk} in 48h.")
         return
 
     logger.info(f"[FINAL EVALUATION] pk={object_pk} has been successfully VERIFIED.")
@@ -659,8 +659,6 @@ def final_evaluation(model_name, object_pk, retry_count=0, is_reminder=False):
         mark_notification_sent(obj, 'verified')
     cancel_pending_reminders()
     return
-
-
 
 # ========== Shift Reminder (Scheduled) ==========
 

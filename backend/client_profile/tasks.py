@@ -341,17 +341,18 @@ def parse_ahpra_html(html_file_path):
     }
 
 def verify_ahpra_task(model_name, object_pk, ahpra_number, first_name, last_name, email, **kwargs):
-    logger.info(f"[AHPRA TASK ENTRY] Attempting to process for model={model_name}, pk={object_pk}, ahpra={ahpra_number}")
+    full_ahpra_number = f"PHA000{ahpra_number}"
+    logger.info(f"[AHPRA TASK] Constructed full AHPRA number for lookup: {full_ahpra_number}")
+    # --- END OF CHANGE ---
 
     Model = apps.get_model("client_profile", model_name)
     obj = fetch_instance_with_retries(Model, object_pk)
 
-    # --- THIS IS THE FIX ---
-    # If a verification note already exists for the *current* AHPRA number, the task has already run.
+    # This logic correctly compares the incoming numeric-only `ahpra_number` 
+    # with the numeric-only number stored on the object, so it doesn't need to change.
     if (obj.ahpra_number or '').strip().lower() == ahpra_number.strip().lower() and obj.ahpra_verification_note:
         logger.info(f"[AHPRA TASK] SKIPPING: Verification for pk={object_pk} with number {ahpra_number} already has a result.")
         return # Exit immediately
-    # --- END OF FIX ---
 
     # If we are here, it means it's a new AHPRA number or the first attempt.
     # We must clear the old result before starting.
@@ -361,11 +362,13 @@ def verify_ahpra_task(model_name, object_pk, ahpra_number, first_name, last_name
 
     output_html = save_output_file("ahpra_html", object_pk, "html")
     try:
-        ahpra_lookup(ahpra_number, output_html, api_key=env("SCRAPINGBEE_API_KEY"))
+        # Use the newly constructed full AHPRA number for the lookup
+        ahpra_lookup(full_ahpra_number, output_html, api_key=env("SCRAPINGBEE_API_KEY"))
     except Exception as e:
         note = f"AHPRA lookup failed: {e}"
         _update_ahpra_fields(model_name, object_pk, False, note)
         return
+
 
     ahpra_data = parse_ahpra_html(output_html)
     logger.info(f"[verify_ahpra_task] Parsed: {ahpra_data}")

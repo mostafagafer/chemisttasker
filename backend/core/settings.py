@@ -35,6 +35,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5176",
     "http://localhost:19006",
     "http://127.0.0.1:19006",
+    "http://192.168.1.7:19006",       # Expo Go dev server
+    "exp://192.168.1.7:8081",        # Sometimes Expo uses exp:// protocol
+    "http://localhost:8081",        # Your Django server (for completeness)
 ]
 
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
@@ -86,7 +89,7 @@ Q_CLUSTER = {
     'name': 'DjangoQ',
     'workers': 4,
     'timeout': 300,
-    'retry': 120,
+    'retry': 400,
     'queue_limit': 50,
     'bulk': 10,
     'orm': 'default',

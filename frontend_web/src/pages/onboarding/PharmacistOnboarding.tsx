@@ -19,6 +19,8 @@ import {
   Snackbar,
   Link,
   Divider,
+  MenuItem,
+  InputAdornment
 } from '@mui/material';
 import apiClient from '../../utils/apiClient';
 import { API_ENDPOINTS, API_BASE_URL } from '../../constants/api';
@@ -310,7 +312,18 @@ export default function PharmacistOnboardingForm() {
           No file uploaded
         </Typography>
       )}
-      <TextField fullWidth margin="normal" label="AHPRA Number" name="ahpra_number" value={data.ahpra_number} onChange={handleChange} required />
+      <TextField
+        fullWidth
+        margin="normal"
+        label="AHPRA Number"
+        name="ahpra_number"
+        value={data.ahpra_number}
+        onChange={handleChange}
+        required
+        InputProps={{
+          startAdornment: <InputAdornment position="start">PHA000</InputAdornment>,
+        }}
+      />
     </Box>,
     <Box key="skills" sx={{ p: 2 }}>
       <Typography variant="h6">Skills</Typography>
@@ -459,13 +472,19 @@ export default function PharmacistOnboardingForm() {
             name={`referee${idx}_relation`}
             value={data[`referee${idx}_relation` as keyof FormData] || ""}
             onChange={handleChange}
-            SelectProps={{ native: true }}
+            // SelectProps={{ native: true }} <--- REMOVE THIS LINE
           >
+            {/* The TextField's "label" prop now acts as the placeholder */}
+            <MenuItem value="" disabled>
+              Please select a relation
+            </MenuItem>
 
             {REFEREE_REL_CHOICES.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+              // Use MenuItem instead of option
+              <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
             ))}
           </TextField>
+
           <TextField
             fullWidth
             margin="normal"

@@ -686,10 +686,16 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElemen
             name={`referee${idx}_relation`}
             value={data[`referee${idx}_relation` as keyof FormData] || ""}
             onChange={handleChange}
-            SelectProps={{ native: true }}
+            // SelectProps={{ native: true }} <--- REMOVE THIS LINE
           >
+            {/* The TextField's "label" prop now acts as the placeholder */}
+            <MenuItem value="" disabled>
+              Please select a relation
+            </MenuItem>
+
             {REFEREE_REL_CHOICES.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+              // Use MenuItem instead of option
+              <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
             ))}
           </TextField>
           <TextField

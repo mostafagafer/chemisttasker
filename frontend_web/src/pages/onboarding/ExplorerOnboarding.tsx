@@ -293,20 +293,27 @@ export default function ExplorerOnboarding() {
             value={data[`referee${idx}_name` as keyof FormData] || ""}
             onChange={handleChange}
           />
-          <TextField
-            select
-            fullWidth
-            margin="normal"
-            label="Relation"
-            name={`referee${idx}_relation`}
-            value={data[`referee${idx}_relation` as keyof FormData] || ""}
-            onChange={handleChange}
-            SelectProps={{ native: true }}
-          >
-            {REFEREE_REL_CHOICES.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </TextField>
+<TextField
+  select
+  fullWidth
+  margin="normal"
+  label="Relation"
+  name={`referee${idx}_relation`}
+  value={data[`referee${idx}_relation` as keyof FormData] || ""}
+  onChange={handleChange}
+  // SelectProps={{ native: true }} <--- REMOVE THIS LINE
+>
+  {/* The TextField's "label" prop now acts as the placeholder */}
+  <MenuItem value="" disabled>
+    Please select a relation
+  </MenuItem>
+
+  {REFEREE_REL_CHOICES.map(opt => (
+    // Use MenuItem instead of option
+    <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+  ))}
+</TextField>
+
           <TextField
             fullWidth
             margin="normal"

@@ -62,7 +62,7 @@ const ESCALATION_LEVELS = [
   { level: 4, key: 'PLATFORM', label: 'Platform (Public)' },
 ];
 const PUBLIC_LEVEL_KEY = 'PLATFORM';
-interface TabDataState { loading: boolean; membersBySlot?: Record<number, MemberStatus[]>; interestsBySlot?: Record<number, Interest[]>; interestsAll?: Interest[]; }
+interface TabDataState { loading: boolean; membersBySlot?: Record<number, MemberStatus[]>; interestsBySlot?: Record<number, Interest[]>; interestsAll?: Interest[];isPastLevel?: boolean;  }
 
 const ActiveShiftsPage: React.FC = () => {
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -120,19 +120,19 @@ const handleShare = async (shift: Shift) => {
 
   // ... All your other functions like getTabKey, useEffect, etc. remain exactly as you provided them ...
   const getTabKey = useCallback((shiftId: number, levelIdx: number) => `${shiftId}_${levelIdx}`, []);
-  const findWholeShiftMembers = useCallback((membersBySlot: Record<number, MemberStatus[]>, slotCount: number, status: 'interested' | 'rejected'): MemberStatus[] => {
-    const userIdToCounts: Record<number, { member: MemberStatus; count: number }> = {};
-    for (const slotIdStr in membersBySlot) {
-      const slotMembers = membersBySlot[parseInt(slotIdStr)];
-      for (const mem of slotMembers) {
-        if (mem.status === status) {
-          if (!userIdToCounts[mem.user_id]) userIdToCounts[mem.user_id] = { member: mem, count: 1 };
-          else userIdToCounts[mem.user_id].count++;
-        }
-      }
-    }
-    return Object.values(userIdToCounts).filter(x => x.count === slotCount).map(x => x.member);
-  }, []);
+  // const findWholeShiftMembers = useCallback((membersBySlot: Record<number, MemberStatus[]>, slotCount: number, status: 'interested' | 'rejected'): MemberStatus[] => {
+  //   const userIdToCounts: Record<number, { member: MemberStatus; count: number }> = {};
+  //   for (const slotIdStr in membersBySlot) {
+  //     const slotMembers = membersBySlot[parseInt(slotIdStr)];
+  //     for (const mem of slotMembers) {
+  //       if (mem.status === status) {
+  //         if (!userIdToCounts[mem.user_id]) userIdToCounts[mem.user_id] = { member: mem, count: 1 };
+  //         else userIdToCounts[mem.user_id].count++;
+  //       }
+  //     }
+  //   }
+  //   return Object.values(userIdToCounts).filter(x => x.count === slotCount).map(x => x.member);
+  // }, []);
 
   useEffect(() => {
     setLoadingShifts(true);
@@ -142,26 +142,52 @@ const handleShare = async (shift: Shift) => {
       .finally(() => setLoadingShifts(false));
   }, []);
 
-  const loadTabData = useCallback(async (shift: Shift, levelIdx: number) => {
+const loadTabData = useCallback(async (shift: Shift, levelIdx: number) => {
     const tabKey = getTabKey(shift.id, levelIdx);
     const escLevel = ESCALATION_LEVELS[levelIdx].key;
-    setTabData(td => ({ ...td, [tabKey]: { loading: true } }));
+
+    // ✅ FIX 1: Check if the selected tab is for a level that has already passed.
+    const currentShiftLevelIdx = ESCALATION_LEVELS.findIndex(l => l.key === shift.visibility);
+    if (levelIdx < currentShiftLevelIdx) {
+        // If it's a past level, don't make an API call. Just update the UI state.
+        setTabData(td => ({
+            ...td,
+            [tabKey]: {
+                loading: false,
+                isPastLevel: true, // Add a flag to handle this in the render logic.
+            }
+        }));
+        return; // Stop the function here.
+    }
+
+    // Initialize the loading state.
+    setTabData(td => ({ ...td, [tabKey]: { loading: true, isPastLevel: false } }));
+    
     try {
       if (escLevel === PUBLIC_LEVEL_KEY) {
-        const res = await apiClient.get<{ results: Interest[] }>(API_ENDPOINTS.getShiftInterests, { params: { shift: shift.id } });
-        const interests: Interest[] = Array.isArray(res.data.results) ? res.data.results : [];
+        // The API call for the public "Platform" tab.
+        const res = await apiClient.get<any>(API_ENDPOINTS.getShiftInterests, { params: { shift: shift.id } });
+        
+        // ✅ FIX 2: Correctly parse the response whether it's paginated or a plain array.
+        const interests: Interest[] = Array.isArray(res.data.results) ? res.data.results : (Array.isArray(res.data) ? res.data : []);
+        
         const interestsBySlot: Record<number, Interest[]> = {};
         const interestsAll: Interest[] = [];
+        
         interests.forEach(interest => {
-          if (interest.slot_id === null) interestsAll.push(interest);
-          else {
+          if (interest.slot_id === null) {
+            interestsAll.push(interest);
+          } else {
             const sid = Number(interest.slot_id);
             if (!interestsBySlot[sid]) interestsBySlot[sid] = [];
             interestsBySlot[sid].push(interest);
           }
         });
+        
         setTabData(td => ({ ...td, [tabKey]: { loading: false, interestsBySlot, interestsAll } }));
+
       } else {
+        // This block now only runs for *current or future* non-public escalation levels.
         const membersBySlot: Record<number, MemberStatus[]> = {};
         for (const slot of shift.slots) {
           const res = await apiClient.get<MemberStatus[]>(`${API_ENDPOINTS.getActiveShifts}${shift.id}/member_status/`, { params: { slot_id: slot.id, visibility: escLevel } });
@@ -174,8 +200,7 @@ const handleShare = async (shift: Shift) => {
       setSnackbar({ open: true, message: err.response?.data?.detail || `Failed to load data for ${ESCALATION_LEVELS[levelIdx].label}` });
       setTabData(td => ({ ...td, [tabKey]: { ...td[tabKey], loading: false } }));
     }
-  }, [getTabKey, findWholeShiftMembers]);
-
+  }, [getTabKey]); // Dependency array updated for clarity.
   const handleAccordionChange = useCallback((shift: Shift) => (_: React.SyntheticEvent, expanded: boolean) => {
     setExpandedShift(expanded ? shift.id : false);
     if (expanded) {
@@ -351,15 +376,35 @@ const handleShare = async (shift: Shift) => {
                 </Box>
               </AccordionSummary>
               <AccordionDetails>
-                <Tabs value={activeTabIdx} onChange={(_, v) => handleTabChange(shift, v)} sx={{ mb: 2 }} variant="scrollable" scrollButtons="auto">
+              <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%', borderBottom: 1, borderColor: 'divider' }}>
+                <Tabs
+                  value={activeTabIdx}
+                  onChange={(_, v) => handleTabChange(shift, v)}
+                  sx={{ mb: -0.1 }} // Negative margin to align with the Box's bottom border
+                  variant="scrollable"
+                  scrollButtons="auto"
+                  // ❌ And make sure to remove the `centered` prop from here
+                >
                   {ESCALATION_LEVELS.filter(level => shift.allowed_escalation_levels.includes(level.key)).map((level) => {
                     const originalIdx = ESCALATION_LEVELS.findIndex(l => l.key === level.key);
                     const isDisabled = originalIdx !== currentLevelIdx && !shift.allowed_escalation_levels.includes(level.key);
                     return (<Tab key={level.key} label={level.label} value={originalIdx} disabled={isDisabled} sx={{ bgcolor: originalIdx === currentLevelIdx ? theme.palette.success.light : undefined, color: originalIdx === currentLevelIdx ? theme.palette.success.contrastText : undefined, fontWeight: originalIdx === currentLevelIdx ? 'bold' : undefined, ...(originalIdx === currentLevelIdx + 1 && !escalating[shift.id] && !isDisabled && { color: theme.palette.success.main, }), }} />);
                   })}
                 </Tabs>
+              </Box>
+
                 {(() => {
                   if (!currentTabData || currentTabData.loading) return <Box sx={{ py: 4, textAlign: 'center' }}><CircularProgress /></Box>;
+                  if (currentTabData.isPastLevel) {
+                      return (
+                          <Box sx={{ py: 4, textAlign: 'center' }}>
+                              <Typography color="textSecondary">
+                                  This escalation level has passed. The shift is now active at the "{ESCALATION_LEVELS.find(l => l.key === shift.visibility)?.label}" level.
+                              </Typography>
+                          </Box>
+                      );
+                  }
+
                   const selectedTabKey = ESCALATION_LEVELS[activeTabIdx].key;
                   const isSelectedTabHigher = activeTabIdx > currentLevelIdx;
                   const canEscalateToSelectedTab = shift.allowed_escalation_levels.includes(selectedTabKey);

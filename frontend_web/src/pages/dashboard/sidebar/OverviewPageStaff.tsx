@@ -205,7 +205,7 @@ export default function OverviewPageStaff() {
                 <Button
                   variant="text"
                   component={Link}
-                  to={`/dashboard/shifts/${shift.id}`}
+                  to={`/dashboard/${role}/shifts/${shift.id}`}
                   sx={{ ml: 2 }}
                 >
                   View
@@ -251,7 +251,7 @@ export default function OverviewPageStaff() {
                 <Button
                   variant="text"
                   component={Link}
-                  to={`/dashboard/community-shifts/${shift.id}`}
+                  to={`/dashboard/${role}/community-shifts/${shift.id}`}
                   sx={{ ml: 2 }}
                 >
                   View

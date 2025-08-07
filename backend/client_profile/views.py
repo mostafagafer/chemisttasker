@@ -1645,7 +1645,7 @@ class ActiveShiftViewSet(BaseShiftViewSet):
         data = []
         for membership in memberships_qs.distinct():
             user = membership.user
-            status = 'no_response'
+            member_interaction_status = 'no_response'
 
             display_name = membership.invited_name if membership.invited_name else user.get_full_name()
 
@@ -1663,18 +1663,20 @@ class ActiveShiftViewSet(BaseShiftViewSet):
                 ).exists()
 
             if is_assigned:
-                status = 'accepted'
+                member_interaction_status = 'accepted'
             elif user.id in interested_user_ids:
-                status = 'interested'
+                # ✅ CHANGE THIS:
+                member_interaction_status = 'interested'
             elif user.id in rejected_user_ids:
-                status = 'rejected'
+                # ✅ CHANGE THIS:
+                member_interaction_status = 'rejected'
 
             data.append({
                 'user_id': user.id,
                 'name': display_name,
                 'employment_type': membership.employment_type,
                 'role': membership.role,
-                'status': status,
+                'status': member_interaction_status,
                 'is_member': True
             })
 

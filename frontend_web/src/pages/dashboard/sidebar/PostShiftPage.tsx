@@ -134,6 +134,7 @@ export default function PostShiftPage() {
     // --- Pre-fill all fields ---
     setPharmacyId(shiftPrefill.pharmacy); // For your <Select>
     setRoleNeeded(shiftPrefill.role_needed);
+    setDescription(shiftPrefill.description || ''); 
     setEmploymentType(shiftPrefill.employment_type);
     setVisibility(shiftPrefill.visibility);
 
@@ -170,6 +171,7 @@ export default function PostShiftPage() {
 
   // — Other form fields —
   const [roleNeeded, setRoleNeeded] = useState<string>('');
+  const [description, setDescription] = useState<string>('');
   const [employmentType, setEmploymentType] = useState<string>('LOCUM');
   const workloadOptions = ['Sole Pharmacist', 'High Script Load', 'Webster Packs'];
   const [workloadTags, setWorkloadTags] = useState<string[]>([]);
@@ -285,6 +287,7 @@ export default function PostShiftPage() {
     const payload = {
       pharmacy: pharmacyId,
       role_needed: roleNeeded,
+      description: description, 
       employment_type: employmentType,
       visibility,
       escalate_to_locum_casual: escalationDates['LOCUM_CASUAL'] || null,
@@ -351,6 +354,19 @@ export default function PostShiftPage() {
               </FormControl>
 
               <FormControl fullWidth>
+                <InputLabel>Employment Type</InputLabel>
+                <Select
+                  value={employmentType}
+                  label="Employment Type"
+                  onChange={e => setEmploymentType(e.target.value)}
+                >
+                  <MenuItem value="LOCUM">Locum</MenuItem>
+                  <MenuItem value="FULL_TIME">Full-Time</MenuItem>
+                  <MenuItem value="PART_TIME">Part-Time</MenuItem>
+                </Select>
+              </FormControl>
+
+              <FormControl fullWidth>
                 <InputLabel>Role Needed</InputLabel>
                 <Select
                   value={roleNeeded}
@@ -366,21 +382,18 @@ export default function PostShiftPage() {
                 </Select>
               </FormControl>
 
-              <FormControl fullWidth>
-                <InputLabel>Employment Type</InputLabel>
-                <Select
-                  value={employmentType}
-                  label="Employment Type"
-                  onChange={e => setEmploymentType(e.target.value)}
-                >
-                  <MenuItem value="LOCUM">Locum</MenuItem>
-                  <MenuItem value="FULL_TIME">Full-Time</MenuItem>
-                  <MenuItem value="PART_TIME">Part-Time</MenuItem>
-                </Select>
-              </FormControl>
+              <TextField
+                label="Shift Description"
+                multiline
+                rows={4}
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                fullWidth
+                placeholder="Provide a plain English description of the shift, including any key responsibilities or context for the worker."
+              />
 
               <Typography variant="subtitle1">Workload Tags</Typography>
-              <Box sx={{ display:'flex', flexWrap:'wrap', gap:1 }}>
+              <Box sx={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:2 }}>
                 {workloadOptions.map(opt => (
                   <FormControlLabel
                     key={opt}
@@ -434,7 +447,7 @@ export default function PostShiftPage() {
             </Box>
           )}
 
-{currentKey === 'required' && (
+          {currentKey === 'required' && (
             <Box sx={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:2 }}>
               {skillOptions.map(s => (
                 <FormControlLabel
@@ -622,7 +635,6 @@ export default function PostShiftPage() {
                 disabled={submitting || !pharmacyId || !roleNeeded || slots.length === 0}
               >
                 {submitting ? 'Submitting…' : 'Submit'}
-                Submit
               </Button>
             )}
           </Box>

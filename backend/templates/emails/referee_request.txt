@@ -4,7 +4,8 @@ Hi {{ referee_name|default:"there" }},
 
 {{ candidate_name }} has listed you as a reference ({{ referee_relation|default:"Reference" }}) for their ChemistTasker application.
 
-Please confirm you are happy to be a referee by clicking the link below:
+We would be grateful if you could take a few moments to complete a short questionnaire about your experience working with them.
+
 {{ confirm_url }}
 
 Or reject this request:

@@ -15,7 +15,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "types": ["react"],
+    "types": ["react", "@types/google.maps"],
     "noUncheckedSideEffectImports": true
   },
   "include": ["src"]

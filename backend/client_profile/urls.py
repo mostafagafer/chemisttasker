@@ -44,7 +44,8 @@ urlpatterns = [
     path('explorer/onboarding/', ExplorerOnboardingCreateView.as_view(), name='explorer-onboarding-create'),
     path('explorer/onboarding/me/', ExplorerOnboardingDetailView.as_view(), name='explorer-onboarding-detail'),
 
-    path('onboarding/referee-confirm/<int:profile_pk>/<int:ref_idx>/', RefereeConfirmView.as_view(), name='referee-confirm'),
+    # path('onboarding/referee-confirm/<int:profile_pk>/<int:ref_idx>/', RefereeConfirmView.as_view(), name='referee-confirm'),
+    path('onboarding/submit-reference/<str:token>/', RefereeSubmitResponseView.as_view(), name='submit-referee-response'),
     path('onboarding/referee-reject/<int:profile_pk>/<int:ref_idx>/', RefereeRejectView.as_view(), name='referee-reject'),
 
     path('dashboard/organization/', OrganizationDashboardView.as_view(), name='organization-dashboard'),

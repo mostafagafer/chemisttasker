@@ -57,6 +57,7 @@ interface Shift {
   fixed_rate: string | null;
   single_user_only: boolean;
   slot_assignments: { slot_id: number; user_id: number }[];
+  description?: string;
 }
 
 interface Interest {
@@ -470,6 +471,15 @@ export default function CommunityShiftsPage() {
                     {pharm?.state ? `${pharm.state} | ` : ''}{pharm.address}
                   </Typography>
                 )}
+
+                {/* Shift description*/}
+                {shift.description && (
+                <Typography variant="body1" color="text.primary" sx={{ mt: 3,  whiteSpace: 'pre-wrap' }}>
+                  {shift.description}
+                </Typography>
+              )}
+
+                <Divider sx={{ my: 1 }} />
 
                 {/* Rate */}
                 <Box sx={{ mt: 4 }}>

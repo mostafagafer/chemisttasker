@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django_q.tasks import async_task
 import difflib
 from django.utils import timezone
+from django.core.signing import TimestampSigner
 
 def build_shift_email_context(shift, user=None, extra=None, role=None, shift_type=None):
     """
@@ -84,11 +85,61 @@ def clean_email(email):
     # \u200e (LTR), \u200f (RTL), \u202a-\u202e (bidi), \u200b (zero-width space), \s (any space)
     return re.sub(r'[\u200e\u200f\u202a-\u202e\u200b\s]', '', email)
 
+# def send_referee_emails(obj, is_reminder=False):
+#     """
+#     Sends referee email(s). Now handles both initial requests and reminders
+#     by choosing the correct template based on the `is_reminder` flag.
+#     """
+#     for idx in [1, 2]:
+#         email_raw = getattr(obj, f'referee{idx}_email', None)
+#         confirmed = getattr(obj, f'referee{idx}_confirmed', None)
+#         rejected = getattr(obj, f'referee{idx}_rejected', None)
+#         name = getattr(obj, f'referee{idx}_name', '')
+#         relation = getattr(obj, f'referee{idx}_relation', '')
+#         email = clean_email(email_raw)
+
+#         if email and not confirmed and not rejected:
+#             # --- FIX: CHOOSE TEMPLATE AND SUBJECT BASED ON THE REMINDER FLAG ---
+#             if is_reminder:
+#                 subject = f"Gentle Reminder: Reference Request for {obj.user.get_full_name()}"
+#                 template_name = "emails/referee_reminder.html"
+#                 text_template = "emails/referee_reminder.txt" # Assumes you have a .txt version
+#             else:
+#                 subject = "Reference Request: Please Confirm for ChemistTasker"
+#                 template_name = "emails/referee_request.html"
+#                 text_template = "emails/referee_request.txt"
+#             # --- END OF FIX ---
+
+#             confirm_url = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-confirm/{obj.pk}/{idx}"
+#             reject_url  = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-reject/{obj.pk}/{idx}"
+            
+#             async_task(
+#                 'users.tasks.send_async_email',
+#                 subject=subject,
+#                 recipient_list=[email],
+#                 template_name=template_name,
+#                 context={
+#                     "referee_name": name,
+#                     "referee_relation": relation,
+#                     "candidate_name": obj.user.get_full_name(),
+#                     "candidate_first_name": obj.user.first_name,
+#                     "candidate_last_name": obj.user.last_name,
+#                     "confirm_url": confirm_url,
+#                     "reject_url": reject_url,
+#                 },
+#                 text_template=text_template
+#             )
+#             setattr(obj, f'referee{idx}_last_sent', timezone.now())
+            
+#     # Save last_sent timestamps if they were updated
+#     obj.save(update_fields=['referee1_last_sent', 'referee2_last_sent'])
+
 def send_referee_emails(obj, is_reminder=False):
     """
-    Sends referee email(s). Now handles both initial requests and reminders
-    by choosing the correct template based on the `is_reminder` flag.
+    Sends referee email(s). Now generates a secure token for the questionnaire link.
     """
+    signer = TimestampSigner() # Create a signer instance
+
     for idx in [1, 2]:
         email_raw = getattr(obj, f'referee{idx}_email', None)
         confirmed = getattr(obj, f'referee{idx}_confirmed', None)
@@ -98,20 +149,28 @@ def send_referee_emails(obj, is_reminder=False):
         email = clean_email(email_raw)
 
         if email and not confirmed and not rejected:
-            # --- FIX: CHOOSE TEMPLATE AND SUBJECT BASED ON THE REMINDER FLAG ---
             if is_reminder:
                 subject = f"Gentle Reminder: Reference Request for {obj.user.get_full_name()}"
                 template_name = "emails/referee_reminder.html"
-                text_template = "emails/referee_reminder.txt" # Assumes you have a .txt version
+                text_template = "emails/referee_reminder.txt"
             else:
-                subject = "Reference Request: Please Confirm for ChemistTasker"
+                subject = "Reference Request: Please Complete for ChemistTasker"
                 template_name = "emails/referee_request.html"
                 text_template = "emails/referee_request.txt"
-            # --- END OF FIX ---
 
-            confirm_url = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-confirm/{obj.pk}/{idx}"
+            # --- THIS IS THE KEY CHANGE ---
+            # 1. Create the data payload for the token
+            data_to_sign = f"{obj._meta.model_name}:{obj.pk}:{idx}"
+            # 2. Sign the data to create the secure token
+            token = signer.sign(data_to_sign)
+            # 3. The new URL points to the frontend questionnaire page with the token
+            candidate_name_query = f"?candidate_name={obj.user.get_full_name()}"
+            confirm_url = f"{settings.FRONTEND_BASE_URL}/referee/questionnaire/{token}/{candidate_name_query}"
+
+            # The reject URL remains exactly the same
             reject_url  = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-reject/{obj.pk}/{idx}"
-            
+            # --- END OF CHANGE ---
+
             async_task(
                 'users.tasks.send_async_email',
                 subject=subject,
@@ -123,13 +182,13 @@ def send_referee_emails(obj, is_reminder=False):
                     "candidate_name": obj.user.get_full_name(),
                     "candidate_first_name": obj.user.first_name,
                     "candidate_last_name": obj.user.last_name,
-                    "confirm_url": confirm_url,
+                    "confirm_url": confirm_url, # Pass the new, secure URL
                     "reject_url": reject_url,
                 },
                 text_template=text_template
             )
             setattr(obj, f'referee{idx}_last_sent', timezone.now())
-            
+
     # Save last_sent timestamps if they were updated
     obj.save(update_fields=['referee1_last_sent', 'referee2_last_sent'])
 

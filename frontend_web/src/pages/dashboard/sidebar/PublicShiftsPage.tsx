@@ -7,14 +7,13 @@ import {
   Card,
   CardContent,
   Button,
-  // CircularProgress,
   Chip,
   Box,
   Divider,
   Pagination,
   Snackbar,
   IconButton,
-  Skeleton, // Added Skeleton import
+  Skeleton,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../../utils/apiClient';
@@ -34,16 +33,20 @@ interface Slot {
 
 interface Shift {
   id: number;
-  pharmacy?: {
+  pharmacy?: { // <-- UPDATE THIS
     id: number;
     name: string;
-    address?: string;
+    street_address?: string;
+    suburb?: string;
+    postcode?: string;
     state?: string;
   };
-  pharmacy_detail?: {
+  pharmacy_detail?: { // <-- AND UPDATE THIS
     id: number;
     name: string;
-    address?: string;
+    street_address?: string;
+    suburb?: string;
+    postcode?: string;
     state?: string;
   };
   slots: Slot[];
@@ -57,6 +60,7 @@ interface Shift {
   fixed_rate: string | null;
   single_user_only: boolean;
   slot_assignments: { slot_id: number; user_id: number }[];
+  description?: string;
   }
 
 interface Interest {
@@ -266,16 +270,29 @@ export default function PublicShiftsPage() {
           return (
             <Card key={shift.id} sx={{ mb: 3 }}>
               <CardContent>
-                {/* Pharmacy name & address */}
+                {/* Pharmacy name */}
                 <Typography variant="h6">
                   {pharm?.name ?? 'Unknown Pharmacy'}
                 </Typography>
                 <Divider sx={{ my: 1 }} />
-                {pharm?.address && (
+                
+                {/* THIS IS THE UPDATED DISPLAY LOGIC */}
+                {pharm && (
                   <Typography variant="body2" color="textSecondary">
-                    {pharm?.state ? `${pharm.state} | ` : ''}{pharm.address}
+                    {[pharm.street_address, pharm.suburb, pharm.state, pharm.postcode]
+                      .filter(Boolean)
+                      .join(', ')}    
                   </Typography>
                 )}
+                {/* Shift description*/}
+                {shift.description && (
+                <Typography variant="body1" color="text.primary" sx={{ mt: 3,  whiteSpace: 'pre-wrap' }}>
+                  {shift.description}
+                </Typography>
+              )}
+
+                <Divider sx={{ my: 1 }} />
+
                 {/* Rate */}
                 <Box sx={{ mt: 4 }}>
                   {/* Pharmacist Rate Info */}

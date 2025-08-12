@@ -31,6 +31,10 @@ class Http400(APIException):
 from django_q.tasks import async_task
 from datetime import date, datetime
 from django_q.models import Schedule
+from django.core.signing import TimestampSigner, BadSignature
+from django.contrib.contenttypes.models import ContentType
+from django.apps import apps
+
 
 # Onboardings
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -175,36 +179,103 @@ class ExplorerOnboardingDetailView(RetrieveUpdateAPIView):
         except ExplorerOnboarding.DoesNotExist:
             raise NotFound("Onboarding profile not found for this user.")
 
-class RefereeConfirmView(APIView):
-    def post(self, request, profile_pk, ref_idx, *args, **kwargs):
-        onboarding_models = [PharmacistOnboarding, OtherStaffOnboarding, ExplorerOnboarding]
-        instance, model_name = None, None
-        for Model in onboarding_models:
-            try:
-                instance = Model.objects.get(pk=profile_pk)
-                model_name = Model._meta.model_name
-                break
-            except Model.DoesNotExist: continue
-        if not instance: return Response({'detail': 'Onboarding profile not found.'}, status=404)
+# class RefereeConfirmView(APIView):
+#     def post(self, request, profile_pk, ref_idx, *args, **kwargs):
+#         onboarding_models = [PharmacistOnboarding, OtherStaffOnboarding, ExplorerOnboarding]
+#         instance, model_name = None, None
+#         for Model in onboarding_models:
+#             try:
+#                 instance = Model.objects.get(pk=profile_pk)
+#                 model_name = Model._meta.model_name
+#                 break
+#             except Model.DoesNotExist: continue
+#         if not instance: return Response({'detail': 'Onboarding profile not found.'}, status=404)
 
-        if str(ref_idx) == "1":
-            instance.referee1_confirmed = True
-            instance.referee1_rejected = False
-        elif str(ref_idx) == "2":
-            instance.referee2_confirmed = True
-            instance.referee2_rejected = False
-        else: return Response({'detail': 'Invalid referee index.'}, status=400)
-        instance.save()
+#         if str(ref_idx) == "1":
+#             instance.referee1_confirmed = True
+#             instance.referee1_rejected = False
+#         elif str(ref_idx) == "2":
+#             instance.referee2_confirmed = True
+#             instance.referee2_rejected = False
+#         else: return Response({'detail': 'Invalid referee index.'}, status=400)
+#         instance.save()
 
-        # FIX: Cancel any old, scheduled tasks to prevent race conditions.
+#         # FIX: Cancel any old, scheduled tasks to prevent race conditions.
+#         Schedule.objects.filter(
+#             func='client_profile.tasks.final_evaluation',
+#             args=f"'{model_name}',{instance.pk}"
+#         ).delete()
+
+#         # Now, safely trigger a new, immediate evaluation.
+#         async_task('client_profile.tasks.final_evaluation', model_name, instance.pk)
+#         return Response({'success': True, 'message': 'Referee confirmed.'}, status=200)
+
+class RefereeSubmitResponseView(generics.CreateAPIView):
+    """
+    POST /references/submit/<token>/
+    Body: RefereeResponseSerializer fields
+    Effect:
+      - Saves a RefereeResponse
+      - If would_rehire == 'No' => refereeN_rejected=True (confirmed=False)
+        else => refereeN_confirmed=True (rejected=False)
+      - Cancels pending evaluation schedule and triggers final_evaluation immediately
+    """
+    serializer_class = RefereeResponseSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def perform_create(self, serializer):
+        # 1) Unsign token -> (model_name, pk, referee_index)
+        token = self.kwargs.get('token')
+        signer = TimestampSigner()
+
+        try:
+            data = signer.unsign(token, max_age=timedelta(days=14))
+            model_name, pk, referee_index = data.split(':')
+            pk = int(pk)
+            referee_index = int(referee_index)
+        except (BadSignature, ValueError):
+            raise PermissionDenied("This reference link is invalid or has expired.")
+
+        # 2) Locate onboarding record dynamically (Explorer/Pharmacist/OtherStaff)
+        OnboardingModel = apps.get_model('client_profile', model_name)
+        onboarding = get_object_or_404(OnboardingModel, pk=pk)
+        ct = ContentType.objects.get_for_model(onboarding)
+
+        # 3) Prevent duplicate submissions per candidate+referee
+        exists = RefereeResponse.objects.filter(
+            content_type=ct, object_id=pk, referee_index=referee_index
+        ).exists()
+        if exists:
+            raise ValidationError("A reference has already been submitted for this candidate.")
+
+        # 4) Save the response
+        response = serializer.save(
+            content_type=ct,
+            object_id=pk,
+            referee_index=referee_index,
+        )
+
+        # 5) Map final question to your existing flags on the onboarding model
+        would = (response.would_rehire or '').strip().lower()
+        confirmed_field = f'referee{referee_index}_confirmed'
+        rejected_field = f'referee{referee_index}_rejected'
+
+        if would == 'no':
+            setattr(onboarding, confirmed_field, False)
+            setattr(onboarding, rejected_field, True)
+        else:  # 'yes' or 'with reservations' (or empty -> treat as confirm if you prefer strictness add else->error)
+            setattr(onboarding, confirmed_field, True)
+            setattr(onboarding, rejected_field, False)
+
+        onboarding.save()
+
+        # 6) Cancel pending evaluation and re-run immediately (keeps your pipeline unchanged)
         Schedule.objects.filter(
             func='client_profile.tasks.final_evaluation',
-            args=f"'{model_name}',{instance.pk}"
+            args=f"'{OnboardingModel._meta.model_name}',{onboarding.pk}"
         ).delete()
 
-        # Now, safely trigger a new, immediate evaluation.
-        async_task('client_profile.tasks.final_evaluation', model_name, instance.pk)
-        return Response({'success': True, 'message': 'Referee confirmed.'}, status=200)
+        async_task('client_profile.tasks.final_evaluation', OnboardingModel._meta.model_name, onboarding.pk)
 
 class RefereeRejectView(APIView):
     def post(self, request, profile_pk, ref_idx, *args, **kwargs):
@@ -295,12 +366,24 @@ class OwnerDashboard(APIView):
 
         try:
             owner = OwnerOnboarding.objects.get(user=user)
+            pharmacies = Pharmacy.objects.filter(owner=owner)
+            shifts_qs = Shift.objects.filter(pharmacy__in=pharmacies).distinct()
         except OwnerOnboarding.DoesNotExist:
-            return Response({"detail": "Owner onboarding profile not found."}, status=404)
+            # If no onboarding, there are no pharmacies or shifts to show.
+            # Return a default empty response instead of a 404 error.
+            data = {
+                "user": user_serializer.data,
+                "upcoming_shifts_count": 0,
+                "confirmed_shifts_count": 0,
+                "shifts": [],
+                "bills_summary": {
+                    "total_billed": "N/A",
+                    "points": "N/A"
+                },
+            }
+            return Response(data)
 
-        pharmacies = Pharmacy.objects.filter(owner=owner)
-        shifts_qs = Shift.objects.filter(pharmacy__in=pharmacies).distinct()
-
+        
         today = date.today()
         now = timezone.now().time()
 
@@ -369,12 +452,18 @@ class PharmacistDashboard(APIView):
         confirmed_shifts = upcoming_shifts
 
         # Community shifts: future, pharmacy__isnull, NO assignments yet
+        member_pharmacy_ids = Membership.objects.filter(
+            user=user, is_active=True
+        ).values_list('pharmacy_id', flat=True)
+
         community_shifts = Shift.objects.filter(
-            pharmacy__isnull=True,
+            pharmacy_id__in=member_pharmacy_ids,
+            visibility__in=COMMUNITY_LEVELS, # Use the constant you already have
             slots__date__gte=today
         ).exclude(
-            slots__assignments__isnull=False
+            slots__assignments__user=user # Exclude shifts they are already assigned to
         ).distinct()
+
 
         shifts_data = []
         for shift in upcoming_shifts:
@@ -437,11 +526,16 @@ class OtherStaffDashboard(APIView):
         ).distinct()
         confirmed_shifts = upcoming_shifts
 
+        member_pharmacy_ids = Membership.objects.filter(
+            user=user, is_active=True
+        ).values_list('pharmacy_id', flat=True)
+
         community_shifts = Shift.objects.filter(
-            pharmacy__isnull=True,
+            pharmacy_id__in=member_pharmacy_ids,
+            visibility__in=COMMUNITY_LEVELS, # Use the constant you already have
             slots__date__gte=today
         ).exclude(
-            slots__assignments__isnull=False
+            slots__assignments__user=user # Exclude shifts they are already assigned to
         ).distinct()
 
         shifts_data = []

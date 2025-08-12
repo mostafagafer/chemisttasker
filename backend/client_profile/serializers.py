@@ -69,7 +69,7 @@ class SyncUserMixin:
         if updated_fields:
             user_instance.save(update_fields=updated_fields)
 
-# === CORRECTED OnboardingVerificationMixin ===
+# === OnboardingVerificationMixin ===
 class OnboardingVerificationMixin:
     """
     Triggers individual verification tasks and one initial evaluation task.
@@ -843,6 +843,7 @@ class ExplorerOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFilesMi
             self._schedule_verification(instance)
             
         return instance
+
     def validate(self, data):
         submit = data.get('submitted_for_verification') \
             or (self.instance and getattr(self.instance, 'submitted_for_verification', False))
@@ -893,6 +894,83 @@ class ExplorerOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFilesMi
         filled = sum(bool(field) for field in required_fields)
         percent = int(100 * filled / len(required_fields)) if required_fields else 0
         return percent
+
+def _canon(value: str, mapping: dict[str, str]) -> str | None:
+    if not value:
+        return None
+    v = value.strip().lower()
+    return mapping.get(v)
+
+class RefereeResponseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RefereeResponse
+        # List all the fields that the referee will fill out in the form
+        fields = [
+            'referee_name',
+            'referee_position',
+            'relationship_to_candidate',
+            'association_period',
+            'contact_details',
+            'role_and_responsibilities',
+            'reliability_rating',
+            'professionalism_notes',
+            'skills_rating',
+            'skills_strengths_weaknesses',
+            'teamwork_communication_notes',
+            'feedback_conflict_notes',
+            'conduct_concerns',
+            'conduct_explanation',
+            'compliance_adherence',
+            'compliance_incidents',
+            'would_rehire',
+            'rehire_explanation',
+            'additional_comments',
+        ]
+
+    def validate(self, attrs):
+        # Canonical maps (case-insensitive input -> canonical stored value)
+        reh_map = {'yes': 'Yes', 'no': 'No', 'with reservations': 'With Reservations'}
+        rate_map = {
+            'excellent': 'Excellent',
+            'good': 'Good',
+            'satisfactory': 'Satisfactory',
+            'needs improvement': 'Needs Improvement',
+        }
+        comp_map = {'yes': 'Yes', 'no': 'No', 'unsure': 'Unsure'}
+
+        # Normalize choices if provided
+        would = _canon(attrs.get('would_rehire'), reh_map)
+        if attrs.get('would_rehire') is not None:
+            if not would:
+                raise serializers.ValidationError({'would_rehire': 'Choose Yes / No / With Reservations.'})
+            attrs['would_rehire'] = would
+
+        reliability = _canon(attrs.get('reliability_rating'), rate_map)
+        if attrs.get('reliability_rating') is not None:
+            if not reliability:
+                raise serializers.ValidationError({'reliability_rating': 'Invalid rating.'})
+            attrs['reliability_rating'] = reliability
+
+        skills = _canon(attrs.get('skills_rating'), rate_map)
+        if attrs.get('skills_rating') is not None:
+            if not skills:
+                raise serializers.ValidationError({'skills_rating': 'Invalid rating.'})
+            attrs['skills_rating'] = skills
+
+        compliance = _canon(attrs.get('compliance_adherence'), comp_map)
+        if attrs.get('compliance_adherence') is not None:
+            if not compliance:
+                raise serializers.ValidationError({'compliance_adherence': 'Choose Yes / No / Unsure.'})
+            attrs['compliance_adherence'] = compliance
+
+        # Conditional requireds
+        if would in ('No', 'With Reservations') and not (attrs.get('rehire_explanation') or '').strip():
+            raise serializers.ValidationError({'rehire_explanation': 'Please add a brief explanation.'})
+
+        if attrs.get('conduct_concerns') and not (attrs.get('conduct_explanation') or '').strip():
+            raise serializers.ValidationError({'conduct_explanation': 'Please explain the conduct concern.'})
+
+        return attrs
 
 # === Dashboards ===
 class ShiftSummarySerializer(serializers.Serializer):
@@ -960,7 +1038,12 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
         fields = [
             "id",
             "name",
-            "address",
+            "street_address",
+            "suburb",
+            "postcode",
+            "google_place_id",
+            "latitude",
+            "longitude",
             "state",
             "owner",
             "organization",
@@ -1103,7 +1186,7 @@ class ShiftSerializer(serializers.ModelSerializer):
             'escalation_level', 'escalate_to_owner_chain', 'escalate_to_org_chain', 'escalate_to_platform',
             'must_have', 'nice_to_have', 'rate_type', 'fixed_rate', 'owner_adjusted_rate','slots','single_user_only',
             'interested_users_count', 'reveal_quota', 'reveal_count', 'workload_tags','slot_assignments',
-            'allowed_escalation_levels','is_single_user']
+            'allowed_escalation_levels','is_single_user', 'description' ]
         read_only_fields = [
             'id', 'created_by', 'escalation_level',
             'interested_users_count', 'reveal_count',
@@ -1387,6 +1470,7 @@ class SharedShiftSerializer(serializers.ModelSerializer):
             'slots',
             'created_at',
             'single_user_only',
+            'description',
         ]
 
 class LeaveRequestSerializer(serializers.ModelSerializer):

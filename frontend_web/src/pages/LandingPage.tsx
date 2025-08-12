@@ -519,8 +519,8 @@ const ForWhoSection: React.FC = () => (
           <Typography color="text.primary" sx={{ mt: 1.5 }}>Auto-verification of credentials, digital references, and seamless casual/part-time roster management.</Typography>
         </FeatureCard>
         <FeatureCard>
-          <Typography variant="h4" sx={{ fontSize: '1.25rem' }}>Students & Interns</Typography>
-          <Typography color="text.primary" sx={{ mt: 1.5 }}>Direct placements, verified experience, digital badge tracking, and onboarding in minutes.</Typography>
+          <Typography variant="h4" sx={{ fontSize: '1.25rem' }}>Career Explorers</Typography>
+          <Typography color="text.primary" sx={{ mt: 1.5 }}>Pitch yourself, showcase your talents, and shine as you begin your pharmaceutical career.</Typography>
         </FeatureCard>
       </Box>
     </Container>

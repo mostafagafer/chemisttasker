@@ -47,11 +47,14 @@ body {
   border-left: 4px solid var(--danger-color);
 }
 
-/* @import 'tailwindcss/base';
-@import 'tailwindcss/components';
-@import 'tailwindcss/utilities'; */
+/* Make Google Places dropdown float above MUI Dialogs/Popovers */
+.pac-container {
+  z-index: 2000 !important;
+}
 
-/* Tailwind CSS configurations */
+@import "https://unpkg.com/@googlemaps/extension-placeautocomplete@1.0.0-beta.3/dist/place_autocomplete.css";
+
+/* Tailwind CSS configurations
 @tailwind base;
 @tailwind components;
-@tailwind utilities;
+@tailwind utilities; */

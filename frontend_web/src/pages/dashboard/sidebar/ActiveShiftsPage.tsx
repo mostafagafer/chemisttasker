@@ -48,7 +48,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 
 // ... All your interfaces remain unchanged ...
 interface Slot { id: number; date: string; start_time: string; end_time: string; is_recurring?: boolean; recurring_days?: number[]; recurring_end_date?: string | null; }
-interface Shift { id: number; single_user_only: boolean; visibility: string; pharmacy_detail: { name: string; address?: string; state?: string; }; role_needed: string; slots: Slot[]; slot_assignments: { slot_id: number; user_id: number }[]; slot_count?: number; assigned_count?: number; escalation_level: number; escalate_to_locum_casual: string | null; escalate_to_owner_chain: string | null; escalate_to_org_chain: string | null; escalate_to_platform: string | null; allowed_escalation_levels: string[]; created_at: string; }
+interface Shift { id: number; single_user_only: boolean; visibility: string; pharmacy_detail: { name: string;     street_address?: string;suburb?: string;postcode?: string;state?: string;}; role_needed: string; slots: Slot[];description?: string; slot_assignments: { slot_id: number; user_id: number }[]; slot_count?: number; assigned_count?: number; escalation_level: number; escalate_to_locum_casual: string | null; escalate_to_owner_chain: string | null; escalate_to_org_chain: string | null; escalate_to_platform: string | null; allowed_escalation_levels: string[]; created_at: string; }
 interface MemberStatus { user_id: number; name: string; employment_type: string; role: string; status: 'no_response' | 'interested' | 'rejected' | 'accepted'; is_member: boolean; membership_id?: number; }
 interface Interest { id: number; user_id: number; slot_id: number | null; slot_time: string; revealed: boolean; user: string; }
 interface RatePreference { weekday: string; saturday: string; sunday: string; public_holiday: string; early_morning: string; late_night: string; }
@@ -365,12 +365,23 @@ const loadTabData = useCallback(async (shift: Shift, levelIdx: number) => {
                   </Box>
                     </Box>
                     <Typography variant="body2" color="text.secondary">
-                      {shift.pharmacy_detail.address ? `${shift.pharmacy_detail.address}, ` : ''}{shift.pharmacy_detail.state || ''}
+                      {[shift.pharmacy_detail.street_address, shift.pharmacy_detail.suburb, shift.pharmacy_detail.state, shift.pharmacy_detail.postcode]
+                      .filter(Boolean)
+                      .join(', ')}    
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {/* MINIMAL FIX: Use optional chaining to prevent crash if shift.slots is undefined */}
+
+                    <Divider sx={{ my: 1 }} />
+
+                    <Typography variant="body1" color="text.secondary">
                       Slots: {shift.slots?.map(s => `${s.date} ${s.start_time}–${s.end_time}`).join(' | ')}
                     </Typography>
+
+                    {shift.description && (
+                    <Typography variant="body1" color="text.primary" sx={{ mt: 1,  whiteSpace: 'pre-wrap' }}>
+                      {shift.description}
+                    </Typography>
+                  )}
+
                   </Box>
 
                 </Box>

@@ -672,7 +672,7 @@ const handleGenerate = () => {
     </Box>
 
     {/* 2. Issuer summary on left */}
-    <Typography variant="h6" gutterBottom >Issier Information</Typography>
+    <Typography variant="h6" gutterBottom >Issuer Information</Typography>
     <Box display="flex" justifyContent="flex-start" mb={4}>
       <Box>
         {/* <Typography variant="subtitle1">Issuer</Typography> */}

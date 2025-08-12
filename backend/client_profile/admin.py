@@ -118,7 +118,7 @@ class OtherStaffOnboardingAdmin(admin.ModelAdmin):
 @admin.register(ExplorerOnboarding)
 class ExplorerOnboardingAdmin(admin.ModelAdmin):
     list_display = [
-        'user', 'role_type', 'verified',
+        'user', 'role_type', 'verified', 'gov_id_verified',
         'referee1_confirmed', 'referee2_confirmed', 'submitted_for_verification'
     ]
     list_filter  = ['verified', 'role_type']

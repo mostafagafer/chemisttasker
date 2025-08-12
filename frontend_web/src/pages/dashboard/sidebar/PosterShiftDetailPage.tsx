@@ -65,7 +65,9 @@ interface Slot {
 interface PharmacyDetail {
   id: number;
   name: string;
-  address?: string;
+  street_address?: string;
+  suburb?: string;
+  postcode?: string;
   state?: string;
   owner?: { id: number; organization_claimed?: boolean; user?: { id: number; email?: string } };
   organization?: { id: number; name?: string };
@@ -78,6 +80,7 @@ interface Shift {
   pharmacy_detail: PharmacyDetail;
   role_needed: string;
   slots: Slot[];
+  description?: string;
   slot_assignments: { slot_id: number; user_id: number }[];
   slot_count?: number;
   assigned_count?: number;
@@ -505,12 +508,25 @@ const PosterShiftDetailPage: React.FC = () => {
                 </Typography>
               </Box>
               <Typography variant="body2" color="text.secondary">
-                {currentShift.pharmacy_detail.address ? `${currentShift.pharmacy_detail.address}, ` : ''}
-                {currentShift.pharmacy_detail.state || ''}
+                       {[
+                  currentShift.pharmacy_detail.street_address,
+                  currentShift.pharmacy_detail.suburb,
+                  currentShift.pharmacy_detail.state,
+                  currentShift.pharmacy_detail.postcode
+                ]
+                  .filter(Boolean) // This removes any empty parts
+                  .join(', ')}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Slots: {currentShift.slots.map(s => `${s.date} ${s.start_time}–${s.end_time}`).join(' | ')}
               </Typography>
+
+              {shift.description && (
+              <Typography variant="body1" color="text.primary" sx={{ mt: 1,  whiteSpace: 'pre-wrap' }}>
+                {shift.description}
+              </Typography>
+            )}
+
             </Box>
 
             <Box sx={{ display: 'flex', gap: 1, ml: 'auto' }}>

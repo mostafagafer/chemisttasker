@@ -30,8 +30,11 @@ export const API_ENDPOINTS = {
     return `/client-profile/${safeRole}/onboarding/`;
   },
 
-  refereeConfirm: (pk: string | number, refIndex: string | number) =>
-    `/client-profile/onboarding/referee-confirm/${pk}/${refIndex}/`,
+  // refereeConfirm: (pk: string | number, refIndex: string | number) =>
+  //   `/client-profile/onboarding/referee-confirm/${pk}/${refIndex}/`,
+
+  submitRefereeResponse: (token: string) =>
+  `/client-profile/onboarding/submit-reference/${token}/`,
 
   refereeReject: (pk: string | number, refIndex: string | number) =>
   `/client-profile/onboarding/referee-reject/${pk}/${refIndex}/`,

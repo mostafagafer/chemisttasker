@@ -38,7 +38,9 @@ interface Shift {
   pharmacy_detail: {
     id: number;
     name: string;
-    address?: string;
+    street_address?: string;
+    suburb?: string;
+    postcode?: string;
     state?: string;
   };
   slots: Slot[];
@@ -53,6 +55,7 @@ interface Shift {
   fixed_rate: string | null;
   single_user_only: boolean;
   slot_assignments: { slot_id: number; user_id: number }[];
+  description?: string;
 }
 
 interface Interest {
@@ -266,7 +269,9 @@ const WorkerShiftDetailPage: React.FC = () => {
             <Box sx={{ flexGrow: 1 }}>
                 <Typography variant="h5">{pharm.name}</Typography>
                 <Typography variant="body1" color="text.secondary">
-                    {pharm.state ? `${pharm.state} | ` : ''}{pharm.address}
+                    {[pharm.street_address, pharm.suburb, pharm.state, pharm.postcode]
+                      .filter(Boolean)
+                      .join(', ')}    
                 </Typography>
             </Box>
             <Box>
@@ -278,6 +283,16 @@ const WorkerShiftDetailPage: React.FC = () => {
 
           <Typography variant="h6" gutterBottom>Shift Information</Typography>
           <Box sx={{ mb: 2 }}>
+            
+            {/* Shift description*/}
+            {shift.description && (
+            <Typography variant="body1" color="text.primary" sx={{ mt: 3,  whiteSpace: 'pre-wrap' }}>
+              {shift.description}
+            </Typography>
+          )}
+
+            <Divider sx={{ my: 1 }} />
+
             <Typography><strong>Employment Type:</strong> {shift.employment_type.replace('_', ' ')}</Typography>
             {shift.rate_type === 'FIXED' && (
                 <Typography><strong>Rate:</strong> ${shift.fixed_rate}/hr</Typography>

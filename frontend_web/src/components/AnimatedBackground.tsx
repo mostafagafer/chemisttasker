@@ -10,15 +10,21 @@ const AnimatedBackground = () => {
 
     let scene: THREE.Scene, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, network: THREE.Group;
     let mouseX = 0;
-    const canvasContainer = canvasRef.current.parentElement as HTMLElement;
+    // const canva  sContainer = canvasRef.current.parentElement as HTMLElement;
 
     const init = () => {
       scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(60, canvasContainer.offsetWidth / canvasContainer.offsetHeight, 1, 2000);
+      // camera = new THREE.PerspectiveCamera(60, canvasContainer.offsetWidth / canvasContainer.offsetHeight, 1, 2000);
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 2000);
+
       camera.position.z = 500;
 
       renderer = new THREE.WebGLRenderer({ canvas: canvasRef.current!, antialias: true, alpha: true });
-      renderer.setSize(canvasContainer.offsetWidth, canvasContainer.offsetHeight);
+      // renderer.setSize(canvasContainer.offsetWidth, canvasContainer.offsetHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      
       renderer.setClearColor(0xffffff, 0);
 
       network = new THREE.Group();
@@ -67,9 +73,9 @@ const AnimatedBackground = () => {
 
       const onWindowResize = () => {
         if (!renderer.domElement.parentElement) return;
-        camera.aspect = canvasContainer.offsetWidth / canvasContainer.offsetHeight;
+        camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
-        renderer.setSize(canvasContainer.offsetWidth, canvasContainer.offsetHeight);
+        renderer.setSize(window.innerWidth, window.innerHeight);
       };
 
       document.addEventListener('mousemove', onMouseMove);
@@ -107,12 +113,13 @@ const AnimatedBackground = () => {
       ref={canvasRef}
       component="canvas"
       sx={{
-        position: 'absolute',
+        position: 'fixed',
         top: 0,
         left: 0,
         width: '100%',
         height: '100%',
         zIndex: 1,
+        pointerEvents: 'none', // <-- critical: never intercept wheel/click/touch
       }}
     />
   );

@@ -5,9 +5,10 @@ import AnimatedBackground from '../components/AnimatedBackground';
 interface AuthLayoutProps {
   children: ReactNode;
   title: string;
+  maxWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | false;
 }
 
-export default function AuthLayout({ children, title }: AuthLayoutProps) {
+export default function AuthLayout({ children, title, maxWidth = 'sm' }: AuthLayoutProps) {
   return (
     <>
       <GlobalStyles
@@ -17,17 +18,17 @@ export default function AuthLayout({ children, title }: AuthLayoutProps) {
             padding: 0,
             height: '100%',
             width: '100%',
-            overflow: 'hidden', // Prevent the main page from scrolling
-            fontFamily: '"Bai Jamjuree", "Helvetica", "Arial", sans-serif', // <-- ADD THIS LINE
+            overflow: 'auto',
+            fontFamily: '"Bai Jamjuree", "Helvetica", "Arial", sans-serif',
           },
         }}
       />
-      <Box 
-        sx={{ 
-          position: 'relative', 
-          width: '100%', 
-          height: '100%', 
-          overflowY: 'auto', // Allow this container to scroll if content is too long
+      <Box
+        sx={{
+          position: 'relative',
+          width: '100%',
+          minHeight: '100vh',       // viewport height so scrolling behaves
+          overflowY: 'auto',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -35,12 +36,8 @@ export default function AuthLayout({ children, title }: AuthLayoutProps) {
       >
         <AnimatedBackground />
         <Container
-          maxWidth="sm"
-          sx={{
-            position: 'relative',
-            zIndex: 2,
-            py: { xs: 4, md: 6 } // Add vertical padding for spacing
-          }}
+          maxWidth={maxWidth}       // <-- use the prop here
+          sx={{ position: 'relative', zIndex: 2, py: { xs: 4, md: 6 } }}
         >
           <Paper
             elevation={6}

@@ -7,7 +7,14 @@ import { useAuth } from '../contexts/AuthContext';
 
 interface Shift {
   id: number;
-  pharmacy_detail: { name: string; address?: string; state?: string; };
+  pharmacy_detail: {
+    name: string;
+    street_address?: string;
+    suburb?: string;
+    postcode?: string;
+    state?: string;
+  };
+  description?: string;
   role_needed: string;
   slots: { date: string; start_time: string; end_time: string }[];
 }
@@ -90,13 +97,25 @@ const SharedShiftLandingPage: React.FC = () => {
             <Card>
                 <CardContent>
                     <Typography variant="h5">{shift.pharmacy_detail.name}</Typography>
-                    <Typography color="text.secondary" gutterBottom>{shift.pharmacy_detail.address}</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {[shift.pharmacy_detail.street_address, shift.pharmacy_detail.suburb, shift.pharmacy_detail.state, shift.pharmacy_detail.postcode]
+                      .filter(Boolean)
+                      .join(', ')}    
+                    </Typography>
+  
                     <Chip label={shift.role_needed} color="primary" sx={{ my: 2 }} />
                     <Divider sx={{ mb: 2 }} />
                     <Typography variant="h6">Slots:</Typography>
                     {shift.slots.map((slot, index) => (
                         <Typography key={index}>{new Date(slot.date).toLocaleDateString()} from {slot.start_time} to {slot.end_time}</Typography>
                     ))}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      {shift.description && (
+                      <Typography variant="body1" color="text.primary" sx={{ mt: 1,  whiteSpace: 'pre-wrap' }}>
+                        {shift.description}
+                      </Typography>
+                    )}
+                    </Box>
                 </CardContent>
             </Card>
 

@@ -179,8 +179,7 @@ export default function OverviewPage() {
                   color: "inherit",
                   ":hover": { bgcolor: "#f5f5f5" },
                 }}
-                component={Link}
-                to={`/dashboard/owner/shifts/${shift.id}`}
+                // NO component / to here
               >
                 <Box flex={1}>
                   <Typography fontWeight={600}>{shift.pharmacy_name}</Typography>
@@ -190,14 +189,15 @@ export default function OverviewPage() {
                 </Box>
                 <Button
                   variant="text"
-                  component={Link}
-                  to={`/dashboard/owner/shifts/${shift.id}`}
+                  component={Link}                              // <- Link here
+                  to={`/dashboard/owner/shifts/${shift.id}`}   // <- with to
                   sx={{ ml: 2 }}
                 >
                   View
                 </Button>
               </Box>
             ))}
+
           </Box>
         </CardContent>
       </Card>

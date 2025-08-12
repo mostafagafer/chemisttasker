@@ -515,6 +515,15 @@ def run_all_verifications(model_name, object_pk, is_create=False):
             async_task('client_profile.tasks.verify_filefield_task', model_name, object_pk, 'cpr_certificate', user.first_name, user.last_name, user.email, 'cpr_certificate_verified', note_field='cpr_certificate_verification_note')
         if obj.s8_certificate:
             async_task('client_profile.tasks.verify_filefield_task', model_name, object_pk, 's8_certificate', user.first_name, user.last_name, user.email, 's8_certificate_verified', note_field='s8_certificate_verification_note')
+    elif model_name_lower == 'exploreronboarding':
+        if obj.government_id:
+            async_task(
+                'client_profile.tasks.verify_filefield_task',
+                model_name, object_pk, 'government_id',
+                user.first_name, user.last_name, user.email,
+                'gov_id_verified',
+                note_field='gov_id_verification_note'
+            )
 
     # --- 2. Send initial referee emails ---
     referee_models = ['pharmacistonboarding', 'otherstaffonboarding', 'exploreronboarding']
@@ -562,55 +571,82 @@ def final_evaluation(model_name, object_pk, retry_count=0, is_reminder=False):
     import logging
 
     logger = logging.getLogger("client_profile.tasks")
+
     Model = apps.get_model("client_profile", model_name)
     try:
         obj = Model.objects.get(pk=object_pk)
     except Model.DoesNotExist:
         logger.error(f"[FINAL EVALUATION] ERROR: No object for pk={object_pk}")
         return
+
     def cancel_pending_reminders():
         Schedule.objects.filter(
             func='client_profile.tasks.final_evaluation',
             args=f"'{model_name}',{object_pk}"
         ).delete()
         logger.info(f"[FINAL EVALUATION] pk={object_pk} reached a final state. All pending reminders cancelled.")
+
+    # Keep your retry guard
     if retry_count > 15:
         logger.error(f"[FINAL EVALUATION] Timed out waiting for automated tasks for {model_name} pk={object_pk}.")
         cancel_pending_reminders()
         return
+
+    # Build required checks (unchanged)
     required_checks = []
     model_name_lower = model_name.lower()
+
     if model_name_lower == 'owneronboarding':
-        if getattr(obj, 'role', None) == "PHARMACIST": required_checks.append('ahpra')
+        if getattr(obj, 'role', None) == "PHARMACIST":
+            required_checks.append('ahpra')
+
     elif model_name_lower == 'pharmacistonboarding':
         required_checks.extend(['gov_id', 'ahpra'])
         if obj.payment_preference == "ABN":
-            if obj.abn: required_checks.append('abn')
-            if obj.gst_registered: required_checks.append('gst_file')
+            if obj.abn:
+                required_checks.append('abn')
+            if obj.gst_registered:
+                required_checks.append('gst_file')
         elif obj.payment_preference == "TFN":
             required_checks.append('tfn_declaration')
+
     elif model_name_lower == 'otherstaffonboarding':
         required_checks.append('gov_id')
-        if obj.payment_preference == 'ABN' and obj.abn: required_checks.append('abn')
-        if obj.payment_preference == 'TFN' and obj.tfn_declaration: required_checks.append('tfn_declaration')
-        if obj.gst_registered and obj.gst_file: required_checks.append('gst_file')
-        if getattr(obj, 'role_type', None) == 'INTERN': required_checks.extend(['ahpra_proof', 'hours_proof'])
-        if getattr(obj, 'role_type', None) in ['ASSISTANT', 'TECHNICIAN']: required_checks.append('certificate')
-        if getattr(obj, 'role_type', None) == 'STUDENT': required_checks.append('university_id')
-        if getattr(obj, 'cpr_certificate', None): required_checks.append('cpr_certificate')
-        if getattr(obj, 's8_certificate', None): required_checks.append('s8_certificate')
+        if obj.payment_preference == 'ABN' and obj.abn:
+            required_checks.append('abn')
+        if obj.payment_preference == 'TFN' and obj.tfn_declaration:
+            required_checks.append('tfn_declaration')
+        if obj.gst_registered and obj.gst_file:
+            required_checks.append('gst_file')
+        if getattr(obj, 'role_type', None) == 'INTERN':
+            required_checks.extend(['ahpra_proof', 'hours_proof'])
+        if getattr(obj, 'role_type', None) in ['ASSISTANT', 'TECHNICIAN']:
+            required_checks.append('certificate')
+        if getattr(obj, 'role_type', None) == 'STUDENT':
+            required_checks.append('university_id')
+        if getattr(obj, 'cpr_certificate', None):
+            required_checks.append('cpr_certificate')
+        if getattr(obj, 's8_certificate', None):
+            required_checks.append('s8_certificate')
+
     elif model_name_lower == 'exploreronboarding':
         required_checks.append('gov_id')
+
+    # Evaluate checks (unchanged)
     has_failed_check, is_pending_check, failure_reasons = False, False, []
     for check in required_checks:
-        verified_flag, note_flag = f"{check}_verified", f"{check}_verification_note"
+        verified_flag = f"{check}_verified"
+        note_flag = f"{check}_verification_note"
         if hasattr(obj, verified_flag):
-            is_verified, note = getattr(obj, verified_flag), getattr(obj, note_flag, "")
+            is_verified = getattr(obj, verified_flag)
+            note = getattr(obj, note_flag, "")
             if not is_verified and note:
                 has_failed_check = True
                 failure_reasons.append(note)
             elif not is_verified and not note:
                 is_pending_check = True
+
+    # Referee requirements (unchanged)
     referees_needed = model_name_lower in ['pharmacistonboarding', 'otherstaffonboarding', 'exploreronboarding']
     is_pending_referee = False
     if referees_needed:
@@ -620,46 +656,109 @@ def final_evaluation(model_name, object_pk, retry_count=0, is_reminder=False):
                 failure_reasons.append(f"Referee {idx} has declined the request.")
             elif not getattr(obj, f"referee{idx}_confirmed", False):
                 is_pending_referee = True
+
+    # Failed state (unchanged)
     if has_failed_check:
         logger.info(f"[FINAL EVALUATION] pk={object_pk} has FAILED. Reason(s): {failure_reasons}")
         obj.verified = False
         obj.save(update_fields=['verified'])
         if not notification_already_sent(obj, 'failed'):
-            async_task('users.tasks.send_async_email', subject="Action Required: Your Profile Verification Needs Attention", recipient_list=[obj.user.email], template_name="emails/profile_verification_failed.html", context={"user_first_name": obj.user.first_name, "model_type": model_name, "verification_reasons": failure_reasons, "frontend_profile_link": get_frontend_dashboard_url(obj.user)}, text_template="emails/profile_verification_failed.txt")
+            async_task(
+                'users.tasks.send_async_email',
+                subject="Action Required: Your Profile Verification Needs Attention",
+                recipient_list=[obj.user.email],
+                template_name="emails/profile_verification_failed.html",
+                context={
+                    "user_first_name": obj.user.first_name,
+                    "model_type": model_name,
+                    "verification_reasons": failure_reasons,
+                    "frontend_profile_link": get_frontend_dashboard_url(obj.user)
+                },
+                text_template="emails/profile_verification_failed.txt"
+            )
             mark_notification_sent(obj, 'failed')
         cancel_pending_reminders()
         return
-    if is_pending_check:
-        logger.info(f"[FINAL EVALUATION] pk={object_pk} is waiting for automated tasks. Re-checking in 20s.")
-        async_task(
-            'client_profile.tasks.final_evaluation',
-            model_name,
-            object_pk,
-            retry_count=retry_count + 1,
-            q_options={'eta': timezone.now() + timedelta(seconds=20)}
-        )
-        return
+
+    # Helper: do we already have a future reminder scheduled for this profile?
+    def _has_future_reminder(model_name, object_pk):
+        return Schedule.objects.filter(
+            func='client_profile.tasks.final_evaluation',
+            args=f"'{model_name}',{object_pk}",
+            next_run__gt=timezone.now()
+        ).exists()
+
+    # Debug timing: 0.1h (~6 min). Use 48 for production.
+    REMINDER_DELAY = timedelta(hours=48)
+    # Keep your quick re-check loop, but schedule it properly
+    RECHECK_DELAY = timedelta(seconds=20)
 
     if is_pending_referee:
         logger.info(f"[FINAL EVALUATION] pk={object_pk} is waiting for referee confirmation.")
         obj.verified = False
         obj.save(update_fields=['verified'])
+
+        # If this run was triggered by the scheduled reminder, send reminder emails now
         if is_reminder:
-            logger.info(f"[FINAL EVALUATION] Sending 48-hour reminder emails for pk={object_pk}.")
-            # --- THIS IS THE ONE-LINE FIX ---
-            # We now pass `is_reminder=True` so the function uses the correct template.
+            logger.info(f"[FINAL EVALUATION] Sending referee reminder emails for pk={object_pk}.")
             send_referee_emails(obj, is_reminder=True)
-        cancel_pending_reminders()
-        Schedule.objects.create(func='client_profile.tasks.final_evaluation', args=f"'{model_name}',{object_pk}", kwargs={'is_reminder': True}, schedule_type=Schedule.ONCE, next_run=timezone.now() + timedelta(hours=48))
-        logger.info(f"[FINAL EVALUATION] Scheduled next referee check for pk={object_pk} in 48h.")
+
+        # IMPORTANT: Do NOT cancel here; only cancel in final states.
+        # Ensure exactly ONE future reminder exists
+        if not _has_future_reminder(model_name, object_pk):
+            Schedule.objects.create(
+                func='client_profile.tasks.final_evaluation',
+                args=f"'{model_name}',{object_pk}",
+                kwargs={'is_reminder': True},
+                schedule_type=Schedule.ONCE,
+                next_run=timezone.now() + REMINDER_DELAY,
+            )
+            logger.info(f"[FINAL EVALUATION] Scheduled next referee check for pk={object_pk} at {(timezone.now() + REMINDER_DELAY).isoformat()}.")
+        else:
+            logger.info(f"[FINAL EVALUATION] Future referee reminder already exists for pk={object_pk}; leaving it in place.")
+
+        # If other automated checks are also pending, keep the quick re-check loop alive (properly delayed)
+        if is_pending_check:
+            Schedule.objects.create(
+                func='client_profile.tasks.final_evaluation',
+                args=f"'{model_name}',{object_pk}",
+                schedule_type=Schedule.ONCE,
+                next_run=timezone.now() + RECHECK_DELAY,
+            )
         return
 
+    # Automated checks still pending (no referee pending) -> keep quick loop
+    if is_pending_check:
+        logger.info(f"[FINAL EVALUATION] pk={object_pk} is waiting for automated tasks. Re-checking in 20s.")
+        Schedule.objects.create(
+            func='client_profile.tasks.final_evaluation',
+            args=f"'{model_name}',{object_pk}",
+            schedule_type=Schedule.ONCE,
+            next_run=timezone.now() + RECHECK_DELAY,
+        )
+        return
+
+    # Success state (unchanged)
     logger.info(f"[FINAL EVALUATION] pk={object_pk} has been successfully VERIFIED.")
     obj.verified = True
     obj.save(update_fields=['verified'])
+
     if not notification_already_sent(obj, 'verified'):
-        async_task('users.tasks.send_async_email', subject="🎉 Your Profile is Verified! 🎉", recipient_list=[obj.user.email], template_name="emails/profile_verified.html", context={"user_first_name": obj.user.first_name, "model_type": model_name, "frontend_profile_link": get_frontend_dashboard_url(obj.user)}, text_template="emails/profile_verified.txt")
+        async_task(
+            'users.tasks.send_async_email',
+            subject="🎉 Your Profile is Verified! 🎉",
+            recipient_list=[obj.user.email],
+            template_name="emails/profile_verified.html",
+            context={
+                "user_first_name": obj.user.first_name,
+                "model_type": model_name,
+                "frontend_profile_link": get_frontend_dashboard_url(obj.user)
+            },
+            text_template="emails/profile_verified.txt"
+        )
         mark_notification_sent(obj, 'verified')
+
+    # Only cancel reminders in a final state
     cancel_pending_reminders()
     return
 

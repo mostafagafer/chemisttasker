@@ -340,6 +340,59 @@ class ExplorerOnboarding(models.Model):
     def __str__(self):
         return f"{self.user.get_full_name()} - Explorer Onboarding"
 
+
+class RefereeResponse(models.Model):
+    # Link to the specific onboarding profile (works for all types)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    onboarding_profile = GenericForeignKey('content_type', 'object_id')
+
+    # Link to the specific referee number (1 or 2)
+    referee_index = models.PositiveSmallIntegerField(choices=[(1, 'Referee 1'), (2, 'Referee 2')])
+
+    # Fields from your questionnaire
+    referee_name = models.CharField(max_length=255, blank=True)
+    referee_position = models.CharField(max_length=255, blank=True)
+    relationship_to_candidate = models.CharField(max_length=255, blank=True)
+    association_period = models.CharField(max_length=100, blank=True)
+    contact_details = models.CharField(max_length=255, blank=True)
+
+    # 1. Role & Performance
+    role_and_responsibilities = models.TextField(blank=True)
+
+    # 2. Professionalism & Work Ethic
+    reliability_rating = models.CharField(max_length=20, blank=True) # Excellent, Good, etc.
+    professionalism_notes = models.TextField(blank=True)
+
+    skills_rating = models.CharField(max_length=20, blank=True)          # same options as above
+    skills_strengths_weaknesses = models.TextField(blank=True)
+
+    # 4. Teamwork & Communication
+    teamwork_communication_notes = models.TextField(blank=True)
+    feedback_conflict_notes = models.TextField(blank=True)
+
+    # 5. Integrity & Conduct
+    conduct_concerns = models.BooleanField(default=False)
+    conduct_explanation = models.TextField(blank=True)
+
+    # 6. Compliance & Safety
+    compliance_adherence = models.CharField(max_length=10, blank=True)   # 'Yes' | 'No' | 'Unsure'
+    compliance_incidents = models.TextField(blank=True)
+
+    # 7. Rehire & Overall Recommendation (CRITICAL)
+    would_rehire = models.CharField(max_length=20, blank=True)           # 'Yes' | 'No' | 'With Reservations'
+    rehire_explanation = models.TextField(blank=True)
+
+    # 8. Additional
+    additional_comments = models.TextField(blank=True)
+
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Ensures a candidate can't have two responses for the same referee
+        unique_together = ('content_type', 'object_id', 'referee_index')
+
+
 # Pharmacy Model - Represents an individual pharmacy
 class Pharmacy(models.Model):
     EMPLOYMENT_CHOICES = [
@@ -363,7 +416,15 @@ class Pharmacy(models.Model):
     ]
 
     name                   = models.CharField(max_length=120)
-    address                = models.CharField(max_length=255)
+    # --- ADD THESE NEW STRUCTURED ADDRESS FIELDS ---
+    street_address = models.CharField(max_length=255, blank=True, null=True)
+    suburb = models.CharField(max_length=100, blank=True, null=True)
+    postcode = models.CharField(max_length=10, blank=True, null=True)
+    google_place_id = models.CharField(max_length=255, blank=True, null=True, unique=True)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+
+
     STATE_CHOICES = [
         ('QLD', 'Queensland'),
         ('NSW', 'New South Wales'),
@@ -699,6 +760,13 @@ class Shift(models.Model):
         help_text="If true, only one user may take the entire shift (all slots)."
     )
     share_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, null=True)
+
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="A plain English description of the shift."
+    )
+
 
     def clean(self):
         # Validate JSON lists are lists of strings

@@ -136,15 +136,34 @@ export default function InvoiceManagePage() {
   // Edit → navigate to generator with state
   const handleEdit = () => {
     if (!menuInvoiceId) return;
-    navigate('new', { state: { invoiceId: menuInvoiceId } });
+    navigate(`${menuInvoiceId}`);
     handleMenuClose();
   };
 
-  // Send (stub)
-  const handleSend = () => {
-    setSnackbar({ open: true, msg: 'Send not implemented.' });
-    handleMenuClose();
+  // // Send (stub)
+  // const handleSend = () => {
+  //   setSnackbar({ open: true, msg: 'Send not implemented.' });
+  //   handleMenuClose();
+  // };
+
+
+    // Send (real)
+    const handleSend = async () => {
+      if (!menuInvoiceId) return;
+      try {
+        await apiClient.post(API_ENDPOINTS.sendInvoice(menuInvoiceId));
+        // Optimistically mark as sent
+        setInvoices(prev =>
+          prev.map(inv => inv.id === menuInvoiceId ? { ...inv, status: 'sent' } : inv)
+        );
+        setSnackbar({ open: true, msg: `Invoice #${menuInvoiceId} sent.` });
+      } catch {
+        setSnackbar({ open: true, msg: 'Failed to send invoice.' });
+      } finally {
+        handleMenuClose();
+      }
   };
+
 
   // PDF (stub)
   const handlePdf = async () => {
@@ -257,9 +276,11 @@ export default function InvoiceManagePage() {
         <MenuItem onClick={handleEdit}>
           <EditIcon fontSize="small" /> Edit
         </MenuItem>
-        <MenuItem onClick={handleSend}>
-          <SendIcon fontSize="small" /> Send
-        </MenuItem>
+        <MenuItem onClick={handleSend} disabled={
+          invoices.find(i => i.id === menuInvoiceId)?.status === 'sent'
+        }>
+         <SendIcon fontSize="small" /> Send
+       </MenuItem>
         <MenuItem onClick={handlePdf}>
           <PictureAsPdfIcon fontSize="small" /> Download PDF
         </MenuItem>

@@ -1,0 +1,17 @@
+Hello,
+
+Please find attached your invoice #{{ invoice.id }}.
+
+Invoice Date: {{ invoice_date }}
+Due Date: {{ due_date }}
+Subtotal: ${{ subtotal }}
+GST: ${{ gst_amount }}
+Super: ${{ super_amount }}
+Total: ${{ total }}
+
+Issued by: {{ issuer_name }}
+
+If you have any questions, just reply to this email.
+
+Thanks,
+ChemistTasker

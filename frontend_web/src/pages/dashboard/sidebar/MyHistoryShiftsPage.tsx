@@ -4,21 +4,22 @@ import {
   Typography,
   Paper,
   Box,
-  // CircularProgress,
   Snackbar,
   IconButton,
   Pagination,
-  Rating,
+  // Rating,
   Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Skeleton, // Added Skeleton import
+  // Dialog,
+  // DialogTitle,
+  // DialogContent,
+  // DialogActions,
+  Skeleton,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../../contexts/AuthContext';
 
 interface Slot {
   id: number;
@@ -37,27 +38,36 @@ interface Shift {
   slots: Slot[];
 }
 
-interface InvoiceLineItem {
-  id: number;
-  description: string;
-  quantity: string;
-  unit_price: string;
-  total: string;
-}
+// interface InvoiceLineItem {
+//   id: number;
+//   description: string;
+//   quantity: string;
+//   unit_price: string;
+//   total: string;
+// }
 
-interface Invoice {
-  id: number;
-  invoice_date: string;
-  due_date: string;
-  pharmacy_name_snapshot: string;
-  subtotal: string;
-  gst_amount: string;
-  super_amount: string;
-  total: string;
-  line_items: InvoiceLineItem[];
-}
+// interface Invoice {
+//   id: number;
+//   invoice_date: string;
+//   due_date: string;
+//   pharmacy_name_snapshot: string;
+//   subtotal: string;
+//   gst_amount: string;
+//   super_amount: string;
+//   total: string;
+//   line_items: InvoiceLineItem[];
+// }
 
 export default function MyHistoryShiftsPage() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const base =
+    user?.role === 'PHARMACIST'
+      ? '/dashboard/pharmacist'
+      : user?.role === 'OTHER_STAFF'
+      ? '/dashboard/otherstaff'
+      : '/dashboard/pharmacist'; // sensible fallback
+
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true); // Set to true initially for skeleton loading
   const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string }>({
@@ -65,10 +75,10 @@ export default function MyHistoryShiftsPage() {
     msg: '',
   });
   const [page, setPage] = useState(1);
-  const [generatingId, setGeneratingId] = useState<number | null>(null);
-  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [ratings, setRatings] = useState<Record<number, number>>({});
+  const [generatingId, _setGeneratingId] = useState<number | null>(null);
+  // const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  // const [modalOpen, setModalOpen] = useState(false);
+  // const [ratings, setRatings] = useState<Record<number, number>>({});
 
   const itemsPerPage = 5;
   const pageCount = Math.ceil(shifts.length / itemsPerPage);
@@ -100,30 +110,16 @@ export default function MyHistoryShiftsPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleGenerateInvoice = async (shift: Shift) => {
-    try {
-      setGeneratingId(shift.id);
-      const res = await apiClient.post(API_ENDPOINTS.generateInvoice, {
-        pharmacy_id: shift.pharmacy_detail.id,
-        shift_ids: [shift.id],
-      });
-
-      const { invoice_id } = res.data;
-
-      const invoiceRes = await apiClient.get(`/client-profile/invoices/${invoice_id}/`);
-      setSelectedInvoice(invoiceRes.data);
-      setModalOpen(true);
-    } catch (error) {
-      setSnackbar({ open: true, msg: 'Failed to generate invoice.' });
-    } finally {
-      setGeneratingId(null);
-    }
+  const handleGenerateInvoice = (shift: Shift) => {
+    navigate(
+      `${base}/invoice/new?shiftId=${shift.id}&pharmacyId=${shift.pharmacy_detail.id}`
+    );
   };
 
-  const handleCloseModal = () => {
-    setModalOpen(false);
-    setSelectedInvoice(null);
-  };
+  // const handleCloseModal = () => {
+  //   setModalOpen(false);
+  //   setSelectedInvoice(null);
+  // };
 
   if (loading) {
     return (
@@ -136,7 +132,7 @@ export default function MyHistoryShiftsPage() {
                 {[...Array(2)].map((__, slotIndex) => (
                     <Box key={slotIndex} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <Skeleton variant="text" width="40%" />
-                        <Rating readOnly size="small" value={0} /> {/* Placeholder for Rating */}
+                        {/* <Rating readOnly size="small" value={0} /> Placeholder for Rating */}
                     </Box>
                 ))}
             </Box>
@@ -181,13 +177,13 @@ export default function MyHistoryShiftsPage() {
                 <Typography variant="body2">
                   {slot.date} {slot.start_time}–{slot.end_time}
                 </Typography>
-                <Rating
+                {/* <Rating
                   size="small"
                   value={ratings[slot.id] || 0}
                   onChange={(_, v) =>
                     setRatings((r) => ({ ...r, [slot.id]: v || 0 }))
                   }
-                />
+                /> */}
               </Box>
             ))}
           </Box>
@@ -216,7 +212,7 @@ export default function MyHistoryShiftsPage() {
           />
         </Box>
       )}
-
+{/* 
       <Dialog open={modalOpen} onClose={handleCloseModal} maxWidth="sm" fullWidth>
         <DialogTitle>Invoice Summary</DialogTitle>
         <DialogContent dividers>
@@ -256,7 +252,7 @@ export default function MyHistoryShiftsPage() {
           <Button variant="contained" color="primary" disabled>Send Invoice</Button>
           <Button onClick={handleCloseModal}>Close</Button>
         </DialogActions>
-      </Dialog>
+      </Dialog> */}
 
       <Snackbar
         open={snackbar.open}

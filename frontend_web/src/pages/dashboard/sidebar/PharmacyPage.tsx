@@ -49,6 +49,18 @@ const getMemberClassification = (member: any) => {
   }
 };
 
+
+const STATE_BOUNDS: Record<string, google.maps.LatLngBoundsLiteral> = {
+  NSW: { south: -38.5, west: 140.9, north: -28.0, east: 153.7 },
+  QLD: { south: -29.5, west: 138.0, north: -9.0,  east: 153.6 },
+  VIC: { south: -39.2, west: 140.9, north: -33.9, east: 150.1 },
+  SA:  { south: -38.1, west: 129.0, north: -25.9, east: 141.0 },
+  WA:  { south: -35.2, west: 112.9, north: -13.7, east: 129.0 },
+  TAS: { south: -43.8, west: 144.3, north: -39.0, east: 148.7 },
+  ACT: { south: -35.8, west: 148.7, north: -35.1, east: 149.4 },
+  NT:  { south: -25.9, west: 129.0, north: -10.9, east: 138.0 },
+};
+
 // --- Component ---
 export default function PharmacyPage() {
   const navigate = useNavigate();
@@ -122,6 +134,28 @@ export default function PharmacyPage() {
   useEffect(() => { if (!user) return; const isOrgAdmin = Array.isArray(user?.memberships) && user.memberships.some(m => m?.role === 'ORG_ADMIN'); const load = async () => { try { const res: AxiosResponse<Pharmacy[]> = await apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.pharmacies}`); setPharmacies(res.data); const membershipPromises = res.data.map(ph => loadMembers(ph.id)); await Promise.all(membershipPromises); } catch (err) { if (err instanceof AxiosError && err.response?.status === 404) setNeedsOnboarding(true); else console.error(err); } finally { setLoading(false); } }; if (isOrgAdmin) { load(); } else { apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.onboardingDetail('owner')}`).then(load).catch((err: unknown) => { if (err instanceof AxiosError && err.response?.status === 404) setNeedsOnboarding(true); else console.error(err); }).finally(() => setLoading(false)); } }, [user]);
   const loadMembers = (phId: string) => { return apiClient.get<any[]>(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${phId}`).then(res => setMemberships(m => ({ ...m, [phId]: res.data }))).catch(console.error); };
 
+
+  useEffect(() => {
+  if (!isLoaded || !autocompleteRef.current) return;
+  const bounds = STATE_BOUNDS[state];
+  if (!bounds) {
+    // No state selected: allow AU-wide bias only
+    autocompleteRef.current.setOptions({
+      componentRestrictions: { country: 'au' },
+      strictBounds: false,
+      bounds: undefined,
+    });
+    return;
+  }
+
+  autocompleteRef.current.setOptions({
+    componentRestrictions: { country: 'au' },
+    bounds,               // rectangular restriction for the state
+    strictBounds: true,   // hard limit to the bounds
+    fields: ['address_components', 'geometry', 'place_id', 'name'],
+  });
+}, [state, isLoaded]);
+
   const openDialog = (p?: Pharmacy) => {
     setApprovalCertFile(null); setSopsFile(null); setInductionGuidesFile(null); setSumpDocsFile(null);
     if (p) {
@@ -155,34 +189,38 @@ export default function PharmacyPage() {
   };
 
   const handlePlaceChanged = () => {
-    if (autocompleteRef.current) {
-      const place = autocompleteRef.current.getPlace();
-      if (!place || !place.address_components) return;
+    if (!autocompleteRef.current) return;
+    const place = autocompleteRef.current.getPlace();
+    if (!place || !place.address_components) return;
 
-      let streetNumber = ''; let route = ''; let locality = ''; let postalCode = ''; let stateShort = '';
+    let streetNumber = ''; let route = ''; let locality = ''; let postalCode = ''; let stateShort = '';
 
-      place.address_components.forEach(component => {
-        const types = component.types;
-        if (types.includes('street_number')) streetNumber = component.long_name;
-        if (types.includes('route')) route = component.short_name;
-        if (types.includes('locality')) locality = component.long_name;
-        if (types.includes('postal_code')) postalCode = component.long_name;
-        if (types.includes('administrative_area_level_1')) stateShort = component.short_name;
-      });
+    place.address_components.forEach(component => {
+      const types = component.types;
+      if (types.includes('street_number')) streetNumber = component.long_name;
+      if (types.includes('route')) route = component.short_name;
+      if (types.includes('locality')) locality = component.long_name;
+      if (types.includes('postal_code')) postalCode = component.long_name;
+      if (types.includes('administrative_area_level_1')) stateShort = component.short_name; // e.g., 'NSW'
+    });
 
-      setStreetAddress(`${streetNumber} ${route}`.trim());
-      setSuburb(locality);
-      setPostcode(postalCode);
-      setState(stateShort);
-      setGooglePlaceId(place.place_id || '');
-      if (place.geometry?.location) {
-        setLatitude(place.geometry.location.lat());
-        setLongitude(place.geometry.location.lng());
-      }
-      if (!name && place.name) {
-        setName(place.name);
-      }
+    // If a state is already selected, ensure the chosen place matches it:
+    if (state && stateShort && stateShort !== state) {
+      setSnackMsg(`Selected address is in ${stateShort}, but current state is ${state}. Please change the state or pick an address within ${state}.`);
+      setSnackbarOpen(true);
+      return; // don't apply mismatched address
     }
+
+    setStreetAddress(`${streetNumber} ${route}`.trim());
+    setSuburb(locality);
+    setPostcode(postalCode);
+    setState(stateShort || state);      // keep existing state if autocomplete didn't return it
+    setGooglePlaceId(place.place_id || '');
+    if (place.geometry?.location) {
+      setLatitude(place.geometry.location.lat());
+      setLongitude(place.geometry.location.lng());
+    }
+    if (!name && place.name) setName(place.name);
   };
 
   const handleSave = async () => {

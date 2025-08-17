@@ -131,6 +131,7 @@ export const API_ENDPOINTS = {
   generateInvoice: '/client-profile/invoices/generate/',
   invoicePreview: (id: number) => `/client-profile/invoices/preview/${id}/`,
   invoicePdf: (id: number) => `/client-profile/invoices/${id}/pdf/`,
+  sendInvoice: (id: number) => `/client-profile/invoices/${id}/send/`,
 
 };
 

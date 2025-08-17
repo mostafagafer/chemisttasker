@@ -1249,9 +1249,22 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'user_id is required'}, status=status.HTTP_400_BAD_REQUEST)
         candidate = get_object_or_404(User, pk=user_id)
         
-        # Prevent Full/Part-Time employees from being accepted through this flow
+        # # Prevent Full/Part-Time employees from being accepted through this flow
+        # membership = Membership.objects.filter(user=candidate, pharmacy=shift.pharmacy).first()
+        # if membership and membership.employment_type in ['FULL_TIME', 'PART_TIME']:
+        #     return Response(
+        #         {"detail": "Full/Part-Time employees must be rostered via manual assignment, not accepted here."},
+        #         status=status.HTTP_400_BAD_REQUEST
+        #     )
+
+        # Prevent accepting Full/Part-Time employees via this flow
+        # EXCEPT when the shift is PUBLIC ('PLATFORM'), where acceptance is allowed.
         membership = Membership.objects.filter(user=candidate, pharmacy=shift.pharmacy).first()
-        if membership and membership.employment_type in ['FULL_TIME', 'PART_TIME']:
+        if (
+            membership
+            and membership.employment_type in ['FULL_TIME', 'PART_TIME']
+            and shift.visibility != 'PLATFORM'
+        ):
             return Response(
                 {"detail": "Full/Part-Time employees must be rostered via manual assignment, not accepted here."},
                 status=status.HTTP_400_BAD_REQUEST
@@ -2796,10 +2809,70 @@ def preview_invoice_lines(request, shift_id):
     return Response(line_items)
 
 
-from django.http import HttpResponse
+from django.http import HttpResponse, Http404
 def invoice_pdf_view(request, invoice_id):
     invoice = Invoice.objects.get(pk=invoice_id)
     pdf_bytes = render_invoice_to_pdf(invoice)
     response = HttpResponse(pdf_bytes, content_type="application/pdf")
     response['Content-Disposition'] = f'inline; filename="invoice_{invoice.id}.pdf"'
     return response
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def send_invoice_email(request, invoice_id):
+    # Ensure invoice belongs to the current user
+    try:
+        invoice = Invoice.objects.get(pk=invoice_id, user=request.user)
+    except Invoice.DoesNotExist:
+        raise Http404("Invoice not found")
+
+    # Basic recipient validation
+    to_email = (invoice.bill_to_email or "").strip()
+    if not to_email:
+        return Response({"detail": "Missing bill_to_email on invoice."}, status=400)
+
+    # CC parsing from stored `cc_emails`
+    cc_list = []
+    if invoice.cc_emails:
+        cc_list = [e.strip() for e in invoice.cc_emails.split(",") if e.strip()]
+
+    # Render PDF into memory
+    pdf_bytes = render_invoice_to_pdf(invoice)  # you already use this in invoice_pdf_view
+    filename = f"invoice_{invoice.id}.pdf"
+    full_bill_to_name = f"{(invoice.bill_to_first_name or '').strip()} {(invoice.bill_to_last_name or '').strip()}".strip()
+
+    # Build email context (match your brand look & tone)
+    context = {
+        "invoice": invoice,
+        "client_name": (
+            (invoice.custom_bill_to_name or "").strip()
+            or full_bill_to_name
+            or (invoice.pharmacy_name_snapshot or "").strip()
+        ),
+        "issuer_name": f"{invoice.issuer_first_name} {invoice.issuer_last_name}".strip(),
+        "subtotal": str(invoice.subtotal),
+        "gst_amount": str(invoice.gst_amount),
+        "super_amount": str(invoice.super_amount),
+        "total": str(invoice.total),
+        "invoice_date": str(invoice.invoice_date),
+        "due_date": str(invoice.due_date or ""),
+    }
+
+    # Kick off async email with PDF attached (backward compatible task)
+    async_task(
+        'users.tasks.send_async_email',
+        subject=f"Invoice #{invoice.id} from ChemistTasker",
+        recipient_list=[to_email],
+        template_name="emails/invoice_sent.html",
+        context=context,
+        text_template=None,               # optional plain text template; use html for now
+        cc=cc_list,                       # NEW
+        attachments=[(filename, pdf_bytes, "application/pdf")]  # NEW
+    )
+
+    # Mark as sent (see §3 below)
+    invoice.status = 'sent'
+    invoice.save(update_fields=['status'])
+
+    return Response({"status": "sent"})

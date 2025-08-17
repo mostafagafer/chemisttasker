@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Container, Paper, Typography, Box, TextField, MenuItem,
   Table, TableHead, TableRow, TableCell, TableBody, Button,
@@ -9,6 +9,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
 
 
 
@@ -53,7 +54,7 @@ export default function InvoiceDetailPage() {
   const [pharmacyNameSnapshot, setPharmacyNameSnapshot] = useState('');
   const [pharmacyAddressSnapshot, setPharmacyAddressSnapshot] = useState('');
   const [pharmacyAbnSnapshot, setPharmacyAbnSnapshot] = useState('');
-  const [pharmacyStateSnapshot, setPharmacyStateSnapshot] = useState('');
+  // const [pharmacyStateSnapshot, setPharmacyStateSnapshot] = useState('');
   const [billToFirstName, setBillToFirstName] = useState('');
   const [billToLastName, setBillToLastName] = useState('');
   const [billToEmail, setBillToEmail] = useState('');
@@ -61,6 +62,67 @@ export default function InvoiceDetailPage() {
   // External
   const [customBillToName, setCustomBillToName] = useState('');
   const [customBillToAddress, setCustomBillToAddress] = useState('');
+
+  const { isLoaded } = useJsApiLoader({
+  googleMapsApiKey: import.meta.env.VITE_Maps_API_KEY as string,
+  libraries: ['places'],
+  });
+  const externalAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const internalAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+
+
+  const handleExternalPlaceChanged = () => {
+  if (!externalAutocompleteRef.current) return;
+  const place = externalAutocompleteRef.current.getPlace();
+  if (!place || !place.address_components) return;
+
+  let streetNumber = '';
+  let route = '';
+  let suburb = '';
+  let stateShort = '';
+  let postalCode = '';
+
+  for (const comp of place.address_components) {
+    if (comp.types.includes('street_number')) streetNumber = comp.long_name;
+    if (comp.types.includes('route')) route = comp.short_name;
+    if (comp.types.includes('locality')) suburb = comp.long_name;
+    if (comp.types.includes('administrative_area_level_1')) stateShort = comp.short_name;
+    if (comp.types.includes('postal_code')) postalCode = comp.long_name;
+  }
+
+  const address = [`${streetNumber} ${route}`.trim(), suburb, stateShort, postalCode]
+    .filter(Boolean)
+    .join(', ');
+
+  setCustomBillToAddress(address);
+};
+
+  const handleInternalPlaceChanged = () => {
+    if (!internalAutocompleteRef.current) return;
+    const place = internalAutocompleteRef.current.getPlace();
+    if (!place || !place.address_components) return;
+
+    let streetNumber = '';
+    let route = '';
+    let suburb = '';
+    let stateShort = '';
+    let postalCode = '';
+
+    for (const comp of place.address_components) {
+      if (comp.types.includes('street_number')) streetNumber = comp.long_name;
+      if (comp.types.includes('route')) route = comp.short_name;
+      if (comp.types.includes('locality')) suburb = comp.long_name;
+      if (comp.types.includes('administrative_area_level_1')) stateShort = comp.short_name;
+      if (comp.types.includes('postal_code')) postalCode = comp.long_name;
+    }
+
+    const address = [`${streetNumber} ${route}`.trim(), suburb, stateShort, postalCode]
+      .filter(Boolean)
+      .join(', ');
+
+    setPharmacyAddressSnapshot(address);
+    };
+
   // Line Items
   const [lineItems, setLineItems] = useState<any[]>([]);
 
@@ -91,7 +153,7 @@ export default function InvoiceDetailPage() {
         setPharmacyNameSnapshot(data.pharmacy_name_snapshot || '');
         setPharmacyAddressSnapshot(data.pharmacy_address_snapshot || '');
         setPharmacyAbnSnapshot(data.pharmacy_abn_snapshot || '');
-        setPharmacyStateSnapshot(data.pharmacy_state_snapshot || '');
+        // setPharmacyStateSnapshot(data.pharmacy_state_snapshot || '');
         setBillToFirstName(data.bill_to_first_name || '');
         setBillToLastName(data.bill_to_last_name || '');
         setBillToEmail(data.bill_to_email || '');
@@ -238,7 +300,7 @@ export default function InvoiceDetailPage() {
         pharmacy_name_snapshot: pharmacyNameSnapshot,
         pharmacy_address_snapshot: pharmacyAddressSnapshot,
         pharmacy_abn_snapshot: pharmacyAbnSnapshot,
-        pharmacy_state_snapshot: pharmacyStateSnapshot,
+        // pharmacy_state_snapshot: pharmacyStateSnapshot,
         bill_to_first_name: billToFirstName,
         bill_to_last_name: billToLastName,
         bill_to_email: billToEmail,
@@ -321,12 +383,27 @@ export default function InvoiceDetailPage() {
                 />
               </Box>
               <Box flex="1 1 45%">
-                <TextField
-                  label="Bill-To Address"
-                  value={customBillToAddress}
-                  onChange={e => setCustomBillToAddress(e.target.value)}
-                  fullWidth
-                />
+                {isLoaded ? (
+                  <Autocomplete
+                    onLoad={(ref) => (externalAutocompleteRef.current = ref)}
+                    onPlaceChanged={handleExternalPlaceChanged}
+                    // options={{ componentRestrictions: { country: 'au' } }} // optional AU-only
+                  >
+                    <TextField
+                      label="Bill-To Address"
+                      value={customBillToAddress}
+                      onChange={e => setCustomBillToAddress(e.target.value)}
+                      fullWidth
+                    />
+                  </Autocomplete>
+                ) : (
+                  <TextField
+                    label="Bill-To Address"
+                    value={customBillToAddress}
+                    onChange={e => setCustomBillToAddress(e.target.value)}
+                    fullWidth
+                  />
+                )}
               </Box>
               <Box flex="1 1 45%">
                 <TextField
@@ -354,11 +431,33 @@ export default function InvoiceDetailPage() {
                 <TextField label="Facility ABN" value={pharmacyAbnSnapshot} InputProps={{ readOnly: true }} fullWidth />
               </Box>
               <Box flex="1 1 20%">
-                <TextField label="Facility Address" value={pharmacyAddressSnapshot} InputProps={{ readOnly: true }} fullWidth />
+
+                {isLoaded ? (
+                  <Autocomplete
+                    onLoad={(ref) => (internalAutocompleteRef.current = ref)}
+                    onPlaceChanged={handleInternalPlaceChanged}
+                    // options={{ componentRestrictions: { country: 'au' } }} // optional AU-only
+                  >
+                    <TextField
+                      label="Facility Address"
+                      value={pharmacyAddressSnapshot}
+                      onChange={e => setPharmacyAddressSnapshot(e.target.value)}
+                      fullWidth
+                    />
+                  </Autocomplete>
+                ) : (
+                  <TextField
+                    label="Facility Address"
+                    value={pharmacyAddressSnapshot}
+                    onChange={e => setPharmacyAddressSnapshot(e.target.value)}
+                    fullWidth
+                  />
+                )}
+
               </Box>
-              <Box flex="1 1 15%">
+              {/* <Box flex="1 1 15%">
                 <TextField label="Facility State" value={pharmacyStateSnapshot} InputProps={{ readOnly: true }} fullWidth />
-              </Box>
+              </Box> */}
               <Box flex="1 1 30%">
                 <TextField label="Bill-To Name" value={`${billToFirstName} ${billToLastName}`} InputProps={{ readOnly: true }} fullWidth />
               </Box>
@@ -473,133 +572,169 @@ export default function InvoiceDetailPage() {
 
         {/* Line Items Table */}
         <Box mt={3}>
-          <TableContainer sx={{ maxWidth: '100%', overflowX: 'auto' }}>
-            <Table size="medium" padding="checkbox" stickyHeader>
-              <TableHead>
-                <TableRow>
-                  <TableCell align="center" sx={{ width: '20%' }}>Category</TableCell>
-                  <TableCell align="center" sx={{ width: '10%' }}>Date</TableCell>
-                  <TableCell align="center" sx={{ width: '10%' }}>Start</TableCell>
-                  <TableCell align="center" sx={{ width: '8%' }}>End</TableCell>
-                  <TableCell align="center" sx={{ width: '5%' }}>Hours</TableCell>
-                  <TableCell align="center" sx={{ width: '5%' }}>Unit</TableCell>
-                  <TableCell align="center" sx={{ width: '20%' }}>Price</TableCell>
-                  <TableCell align="center" sx={{ width: '5%' }}>Discount</TableCell>
-                  <TableCell align="center" sx={{ width: '10%' }}>Amount</TableCell>
-                  <TableCell align="center" sx={{ width: '100%' }}></TableCell>
-                </TableRow>
-              </TableHead>
-<TableBody>
-  {lineItems.map((li, idx) => (
-    <TableRow key={li.id || idx}>
-      {/* Category */}
-      <TableCell align="center">
-        <TextField
-          select size="medium" fullWidth
-          value={li.category_code}
-          onChange={e => updateRow(idx, 'category_code', e.target.value)}
-          disabled={li.category_code === 'Superannuation'}
-        >
-          {CATEGORY_CHOICES.map(c => (
-            <MenuItem key={c.code} value={c.code}>
-              {c.label}
-            </MenuItem>
-          ))}
-        </TextField>
-      </TableCell>
-      {/* Date/Start/End for Professional services */}
-      {li.category_code === 'ProfessionalServices' ? (
-        <>
-          <TableCell align="center">
-            <TextField
-              size="small" type="date" fullWidth
-              value={li.date || ''}
-              onChange={e => updateRow(idx, 'date', e.target.value)}
-            />
-          </TableCell>
-          <TableCell align="center">
-            <TextField
-              size="small" type="time"
-              value={li.start_time?.slice(0, 5) || '00:00'}
-              onChange={e => {
-                const raw = e.target.value;
-                const newVal = raw ? raw + ':00' : '00:00:00';
-                updateRow(idx, 'start_time', newVal);
-              }}
-            />
-          </TableCell>
-          <TableCell align="center">
-            <TextField
-              size="small" type="time"
-              value={li.end_time?.slice(0, 5) || '00:00'}
-              onChange={e => {
-                const raw = e.target.value;
-                const newVal = raw ? raw + ':00' : '00:00:00';
-                updateRow(idx, 'end_time', newVal);
-              }}
-            />
-          </TableCell>
-          <TableCell align="center">
-            {Number(li.quantity || 0).toFixed(2)}
-          </TableCell>
-        </>
-      ) : (
-        <>
-          <TableCell align="center" />
-          <TableCell align="center" />
-          <TableCell align="center" />
-          <TableCell align="center">
-            {['Transportation', 'Accommodation'].includes(li.category_code)
-              ? '1.00'
-              : ''}
-          </TableCell>
-        </>
-      )}
-      {/* Unit */}
-      <TableCell align="center">
-        <TextField
-          select size="small" fullWidth
-          value={li.unit}
-          onChange={e => updateRow(idx, 'unit', e.target.value)}
-        >
-          {UNIT_CHOICES.map(u => (
-            <MenuItem key={u} value={u}>{u}</MenuItem>
-          ))}
-        </TextField>
-      </TableCell>
-      {/* Price */}
-      <TableCell align="center">
-        <TextField
-          size="small" type="number" inputProps={{ step: 0.01, min: 0 }}
-          value={li.unit_price}
-          onChange={e => updateRow(idx, 'unit_price', +e.target.value)}
-          disabled={li.category_code === 'Superannuation'}
-        />
-      </TableCell>
-      {/* Discount */}
-      <TableCell align="center">
-        <TextField
-          size="small" type="number" inputProps={{ min: 0, max: 100 }}
-          value={li.discount}
-          onChange={e => updateRow(idx, 'discount', +e.target.value)}
-        />
-      </TableCell>
-      {/* Amount */}
-      <TableCell align="center">
-        {Number(li.total || 0).toFixed(2)}
-      </TableCell>
-      {/* Delete */}
-      <TableCell align="center">
-        <IconButton onClick={() => removeRow(idx)} size="small">
-          <DeleteIcon fontSize="small" />
-        </IconButton>
-      </TableCell>
-    </TableRow>
-  ))}
-</TableBody>
+<TableContainer sx={{ maxWidth: '100%', overflowX: 'auto' }}>
+  <Table size="medium" padding="checkbox" stickyHeader>
+    <TableHead>
+      <TableRow>
+        <TableCell align="center" sx={{ width: '20%' }}>Category</TableCell>
+        <TableCell align="center" sx={{ width: '10%' }}>Date</TableCell>
+        <TableCell align="center" sx={{ width: '10%' }}>Start</TableCell>
+        <TableCell align="center" sx={{ width: '8%'  }}>End</TableCell>
+        <TableCell align="center" sx={{ width: '5%'  }}>Hours</TableCell>
+        <TableCell align="center" sx={{ width: '5%'  }}>Unit</TableCell>
+        <TableCell align="center" sx={{ width: '20%' }}>Price</TableCell>
+        <TableCell align="center" sx={{ width: '5%'  }}>Discount</TableCell>
+        <TableCell align="center" sx={{ width: '10%' }}>Amount</TableCell>
+        <TableCell align="center" sx={{ width: '100%' }} />
+      </TableRow>
+    </TableHead>
 
-            </Table>
-          </TableContainer>
+    <TableBody>
+      {lineItems.map((li, idx) => (
+        <TableRow key={li.id || idx}>
+          {/* Category (uses category_code) */}
+          <TableCell align="center">
+            <TextField
+              variant="standard"
+              select
+              size="small"
+              fullWidth
+              value={li.category_code}
+              onChange={e => updateRow(idx, 'category_code', e.target.value)}
+              disabled={li.category_code === 'Superannuation'}
+            >
+              {CATEGORY_CHOICES.map(c => (
+                <MenuItem key={c.code} value={c.code}>{c.label}</MenuItem>
+              ))}
+            </TextField>
+          </TableCell>
+
+          {/* Date/Start/End only for Professional services */}
+          {li.category_code === 'ProfessionalServices' ? (
+            <>
+              <TableCell align="center">
+                <TextField
+                  variant="standard"
+                  size="small"
+                  type="date"
+                  fullWidth
+                  value={li.date || ''}
+                  onChange={e => updateRow(idx, 'date', e.target.value)}
+                  InputProps={{ sx: { textAlign: 'center' } }}
+                />
+              </TableCell>
+
+              <TableCell align="center">
+                <TextField
+                  variant="standard"
+                  size="small"
+                  type="time"
+                  value={li.start_time?.slice(0, 5) || '00:00'}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    const newVal = raw ? raw + ':00' : '00:00:00';
+                    updateRow(idx, 'start_time', newVal);
+                  }}
+                  sx={{ minWidth: 110 }}
+                  InputProps={{ sx: { textAlign: 'center' } }}
+                />
+              </TableCell>
+
+              <TableCell align="center">
+                <TextField
+                  variant="standard"
+                  size="small"
+                  type="time"
+                  value={li.end_time?.slice(0, 5) || '00:00'}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    const newVal = raw ? raw + ':00' : '00:00:00';
+                    updateRow(idx, 'end_time', newVal);
+                  }}
+                  sx={{ minWidth: 110 }}
+                  InputProps={{ sx: { textAlign: 'center' } }}
+                />
+              </TableCell>
+
+              {/* Hours (read only) */}
+              <TableCell align="center" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                {Number(li.quantity || 0).toFixed(2)}
+              </TableCell>
+            </>
+          ) : (
+            <>
+              <TableCell align="center" />
+              <TableCell align="center" />
+              <TableCell align="center" />
+              {/* Transportation/Accommodation: fixed 1.00 */}
+              <TableCell align="center" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                {['Transportation', 'Accommodation'].includes(li.category_code) ? '1.00' : ''}
+              </TableCell>
+            </>
+          )}
+
+          {/* Unit */}
+          <TableCell align="center">
+            <TextField
+              variant="standard"
+              select
+              size="small"
+              fullWidth
+              value={li.unit}
+              onChange={e => updateRow(idx, 'unit', e.target.value)}
+            >
+              {UNIT_CHOICES.map(u => (
+                <MenuItem key={u} value={u}>{u}</MenuItem>
+              ))}
+            </TextField>
+          </TableCell>
+
+          {/* Price */}
+          <TableCell align="center">
+            <TextField
+              variant="standard"
+              size="small"
+              type="number"
+              inputProps={{ step: 0.01, min: 0 }}
+              value={li.unit_price}
+              onChange={e => updateRow(idx, 'unit_price', +e.target.value)}
+              disabled={li.category_code === 'Superannuation'}
+              sx={{ width: 140 }}
+              InputProps={{ sx: { textAlign: 'right', px: 0 } }}
+            />
+          </TableCell>
+
+          {/* Discount (%) */}
+          <TableCell align="center">
+            <TextField
+              variant="standard"
+              size="small"
+              type="number"
+              inputProps={{ min: 0, max: 100 }}
+              value={li.discount}
+              onChange={e => updateRow(idx, 'discount', +e.target.value)}
+              sx={{ width: 90 }}
+              InputProps={{ sx: { textAlign: 'right', px: 0 } }}
+            />
+          </TableCell>
+
+          {/* Amount (read-only) */}
+          <TableCell align="center" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+            {Number(li.total || 0).toFixed(2)}
+          </TableCell>
+
+          {/* Delete */}
+          <TableCell align="center">
+            <IconButton onClick={() => removeRow(idx)} size="small">
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+          </TableCell>
+        </TableRow>
+      ))}
+    </TableBody>
+  </Table>
+</TableContainer>
+
           <Box mt={1}>
             <Button startIcon={<AddIcon />} onClick={addRow} size="small">
               Add Line Item

@@ -229,6 +229,9 @@ def generate_invoice_from_shifts(
         issuer_abn=ob.abn or '',
         issuer_email=user.email,
         gst_registered=gst_registered,
+        super_fund_name=billing_data.get('super_fund_name', ''),
+        super_usi=billing_data.get('super_usi', ''),
+        super_member_number=billing_data.get('super_member_number', ''),
         super_rate_snapshot=Decimal(str(billing_data['super_rate_snapshot'])),
         bank_account_name=billing_data['bank_account_name'],
         bsb=billing_data['bsb'],
@@ -244,7 +247,16 @@ def generate_invoice_from_shifts(
         pharmacy = Pharmacy.objects.get(pk=pharmacy_id)
         invoice.pharmacy = pharmacy
         invoice.pharmacy_name_snapshot = pharmacy.name
-        invoice.pharmacy_address_snapshot = pharmacy.address
+
+        # Build a printable address from structured fields
+        parts = [
+            getattr(pharmacy, 'street_address', None),
+            getattr(pharmacy, 'suburb', None),
+            getattr(pharmacy, 'state', None),
+            getattr(pharmacy, 'postcode', None),
+        ]
+        invoice.pharmacy_address_snapshot = ", ".join([str(p).strip() for p in parts if p])
+
         invoice.pharmacy_abn_snapshot = pharmacy.abn
 
         shift = Shift.objects.get(pk=shift_ids[0])

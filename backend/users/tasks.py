@@ -3,7 +3,15 @@ import traceback
 import logging
 logger = logging.getLogger(__name__)
 
-def send_async_email(subject, recipient_list, template_name, context, from_email=None, text_template=None):
+def send_async_email(subject, 
+                     recipient_list, 
+                     template_name, 
+                     context, 
+                     from_email=None, 
+                     text_template=None,     
+                     cc=None,                    
+                     attachments=None           
+                     ):
     from django.core.mail import EmailMultiAlternatives
     from django.template.loader import render_to_string
 
@@ -30,7 +38,15 @@ def send_async_email(subject, recipient_list, template_name, context, from_email
             body=text_content,
             from_email=from_email,
             to=safe_recipient_list,
+            cc=[e.strip() for e in (cc or []) if e and e.strip()],
         )
+
+        # Attachments (e.g., PDF)
+        if attachments:
+            for (fname, content, mimetype) in attachments:
+                if content:
+                    msg.attach(fname, content, mimetype)
+
         msg.attach_alternative(html_content, "text/html")
         msg.send()
 

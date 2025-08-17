@@ -73,6 +73,7 @@ urlpatterns = [
     # alternate generate endpoint (optional—your front end can use POST to /invoices/ directly)
     path('invoices/generate/', GenerateInvoiceView.as_view(), name='generate-invoice'),
     path('invoices/<int:invoice_id>/pdf/', invoice_pdf_view, name='invoice_pdf'),
+    path('invoices/<int:invoice_id>/send/', send_invoice_email, name='send-invoice-email'),
 
     # Include the API routes for CRUD operations
     path('', include(router.urls)),

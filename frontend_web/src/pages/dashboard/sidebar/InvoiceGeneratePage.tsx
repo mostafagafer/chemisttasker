@@ -1,5 +1,5 @@
 // src/pages/dashboard/sidebar/InvoiceGeneratePage.tsx
-import { useState, useEffect, useCallback  } from 'react';
+import { useState, useEffect, useCallback, useRef  } from 'react';
 import {
   Container, Paper, Typography, Tabs, Tab,
   Box, TextField, MenuItem, Checkbox, FormControlLabel,
@@ -11,6 +11,9 @@ import { useNavigate } from 'react-router-dom';
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
+import dayjs from 'dayjs';
+import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
+import { useSearchParams } from 'react-router-dom';
 
 interface ShiftSlot {
   id: number;
@@ -24,7 +27,16 @@ interface ShiftSlot {
 
 interface Shift {
   id: number;
-  pharmacy_detail: { id: number; name: string; abn: string|null; address?:string; state?: string; };
+  pharmacy_detail: {
+    id: number;
+    name: string;
+    abn: string | null;
+    // structured fields coming from backend
+    street_address?: string | null;
+    suburb?: string | null;
+    state?: string | null;
+    postcode?: string | null;
+  };
   created_by_first_name?: string;
   created_by_last_name?:  string;
   created_by_email?:      string;
@@ -57,9 +69,34 @@ const CATEGORY_CHOICES = [
 ];
 const UNIT_CHOICES = ['Hours', 'Lump Sum'];
 
+
+
+const shiftLabel = (s: any) => {
+  const name = s?.pharmacy_detail?.name ?? 'Pharmacy';
+  const first = s?.slots?.[0] ?? null;
+
+  // prefer slot fields; fall back to any top-level fields if present
+  const date = first?.date ?? s?.start_date ?? s?.date ?? null;
+  const start = first?.start_time ?? s?.start_time ?? null;
+  const end   = first?.end_time   ?? s?.end_time   ?? null;
+
+  const role = s?.role_needed ?? s?.role ?? '';
+  const dateStr = date ? dayjs(date).format('DD MMM YYYY') : 'No date';
+  const timeStr = start && end ? ` (${String(start).slice(0,5)}–${String(end).slice(0,5)})` : '';
+
+  // small hints to differentiate recurring/multi-slot shifts
+  const recurring = first?.is_recurring ? ' (Recurring)' : '';
+  const more = s?.slots?.length > 1 ? ` (+${s.slots.length - 1} more)` : '';
+  const roleStr = role ? ` [${role}]` : '';
+
+  return `${name} – ${dateStr}${timeStr}${roleStr}${recurring || more}`;
+};
+
 export default function InvoiceGeneratePage() {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const [search] = useSearchParams();
+    const prefillShiftId = search.get('shiftId');
 
     // --- Mode & Dates ---
     const [mode, setMode] = useState<'internal'|'external'>('internal');
@@ -80,6 +117,73 @@ export default function InvoiceGeneratePage() {
     const issuerEmail = user?.email ?? '';
     const [issuerAbn,       setIssuerAbn]       = useState('');
 
+    // Google Places loader (same as PharmacyPage)
+    const { isLoaded } = useJsApiLoader({
+      googleMapsApiKey: import.meta.env.VITE_Maps_API_KEY as string,
+      libraries: ['places'],
+    });
+
+    // Keep a ref to the Autocomplete instance
+    const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+    const internalAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+
+    // Handle place selection → fill external address (and name if empty)
+    const handleExternalPlaceChanged = () => {
+      if (!autocompleteRef.current) return;
+      const place = autocompleteRef.current.getPlace();
+      if (!place || !place.address_components) return;
+
+      let streetNumber = '';
+      let route = '';
+      let suburb = '';
+      let stateShort = '';
+      let postalCode = '';
+
+      for (const comp of place.address_components) {
+        if (comp.types.includes('street_number')) streetNumber = comp.long_name;
+        if (comp.types.includes('route')) route = comp.short_name;
+        if (comp.types.includes('locality')) suburb = comp.long_name;
+        if (comp.types.includes('administrative_area_level_1')) stateShort = comp.short_name; // e.g., 'NSW'
+        if (comp.types.includes('postal_code')) postalCode = comp.long_name;
+      }
+
+      const address = [`${streetNumber} ${route}`.trim(), suburb, stateShort, postalCode]
+        .filter(Boolean)
+        .join(', ');
+
+      setExternalAddress(address);
+    };
+
+    const handleInternalPlaceChanged = () => {
+      if (!internalAutocompleteRef.current) return;
+      const place = internalAutocompleteRef.current.getPlace();
+      if (!place || !place.address_components) return;
+
+      let streetNumber = '';
+      let route = '';
+      let suburb = '';
+      let stateShort = '';
+      let postalCode = '';
+
+      for (const comp of place.address_components) {
+        if (comp.types.includes('street_number')) streetNumber = comp.long_name;
+        if (comp.types.includes('route')) route = comp.short_name;
+        if (comp.types.includes('locality')) suburb = comp.long_name;
+        if (comp.types.includes('administrative_area_level_1')) stateShort = comp.short_name;
+        if (comp.types.includes('postal_code')) postalCode = comp.long_name;
+      }
+
+      const address = [`${streetNumber} ${route}`.trim(), suburb, stateShort, postalCode]
+        .filter(Boolean)
+        .join(', ');
+
+      // This is your INTERNAL snapshot field:
+      setPharmacyAddressSnapshot(address);
+
+      // Optional: if you allow editing the name snapshot too, you can set it:
+      // if (!pharmacyNameSnapshot && place.name) setPharmacyNameSnapshot(place.name);
+    };
+
     // ─── Recipient (Shift-Creator) & Pharmacy Snapshots ──  
     const [billToFirstName,        setBillToFirstName]        = useState('');
     const [billToLastName,         setBillToLastName]         = useState('');
@@ -88,11 +192,12 @@ export default function InvoiceGeneratePage() {
     const [pharmacyNameSnapshot,   setPharmacyNameSnapshot]   = useState('');
     const [pharmacyAddressSnapshot,setPharmacyAddressSnapshot]= useState('');
     const [facilityAbn,            setFacilityAbn]            = useState('');
-    const [facilityState, setFacilityState] = useState('');
+    // const [facilityState, setFacilityState] = useState('');
 
     // ─── External Bill-To (fallback for mode==='external') ─  
     const [externalName,    setExternalName]    = useState('');
     const [externalAddress, setExternalAddress] = useState('');
+    // const [externalState, setExternalState] = useState('');
 
     // ─── GST / Super / Banking / CC …────────────────────  
     const [gstRegistered, setGstRegistered]       = useState(true);
@@ -157,9 +262,17 @@ useEffect(() => {
 
   // — Pharmacy snapshot —
   setPharmacyNameSnapshot(shift.pharmacy_detail.name);
-  setPharmacyAddressSnapshot(shift.pharmacy_detail.address ?? '');
   setFacilityAbn(shift.pharmacy_detail.abn ?? '');
-  setFacilityState(shift.pharmacy_detail.state ?? '');
+  // setFacilityState(shift.pharmacy_detail.state ?? '');
+  // setPharmacyAddressSnapshot(shift.pharmacy_detail.address ?? '');
+  const addrParts = [
+    shift.pharmacy_detail.street_address,
+    shift.pharmacy_detail.suburb,
+    shift.pharmacy_detail.state,
+    shift.pharmacy_detail.postcode,
+  ].filter(Boolean);
+  setPharmacyAddressSnapshot(addrParts.join(', '));
+  // setFacilityState(shift.pharmacy_detail.state ?? '');
 
   // — Recipient (shift creator) snapshot via flat fields —
   setBillToFirstName(shift.created_by_first_name ?? '');
@@ -227,6 +340,13 @@ useEffect(() => {
   setLineItems([...withoutSuper, superLine]);
 }, [lineItems, superRateSnapshot]);
 
+useEffect(() => {
+  if (!shifts.length) return;
+  if (prefillShiftId) {
+    setSelectedShiftId(Number(prefillShiftId)); // or whatever your setter is called
+    setMode('internal'); // if appropriate
+  }
+}, [shifts]);
 
   // Recalc & row ops
     const recalc = useCallback((li: LineItem) => 
@@ -352,7 +472,7 @@ const handleGenerate = () => {
     fd.append('pharmacy_name_snapshot',    pharmacyNameSnapshot);
     fd.append('pharmacy_address_snapshot', pharmacyAddressSnapshot);
     fd.append('pharmacy_abn_snapshot',     facilityAbn);
-    fd.append('pharmacy_state_snapshot', facilityState);
+    // fd.append('pharmacy_state_snapshot', facilityState);
 
     // Recipient snapshot (shift creator)
     fd.append('bill_to_first_name',        billToFirstName);
@@ -403,19 +523,23 @@ const handleGenerate = () => {
         <Typography variant="h5">Generate Invoice</Typography>
 
         {/* Mode */}
-        <Tabs
+        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+          <Tabs
             value={mode}
             onChange={(_, newMode) => {
-                setMode(newMode);
-                if (newMode === 'external') {
+              setMode(newMode);
+              if (newMode === 'external') {
                 setLineItems([]);
-                setIssuerAbn('');
-                }
+                // setIssuerAbn('');
+              }
             }}
-            >
-          <Tab label="Internal" value="internal"/>
-          <Tab label="External" value="external"/>
-        </Tabs>
+            textColor="primary"
+            indicatorColor="primary"
+          >
+            <Tab label="Internal" value="internal" />
+            <Tab label="External" value="external" />
+          </Tabs>
+        </Box>
 
         {/* Dates */}
         <Box mt={5} display="flex" gap={2}>
@@ -448,12 +572,12 @@ const handleGenerate = () => {
                     value={selectedShiftId}
                     onChange={e=>setSelectedShiftId(Number(e.target.value))}
                   >
-                    <MenuItem value="">-- Choose Shift --</MenuItem>
-                    {shifts.map(s=>(
-                      <MenuItem key={s.id} value={s.id}>
-                        {s.pharmacy_detail.name}
-                      </MenuItem>
-                    ))}
+                  <MenuItem value="">-- Choose Shift --</MenuItem>
+                  {shifts.map((s) => (
+                    <MenuItem key={s.id} value={s.id}>
+                      {shiftLabel(s)}
+                    </MenuItem>
+                  ))}
                   </TextField>
                 )}
           </Box>
@@ -461,141 +585,167 @@ const handleGenerate = () => {
 
         {/* Line Items */}
         <Box mt={3}>
-        <TableContainer sx={{ maxWidth: '100%', overflowX: 'auto' }}>
-            <Table size="medium" padding="checkbox" stickyHeader >
-            <TableHead>
-                <TableRow>
-                <TableCell align="center" sx={{ tableLayout: 'fixed', width: '20%' }}>Category</TableCell>
-                <TableCell align="center" sx={{ tableLayout: 'fixed', width: '10%' }}>Date</TableCell>
-                <TableCell align="center" sx={{ tableLayout: 'fixed', width: '10%' }}>Start</TableCell>
-                <TableCell align="center" sx={{ tableLayout: 'fixed', width: '8%' }}>End</TableCell>
-                <TableCell align="center" sx={{ tableLayout: 'fixed', width: '5%' }}>Hours</TableCell>
-                <TableCell align="center" sx={{ tableLayout: 'fixed', width: '5%' }}>Unit</TableCell>
-                <TableCell align="center" sx={{ tableLayout: 'fixed', width: '20%' }}>Price</TableCell>
-                <TableCell align="center" sx={{ tableLayout: 'fixed', width: '5%' }}>Discount</TableCell>
-                <TableCell align="center" sx={{ tableLayout: 'fixed', width: '10%' }}>Amount</TableCell>
-                <TableCell align="center" sx={{ tableLayout: 'fixed', width: '100%' }}></TableCell>
-                </TableRow>
-            </TableHead>
-            <TableBody>
-                {lineItems.map((li, idx) => (
-                <TableRow key={li.id}>
-                    {/* Category */}
-                    <TableCell align="center">
-                    <TextField
-                        select size="medium" fullWidth
-                        value={li.category}
-                        onChange={e => updateRow(idx, 'category', e.target.value)}
-                    >
-                        {CATEGORY_CHOICES.map(c => (
-                        <MenuItem key={c.code} value={c.code}>
-                            {c.label}
-                        </MenuItem>
-                        ))}
-                    </TextField>
-                    </TableCell>
+<TableContainer sx={{ maxWidth: '100%', overflowX: 'auto' }}>
+  <Table size="medium" padding="checkbox" stickyHeader>
+    <TableHead>
+      <TableRow>
+        <TableCell align="center" sx={{ width: '20%' }}>Category</TableCell>
+        <TableCell align="center" sx={{ width: '10%' }}>Date</TableCell>
+        <TableCell align="center" sx={{ width: '10%' }}>Start</TableCell>
+        <TableCell align="center" sx={{ width: '8%'  }}>End</TableCell>
+        <TableCell align="center" sx={{ width: '5%'  }}>Hours</TableCell>
+        <TableCell align="center" sx={{ width: '8%'  }}>Unit</TableCell>
+        <TableCell align="center" sx={{ width: '16%' }}>Price</TableCell>
+        <TableCell align="center" sx={{ width: '8%'  }}>Discount</TableCell>
+        <TableCell align="center" sx={{ width: '10%' }}>Amount</TableCell>
+        <TableCell align="center" sx={{ width: '5%'  }} />
+      </TableRow>
+    </TableHead>
 
-                    {/* Only show Date/Start/End for Professional services */}
-                    {li.category === 'ProfessionalServices' ? (
-                    <>
-                        <TableCell align="center">
-                        <TextField
-                            size="small" type="date" fullWidth
-                            value={li.date}
-                            onChange={e => updateRow(idx, 'date', e.target.value)}
-                        />
-                        </TableCell>
-                        <TableCell align="center">
-                        <TextField
-                            size="small" type="time"
-                            value={li.start_time || '00:00'}
-                            onChange={e => {
-                                const raw = e.target.value;
-                                const newVal = raw ? raw + ':00' : '00:00:00';
-                                updateRow(idx, 'start_time', newVal);
-                                }}
+    <TableBody>
+      {lineItems.map((li, idx) => (
+        <TableRow key={li.id}>
+          {/* Category */}
+          <TableCell align="center">
+            <TextField
+              variant="standard"
+              select
+              size="small"
+              fullWidth
+              value={li.category}
+              onChange={e => updateRow(idx, 'category', e.target.value)}
+            >
+              {CATEGORY_CHOICES.map(c => (
+                <MenuItem key={c.code} value={c.code}>{c.label}</MenuItem>
+              ))}
+            </TextField>
+          </TableCell>
 
-                        />
-                        </TableCell>
-                        <TableCell align="center">
-                        <TextField
-                            size="small" type="time"
-                            value={li.end_time || '00:00'}
+          {/* Only show Date/Start/End for Professional services */}
+          {li.category === 'ProfessionalServices' ? (
+            <>
+              <TableCell align="center">
+                <TextField
+                  variant="standard"
+                  size="small"
+                  type="date"
+                  value={li.date}
+                  onChange={e => updateRow(idx, 'date', e.target.value)}
+                  sx={{ minWidth: 120 }}
+                  InputProps={{ sx: { textAlign: 'center' } }}
+                />
+              </TableCell>
 
-                            onChange={e => {
-                                const raw = e.target.value;
-                                const newVal = raw ? raw + ':00' : '00:00:00';
-                                updateRow(idx, 'end_time', newVal);
-                                }}
-                        />
-                        </TableCell>
-                    {/* Only show Hours for Professional services */}
-                    <TableCell align="center">
-                        {li.quantity.toFixed(2)}
-                    </TableCell>
-                    </>
-                    ) : (
-                    <>
-                        <TableCell align="center" />
-                        <TableCell align="center" />
-                        <TableCell align="center" />
-                    {/* hide Hours for non-professional */}
-                    {/* FIX 2: For Transportation/Accommodation, show a hidden quantity of 1 */}
-                    <TableCell align="center">
-                        {['Transportation', 'Accommodation'].includes(li.category) ? '1.00' : ''}
-                    </TableCell>
-                    </>
-                    )}
+              <TableCell align="center">
+                <TextField
+                  variant="standard"
+                  size="small"
+                  type="time"
+                  value={li.start_time || '00:00'}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    const newVal = raw ? raw + ':00' : '00:00:00';
+                    updateRow(idx, 'start_time', newVal);
+                  }}
+                  sx={{ minWidth: 110 }}
+                  InputProps={{ sx: { textAlign: 'center' } }}
+                />
+              </TableCell>
 
-                    {/* Unit */}
-                    <TableCell align="center">
-                    <TextField
-                        select size="small" fullWidth
-                        value={li.unit}
-                        onChange={e => updateRow(idx, 'unit', e.target.value)}
-                    >
-                        {UNIT_CHOICES.map(u => (
-                        <MenuItem key={u} value={u}>{u}</MenuItem>
-                        ))}
-                    </TextField>
-                    </TableCell>
+              <TableCell align="center">
+                <TextField
+                  variant="standard"
+                  size="small"
+                  type="time"
+                  value={li.end_time || '00:00'}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    const newVal = raw ? raw + ':00' : '00:00:00';
+                    updateRow(idx, 'end_time', newVal);
+                  }}
+                  sx={{ minWidth: 110 }}
+                  InputProps={{ sx: { textAlign: 'center' } }}
+                />
+              </TableCell>
 
-                    {/* Price */}
-                    <TableCell align="center">
-                    <TextField
-                        size="small" type="number" inputProps={{ step: 0.01, min: 0 }}
-                        value={li.unit_price}
-                        onChange={e => updateRow(idx, 'unit_price', +e.target.value)}
-                        disabled={!!li.shiftSlotId || li.category === 'Superannuation'}
+              {/* Hours */}
+              <TableCell align="center" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                {li.quantity.toFixed(2)}
+              </TableCell>
+            </>
+          ) : (
+            <>
+              <TableCell align="center" />
+              <TableCell align="center" />
+              <TableCell align="center" />
+              {/* Transportation/Accommodation: fixed 1.00 */}
+              <TableCell align="center" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                {['Transportation', 'Accommodation'].includes(li.category) ? '1.00' : ''}
+              </TableCell>
+            </>
+          )}
 
-                    />
-                    </TableCell>
+          {/* Unit */}
+          <TableCell align="center">
+            <TextField
+              variant="standard"
+              select
+              size="small"
+              value={li.unit}
+              onChange={e => updateRow(idx, 'unit', e.target.value)}
+              sx={{ minWidth: 90 }}
+            >
+              {UNIT_CHOICES.map(u => (
+                <MenuItem key={u} value={u}>{u}</MenuItem>
+              ))}
+            </TextField>
+          </TableCell>
 
-                    {/* Discount */}
-                    <TableCell align="center">
-                    <TextField
-                        size="small" type="number" inputProps={{ min: 0, max: 100 }}
-                        value={li.discount}
-                        onChange={e => updateRow(idx, 'discount', +e.target.value)}
-                    />
-                    </TableCell>
+          {/* Price */}
+          <TableCell align="center">
+            <TextField
+              variant="standard"
+              size="small"
+              type="number"
+              inputProps={{ step: 0.01, min: 0 }}
+              value={li.unit_price}
+              onChange={e => updateRow(idx, 'unit_price', +e.target.value)}
+              disabled={!!li.shiftSlotId || li.category === 'Superannuation'}
+              sx={{ width: 120 }}
+              InputProps={{ sx: { textAlign: 'right', px: 0 } }}
+            />
+          </TableCell>
 
-                    {/* Amount */}
-                    <TableCell align="center">
-                    {li.total.toFixed(2)}
-                    </TableCell>
+          {/* Discount (%) */}
+          <TableCell align="center">
+            <TextField
+              variant="standard"
+              size="small"
+              type="number"
+              inputProps={{ min: 0, max: 100 }}
+              value={li.discount}
+              onChange={e => updateRow(idx, 'discount', +e.target.value)}
+              sx={{ width: 80 }}
+              InputProps={{ sx: { textAlign: 'right', px: 0 } }}
+            />
+          </TableCell>
 
-                    {/* Delete */}
-                    <TableCell align="center">
-                    <IconButton onClick={() => removeRow(idx)} size="small">
-                        <DeleteIcon fontSize="small" />
-                    </IconButton>
-                    </TableCell>
-                </TableRow>
-                ))}
-            </TableBody>
-            </Table>
-        </TableContainer>
+          {/* Amount (read-only) */}
+          <TableCell align="center" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+            {li.total.toFixed(2)}
+          </TableCell>
+
+          {/* Delete */}
+          <TableCell align="center">
+            <IconButton onClick={() => removeRow(idx)} size="small">
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+          </TableCell>
+        </TableRow>
+      ))}
+    </TableBody>
+  </Table>
+</TableContainer>
 
         <Box mt={1}>
             <Button startIcon={<AddIcon />} onClick={addRow} size="small">
@@ -628,12 +778,34 @@ const handleGenerate = () => {
         <Box flex="1 1 15%">
           <TextField label="Facility ABN"  value={facilityAbn}            InputProps={{readOnly:true}} fullWidth/>
         </Box>
-        <Box flex="1 1 20%">
-          <TextField label="Facility Address" value={pharmacyAddressSnapshot} InputProps={{readOnly:true}} fullWidth/>
+        <Box flex="1 1 35%">
+          {isLoaded ? (
+            <Autocomplete
+              onLoad={(ref) => (internalAutocompleteRef.current = ref)}
+              onPlaceChanged={handleInternalPlaceChanged}
+              // If you want AU-only like PharmacyPage:
+              // options={{ componentRestrictions: { country: 'au' } }}
+            >
+              <TextField
+                label="Pharmacy Address"
+                value={pharmacyAddressSnapshot}
+                onChange={(e) => setPharmacyAddressSnapshot(e.target.value)}
+                fullWidth
+              />
+            </Autocomplete>
+          ) : (
+            <TextField
+              label="Pharmacy Address"
+              value={pharmacyAddressSnapshot}
+              onChange={(e) => setPharmacyAddressSnapshot(e.target.value)}
+              fullWidth
+            />
+          )}
+
         </Box>
-        <Box flex="1 1 15%">
+        {/* <Box flex="1 1 15%">
           <TextField label="Facility State" value={facilityState} InputProps={{readOnly:true}} fullWidth/>
-        </Box>
+        </Box> */}
       </>}
 
       {/* Recipient snapshot */}
@@ -654,9 +826,30 @@ const handleGenerate = () => {
         <Box flex="1 1 45%">
           <TextField label="Bill-To Name" value={externalName} onChange={e=>setExternalName(e.target.value)} fullWidth/>
         </Box>
-        <Box flex="1 1 45%">
-          <TextField label="Bill-To Address" value={externalAddress} onChange={e=>setExternalAddress(e.target.value)} fullWidth/>
-        </Box>
+<Box flex="1 1 45%">
+  {isLoaded ? (
+    <Autocomplete
+      onLoad={(ref) => (autocompleteRef.current = ref)}
+      onPlaceChanged={handleExternalPlaceChanged}
+      // (Optional) uncomment to force AU-only like PharmacyPage
+      // options={{ componentRestrictions: { country: 'au' } }}
+    >
+      <TextField
+        label="Bill-To Address"
+        value={externalAddress}
+        onChange={(e) => setExternalAddress(e.target.value)}
+        fullWidth
+      />
+    </Autocomplete>
+  ) : (
+    <TextField
+      label="Bill-To Address"
+      value={externalAddress}
+      onChange={(e) => setExternalAddress(e.target.value)}
+      fullWidth
+    />
+  )}
+</Box>
         <Box flex="1 1 45%">
           <TextField label="Bill-To Email" value={billToEmail} onChange={e=>setBillToEmail(e.target.value)} fullWidth/>
         </Box>

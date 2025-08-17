@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+  <body style="font-family: Arial, sans-serif; color:#222; margin:0; padding:0; background:#fafafa;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f7fb; padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden;">
+            <tr>
+              <td style="background:#204ecf; color:#fff; padding:16px 20px; font-weight:700; font-size:16px;">
+                ChemistTasker — Invoice
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px;">
+                <p style="margin:0 0 12px;">Hi {{ client_name }},</p>
+                <p style="margin:0 0 12px;">
+                  Please find attached your invoice <strong>#{{ invoice.id }}</strong>.
+                </p>
+
+                <table cellpadding="8" cellspacing="0" width="100%" style="background:#f8f9ff; border:1px solid #e5e9ff; border-radius:6px; margin:16px 0;">
+                  <tr><td>Invoice Date</td><td style="text-align:right;">{{ invoice_date }}</td></tr>
+                  <tr><td>Due Date</td><td style="text-align:right;">{{ due_date }}</td></tr>
+                  <tr><td>Subtotal</td><td style="text-align:right;">${{ subtotal }}</td></tr>
+                  <tr><td>GST</td><td style="text-align:right;">${{ gst_amount }}</td></tr>
+                  <tr><td>Super</td><td style="text-align:right;">${{ super_amount }}</td></tr>
+                  <tr><td style="font-weight:700;">Total</td><td style="text-align:right; font-weight:700;">${{ total }}</td></tr>
+                </table>
+
+                <p style="margin:0 0 12px;">Issued by {{ issuer_name }}.</p>
+                <p style="margin:0;">Thanks for your business!</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#f1f4ff; color:#4b5563; padding:12px 20px; font-size:12px;">
+                © {{ now|default:"" }} ChemistTasker
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

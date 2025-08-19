@@ -387,7 +387,7 @@ export default function InvoiceDetailPage() {
                   <Autocomplete
                     onLoad={(ref) => (externalAutocompleteRef.current = ref)}
                     onPlaceChanged={handleExternalPlaceChanged}
-                    // options={{ componentRestrictions: { country: 'au' } }} // optional AU-only
+                    options={{ componentRestrictions: { country: 'au' } }} 
                   >
                     <TextField
                       label="Bill-To Address"
@@ -436,7 +436,7 @@ export default function InvoiceDetailPage() {
                   <Autocomplete
                     onLoad={(ref) => (internalAutocompleteRef.current = ref)}
                     onPlaceChanged={handleInternalPlaceChanged}
-                    // options={{ componentRestrictions: { country: 'au' } }} // optional AU-only
+                    options={{ componentRestrictions: { country: 'au' } }} 
                   >
                     <TextField
                       label="Facility Address"

@@ -191,7 +191,6 @@ class PharmacyAdmin(admin.ModelAdmin):
         'organization',
         'verified',
         'abn',
-        'asic_number',
         'state',
     )
     list_filter = (
@@ -215,7 +214,6 @@ class PharmacyAdmin(admin.ModelAdmin):
                 'organization',
                 'verified',
                 'abn',
-                'asic_number',
             ),
         }),
     )

@@ -420,23 +420,24 @@ class Pharmacy(models.Model):
     street_address = models.CharField(max_length=255, blank=True, null=True)
     suburb = models.CharField(max_length=100, blank=True, null=True)
     postcode = models.CharField(max_length=10, blank=True, null=True)
-    google_place_id = models.CharField(max_length=255, blank=True, null=True, unique=True)
+    google_place_id = models.CharField(max_length=255, blank=True, null=True)
     latitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
 
 
-    STATE_CHOICES = [
-        ('QLD', 'Queensland'),
-        ('NSW', 'New South Wales'),
-        ('VIC', 'Victoria'),
-        ('SA', 'South Australia'),
-        ('WA', 'Western Australia'),
-        ('TAS', 'Tasmania'),
-        ('ACT', 'Australian Capital Territory'),
-        ('NT',  'Northern Territory'),
-    ]
+    # STATE_CHOICES = [
+    # #     ('QLD', 'Queensland'),
+    # #     ('NSW', 'New South Wales'),
+    # #     ('VIC', 'Victoria'),
+    # #     ('SA', 'South Australia'),
+    # #     ('WA', 'Western Australia'),
+    # #     ('TAS', 'Tasmania'),
+    # #     ('ACT', 'Australian Capital Territory'),
+    # #     ('NT',  'Northern Territory'),
+    # # ]
 
-    state = models.CharField(max_length=3, choices=STATE_CHOICES, blank=True, null=True)
+    # state = models.CharField(max_length=3, choices=STATE_CHOICES, blank=True, null=True)
+    state = models.CharField(max_length=50, blank=True, null=True)
 
     owner                  = models.ForeignKey(
                                 OwnerOnboarding,
@@ -454,7 +455,7 @@ class Pharmacy(models.Model):
                              )
     verified               = models.BooleanField(default=False)
     abn                    = models.CharField(max_length=20, blank=True, null=True)
-    asic_number            = models.CharField(max_length=50, blank=True, null=True)
+    # asic_number            = models.CharField(max_length=50, blank=True, null=True)
     methadone_s8_protocols = models.FileField(upload_to='reg_docs/', blank=True, null=True)
     qld_sump_docs          = models.FileField(upload_to='reg_docs/', blank=True, null=True)
     sops                   = models.FileField(upload_to='other_docs/', blank=True, null=True)
@@ -497,6 +498,7 @@ class Pharmacy(models.Model):
         indexes = [
             models.Index(fields=['owner']),
             models.Index(fields=['organization']),
+            models.Index(fields=['state']),
         ]
 
     def __str__(self):

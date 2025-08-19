@@ -783,8 +783,7 @@ const handleGenerate = () => {
             <Autocomplete
               onLoad={(ref) => (internalAutocompleteRef.current = ref)}
               onPlaceChanged={handleInternalPlaceChanged}
-              // If you want AU-only like PharmacyPage:
-              // options={{ componentRestrictions: { country: 'au' } }}
+              options={{ componentRestrictions: { country: 'au' } }}
             >
               <TextField
                 label="Pharmacy Address"
@@ -831,8 +830,7 @@ const handleGenerate = () => {
     <Autocomplete
       onLoad={(ref) => (autocompleteRef.current = ref)}
       onPlaceChanged={handleExternalPlaceChanged}
-      // (Optional) uncomment to force AU-only like PharmacyPage
-      // options={{ componentRestrictions: { country: 'au' } }}
+      options={{ componentRestrictions: { country: 'au' } }}
     >
       <TextField
         label="Bill-To Address"

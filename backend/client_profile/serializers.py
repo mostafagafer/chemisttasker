@@ -1032,9 +1032,11 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
         'sops',
         'induction_guides',
     ]
+    abn = serializers.CharField(required=True, allow_blank=False)
 
     class Meta:
         model = Pharmacy
+
         fields = [
             "id",
             "name",
@@ -1049,7 +1051,7 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
             "organization",
             "verified",
             "abn",
-            "asic_number",
+            # "asic_number",
             # your file fields:
             "methadone_s8_protocols",
             "qld_sump_docs",
@@ -1075,7 +1077,8 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
             'has_chain',
             'claimed',
         ]
-        read_only_fields = ["owner", "verified"]
+
+        read_only_fields = ["owner", "organization", "verified"]
     def get_has_chain(self, obj):
         # “Does this owner have at least one Chain?”
         return Chain.objects.filter(owner=obj.owner).exists()
@@ -1083,6 +1086,35 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
     def get_claimed(self, obj):
         # “Has the owner been claimed by an Organization?”
         return getattr(obj.owner, 'organization_claimed', False)
+
+    def validate_abn(self, value: str) -> str:
+        digits = ''.join(ch for ch in value if ch.isdigit())
+        if len(digits) != 11:
+            raise serializers.ValidationError("ABN must be 11 digits.")
+        # store normalized (digits only)
+        return digits
+
+    def validate_state(self, value):
+        if not value:
+            return value
+        v = value.strip()
+        long_to_short = {
+            "NEW SOUTH WALES": "NSW",
+            "QUEENSLAND": "QLD",
+            "VICTORIA": "VIC",
+            "SOUTH AUSTRALIA": "SA",
+            "WESTERN AUSTRALIA": "WA",
+            "TASMANIA": "TAS",
+            "AUSTRALIAN CAPITAL TERRITORY": "ACT",
+            "NORTHERN TERRITORY": "NT",
+        }
+        upper = v.upper()
+        if upper in long_to_short:
+            return long_to_short[upper]
+        allowed = {"QLD","NSW","VIC","SA","WA","TAS","ACT","NT"}
+        if upper not in allowed:
+            raise serializers.ValidationError("Invalid Australian state/territory.")
+        return upper
 
 class ChainSerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
     file_fields = ['logo']

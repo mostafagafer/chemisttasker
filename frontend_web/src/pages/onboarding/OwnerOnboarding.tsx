@@ -12,6 +12,7 @@ import {
   Snackbar,
   Switch,
   FormControlLabel,
+  InputAdornment,
 } from '@mui/material';
 import apiClient from '../../utils/apiClient';
 import { API_ENDPOINTS } from '../../constants/api';
@@ -217,6 +218,9 @@ const handleSubmit = async (e: React.FormEvent) => {
               value={data.ahpra_number}
               onChange={handleChange}
               required
+              InputProps={{
+                startAdornment: <InputAdornment position="start">PHA000</InputAdornment>,
+              }}
             />
           )}
 

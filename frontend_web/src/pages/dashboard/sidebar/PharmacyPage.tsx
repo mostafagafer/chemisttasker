@@ -7,7 +7,7 @@ import {
   CardContent, IconButton, Snackbar, Alert, Tabs, Tab, Link as MuiLink, Checkbox, FormGroup,
   FormControlLabel, MenuItem, Select, FormControl, InputLabel, Pagination, Accordion,
   AccordionSummary, AccordionDetails, AccordionActions, Skeleton, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, Paper,
+  TableContainer, TableHead, TableRow, Paper,  InputAdornment,  
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { AddCircleOutline as AddIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
@@ -24,7 +24,7 @@ const GOOGLE_LIBRARIES = ['places'] as Array<'places'>;
 interface Pharmacy {
   id: string; owner: number; name: string; street_address: string; suburb: string; postcode: string;
   google_place_id: string; latitude: number | null; longitude: number | null; state: string;
-  chain: number | null; abn: string; asic_number: string; methadone_s8_protocols?: string;
+  chain: number | null; abn: string;  methadone_s8_protocols?: string;
   qld_sump_docs?: string; sops?: string; induction_guides?: string; employment_types?: string[];
   roles_needed?: string[]; weekdays_start: string | null; weekdays_end: string | null;
   saturdays_start: string | null; saturdays_end: string | null; sundays_start: string | null;
@@ -50,16 +50,16 @@ const getMemberClassification = (member: any) => {
 };
 
 
-const STATE_BOUNDS: Record<string, google.maps.LatLngBoundsLiteral> = {
-  NSW: { south: -38.5, west: 140.9, north: -28.0, east: 153.7 },
-  QLD: { south: -29.5, west: 138.0, north: -9.0,  east: 153.6 },
-  VIC: { south: -39.2, west: 140.9, north: -33.9, east: 150.1 },
-  SA:  { south: -38.1, west: 129.0, north: -25.9, east: 141.0 },
-  WA:  { south: -35.2, west: 112.9, north: -13.7, east: 129.0 },
-  TAS: { south: -43.8, west: 144.3, north: -39.0, east: 148.7 },
-  ACT: { south: -35.8, west: 148.7, north: -35.1, east: 149.4 },
-  NT:  { south: -25.9, west: 129.0, north: -10.9, east: 138.0 },
-};
+// const STATE_BOUNDS: Record<string, google.maps.LatLngBoundsLiteral> = {
+//   NSW: { south: -38.5, west: 140.9, north: -28.0, east: 153.7 },
+//   QLD: { south: -29.5, west: 138.0, north: -9.0,  east: 153.6 },
+//   VIC: { south: -39.2, west: 140.9, north: -33.9, east: 150.1 },
+//   SA:  { south: -38.1, west: 129.0, north: -25.9, east: 141.0 },
+//   WA:  { south: -35.2, west: 112.9, north: -13.7, east: 129.0 },
+//   TAS: { south: -43.8, west: 144.3, north: -39.0, east: 148.7 },
+//   ACT: { south: -35.8, west: 148.7, north: -35.1, east: 149.4 },
+//   NT:  { south: -25.9, west: 129.0, north: -10.9, east: 138.0 },
+// };
 
 // --- Component ---
 export default function PharmacyPage() {
@@ -96,7 +96,6 @@ export default function PharmacyPage() {
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [state, setState] = useState('');
-  const [asicNumber, setAsicNumber] = useState('');
   const [abn, setAbn] = useState('');
   const [approvalCertFile, setApprovalCertFile] = useState<File | null>(null);
   const [existingApprovalCert, setExistingApprovalCert] = useState<string | null>(null);
@@ -125,6 +124,8 @@ export default function PharmacyPage() {
 
   const hoursFields = [ { label: 'Weekdays', start: weekdaysStart, setStart: setWeekdaysStart, end: weekdaysEnd, setEnd: setWeekdaysEnd }, { label: 'Saturdays', start: saturdaysStart, setStart: setSaturdaysStart, end: saturdaysEnd, setEnd: setSaturdaysEnd }, { label: 'Sundays', start: sundaysStart, setStart: setSundaysStart, end: sundaysEnd, setEnd: setSundaysEnd }, { label: 'Public Holidays', start: publicHolidaysStart, setStart: setPublicHolidaysStart, end: publicHolidaysEnd, setEnd: setPublicHolidaysEnd }];
   const RATE_TYPES = [ { value: 'FIXED', label: 'Fixed' }, { value: 'FLEXIBLE', label: 'Flexible' }, { value: 'PHARMACIST_PROVIDED', label: 'Pharmacist Provided' }] as const;
+  const abnDigits = abn.replace(/\D/g, '');
+  const abnInvalid = abnDigits.length > 0 && abnDigits.length !== 11;
 
   const getFileUrl = (path: string | null) => {
     if (!path) return '';
@@ -135,33 +136,33 @@ export default function PharmacyPage() {
   const loadMembers = (phId: string) => { return apiClient.get<any[]>(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${phId}`).then(res => setMemberships(m => ({ ...m, [phId]: res.data }))).catch(console.error); };
 
 
-  useEffect(() => {
-  if (!isLoaded || !autocompleteRef.current) return;
-  const bounds = STATE_BOUNDS[state];
-  if (!bounds) {
-    // No state selected: allow AU-wide bias only
-    autocompleteRef.current.setOptions({
-      componentRestrictions: { country: 'au' },
-      strictBounds: false,
-      bounds: undefined,
-    });
-    return;
-  }
+//   useEffect(() => {
+//   if (!isLoaded || !autocompleteRef.current) return;
+//   const bounds = STATE_BOUNDS[state];
+//   if (!bounds) {
+//     // No state selected: allow AU-wide bias only
+//     autocompleteRef.current.setOptions({
+//       componentRestrictions: { country: 'au' },
+//       strictBounds: false,
+//       bounds: undefined,
+//     });
+//     return;
+//   }
 
-  autocompleteRef.current.setOptions({
-    componentRestrictions: { country: 'au' },
-    bounds,               // rectangular restriction for the state
-    strictBounds: true,   // hard limit to the bounds
-    fields: ['address_components', 'geometry', 'place_id', 'name'],
-  });
-}, [state, isLoaded]);
+//   autocompleteRef.current.setOptions({
+//     componentRestrictions: { country: 'au' },
+//     bounds,               // rectangular restriction for the state
+//     strictBounds: true,   // hard limit to the bounds
+//     fields: ['address_components', 'geometry', 'place_id', 'name'],
+//   });
+// }, [state, isLoaded]);
 
   const openDialog = (p?: Pharmacy) => {
     setApprovalCertFile(null); setSopsFile(null); setInductionGuidesFile(null); setSumpDocsFile(null);
     if (p) {
       setEditing(p); setName(p.name || ''); setStreetAddress(p.street_address || ''); setSuburb(p.suburb || ''); setPostcode(p.postcode || '');
       setGooglePlaceId(p.google_place_id || ''); setLatitude(p.latitude || null); setLongitude(p.longitude || null); setState(p.state || '');
-      setAsicNumber(p.asic_number || ''); setAbn(p.abn || ''); setExistingApprovalCert(p.methadone_s8_protocols || null);
+      setAbn(p.abn || ''); setExistingApprovalCert(p.methadone_s8_protocols || null);
       setExistingSops(p.sops || null); setExistingInductionGuides(p.induction_guides || null); setExistingSumpDocs(p.qld_sump_docs || null);
       setEmploymentTypes(p.employment_types || []); setRolesNeeded(p.roles_needed || []); setWeekdaysStart(p.weekdays_start || '');
       setWeekdaysEnd(p.weekdays_end || ''); setSaturdaysStart(p.saturdays_start || ''); setSaturdaysEnd(p.saturdays_end || '');
@@ -170,7 +171,7 @@ export default function PharmacyPage() {
       setAbout(p.about || '');
     } else {
       setEditing(null); setName(''); setStreetAddress(''); setSuburb(''); setPostcode(''); setGooglePlaceId(''); setLatitude(null);
-      setLongitude(null); setAsicNumber(''); setAbn(''); setState(''); setExistingApprovalCert(null); setExistingSops(null);
+      setLongitude(null); setAbn(''); setState(''); setExistingApprovalCert(null); setExistingSops(null);
       setExistingInductionGuides(null); setExistingSumpDocs(null); setEmploymentTypes([]); setRolesNeeded([]); setWeekdaysStart('');
       setWeekdaysEnd(''); setSaturdaysStart(''); setSaturdaysEnd(''); setSundaysStart(''); setSundaysEnd(''); setPublicHolidaysStart('');
       setPublicHolidaysEnd(''); setDefaultRateType(''); setDefaultFixedRate(''); setAbout('');
@@ -188,50 +189,51 @@ export default function PharmacyPage() {
     }
   };
 
-  const handlePlaceChanged = () => {
-    if (!autocompleteRef.current) return;
-    const place = autocompleteRef.current.getPlace();
-    if (!place || !place.address_components) return;
+const handlePlaceChanged = () => {
+  if (!autocompleteRef.current) return;
+  const place = autocompleteRef.current.getPlace();
+  if (!place || !place.address_components) return;
 
-    let streetNumber = ''; let route = ''; let locality = ''; let postalCode = ''; let stateShort = '';
+  let streetNumber = '';
+  let route = '';
+  let locality = '';
+  let postalCode = '';
+  let stateShort = '';
 
-    place.address_components.forEach(component => {
-      const types = component.types;
-      if (types.includes('street_number')) streetNumber = component.long_name;
-      if (types.includes('route')) route = component.short_name;
-      if (types.includes('locality')) locality = component.long_name;
-      if (types.includes('postal_code')) postalCode = component.long_name;
-      if (types.includes('administrative_area_level_1')) stateShort = component.short_name; // e.g., 'NSW'
-    });
+  place.address_components.forEach(component => {
+    const types = component.types;
+    if (types.includes('street_number')) streetNumber = component.long_name;
+    if (types.includes('route')) route = component.short_name;
+    if (types.includes('locality')) locality = component.long_name;
+    if (types.includes('postal_code')) postalCode = component.long_name;
+    if (types.includes('administrative_area_level_1')) stateShort = component.short_name; // e.g., 'NSW'
+  });
 
-    // If a state is already selected, ensure the chosen place matches it:
-    if (state && stateShort && stateShort !== state) {
-      setSnackMsg(`Selected address is in ${stateShort}, but current state is ${state}. Please change the state or pick an address within ${state}.`);
-      setSnackbarOpen(true);
-      return; // don't apply mismatched address
-    }
+  setStreetAddress(`${streetNumber} ${route}`.trim());
+  setSuburb(locality);
+  setPostcode(postalCode);
+  setState(stateShort);                 // auto-fill state (editable field)
+  setGooglePlaceId(place.place_id || '');
+  if (place.geometry?.location) {
+    setLatitude(place.geometry.location.lat());
+    setLongitude(place.geometry.location.lng());
+  }
+  // Always set name from the Google Place
+  if (place.name) setName(place.name);
+};
 
-    setStreetAddress(`${streetNumber} ${route}`.trim());
-    setSuburb(locality);
-    setPostcode(postalCode);
-    setState(stateShort || state);      // keep existing state if autocomplete didn't return it
-    setGooglePlaceId(place.place_id || '');
-    if (place.geometry?.location) {
-      setLatitude(place.geometry.location.lat());
-      setLongitude(place.geometry.location.lng());
-    }
-    if (!name && place.name) setName(place.name);
-  };
 
   const handleSave = async () => {
-    setError(''); if (!asicNumber) { setError('ASIC Number is required.'); return; }
+    if (abnDigits.length !== 11) { setError('ABN must be 11 digits.'); return; }
     const fd = new FormData();
     fd.append('name', name); fd.append('street_address', streetAddress); fd.append('suburb', suburb); fd.append('postcode', postcode);
     fd.append('google_place_id', googlePlaceId);
     if (latitude !== null) fd.append('latitude', latitude.toFixed(6));
     if (longitude !== null) fd.append('longitude', longitude.toFixed(6));
 
-    fd.append('state', state); fd.append('asic_number', asicNumber); fd.append('abn', abn);
+    fd.append('state', state);
+    fd.append('abn', abnDigits);
+    fd.append('abn', abn);
     if (approvalCertFile) fd.append('methadone_s8_protocols', approvalCertFile);
     if (sopsFile) fd.append('sops', sopsFile);
     if (inductionGuidesFile) fd.append('induction_guides', inductionGuidesFile);
@@ -284,18 +286,16 @@ export default function PharmacyPage() {
 
           {tabIndex === 0 && (
             <Box sx={{ p: 2 }}>
-              <TextField label="Pharmacy Name" fullWidth margin="normal" value={name} onChange={e => setName(e.target.value)} />
-              <FormControl fullWidth margin="normal">
-                <InputLabel>State</InputLabel>
-                <Select value={state} label="State" onChange={e => setState(e.target.value)} required>
-                  {[ { value: 'QLD', label: 'Queensland' }, { value: 'NSW', label: 'New South Wales' }, { value: 'VIC', label: 'Victoria' }, { value: 'SA', label: 'South Australia' }, { value: 'WA', label: 'Western Australia' }, { value: 'TAS', label: 'Tasmania' }, { value: 'ACT', label: 'Australian Capital Territory' }, { value: 'NT', label: 'Northern Territory' }].map(s => (
-                    <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
 
               {isLoaded && !googlePlaceId && (
-                <Autocomplete onLoad={ref => (autocompleteRef.current = ref)} onPlaceChanged={handlePlaceChanged} options={{ componentRestrictions: { country: 'au' }, fields: ['address_components', 'geometry', 'place_id', 'name'] }}>
+                <Autocomplete
+                  onLoad={ref => (autocompleteRef.current = ref)}
+                  onPlaceChanged={handlePlaceChanged}
+                  options={{
+                    componentRestrictions: { country: 'au' },
+                    fields: ['address_components', 'geometry', 'place_id', 'name'],
+                  }}
+                >
                   <TextField fullWidth margin="normal" label="Search Address" id="autocomplete-textfield" />
                 </Autocomplete>
               )}
@@ -303,20 +303,48 @@ export default function PharmacyPage() {
               
               {googlePlaceId && (
                 <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'action.hover' }}>
-                  <TextField label="Street Address" fullWidth margin="normal" value={streetAddress} InputProps={{ readOnly: true }} />
-                  <TextField label="Suburb" fullWidth margin="normal" value={suburb} InputProps={{ readOnly: true }} />
-                  <TextField label="Postcode" fullWidth margin="normal" value={postcode} InputProps={{ readOnly: true }} />
+                <TextField label="Street Address" fullWidth margin="normal" value={streetAddress} onChange={e => setStreetAddress(e.target.value)} />
+                <TextField label="Suburb"         fullWidth margin="normal" value={suburb}         onChange={e => setSuburb(e.target.value)} />
+                <TextField label="State"         fullWidth margin="normal" value={state}         onChange={e => setState(e.target.value)} />
+                <TextField label="Postcode"       fullWidth margin="normal" value={postcode}       onChange={e => setPostcode(e.target.value)} />
                   <Button size="small" onClick={clearAddress} sx={{ mt: 1 }}>Clear Address & Search Again</Button>
                 </Box>
               )}
+
+                <TextField label="Pharmacy Name" fullWidth margin="normal" value={name} onChange={e => setName(e.target.value)} />
+
             </Box>
           )}
 
-          {tabIndex === 1 && ( <Box sx={{ p: 2 }}> <Typography>Approval Certificate <Typography component="span" color="error">*</Typography></Typography> <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}> <Button variant="outlined" component="label">Upload Certificate<input hidden type="file" onChange={e => setApprovalCertFile(e.target.files?.[0] || null)} /></Button> {approvalCertFile ? (<Typography variant="body2">{approvalCertFile.name}</Typography>) : existingApprovalCert ? (<MuiLink href={getFileUrl(existingApprovalCert)} target="_blank" rel="noopener noreferrer">View</MuiLink>) : (<Typography variant="body2" color="text.secondary">No file uploaded</Typography>)} </Box> <TextField label="ASIC Number" required fullWidth margin="normal" value={asicNumber} onChange={e => setAsicNumber(e.target.value)} /> <TextField label="ABN (optional)" fullWidth margin="normal" value={abn} onChange={e => setAbn(e.target.value)} /> </Box> )}
+          {tabIndex === 1 && ( <Box sx={{ p: 2 }}> <Typography>Approval Certificate</Typography> <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}> <Button variant="outlined" component="label">Upload Certificate<input hidden type="file" onChange={e => setApprovalCertFile(e.target.files?.[0] || null)} /></Button> {approvalCertFile ? (<Typography variant="body2">{approvalCertFile.name}</Typography>) : existingApprovalCert ? (<MuiLink href={getFileUrl(existingApprovalCert)} target="_blank" rel="noopener noreferrer">View</MuiLink>) : (<Typography variant="body2" color="text.secondary">No file uploaded</Typography>)} </Box>  <TextField
+            label="ABN"
+            required
+            fullWidth
+            margin="normal"
+            value={abn}
+            onChange={e => setAbn(e.target.value)}
+            error={abnInvalid}
+            helperText={abnInvalid ? 'ABN must be 11 digits' : 'Enter 11 digits (spaces/dashes allowed)'}
+          />
+          </Box> )}
           {tabIndex === 2 && ( <Box sx={{ p: 2 }}> <Typography>SOPs (optional)</Typography> <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1, mb: 2 }}> <Button variant="outlined" component="label">Upload SOPs<input hidden type="file" onChange={e => setSopsFile(e.target.files?.[0] || null)} /></Button> {sopsFile ? (<Typography variant="body2">{sopsFile.name}</Typography>) : existingSops ? (<MuiLink href={getFileUrl(existingSops)} target="_blank" rel="noopener noreferrer">View</MuiLink>) : (<Typography variant="body2" color="text.secondary">No file uploaded</Typography>)} </Box> <Typography>Induction Guides (optional)</Typography> <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1, mb: 2 }}> <Button variant="outlined" component="label">Upload Induction Guides<input hidden type="file" onChange={e => setInductionGuidesFile(e.target.files?.[0] || null)} /></Button> {inductionGuidesFile ? (<Typography variant="body2">{inductionGuidesFile.name}</Typography>) : existingInductionGuides ? (<MuiLink href={getFileUrl(existingInductionGuides)} target="_blank" rel="noopener noreferrer">View</MuiLink>) : (<Typography variant="body2" color="text.secondary">No file uploaded</Typography>)} </Box> <Typography>S8/SUMP Docs (optional)</Typography> <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}> <Button variant="outlined" component="label">Upload S8/SUMP<input hidden type="file" onChange={e => setSumpDocsFile(e.target.files?.[0] || null)} /></Button> {sumpDocsFile ? (<Typography variant="body2">{sumpDocsFile.name}</Typography>) : existingSumpDocs ? (<MuiLink href={getFileUrl(existingSumpDocs)} target="_blank" rel="noopener noreferrer">View</MuiLink>) : (<Typography variant="body2" color="text.secondary">No file uploaded</Typography>)} </Box> </Box> )}
           {tabIndex === 3 && ( <Box sx={{ p: 2 }}> <Typography variant="h6">Employment Types</Typography> <FormGroup sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 2 }}> {['PART_TIME', 'FULL_TIME', 'LOCUMS'].map(v => ( <FormControlLabel key={v} control={<Checkbox checked={employmentTypes.includes(v)} onChange={() => setEmploymentTypes(p => (p.includes(v) ? p.filter(x => x !== v) : [...p, v]))} />} label={v.replace('_', ' ')} /> ))} </FormGroup> <Typography variant="h6">Roles Needed</Typography> <FormGroup sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}> {['PHARMACIST', 'INTERN', 'ASSISTANT', 'TECHNICIAN', 'STUDENT', 'ADMIN', 'DRIVER'].map(v => ( <FormControlLabel key={v} control={<Checkbox checked={rolesNeeded.includes(v)} onChange={() => setRolesNeeded(p => (p.includes(v) ? p.filter(x => x !== v) : [...p, v]))} />} label={v.charAt(0) + v.slice(1).toLowerCase()} /> ))} </FormGroup> </Box> )}
           {tabIndex === 4 && ( <Box sx={{ p: 2 }}> {hoursFields.map(({ label, start, setStart, end, setEnd }) => ( <Box key={label} sx={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr', gap: 2, alignItems: 'center', mb: 2 }}> <Typography>{label}</Typography> <TextField label="Start" type="time" fullWidth value={start} onChange={e => setStart(e.target.value)} InputLabelProps={{ shrink: true }} /> <TextField label="End" type="time" fullWidth value={end} onChange={e => setEnd(e.target.value)} InputLabelProps={{ shrink: true }} /> </Box> ))} </Box> )}
-          {tabIndex === 5 && ( <Box sx={{ p: 2 }}> <FormControl fullWidth margin="normal"> <InputLabel>Rate Type</InputLabel> <Select value={defaultRateType} label="Rate Type" onChange={e => setDefaultRateType(e.target.value)}> {RATE_TYPES.map(opt => ( <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem> ))} </Select> </FormControl> {defaultRateType === 'FIXED' && ( <TextField label="Fixed Rate" type="number" fullWidth margin="normal" value={defaultFixedRate} onChange={e => setDefaultFixedRate(e.target.value)} /> )} </Box> )}
+          {tabIndex === 5 && ( 
+            <Box sx={{ p: 2 }}> <FormControl fullWidth margin="normal"> 
+              <InputLabel>Rate Type</InputLabel> 
+              <Select value={defaultRateType} label="Rate Type" onChange={e => setDefaultRateType(e.target.value)}> 
+                {RATE_TYPES.map(opt => ( <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem> ))} 
+              </Select> </FormControl> 
+              
+              {defaultRateType === 'FIXED' && ( 
+                <TextField label="Fixed Rate per hour" 
+                          type="number" 
+                          fullWidth margin="normal" 
+                          value={defaultFixedRate} onChange={e => setDefaultFixedRate(e.target.value)}  
+                          InputProps={{startAdornment: <InputAdornment position="start">$</InputAdornment>,}}
+                          /> )} 
+            </Box> )}
           {tabIndex === 6 && ( <Box sx={{ p: 2 }}> <TextField label="About your pharmacy" multiline rows={6} fullWidth value={about} onChange={e => setAbout(e.target.value)} /> </Box> )}
         </DialogContent>
         <DialogActions>

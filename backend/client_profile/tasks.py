@@ -99,12 +99,24 @@ def azure_ocr(file_path):
     logger.info(f"[azure_ocr] OCR done for {file_path}, found {len(lines)} lines.")
     return {"lines": lines}
 
-def verify_filefield_task(model_name, object_pk, file_field, first_name, last_name, email, verification_field, **kwargs):
-    note_field = kwargs.get('note_field')
+def verify_filefield_task(
+    model_name,
+    object_pk,
+    file_field,
+    first_name=None,
+    last_name=None,
+    email=None,
+    verification_field=None,
+    **kwargs
+):
     logger.info(f"[VERIFY FILEFIELD TASK] model={model_name}, pk={object_pk}, field={file_field}")
+    note_field = kwargs.get('note_field')
     Model = apps.get_model("client_profile", model_name)
     obj = fetch_instance_with_retries(Model, object_pk)
-    
+    first_name = first_name or getattr(obj.user, "first_name", "") or ""
+    last_name  = last_name  or getattr(obj.user, "last_name", "")  or ""
+    email      = email      or getattr(obj.user, "email", "")      or ""
+
     # --- THIS IS THE FIX ---
     # If a verification note already exists, the task has already run.
     if note_field and getattr(obj, note_field, None):

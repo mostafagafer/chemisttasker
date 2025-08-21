@@ -45,7 +45,7 @@ import OtherstaffDashboardWrapper from './layouts/otherStaffDashboard';
 import ExplorerDashboardWrapper from './layouts/explorerDashboard';
 
 
-OverviewPageOwner
+
 // owner stub pages
 import OverviewPageOwner          from './pages/dashboard/sidebar/OverviewPageOwner';
 import OverviewPageStaff          from './pages/dashboard/sidebar/OverviewPageStaff';
@@ -73,6 +73,10 @@ import InvoiceGeneratePage   from './pages/dashboard/sidebar/InvoiceGeneratePage
 import InvoiceDetailPage   from './pages/dashboard/sidebar/InvoiceDetailPage';
 
 import { AuthProvider } from './contexts/AuthContext';
+
+
+// Version2
+import PharmacistOnboardingV2 from './pages/onboardingV2/PharmacistOnboardingV2Layout';
 
 const router = createBrowserRouter([
   {
@@ -223,6 +227,12 @@ const router = createBrowserRouter([
           { index: true, element: <OverviewPageStaff /> },
           { path: 'overview', element: <OverviewPageStaff /> },
           { path: 'onboarding', element: <PharmacistOnboarding /> },
+          
+            // NEW: V2 onboarding (tab-per-page layout with nested routes)
+          // V2 — single page with its own left-buttons + progress bar
+          { path: 'onboarding-v2', element: <PharmacistOnboardingV2 /> },
+
+ 
           {
             path: 'shifts',
             children: [

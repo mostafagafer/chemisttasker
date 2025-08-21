@@ -308,6 +308,20 @@ class RefereeRejectView(APIView):
         async_task('client_profile.tasks.final_evaluation', model_name, instance.pk)
         return Response({'success': True, 'message': 'Referee rejected.'}, status=200)
 
+
+
+# === New Onboarding ===
+class PharmacistOnboardingV2MeView(generics.RetrieveUpdateAPIView):
+    permission_classes = [permissions.IsAuthenticated, IsPharmacist, IsOTPVerified]
+    serializer_class = PharmacistOnboardingV2Serializer
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+
+    def get_object(self):
+        obj, _ = PharmacistOnboarding.objects.get_or_create(user=self.request.user)
+        return obj
+
+
+
 # Dashboards
 class OrganizationDashboardView(APIView):
     """

@@ -157,6 +157,15 @@ class PharmacistOnboarding(models.Model):
     # Notifications
     notifications = GenericRelation(OnboardingNotification)
 
+    # Location
+    street_address   = models.CharField(max_length=255, blank=True, null=True)
+    suburb           = models.CharField(max_length=100, blank=True, null=True)
+    state            = models.CharField(max_length=50,  blank=True, null=True)
+    postcode         = models.CharField(max_length=10,  blank=True, null=True)
+    google_place_id  = models.CharField(max_length=255, blank=True, null=True)
+    latitude         = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+    longitude        = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+
     def __str__(self):
         return f"{self.user.get_full_name()} - Onboarding"
 

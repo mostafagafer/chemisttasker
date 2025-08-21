@@ -282,3 +282,12 @@ def get_frontend_dashboard_url(user):
     
     return f"{settings.FRONTEND_BASE_URL}/dashboard/{role_slug}/"
 
+from decimal import Decimal, ROUND_HALF_UP
+
+def q6(v):
+    if v in (None, '', ):
+        return None
+    try:
+        return Decimal(str(v)).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
+    except Exception:
+        return None

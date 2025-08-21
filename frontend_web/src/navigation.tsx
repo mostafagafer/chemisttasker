@@ -191,6 +191,21 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
         />
       ),
     },
+    // NEW: V2 onboarding — single sidebar item (tabs live inside the page)
+    {
+      segment: 'dashboard/pharmacist/onboarding-v2',
+      title: 'Profile (V2)',
+      icon: <ManageAccountsSharpIcon />,
+      action: (
+        <Chip
+          size="small"
+          label="V2"
+          color="warning"
+          sx={{ ml: 0.5, fontWeight: 700 }}
+        />
+      ),
+    },
+
     { segment: 'dashboard/pharmacist/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
     { kind: 'divider' as const },
     { kind: 'header' as const, title: 'Shifts & Invoices' },

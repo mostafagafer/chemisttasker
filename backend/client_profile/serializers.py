@@ -6,7 +6,7 @@ from users.serializers import UserProfileSerializer
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from decimal import Decimal
-from client_profile.utils import send_referee_emails, notify_superuser_on_onboarding
+from client_profile.utils import q6
 from datetime import date, timedelta
 from django.utils import timezone
 from django_q.tasks import async_task
@@ -971,6 +971,194 @@ class RefereeResponseSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'conduct_explanation': 'Please explain the conduct concern.'})
 
         return attrs
+
+
+
+
+
+# === New Onboarding ===
+
+class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
+    """
+    V2 single-endpoint, tab-aware serializer.
+    Implements ONLY the Basic tab (as requested).
+    """
+
+    # user fields (read/write through User)
+    username   = serializers.CharField(source='user.username',   required=False, allow_blank=True)
+    first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
+    last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
+
+    # write-only control flags
+    tab = serializers.CharField(write_only=True, required=False)
+    submitted_for_verification = serializers.BooleanField(write_only=True, required=False)
+
+    # computed
+    progress_percent = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PharmacistOnboarding
+        fields = [
+            # Basic info (user + pharmacist)
+            'username', 'first_name', 'last_name', 'phone_number',
+            'government_id', 'ahpra_number',
+
+            # optional address (belongs to basic tab)
+            'street_address', 'suburb', 'state', 'postcode',
+            'google_place_id', 'latitude', 'longitude',
+
+            # verification outputs
+            'gov_id_verified', 'gov_id_verification_note',
+            'ahpra_verified', 'ahpra_registration_status',
+            'ahpra_registration_type', 'ahpra_expiry_date',
+            'ahpra_verification_note',
+
+            # profile flags
+            'verified', 'progress_percent',
+
+            # controls (write-only)
+            'tab', 'submitted_for_verification',
+        ]
+        extra_kwargs = {
+            # user names are optional
+            'username': {'required': False, 'allow_blank': True},
+            'first_name': {'required': False, 'allow_blank': True},
+            'last_name': {'required': False, 'allow_blank': True},
+
+            # pharmacist fields optional here
+            'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'ahpra_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'government_id': {'required': False, 'allow_null': True},
+
+            # address optional
+            'street_address':  {'required': False, 'allow_blank': True, 'allow_null': True},
+            'suburb':          {'required': False, 'allow_blank': True, 'allow_null': True},
+            'state':           {'required': False, 'allow_blank': True, 'allow_null': True},
+            'postcode':        {'required': False, 'allow_blank': True, 'allow_null': True},
+            'google_place_id': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'latitude':        {'required': False, 'allow_null': True},
+            'longitude':       {'required': False, 'allow_null': True},
+
+            # read-only verification outputs
+            'gov_id_verified': {'read_only': True},
+            'gov_id_verification_note': {'read_only': True},
+            'ahpra_verified': {'read_only': True},
+            'ahpra_registration_status': {'read_only': True},
+            'ahpra_registration_type': {'read_only': True},
+            'ahpra_expiry_date': {'read_only': True},
+            'ahpra_verification_note': {'read_only': True},
+
+            'verified': {'read_only': True},
+            'progress_percent': {'read_only': True},
+        }
+
+    # -------- progress --------
+    def get_progress_percent(self, obj):
+        u = getattr(obj, 'user', None)
+        checks = [
+            bool(getattr(u, 'username', None)),
+            bool(getattr(u, 'first_name', None)),
+            bool(getattr(u, 'last_name', None)),
+            bool(obj.phone_number),
+            bool(obj.gov_id_verified),
+            bool(obj.ahpra_verified),
+        ]
+        done = sum(1 for x in checks if x)
+        total = len(checks) or 1
+        return int(100 * done / total)
+
+    # -------- update --------
+    def update(self, instance, validated_data):
+        tab = (self.initial_data.get('tab') or 'basic').strip().lower()
+        submit = bool(self.initial_data.get('submitted_for_verification'))
+        if tab == 'basic':
+            return self._basic_tab(instance, validated_data, submit)
+        return instance  # ignore unknown tabs for now
+
+    # -------- Basic tab (inline) --------
+    def _basic_tab(self, instance: PharmacistOnboarding, vdata: dict, submit: bool):
+        # nested user data
+        user_data = vdata.pop('user', {})
+
+        if user_data:
+            changed_user_fields = []
+            for k in ('username', 'first_name', 'last_name'):
+                if k in user_data:
+                    setattr(instance.user, k, user_data[k])
+                    changed_user_fields.append(k)
+            if changed_user_fields:
+                instance.user.save(update_fields=changed_user_fields)
+
+        # fields written directly (exclude lat/lon to handle rounding)
+        direct_fields = [
+            'phone_number', 'ahpra_number', 'government_id',
+            'street_address', 'suburb', 'state', 'postcode', 'google_place_id',
+        ]
+
+        # detect changes that affect verification flags
+        def _fname(f): return getattr(f, 'name', None) if f else None
+        ahpra_changed = 'ahpra_number' in vdata and (vdata.get('ahpra_number') != getattr(instance, 'ahpra_number'))
+        gov_id_changed = 'government_id' in vdata and (_fname(vdata.get('government_id')) != _fname(getattr(instance, 'government_id')))
+
+        update_fields = []
+        for f in direct_fields:
+            if f in vdata:
+                setattr(instance, f, vdata[f])
+                update_fields.append(f)
+
+        # round/quantize lat/lon to 6 dp if provided
+        if 'latitude' in vdata:
+            instance.latitude = q6(vdata.get('latitude'))
+            update_fields.append('latitude')
+        if 'longitude' in vdata:
+            instance.longitude = q6(vdata.get('longitude'))
+            update_fields.append('longitude')
+
+        # reset only relevant flags when inputs changed
+        if ahpra_changed:
+            instance.ahpra_verified = False
+            instance.ahpra_verification_note = ""
+            update_fields += ['ahpra_verified', 'ahpra_verification_note']
+
+        if gov_id_changed:
+            instance.gov_id_verified = False
+            instance.gov_id_verification_note = ""
+            update_fields += ['gov_id_verified', 'gov_id_verification_note']
+
+        # full profile remains unverified until all tabs pass
+        if submit:
+            instance.verified = False
+            update_fields.append('verified')
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+
+        # trigger ONLY the basic-tab tasks when submitting
+        if submit:
+            # AHPRA: changed OR not verified yet
+            if instance.ahpra_number and (ahpra_changed or not instance.ahpra_verified):
+                async_task(
+                    'client_profile.tasks.verify_ahpra_task',
+                    instance._meta.model_name, instance.pk,
+                    instance.ahpra_number, instance.user.first_name,
+                    instance.user.last_name, instance.user.email,
+                )
+
+            # GOV ID: file changed OR not verified yet
+            if instance.government_id and (gov_id_changed or not instance.gov_id_verified):
+                async_task(
+                    'client_profile.tasks.verify_filefield_task',
+                    instance._meta.model_name, instance.pk,
+                    'government_id',
+                    instance.user.first_name or '',
+                    instance.user.last_name or '',
+                    instance.user.email or '',
+                    verification_field='gov_id_verified',
+                    note_field='gov_id_verification_note',
+                )
+
+        return instance
+
 
 # === Dashboards ===
 class ShiftSummarySerializer(serializers.Serializer):

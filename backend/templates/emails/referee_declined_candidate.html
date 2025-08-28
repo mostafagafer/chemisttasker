@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Referee Declined</title>
+  <style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+    .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
+    .wave { font-size: 2.5rem; }
+    .btn {
+      display: inline-block;
+      background: #23b59c;
+      color: #fff;
+      padding: 12px 28px;
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 1.15rem;
+      margin: 16px 0;
+      box-shadow: 0 1px 3px #e0e0e0;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #199982; }
+    .btn-danger { background: #e74c3c; }
+    .emoji { font-size: 1.25rem; }
+    .muted { color:#666; font-size: 0.95rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="wave">👋</div>
+    <h2>Update on Your References</h2>
+
+    <p>Hi {{ candidate_first_name|default:"there" }},</p>
+
+    <p>
+      We wanted to let you know that <strong>Referee #{{ referee_index }}</strong> has
+      <strong>declined</strong> to provide a reference for your ChemistTasker application.
+    </p>
+
+    <p class="muted">
+      This can happen for a number of reasons (availability, policy, etc.). You can continue your application by updating your referees below.
+    </p>
+
+    <a class="btn" href="{{ dashboard_url }}">Update Your Referees</a>
+
+    <p>
+      If you believe this was a mistake, feel free to reach out to your referee directly, or contact ChemistTasker support.
+    </p>
+
+    <p class="emoji">— The ChemistTasker Team 💚</p>
+  </div>
+</body>
+</html>

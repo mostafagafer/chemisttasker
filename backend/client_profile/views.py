@@ -18,7 +18,7 @@ import json
 from django.db.models import Q, Count, F
 from django.utils import timezone
 from client_profile.services import get_locked_rate_for_slot, expand_shift_slots, generate_invoice_from_shifts, render_invoice_to_pdf, generate_preview_invoice_lines
-from client_profile.utils import build_shift_email_context, clean_email, build_roster_email_link
+from client_profile.utils import build_shift_email_context, clean_email, build_roster_email_link, get_frontend_dashboard_url
 from django.utils.crypto import get_random_string
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode
@@ -34,6 +34,7 @@ from django_q.models import Schedule
 from django.core.signing import TimestampSigner, BadSignature
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
+from client_profile.tasks import cancel_referee_reminder, schedule_referee_reminder, cancel_referee_reminder, cancel_all_referee_reminders
 
 
 # Onboardings
@@ -122,24 +123,24 @@ class OwnerOnboardingClaim(APIView):
             status=status.HTTP_200_OK
         )
 
-class PharmacistOnboardingCreateView(CreateAPIView):
-    parser_classes = [MultiPartParser, FormParser]
-    serializer_class   = PharmacistOnboardingSerializer
-    permission_classes = [permissions.IsAuthenticated, IsPharmacist, IsOTPVerified]
+# class PharmacistOnboardingCreateView(CreateAPIView):
+#     parser_classes = [MultiPartParser, FormParser]
+#     serializer_class   = PharmacistOnboardingSerializer
+#     permission_classes = [permissions.IsAuthenticated, IsPharmacist, IsOTPVerified]
 
-    def perform_create(self, serializer):
-        serializer.save()
+#     def perform_create(self, serializer):
+#         serializer.save()
 
-class PharmacistOnboardingDetailView(RetrieveUpdateAPIView):
-    parser_classes = [MultiPartParser, FormParser]
-    serializer_class   = PharmacistOnboardingSerializer
-    permission_classes = [permissions.IsAuthenticated, IsPharmacist, IsOTPVerified]
+# class PharmacistOnboardingDetailView(RetrieveUpdateAPIView):
+#     parser_classes = [MultiPartParser, FormParser]
+#     serializer_class   = PharmacistOnboardingSerializer
+#     permission_classes = [permissions.IsAuthenticated, IsPharmacist, IsOTPVerified]
 
-    def get_object(self):
-        try:
-            return PharmacistOnboarding.objects.get(user=self.request.user)
-        except PharmacistOnboarding.DoesNotExist:
-            raise NotFound("Pharmacist onboarding profile not found.")
+#     def get_object(self):
+#         try:
+#             return PharmacistOnboarding.objects.get(user=self.request.user)
+#         except PharmacistOnboarding.DoesNotExist:
+#             raise NotFound("Pharmacist onboarding profile not found.")
 
 class OtherStaffOnboardingCreateView(CreateAPIView):
     parser_classes = [MultiPartParser, FormParser]
@@ -215,10 +216,10 @@ class RefereeSubmitResponseView(generics.CreateAPIView):
     POST /references/submit/<token>/
     Body: RefereeResponseSerializer fields
     Effect:
-      - Saves a RefereeResponse
-      - If would_rehire == 'No' => refereeN_rejected=True (confirmed=False)
-        else => refereeN_confirmed=True (rejected=False)
-      - Cancels pending evaluation schedule and triggers final_evaluation immediately
+      - Saves a RefereeResponse (1 per (profile, ref_idx) enforced)
+      - Maps would_rehire -> referee{N}_confirmed / referee{N}_rejected
+      - Sends decline email to candidate ONLY on first transition to rejected
+      - Cancels single-ref reminder if rejected or confirmed
     """
     serializer_class = RefereeResponseSerializer
     permission_classes = [permissions.AllowAny]
@@ -227,88 +228,158 @@ class RefereeSubmitResponseView(generics.CreateAPIView):
         # 1) Unsign token -> (model_name, pk, referee_index)
         token = self.kwargs.get('token')
         signer = TimestampSigner()
-
         try:
             data = signer.unsign(token, max_age=timedelta(days=14))
             model_name, pk, referee_index = data.split(':')
             pk = int(pk)
             referee_index = int(referee_index)
+            if referee_index not in (1, 2):
+                raise ValueError
         except (BadSignature, ValueError):
             raise PermissionDenied("This reference link is invalid or has expired.")
 
-        # 2) Locate onboarding record dynamically (Explorer/Pharmacist/OtherStaff)
+        # 2) Locate onboarding record dynamically
         OnboardingModel = apps.get_model('client_profile', model_name)
-        onboarding = get_object_or_404(OnboardingModel, pk=pk)
-        ct = ContentType.objects.get_for_model(onboarding)
+        ct = ContentType.objects.get_for_model(OnboardingModel)
 
         # 3) Prevent duplicate submissions per candidate+referee
-        exists = RefereeResponse.objects.filter(
+        if RefereeResponse.objects.filter(
             content_type=ct, object_id=pk, referee_index=referee_index
-        ).exists()
-        if exists:
+        ).exists():
             raise ValidationError("A reference has already been submitted for this candidate.")
 
-        # 4) Save the response
-        response = serializer.save(
-            content_type=ct,
-            object_id=pk,
-            referee_index=referee_index,
-        )
+        with transaction.atomic():
+            # Lock onboarding row to make flag changes+decision idempotent
+            onboarding = OnboardingModel.objects.select_for_update().get(pk=pk)
 
-        # 5) Map final question to your existing flags on the onboarding model
-        would = (response.would_rehire or '').strip().lower()
-        confirmed_field = f'referee{referee_index}_confirmed'
-        rejected_field = f'referee{referee_index}_rejected'
+            # 4) Save the response
+            response = serializer.save(
+                content_type=ct,
+                object_id=pk,
+                referee_index=referee_index,
+            )
 
-        if would == 'no':
-            setattr(onboarding, confirmed_field, False)
-            setattr(onboarding, rejected_field, True)
-        else:  # 'yes' or 'with reservations' (or empty -> treat as confirm if you prefer strictness add else->error)
-            setattr(onboarding, confirmed_field, True)
-            setattr(onboarding, rejected_field, False)
+            # 5) Map would_rehire -> flags, but only act on first transition
+            would = (response.would_rehire or '').strip().lower()
+            confirmed_field = f'referee{referee_index}_confirmed'
+            rejected_field  = f'referee{referee_index}_rejected'
 
-        onboarding.save()
+            was_confirmed = bool(getattr(onboarding, confirmed_field))
+            was_rejected  = bool(getattr(onboarding, rejected_field))
 
-        # 6) Cancel pending evaluation and re-run immediately (keeps your pipeline unchanged)
-        Schedule.objects.filter(
-            func='client_profile.tasks.final_evaluation',
-            args=f"'{OnboardingModel._meta.model_name}',{onboarding.pk}"
-        ).delete()
+            if would == 'no':
+                # going to rejected
+                changed_to_rejected = not was_rejected
+                setattr(onboarding, confirmed_field, False)
+                setattr(onboarding, rejected_field, True)
+                onboarding.save(update_fields=[confirmed_field, rejected_field])
 
-        async_task('client_profile.tasks.final_evaluation', OnboardingModel._meta.model_name, onboarding.pk)
+                # Cancel this referee's reminder (if any)
+                try:
+                    cancel_referee_reminder(model_name, onboarding.pk, referee_index)
+                except Exception:
+                    pass
+
+                # Send decline email only on first transition
+                if changed_to_rejected:
+                    async_task(
+                        'users.tasks.send_async_email',
+                        subject="One of your referees declined",
+                        recipient_list=[onboarding.user.email],
+                        template_name="emails/referee_declined_candidate.html",
+                        text_template="emails/referee_declined_candidate.txt",
+                        context={
+                            "candidate_first_name": onboarding.user.first_name or onboarding.user.username,
+                            "referee_index": referee_index,
+                            "dashboard_url": get_frontend_dashboard_url(onboarding.user),
+                        },
+                    )
+            else:
+                # treat 'yes' / 'with reservations' as acceptance
+                changed_to_confirmed = not was_confirmed
+                setattr(onboarding, confirmed_field, True)
+                setattr(onboarding, rejected_field, False)
+                onboarding.save(update_fields=[confirmed_field, rejected_field])
+
+                # Cancel this referee's reminder (if any)
+                try:
+                    cancel_referee_reminder(model_name, onboarding.pk, referee_index)
+                except Exception:
+                    pass
+
 
 class RefereeRejectView(APIView):
+    """
+    POST /onboarding/referee-reject/<profile_pk>/<ref_idx>/
+    Effect:
+      - Sets referee{idx}_confirmed=False, referee{idx}_rejected=True (idempotent)
+      - Emails the candidate ONLY on first transition to rejected
+      - Cancels single-ref reminder for this referee
+    """
+    permission_classes = [permissions.AllowAny]
+
     def post(self, request, profile_pk, ref_idx, *args, **kwargs):
         onboarding_models = [PharmacistOnboarding, OtherStaffOnboarding, ExplorerOnboarding]
-        instance, model_name = None, None
-        for Model in onboarding_models:
+        instance, model_name, Model = None, None, None
+        for M in onboarding_models:
             try:
-                instance = Model.objects.get(pk=profile_pk)
-                model_name = Model._meta.model_name
+                instance = M.objects.get(pk=profile_pk)
+                model_name = M._meta.model_name
+                Model = M
                 break
-            except Model.DoesNotExist: continue
-        if not instance: return Response({'detail': 'Onboarding profile not found.'}, status=404)
+            except M.DoesNotExist:
+                continue
+        if not instance:
+            return Response({'detail': 'Onboarding profile not found.'}, status=404)
 
-        if str(ref_idx) == "1":
-            instance.referee1_confirmed = False
-            instance.referee1_rejected = True
-        elif str(ref_idx) == "2":
-            instance.referee2_confirmed = False
-            instance.referee2_rejected = True
-        else: return Response({'detail': 'Invalid referee index.'}, status=400)
-        instance.save()
-        
-        # FIX: Also cancel pending tasks on rejection.
-        Schedule.objects.filter(
-            func='client_profile.tasks.final_evaluation',
-            args=f"'{model_name}',{instance.pk}"
-        ).delete()
-        
-        # Trigger an immediate failure evaluation.
-        async_task('client_profile.tasks.final_evaluation', model_name, instance.pk)
+        if str(ref_idx) not in ("1", "2"):
+            return Response({'detail': 'Invalid referee index.'}, status=400)
+        idx = int(ref_idx)
+
+        # Do an atomic, conditional update so we only send email on the first transition.
+        confirmed_field = f"referee{idx}_confirmed"
+        rejected_field  = f"referee{idx}_rejected"
+
+        with transaction.atomic():
+            # Reload with a lock to avoid race / double sends
+            row = Model.objects.select_for_update().get(pk=instance.pk)
+            was_rejected = bool(getattr(row, rejected_field))
+
+            # If already rejected, do nothing (idempotent)
+            if was_rejected:
+                # Still cancel reminder just in case a schedule remains
+                try:
+                    cancel_referee_reminder(model_name, row.pk, idx)
+                except Exception:
+                    pass
+                return Response({'success': True, 'message': 'Already declined.'}, status=200)
+
+            # First time -> flip flags
+            setattr(row, confirmed_field, False)
+            setattr(row, rejected_field, True)
+            row.save(update_fields=[confirmed_field, rejected_field])
+
+            # Cancel this referee's reminder (if any)
+            try:
+                cancel_referee_reminder(model_name, row.pk, idx)
+            except Exception:
+                pass
+
+            # Notify candidate exactly once (first transition only)
+            async_task(
+                'users.tasks.send_async_email',
+                subject="One of your referees declined",
+                recipient_list=[row.user.email],
+                template_name="emails/referee_declined_candidate.html",
+                text_template="emails/referee_declined_candidate.txt",
+                context={
+                    "candidate_first_name": row.user.first_name or row.user.username,
+                    "referee_index": idx,
+                    "dashboard_url": get_frontend_dashboard_url(row.user),
+                },
+            )
+
         return Response({'success': True, 'message': 'Referee rejected.'}, status=200)
-
-
 
 # === New Onboarding ===
 class PharmacistOnboardingV2MeView(generics.RetrieveUpdateAPIView):

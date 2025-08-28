@@ -5,6 +5,7 @@ from django_q.tasks import async_task
 import difflib
 from django.utils import timezone
 from django.core.signing import TimestampSigner
+from urllib.parse import urlencode
 
 def build_shift_email_context(shift, user=None, extra=None, role=None, shift_type=None):
     """
@@ -134,17 +135,44 @@ def clean_email(email):
 #     # Save last_sent timestamps if they were updated
 #     obj.save(update_fields=['referee1_last_sent', 'referee2_last_sent'])
 
+def get_candidate_role(obj) -> str:
+    """
+    Pharmacist => 'Pharmacist'
+    OtherStaff/Explorer => use whatever role field you already store.
+    Falls back gracefully if your field names differ.
+    """
+    model = obj._meta.model_name
+    if model == 'pharmacistonboarding':
+        return 'Pharmacist'
+
+    for field in ('position_applied_for', 'desired_role', 'role', 'staff_role', 'explorer_role'):
+        val = getattr(obj, field, None)
+        if val:
+            return str(val)
+
+    rp = getattr(obj, 'rate_preference', None)
+    if isinstance(rp, dict):
+        for k in ('role', 'position', 'title', 'position_applied_for'):
+            if rp.get(k):
+                return str(rp[k])
+
+    return model.replace('onboarding', '').replace('_', ' ').title()
+
+
 def send_referee_emails(obj, is_reminder=False):
     """
-    Sends referee email(s). Now generates a secure token for the questionnaire link.
+    Sends referee email(s). Generates a secure token for the questionnaire link.
+    Also schedules a per-referee reminder for each email sent.
     """
-    signer = TimestampSigner() # Create a signer instance
+    signer = TimestampSigner()
 
+    update_fields = []
     for idx in [1, 2]:
         email_raw = getattr(obj, f'referee{idx}_email', None)
         confirmed = getattr(obj, f'referee{idx}_confirmed', None)
         rejected = getattr(obj, f'referee{idx}_rejected', None)
         name = getattr(obj, f'referee{idx}_name', '')
+        workplace = getattr(obj, f'referee{idx}_workplace', '')
         relation = getattr(obj, f'referee{idx}_relation', '')
         email = clean_email(email_raw)
 
@@ -158,18 +186,16 @@ def send_referee_emails(obj, is_reminder=False):
                 template_name = "emails/referee_request.html"
                 text_template = "emails/referee_request.txt"
 
-            # --- THIS IS THE KEY CHANGE ---
-            # 1. Create the data payload for the token
-            data_to_sign = f"{obj._meta.model_name}:{obj.pk}:{idx}"
-            # 2. Sign the data to create the secure token
-            token = signer.sign(data_to_sign)
-            # 3. The new URL points to the frontend questionnaire page with the token
-            candidate_name_query = f"?candidate_name={obj.user.get_full_name()}"
-            confirm_url = f"{settings.FRONTEND_BASE_URL}/referee/questionnaire/{token}/{candidate_name_query}"
+            token = signer.sign(f"{obj._meta.model_name}:{obj.pk}:{idx}")
 
-            # The reject URL remains exactly the same
-            reject_url  = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-reject/{obj.pk}/{idx}"
-            # --- END OF CHANGE ---
+            # ✅ NEW: include role in the querystring
+            query = urlencode({
+                "candidate_name": obj.user.get_full_name(),
+                "position_applied_for": get_candidate_role(obj),
+            })
+            confirm_url = f"{settings.FRONTEND_BASE_URL}/referee/questionnaire/{token}?{query}"
+
+            reject_url = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-reject/{obj.pk}/{idx}"
 
             async_task(
                 'users.tasks.send_async_email',
@@ -179,18 +205,29 @@ def send_referee_emails(obj, is_reminder=False):
                 context={
                     "referee_name": name,
                     "referee_relation": relation,
+                    "referee_workplace": workplace,
                     "candidate_name": obj.user.get_full_name(),
                     "candidate_first_name": obj.user.first_name,
                     "candidate_last_name": obj.user.last_name,
-                    "confirm_url": confirm_url, # Pass the new, secure URL
+                    "confirm_url": confirm_url,
                     "reject_url": reject_url,
+                    # (optional if your template wants to render it)
+                    "position_applied_for": get_candidate_role(obj),
                 },
                 text_template=text_template
             )
             setattr(obj, f'referee{idx}_last_sent', timezone.now())
+            update_fields.append(f'referee{idx}_last_sent')
 
-    # Save last_sent timestamps if they were updated
-    obj.save(update_fields=['referee1_last_sent', 'referee2_last_sent'])
+            # Schedule THIS referee's reminder (initial)
+            try:
+                from client_profile.tasks import schedule_referee_reminder
+                schedule_referee_reminder(obj._meta.model_name, obj.pk, idx, hours=0.1)  # keep your dev interval
+            except Exception:
+                pass
+
+    if update_fields:
+        obj.save(update_fields=list(set(update_fields)))
 
 def summarize_onboarding_fields(obj):
     summary = {}
@@ -282,12 +319,13 @@ def get_frontend_dashboard_url(user):
     
     return f"{settings.FRONTEND_BASE_URL}/dashboard/{role_slug}/"
 
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
 def q6(v):
-    if v in (None, '', ):
+    """Quantize to 6 decimal places; return None on blank/invalid."""
+    if v in (None, ''):
         return None
     try:
         return Decimal(str(v)).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
-    except Exception:
+    except (InvalidOperation, ValueError, TypeError):
         return None

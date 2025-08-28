@@ -109,10 +109,21 @@ class PharmacistOnboarding(models.Model):
 
     payment_preference = models.CharField(max_length=10, blank=True, null=True)
 
+    # ABN
     abn = models.CharField(max_length=20, blank=True, null=True)
     gst_registered = models.BooleanField(default=False)
-    gst_file = models.FileField(upload_to='gst_docs/', blank=True, null=True)
-    tfn_declaration = models.FileField(upload_to='tfn_docs/', blank=True, null=True)
+    # Scraped ABN facts (kept)
+    abn_entity_name      = models.CharField(max_length=255, blank=True, null=True)
+    abn_entity_type      = models.CharField(max_length=100, blank=True, null=True)
+    abn_status           = models.CharField(max_length=50,  blank=True, null=True)
+    abn_gst_registered   = models.BooleanField(null=True, blank=True)   # None=unknown
+    abn_gst_from         = models.DateField(blank=True, null=True)
+    abn_gst_to           = models.DateField(blank=True, null=True)
+    abn_last_checked     = models.DateTimeField(blank=True, null=True)
+    abn_entity_confirmed = models.BooleanField(default=False)
+
+    # TFN
+    tfn_number = models.CharField(max_length=11, blank=True, null=True)
     super_fund_name = models.CharField(max_length=255, blank=True, null=True)
     super_usi = models.CharField(max_length=50, blank=True, null=True)
     super_member_number = models.CharField(max_length=100, blank=True, null=True)
@@ -123,6 +134,7 @@ class PharmacistOnboarding(models.Model):
     referee1_confirmed = models.BooleanField(default=False)
     referee1_rejected = models.BooleanField(default=False)
     referee1_last_sent = models.DateTimeField(null=True, blank=True)
+    referee1_workplace = models.CharField(max_length=150, blank=True, null=True)
 
     referee2_name = models.CharField(max_length=150, blank=True, null=True)
     referee2_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
@@ -130,6 +142,7 @@ class PharmacistOnboarding(models.Model):
     referee2_confirmed = models.BooleanField(default=False)
     referee2_rejected = models.BooleanField(default=False)
     referee2_last_sent = models.DateTimeField(null=True, blank=True)
+    referee2_workplace = models.CharField(max_length=150, blank=True, null=True)
 
     rate_preference = models.JSONField(blank=True, null=True)
 
@@ -139,8 +152,8 @@ class PharmacistOnboarding(models.Model):
 
     # Verification Fields
     gov_id_verified = models.BooleanField(default=False, db_index=True)
-    gst_file_verified = models.BooleanField(default=False, db_index=True)
-    tfn_declaration_verified = models.BooleanField(default=False, db_index=True)
+    # gst_file_verified = models.BooleanField(default=False, db_index=True)
+    # tfn_declaration_verified = models.BooleanField(default=False, db_index=True)
     abn_verified = models.BooleanField(default=False, db_index=True)
     ahpra_verified = models.BooleanField(default=False, db_index=True)
     ahpra_registration_status = models.CharField(max_length=100, blank=True, null=True)
@@ -150,8 +163,8 @@ class PharmacistOnboarding(models.Model):
     # Verification notes
     ahpra_verification_note = models.TextField(blank=True, null=True)
     gov_id_verification_note = models.TextField(blank=True, null=True)
-    gst_file_verification_note = models.TextField(blank=True, null=True)
-    tfn_declaration_verification_note = models.TextField(blank=True, null=True)
+    # gst_file_verification_note = models.TextField(blank=True, null=True)
+    # tfn_declaration_verification_note = models.TextField(blank=True, null=True)
     abn_verification_note = models.TextField(blank=True, null=True)
 
     # Notifications

@@ -4,7 +4,9 @@ import json
 import tempfile
 import shutil
 from pathlib import Path
-from datetime import timedelta
+from datetime import timedelta, datetime
+from django_q.models import Schedule
+from urllib.parse import urlencode
 from django.apps import apps
 from django.conf import settings
 from django.utils import timezone
@@ -19,8 +21,12 @@ from scrapingbee import ScrapingBeeClient
 from users.tasks import send_async_email
 from client_profile.models import ShiftSlotAssignment, OnboardingNotification
 from django.contrib.contenttypes.models import ContentType
-from client_profile.utils import build_shift_email_context, simple_name_match, get_frontend_dashboard_url 
+from client_profile.utils import build_shift_email_context, simple_name_match,clean_email,get_candidate_role, send_referee_emails, get_frontend_dashboard_url 
 import logging
+import re
+from django.core.signing import TimestampSigner
+
+
 logger = logging.getLogger(__name__)
 from environ import Env
 
@@ -176,36 +182,199 @@ def verify_filefield_task(
 
 
 # --- Inline ABN scraping (no subprocess, no scripts) ---
-def abn_lookup(abn_number):
-    """Fetch the ABN details using the exact logic in your script."""
+# def abn_lookup(abn_number):
+#     """Fetch the ABN details using the exact logic in your script."""
+#     url = f"https://abr.business.gov.au/ABN/View?id={abn_number}"
+#     logger.info(f"[abn_lookup] Fetching {url}")
+#     try:
+#         resp = requests.get(url, timeout=15)
+#         resp.raise_for_status()
+#     except Exception as e:
+#         logger.info(f"[abn_lookup] Error fetching ABN: {e}")
+#         return None, None
+
+#     soup = BeautifulSoup(resp.text, "html.parser")
+#     legal_name_tag = soup.find("span", {"itemprop": "legalName"})
+#     abn_legal_name = legal_name_tag.get_text(strip=True) if legal_name_tag else ""
+#     return abn_legal_name, resp.text
+
+# def verify_abn_task(model_name, object_pk, abn_number, first_name, last_name, email, **kwargs):
+#     note_field = kwargs.get('note_field')
+#     logger.info(f"[VERIFY ABN TASK] model={model_name}, pk={object_pk}, abn={abn_number}")
+#     Model = apps.get_model("client_profile", model_name)
+#     obj = fetch_instance_with_retries(Model, object_pk)
+    
+#     # --- THIS IS THE FIX ---
+#     # If a verification note already exists, the task has already run.
+#     if note_field and getattr(obj, note_field, None):
+#         logger.info(f"[ABN TASK] SKIPPING: Verification for pk={object_pk} already has a result.")
+#         return # Exit immediately
+#     # --- END OF FIX ---
+
+#     # Reset fields before running
+#     obj.abn_verified = False
+#     if note_field and hasattr(obj, note_field):
+#         setattr(obj, note_field, "")
+#         obj.save(update_fields=["abn_verified", note_field])
+#     else:
+#         obj.save(update_fields=["abn_verified"])
+
+#     is_verified = False
+#     failure_note = ""
+#     name_match = False
+#     abn_legal_name, html = abn_lookup(abn_number)
+
+#     if not abn_legal_name:
+#         failure_note = "Failed to fetch ABN details. ABN might be invalid or unresponsive."
+#         logger.info(f"[verify_abn_task] {failure_note}. Marking as not verified.")
+#     else:
+#         name_match = simple_name_match(abn_legal_name, first_name, last_name)
+
+#         if name_match:
+#             is_verified = True
+#             logger.info(f"[verify_abn_task] Name match: {name_match} (expected: {first_name} {last_name}, actual: {abn_legal_name})")
+#         else:
+#             failure_note = f"ABN legal name mismatch: Expected '{first_name} {last_name}', Found '{abn_legal_name}'."
+#             logger.info(f"[verify_abn_task] {failure_note}")
+
+#     output_html = save_output_file("abn_html", object_pk, "html")
+#     with open(output_html, "w", encoding="utf-8") as f:
+#         f.write(html if html else "No HTML captured.")
+#     output_json = save_output_file("abn", object_pk, "json")
+#     with open(output_json, "w", encoding="utf-8") as f:
+#         json.dump({
+#             "legal_name": abn_legal_name,
+#             "input_first_name": first_name,
+#             "input_last_name": last_name,
+#             "name_match": name_match,
+#             "failure_note": failure_note
+#         }, f, indent=2)
+
+#     obj.abn_verified = is_verified
+#     if note_field and hasattr(obj, note_field):
+#         setattr(obj, note_field, failure_note[:255])
+#     obj.save(update_fields=["abn_verified"] + ([note_field] if note_field and hasattr(obj, note_field) else []))
+
+
+# --- ABN lookup and verification -------------------------------------------------
+def abn_lookup(abn_number: str):
     url = f"https://abr.business.gov.au/ABN/View?id={abn_number}"
     logger.info(f"[abn_lookup] Fetching {url}")
     try:
-        resp = requests.get(url, timeout=15)
+        resp = requests.get(url, timeout=20)
         resp.raise_for_status()
     except Exception as e:
         logger.info(f"[abn_lookup] Error fetching ABN: {e}")
-        return None, None
+        return "", None
 
     soup = BeautifulSoup(resp.text, "html.parser")
-    legal_name_tag = soup.find("span", {"itemprop": "legalName"})
-    abn_legal_name = legal_name_tag.get_text(strip=True) if legal_name_tag else ""
-    return abn_legal_name, resp.text
+    tag = soup.find("span", {"itemprop": "legalName"})
+    return (tag.get_text(strip=True) if tag else ""), resp.text
+
+# def _try_parse_date(text: str):
+#     text = text.replace("\xa0", " ").strip()
+#     for fmt in ("%d %b %Y", "%d %B %Y"):
+#         try:
+#             return datetime.datetime.strptime(text, fmt).date()
+#         except Exception:
+#             pass
+#     return None
+
+def _parse_abn_html_fields(html_text: str) -> dict:
+    """
+    Parse ABR HTML to lift:
+      - entity_name (legalName)
+      - entity_type
+      - abn_status  (raw line e.g. 'Active from 18 Aug 2020')
+      - abn_gst_registered (bool)
+      - abn_gst_from, abn_gst_to (date or None)
+    """
+    out = {}
+    if not html_text:
+        return out
+
+    soup = BeautifulSoup(html_text, "html.parser")
+    rows = soup.select('div[itemtype="http://schema.org/LocalBusiness"] table tbody tr')
+
+    def _clean(s: str) -> str:
+        # normalise non-breaking spaces etc.
+        return (s or "").replace("\xa0", " ").strip()
+
+    for r in rows:
+        th_el = r.find('th')
+        td_el = r.find('td')
+        th = _clean(th_el.get_text(" ", strip=True) if th_el else "")
+        td = _clean(td_el.get_text(" ", strip=True) if td_el else "")
+
+        if th.startswith("Entity name:"):
+            span = td_el.find('span', {"itemprop": "legalName"}) if td_el else None
+            out["entity_name"] = _clean(span.get_text(" ", strip=True) if span else td)
+
+        elif th.startswith("Entity type:"):
+            out["entity_type"] = td
+
+        elif th.startswith("ABN status:"):
+            out["abn_status"] = td
+
+        elif th.startswith("Goods") and "GST" in th:
+            # Examples seen:
+            #   'Not currently registered for GST'
+            #   'Registered from 19 May 2025'
+            #   'Registered from 1 September 2023 to 30 June 2024'
+            txt = td
+            out["gst_text"] = txt
+
+            low = txt.lower()
+            if "not currently" in low:
+                out["abn_gst_registered"] = False
+                out["abn_gst_from"] = None
+                out["abn_gst_to"] = None
+            else:
+                out["abn_gst_registered"] = True
+
+                # allow full or abbreviated month names, and optional "to ..."
+                # normalise multiples spaces
+                import re, datetime
+                txt_norm = re.sub(r"\s+", " ", txt)
+
+                # try to capture "from <date>"
+                m_from = re.search(
+                    r"\bfrom\s+(\d{1,2}\s+[A-Za-z]+\s+\d{4})",
+                    txt_norm,
+                    flags=re.IGNORECASE,
+                )
+                # try to capture "to <date>" (rare)
+                m_to = re.search(
+                    r"\bto\s+(\d{1,2}\s+[A-Za-z]+\s+\d{4})",
+                    txt_norm,
+                    flags=re.IGNORECASE,
+                )
+
+                def _parse_date(s: str):
+                    for fmt in ("%d %b %Y", "%d %B %Y"):
+                        try:
+                            return datetime.datetime.strptime(s, fmt).date()
+                        except Exception:
+                            pass
+                    return None
+
+                out["abn_gst_from"] = _parse_date(m_from.group(1)) if m_from else None
+                out["abn_gst_to"]   = _parse_date(m_to.group(1)) if m_to else None
+
+    return out
 
 def verify_abn_task(model_name, object_pk, abn_number, first_name, last_name, email, **kwargs):
+    """
+    Scrape ABR page and populate ABR fields. DOES NOT set abn_verified=True –
+    that only happens when the user confirms in the UI.
+    """
     note_field = kwargs.get('note_field')
     logger.info(f"[VERIFY ABN TASK] model={model_name}, pk={object_pk}, abn={abn_number}")
+
     Model = apps.get_model("client_profile", model_name)
     obj = fetch_instance_with_retries(Model, object_pk)
-    
-    # --- THIS IS THE FIX ---
-    # If a verification note already exists, the task has already run.
-    if note_field and getattr(obj, note_field, None):
-        logger.info(f"[ABN TASK] SKIPPING: Verification for pk={object_pk} already has a result.")
-        return # Exit immediately
-    # --- END OF FIX ---
 
-    # Reset fields before running
+    # mark as not-verified every run (user confirmation will flip it)
     obj.abn_verified = False
     if note_field and hasattr(obj, note_field):
         setattr(obj, note_field, "")
@@ -213,42 +382,51 @@ def verify_abn_task(model_name, object_pk, abn_number, first_name, last_name, em
     else:
         obj.save(update_fields=["abn_verified"])
 
-    is_verified = False
-    failure_note = ""
-    name_match = False
-    abn_legal_name, html = abn_lookup(abn_number)
+    legal_name, html = abn_lookup(abn_number)
+    parsed = _parse_abn_html_fields(html or "")
 
-    if not abn_legal_name:
-        failure_note = "Failed to fetch ABN details. ABN might be invalid or unresponsive."
-        logger.info(f"[verify_abn_task] {failure_note}. Marking as not verified.")
+    obj.abn_entity_name  = parsed.get("entity_name") or legal_name or ""
+    obj.abn_entity_type  = parsed.get("entity_type") or ""
+    obj.abn_status       = parsed.get("abn_status") or ""
+    if "abn_gst_registered" in parsed:
+        obj.abn_gst_registered = parsed["abn_gst_registered"]
+    if "abn_gst_from" in parsed:
+        obj.abn_gst_from = parsed["abn_gst_from"]
+    if "abn_gst_to" in parsed:
+        obj.abn_gst_to = parsed["abn_gst_to"]
+    obj.abn_last_checked = timezone.now()
+
+    # note is informational only
+    if not legal_name:
+        note = "Failed to fetch ABN details. ABN may be invalid or ABR site unavailable."
     else:
-        name_match = simple_name_match(abn_legal_name, first_name, last_name)
-
-        if name_match:
-            is_verified = True
-            logger.info(f"[verify_abn_task] Name match: {name_match} (expected: {first_name} {last_name}, actual: {abn_legal_name})")
-        else:
-            failure_note = f"ABN legal name mismatch: Expected '{first_name} {last_name}', Found '{abn_legal_name}'."
-            logger.info(f"[verify_abn_task] {failure_note}")
-
-    output_html = save_output_file("abn_html", object_pk, "html")
-    with open(output_html, "w", encoding="utf-8") as f:
-        f.write(html if html else "No HTML captured.")
-    output_json = save_output_file("abn", object_pk, "json")
-    with open(output_json, "w", encoding="utf-8") as f:
-        json.dump({
-            "legal_name": abn_legal_name,
-            "input_first_name": first_name,
-            "input_last_name": last_name,
-            "name_match": name_match,
-            "failure_note": failure_note
-        }, f, indent=2)
-
-    obj.abn_verified = is_verified
+        note = (
+            f"ABN legal name is '{legal_name}'. "
+            "If this belongs to your company/entity, confirm in the UI."
+            if not simple_name_match(legal_name, first_name, last_name)
+            else f"Name match OK (expected {first_name} {last_name}, actual {legal_name}). Please confirm in the UI."
+        )
+    updates = ["abn_entity_name","abn_entity_type","abn_status","abn_gst_registered","abn_gst_from","abn_gst_to","abn_last_checked"]
     if note_field and hasattr(obj, note_field):
-        setattr(obj, note_field, failure_note[:255])
-    obj.save(update_fields=["abn_verified"] + ([note_field] if note_field and hasattr(obj, note_field) else []))
+        setattr(obj, note_field, note[:255]); updates.append(note_field)
+    obj.save(update_fields=list({f for f in updates if hasattr(obj, f)}))
 
+    # artifacts
+    out_html = save_output_file("abn_html", object_pk, "html")
+    with open(out_html, "w", encoding="utf-8") as f:
+        f.write(html if html else "No HTML captured.")
+    out_json = save_output_file("abn", object_pk, "json")
+    with open(out_json, "w", encoding="utf-8") as f:
+        json.dump({
+            "abn_input": abn_number,
+            "entity_name": obj.abn_entity_name,
+            "entity_type": obj.abn_entity_type,
+            "abn_status": obj.abn_status,
+            "abn_gst_registered": obj.abn_gst_registered,
+            "abn_gst_from": (obj.abn_gst_from.isoformat() if obj.abn_gst_from else None),
+            "abn_gst_to": (obj.abn_gst_to.isoformat() if obj.abn_gst_to else None),
+            "note": getattr(obj, note_field, None) if note_field else None,
+        }, f, indent=2)
 
 # --- Inline AHPRA scraping and parsing ---
 def ahpra_lookup(ahpra_number, output_html_path, api_key=None):
@@ -811,3 +989,102 @@ def send_shift_reminders():
 
     logger.info("[send_shift_reminders] Completed sending reminders.")
 
+
+
+# ========== Referee Reminder (Scheduled) ==========
+REFEREE_REMINDER_HOURS: float = float(getattr(settings, "REFEREE_REMINDER_HOURS", 0.1))
+
+# The function path Django-Q will call
+REMINDER_FUNC = 'client_profile.tasks.run_referee_reminder'
+
+
+def _rem_args(model_name: str, pk: int, ref_idx: int) -> str:
+    # Keep a stable args string for Django-Q to de-duplicate
+    return f"'{model_name}',{pk},{ref_idx}"
+
+
+def schedule_referee_reminder(model_name: str, pk: int, ref_idx: int, hours: float = 0.1) -> None:
+    """
+    Create a ONE-OFF schedule for a single referee.
+    To test, pass hours=0.1 etc.
+    """
+    args = _rem_args(model_name, pk, ref_idx)
+    if Schedule.objects.filter(func=REMINDER_FUNC, args=args, next_run__gt=timezone.now()).exists():
+        return
+    Schedule.objects.create(
+        func=REMINDER_FUNC,
+        args=args,
+        schedule_type=Schedule.ONCE,
+        next_run=timezone.now() + timedelta(hours=hours),
+        name=f"referee-reminder-{model_name}-{pk}-{ref_idx}",
+    )
+
+
+def cancel_referee_reminder(model_name: str, pk: int, ref_idx: int) -> int:
+    args = _rem_args(model_name, pk, ref_idx)
+    return Schedule.objects.filter(func=REMINDER_FUNC, args=args).delete()[0]
+
+
+def cancel_all_referee_reminders(model_name: str, pk: int) -> int:
+    # Only used if you want to wipe all reminders for a profile (e.g., both confirmed)
+    prefix = f"'{model_name}',{pk},"
+    return Schedule.objects.filter(func=REMINDER_FUNC, args__startswith=prefix).delete()[0]
+
+def run_referee_reminder(model_name: str, pk: int, ref_idx: int) -> None:
+    """
+    Runs for ONE referee (ref_idx). If that referee is confirmed/rejected now,
+    cancel and stop. Otherwise send reminder to that referee only
+    and re-schedule only that referee.
+    """
+    Model = apps.get_model('client_profile', model_name)
+    obj = Model.objects.get(pk=pk)
+
+    confirmed = bool(getattr(obj, f'referee{ref_idx}_confirmed', False))
+    rejected = bool(getattr(obj, f'referee{ref_idx}_rejected', False))
+    if confirmed or rejected:
+        cancel_referee_reminder(model_name, pk, ref_idx)
+        return
+
+    # Build the single-ref reminder email
+    email_raw = getattr(obj, f'referee{ref_idx}_email', None)
+    name = getattr(obj, f'referee{ref_idx}_name', '')
+    relation = getattr(obj, f'referee{ref_idx}_relation', '')
+    workplace = getattr(obj, f'referee{ref_idx}_workplace', '')
+    email = clean_email(email_raw)
+    if not email:
+        cancel_referee_reminder(model_name, pk, ref_idx)
+        return
+
+    signer = TimestampSigner()
+    token = signer.sign(f"{model_name}:{pk}:{ref_idx}")
+
+    # ✅ NEW: include role in the querystring
+    query = urlencode({
+        "candidate_name": obj.user.get_full_name(),
+        "position_applied_for": get_candidate_role(obj),
+    })
+    confirm_url = f"{settings.FRONTEND_BASE_URL}/referee/questionnaire/{token}?{query}"
+    reject_url = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-reject/{pk}/{ref_idx}"
+
+    async_task(
+        'users.tasks.send_async_email',
+        subject=f"Gentle Reminder: Reference Request for {obj.user.get_full_name()}",
+        recipient_list=[email],
+        template_name="emails/referee_reminder.html",
+        text_template="emails/referee_reminder.txt",
+        context={
+            "referee_name": name,
+            "referee_relation": relation,
+            "referee_workplace": workplace,
+            "candidate_name": obj.user.get_full_name(),
+            "candidate_first_name": obj.user.first_name,
+            "candidate_last_name": obj.user.last_name,
+            "confirm_url": confirm_url,
+            "reject_url": reject_url,
+            # (optional if your template wants to render it)
+            "position_applied_for": get_candidate_role(obj),
+        },
+    )
+
+    # Re-schedule this referee only (keep your dev interval)
+    schedule_referee_reminder(model_name, pk, ref_idx, hours=0.1)

@@ -6,7 +6,7 @@ from users.serializers import UserProfileSerializer
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from decimal import Decimal
-from client_profile.utils import q6
+from client_profile.utils import q6, send_referee_emails, clean_email
 from datetime import date, timedelta
 from django.utils import timezone
 from django_q.tasks import async_task
@@ -14,6 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 User = get_user_model()
 from django_q.models import Schedule
+from client_profile.tasks import schedule_referee_reminder
 
 
 
@@ -192,255 +193,255 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
         return percent
 
 
-class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
-    file_fields = ['government_id', 'gst_file', 'tfn_declaration', 'resume']
+# class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
+#     file_fields = ['government_id', 'gst_file', 'tfn_declaration', 'resume']
 
-    username   = serializers.CharField(source='user.username',   required=False)
-    first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
-    last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
-    progress_percent = serializers.SerializerMethodField()
+#     username   = serializers.CharField(source='user.username',   required=False)
+#     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
+#     last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
+#     progress_percent = serializers.SerializerMethodField()
 
-    class Meta:
-        model  = PharmacistOnboarding
-        fields = [
-            'username', 'first_name', 'last_name',
-            'government_id', 'ahpra_number', 'phone_number', 'short_bio', 'resume',
-            'skills', 'software_experience', 'payment_preference',
-            'abn', 'gst_registered', 'gst_file',
-            'tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number',
+#     class Meta:
+#         model  = PharmacistOnboarding
+#         fields = [
+#             'username', 'first_name', 'last_name',
+#             'government_id', 'ahpra_number', 'phone_number', 'short_bio', 'resume',
+#             'skills', 'software_experience', 'payment_preference',
+#             'abn', 'gst_registered', 'gst_file',
+#             'tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number',
 
-            'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
-            'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
+#             'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
+#             'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
 
-            'rate_preference', 'verified', 'member_of_chain', 'progress_percent',
-            'submitted_for_verification',
-            'gov_id_verified', 'gov_id_verification_note',
-            'gst_file_verified', 'gst_file_verification_note',
-            'tfn_declaration_verified', 'tfn_declaration_verification_note',
-            'abn_verified', 'abn_verification_note',
-            'ahpra_verified',
-            'ahpra_registration_status',
-            'ahpra_registration_type',
-            'ahpra_expiry_date',
-            'ahpra_verification_note',
-        ]
-        extra_kwargs = {
-            'verified':        {'read_only': True},
-            'member_of_chain': {'read_only': True},
-            'submitted_for_verification': {'required': False},
-            'first_name': {'required': False, 'allow_blank': True},
-            'last_name':  {'required': False, 'allow_blank': True},
-            'government_id': {'required': False, 'allow_null': True},
-            'ahpra_number': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'payment_preference': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee1_name': {'required': False, 'allow_blank': True},
-            'referee1_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee1_email': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee1_confirmed': {'required': False},
-            'referee2_name': {'required': False, 'allow_blank': True},
-            'referee2_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee2_email': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee2_confirmed': {'required': False},
-            'resume': {'required': False, 'allow_null': True},
-            'short_bio': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'abn': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'gst_file': {'required': False, 'allow_null': True},
-            'tfn_declaration': {'required': False, 'allow_null': True},
-            'super_fund_name': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'super_usi': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'super_member_number': {'required': False, 'allow_blank': True, 'allow_null': True},
-        }
+#             'rate_preference', 'verified', 'member_of_chain', 'progress_percent',
+#             'submitted_for_verification',
+#             'gov_id_verified', 'gov_id_verification_note',
+#             'gst_file_verified', 'gst_file_verification_note',
+#             'tfn_declaration_verified', 'tfn_declaration_verification_note',
+#             'abn_verified', 'abn_verification_note',
+#             'ahpra_verified',
+#             'ahpra_registration_status',
+#             'ahpra_registration_type',
+#             'ahpra_expiry_date',
+#             'ahpra_verification_note',
+#         ]
+#         extra_kwargs = {
+#             'verified':        {'read_only': True},
+#             'member_of_chain': {'read_only': True},
+#             'submitted_for_verification': {'required': False},
+#             'first_name': {'required': False, 'allow_blank': True},
+#             'last_name':  {'required': False, 'allow_blank': True},
+#             'government_id': {'required': False, 'allow_null': True},
+#             'ahpra_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'payment_preference': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'referee1_name': {'required': False, 'allow_blank': True},
+#             'referee1_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'referee1_email': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'referee1_confirmed': {'required': False},
+#             'referee2_name': {'required': False, 'allow_blank': True},
+#             'referee2_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'referee2_email': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'referee2_confirmed': {'required': False},
+#             'resume': {'required': False, 'allow_null': True},
+#             'short_bio': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'abn': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'gst_file': {'required': False, 'allow_null': True},
+#             'tfn_declaration': {'required': False, 'allow_null': True},
+#             'super_fund_name': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'super_usi': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'super_member_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+#         }
 
-        read_only_fields = [
-            'gov_id_verified', 'gov_id_verification_note',
-            'gst_file_verified', 'gst_file_verification_note',
-            'tfn_declaration_verified', 'tfn_declaration_verification_note',
-            'abn_verified', 'abn_verification_note',
-            'ahpra_verified',
-            'ahpra_registration_status',
-            'ahpra_registration_type',
-            'ahpra_expiry_date',
-            'ahpra_verification_note',
-            'verified',
-            'progress_percent',
-        ]
+#         read_only_fields = [
+#             'gov_id_verified', 'gov_id_verification_note',
+#             'gst_file_verified', 'gst_file_verification_note',
+#             'tfn_declaration_verified', 'tfn_declaration_verification_note',
+#             'abn_verified', 'abn_verification_note',
+#             'ahpra_verified',
+#             'ahpra_registration_status',
+#             'ahpra_registration_type',
+#             'ahpra_expiry_date',
+#             'ahpra_verification_note',
+#             'verified',
+#             'progress_percent',
+#         ]
 
-    def _schedule_verification(self, instance):
-        """Helper to cancel any old tasks and schedule a new one."""
-        # This is CRITICAL to prevent race conditions from multiple saves.
-        Schedule.objects.filter(
-            func='client_profile.tasks.run_all_verifications',
-            args=f"'{instance._meta.model_name}',{instance.pk}"
-        ).delete()
-        Schedule.objects.create(
-            func='client_profile.tasks.run_all_verifications',
-            args=f"'{instance._meta.model_name}',{instance.pk}",
-            schedule_type=Schedule.ONCE,
-            next_run=timezone.now() + timedelta(seconds=10)
-        )
+#     def _schedule_verification(self, instance):
+#         """Helper to cancel any old tasks and schedule a new one."""
+#         # This is CRITICAL to prevent race conditions from multiple saves.
+#         Schedule.objects.filter(
+#             func='client_profile.tasks.run_all_verifications',
+#             args=f"'{instance._meta.model_name}',{instance.pk}"
+#         ).delete()
+#         Schedule.objects.create(
+#             func='client_profile.tasks.run_all_verifications',
+#             args=f"'{instance._meta.model_name}',{instance.pk}",
+#             schedule_type=Schedule.ONCE,
+#             next_run=timezone.now() + timedelta(seconds=10)
+#         )
 
-    def create(self, validated_data):
-        user_data = validated_data.pop('user', {})
-        user = self.context['request'].user
-        self.sync_user_fields(user_data, user)
-        instance = PharmacistOnboarding.objects.create(user=user, **validated_data)
-        if validated_data.get('submitted_for_verification', False):
-            self._schedule_verification(instance)
-        return instance
+#     def create(self, validated_data):
+#         user_data = validated_data.pop('user', {})
+#         user = self.context['request'].user
+#         self.sync_user_fields(user_data, user)
+#         instance = PharmacistOnboarding.objects.create(user=user, **validated_data)
+#         if validated_data.get('submitted_for_verification', False):
+#             self._schedule_verification(instance)
+#         return instance
 
-    def update(self, instance, validated_data):
-        user_data = validated_data.pop('user', {})
-        self.sync_user_fields(user_data, instance.user)
+#     def update(self, instance, validated_data):
+#         user_data = validated_data.pop('user', {})
+#         self.sync_user_fields(user_data, instance.user)
 
-        # IMPORTANT: Check for changes *before* saving the instance
-        submitted_before = instance.submitted_for_verification
+#         # IMPORTANT: Check for changes *before* saving the instance
+#         submitted_before = instance.submitted_for_verification
         
-        # Check which specific groups of fields have changed
-        ahpra_changed = verification_fields_changed(instance, validated_data, ["ahpra_number"])
-        gov_id_changed = verification_fields_changed(instance, validated_data, ["government_id"])
-        payment_changed = verification_fields_changed(instance, validated_data, ["payment_preference", "abn", "gst_registered", "gst_file", "tfn_declaration"])
-        referee1_changed = verification_fields_changed(instance, validated_data, ["referee1_name", "referee1_relation", "referee1_email"])
-        referee2_changed = verification_fields_changed(instance, validated_data, ["referee2_name", "referee2_relation", "referee2_email"])
+#         # Check which specific groups of fields have changed
+#         ahpra_changed = verification_fields_changed(instance, validated_data, ["ahpra_number"])
+#         gov_id_changed = verification_fields_changed(instance, validated_data, ["government_id"])
+#         payment_changed = verification_fields_changed(instance, validated_data, ["payment_preference", "abn", "gst_registered", "gst_file", "tfn_declaration"])
+#         referee1_changed = verification_fields_changed(instance, validated_data, ["referee1_name", "referee1_relation", "referee1_email"])
+#         referee2_changed = verification_fields_changed(instance, validated_data, ["referee2_name", "referee2_relation", "referee2_email"])
 
-        # Apply the user's changes to the instance
-        instance = super().update(instance, validated_data)
+#         # Apply the user's changes to the instance
+#         instance = super().update(instance, validated_data)
 
-        # Now, check if we need to do any resets
-        submitted_now = instance.submitted_for_verification
-        needs_reschedule = False
-        update_fields = []
+#         # Now, check if we need to do any resets
+#         submitted_now = instance.submitted_for_verification
+#         needs_reschedule = False
+#         update_fields = []
 
-        # On first-time submission, reset everything
-        if not submitted_before and submitted_now:
-            needs_reschedule = True
-            # Reset all verification fields
-            for f in instance._meta.fields:
-                if f.name.endswith('_verified') or f.name.endswith('_verification_note'):
-                    setattr(instance, f.name, False if f.name.endswith('_verified') else "")
-                    update_fields.append(f.name)
-            # Reset referee statuses
-            instance.referee1_confirmed, instance.referee1_rejected = False, False
-            instance.referee2_confirmed, instance.referee2_rejected = False, False
-            update_fields.extend(['referee1_confirmed', 'referee1_rejected', 'referee2_confirmed', 'referee2_rejected'])
-        else: # For subsequent updates, only reset what changed
-            if ahpra_changed:
-                instance.ahpra_verified, instance.ahpra_verification_note = False, ""
-                update_fields.extend(['ahpra_verified', 'ahpra_verification_note'])
-                needs_reschedule = True
-            if gov_id_changed:
-                instance.gov_id_verified, instance.gov_id_verification_note = False, ""
-                update_fields.extend(['gov_id_verified', 'gov_id_verification_note'])
-                needs_reschedule = True
-            if payment_changed:
-                instance.abn_verified, instance.abn_verification_note = False, ""
-                instance.gst_file_verified, instance.gst_file_verification_note = False, ""
-                instance.tfn_declaration_verified, instance.tfn_declaration_verification_note = False, ""
-                update_fields.extend(['abn_verified', 'abn_verification_note', 'gst_file_verified', 'gst_file_verification_note', 'tfn_declaration_verified', 'tfn_declaration_verification_note'])
-                needs_reschedule = True
-            if referee1_changed:
-                instance.referee1_confirmed, instance.referee1_rejected = False, False
-                update_fields.extend(['referee1_confirmed', 'referee1_rejected'])
-                needs_reschedule = True
-            if referee2_changed:
-                instance.referee2_confirmed, instance.referee2_rejected = False, False
-                update_fields.extend(['referee2_confirmed', 'referee2_rejected'])
-                needs_reschedule = True
+#         # On first-time submission, reset everything
+#         if not submitted_before and submitted_now:
+#             needs_reschedule = True
+#             # Reset all verification fields
+#             for f in instance._meta.fields:
+#                 if f.name.endswith('_verified') or f.name.endswith('_verification_note'):
+#                     setattr(instance, f.name, False if f.name.endswith('_verified') else "")
+#                     update_fields.append(f.name)
+#             # Reset referee statuses
+#             instance.referee1_confirmed, instance.referee1_rejected = False, False
+#             instance.referee2_confirmed, instance.referee2_rejected = False, False
+#             update_fields.extend(['referee1_confirmed', 'referee1_rejected', 'referee2_confirmed', 'referee2_rejected'])
+#         else: # For subsequent updates, only reset what changed
+#             if ahpra_changed:
+#                 instance.ahpra_verified, instance.ahpra_verification_note = False, ""
+#                 update_fields.extend(['ahpra_verified', 'ahpra_verification_note'])
+#                 needs_reschedule = True
+#             if gov_id_changed:
+#                 instance.gov_id_verified, instance.gov_id_verification_note = False, ""
+#                 update_fields.extend(['gov_id_verified', 'gov_id_verification_note'])
+#                 needs_reschedule = True
+#             if payment_changed:
+#                 instance.abn_verified, instance.abn_verification_note = False, ""
+#                 instance.gst_file_verified, instance.gst_file_verification_note = False, ""
+#                 instance.tfn_declaration_verified, instance.tfn_declaration_verification_note = False, ""
+#                 update_fields.extend(['abn_verified', 'abn_verification_note', 'gst_file_verified', 'gst_file_verification_note', 'tfn_declaration_verified', 'tfn_declaration_verification_note'])
+#                 needs_reschedule = True
+#             if referee1_changed:
+#                 instance.referee1_confirmed, instance.referee1_rejected = False, False
+#                 update_fields.extend(['referee1_confirmed', 'referee1_rejected'])
+#                 needs_reschedule = True
+#             if referee2_changed:
+#                 instance.referee2_confirmed, instance.referee2_rejected = False, False
+#                 update_fields.extend(['referee2_confirmed', 'referee2_rejected'])
+#                 needs_reschedule = True
 
-        # If any resets were performed, save them
-        if needs_reschedule:
-            instance.verified = False
-            update_fields.append('verified')
-            instance.save(update_fields=list(set(update_fields)))
-            self._schedule_verification(instance)
+#         # If any resets were performed, save them
+#         if needs_reschedule:
+#             instance.verified = False
+#             update_fields.append('verified')
+#             instance.save(update_fields=list(set(update_fields)))
+#             self._schedule_verification(instance)
             
-        return instance
+#         return instance
 
 
-    def validate(self, data):
-        submit = data.get('submitted_for_verification') \
-            or (self.instance and getattr(self.instance, 'submitted_for_verification', False))
-        errors = {}
+#     def validate(self, data):
+#         submit = data.get('submitted_for_verification') \
+#             or (self.instance and getattr(self.instance, 'submitted_for_verification', False))
+#         errors = {}
 
-        must_have = [
-            'username', 'first_name', 'last_name',
-            'government_id', 'ahpra_number', 'phone_number', 'payment_preference',
-            'referee1_name', 'referee1_relation', 'referee1_email',
-            'referee2_name', 'referee2_relation', 'referee2_email',
-        ]
+#         must_have = [
+#             'username', 'first_name', 'last_name',
+#             'government_id', 'ahpra_number', 'phone_number', 'payment_preference',
+#             'referee1_name', 'referee1_relation', 'referee1_email',
+#             'referee2_name', 'referee2_relation', 'referee2_email',
+#         ]
 
-        user_data = data.get('user', {})
+#         user_data = data.get('user', {})
 
-        if submit:
-            for f in must_have:
-                if f in ['username', 'first_name', 'last_name']:
-                    val = (
-                        user_data.get(f)
-                        or (self.instance and hasattr(self.instance, 'user') and getattr(self.instance.user, f, None))
-                    )
-                    if not val:
-                        errors[f] = 'This field is required to submit for verification.'
-                else:
-                    value = data.get(f)
-                    if value is None and self.instance:
-                        value = getattr(self.instance, f, None)
-                    if not value:
-                        errors[f] = 'This field is required to submit for verification.'
+#         if submit:
+#             for f in must_have:
+#                 if f in ['username', 'first_name', 'last_name']:
+#                     val = (
+#                         user_data.get(f)
+#                         or (self.instance and hasattr(self.instance, 'user') and getattr(self.instance.user, f, None))
+#                     )
+#                     if not val:
+#                         errors[f] = 'This field is required to submit for verification.'
+#                 else:
+#                     value = data.get(f)
+#                     if value is None and self.instance:
+#                         value = getattr(self.instance, f, None)
+#                     if not value:
+#                         errors[f] = 'This field is required to submit for verification.'
 
-            pay = data.get('payment_preference') or (self.instance and getattr(self.instance, 'payment_preference', None))
-            if pay:
-                if pay.lower() == "abn":
-                    abn = data.get('abn') or (self.instance and getattr(self.instance, 'abn', None))
-                    if not abn:
-                        errors['abn'] = 'ABN required when payment preference is ABN.'
-                    gst = data.get('gst_registered')
-                    if gst is None and self.instance:
-                        gst = getattr(self.instance, 'gst_registered', None)
-                    if gst:
-                        gst_file = data.get('gst_file') or (self.instance and getattr(self.instance, 'gst_file', None))
-                        if not gst_file:
-                            errors['gst_file'] = 'GST certificate required if GST registered.'
-                elif pay.lower() == "tfn":
-                    for f in ['tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number']:
-                        val = data.get(f)
-                        if val is None and self.instance:
-                            val = getattr(self.instance, f, None)
-                        if not val:
-                            errors[f] = f'{f.replace("_", " ").title()} required when payment preference is TFN.'
+#             pay = data.get('payment_preference') or (self.instance and getattr(self.instance, 'payment_preference', None))
+#             if pay:
+#                 if pay.lower() == "abn":
+#                     abn = data.get('abn') or (self.instance and getattr(self.instance, 'abn', None))
+#                     if not abn:
+#                         errors['abn'] = 'ABN required when payment preference is ABN.'
+#                     gst = data.get('gst_registered')
+#                     if gst is None and self.instance:
+#                         gst = getattr(self.instance, 'gst_registered', None)
+#                     if gst:
+#                         gst_file = data.get('gst_file') or (self.instance and getattr(self.instance, 'gst_file', None))
+#                         if not gst_file:
+#                             errors['gst_file'] = 'GST certificate required if GST registered.'
+#                 elif pay.lower() == "tfn":
+#                     for f in ['tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number']:
+#                         val = data.get(f)
+#                         if val is None and self.instance:
+#                             val = getattr(self.instance, f, None)
+#                         if not val:
+#                             errors[f] = f'{f.replace("_", " ").title()} required when payment preference is TFN.'
 
-        if errors:
-            raise serializers.ValidationError(errors)
-        return data
+#         if errors:
+#             raise serializers.ValidationError(errors)
+#         return data
 
-    def get_progress_percent(self, obj):
-        required_fields = [
-            obj.user.username,
-            obj.user.first_name,
-            obj.user.last_name,
-            obj.phone_number,
-            obj.payment_preference,
-            obj.resume,
-            obj.short_bio,
-            obj.referee1_confirmed,
-            obj.referee2_confirmed,
-            obj.gov_id_verified,
-            obj.ahpra_verified,
-        ]
-        # ABN/GST
-        if obj.payment_preference and obj.payment_preference.lower() == "abn":
-            required_fields.append(obj.abn_verified)
-            if obj.gst_registered is True:
-                required_fields.append(obj.gst_file_verified)
-        # TFN
-        if obj.payment_preference and obj.payment_preference.lower() == "tfn":
-            required_fields.append(obj.tfn_declaration_verified)
-            required_fields.append(obj.super_fund_name)
-            required_fields.append(obj.super_usi)
-            required_fields.append(obj.super_member_number)
+#     def get_progress_percent(self, obj):
+#         required_fields = [
+#             obj.user.username,
+#             obj.user.first_name,
+#             obj.user.last_name,
+#             obj.phone_number,
+#             obj.payment_preference,
+#             obj.resume,
+#             obj.short_bio,
+#             obj.referee1_confirmed,
+#             obj.referee2_confirmed,
+#             obj.gov_id_verified,
+#             obj.ahpra_verified,
+#         ]
+#         # ABN/GST
+#         if obj.payment_preference and obj.payment_preference.lower() == "abn":
+#             required_fields.append(obj.abn_verified)
+#             if obj.gst_registered is True:
+#                 required_fields.append(obj.gst_file_verified)
+#         # TFN
+#         if obj.payment_preference and obj.payment_preference.lower() == "tfn":
+#             required_fields.append(obj.tfn_declaration_verified)
+#             required_fields.append(obj.super_fund_name)
+#             required_fields.append(obj.super_usi)
+#             required_fields.append(obj.super_member_number)
 
-        filled = sum(bool(field) for field in required_fields)
-        percent = int(100 * filled / len(required_fields))
-        return percent
+#         filled = sum(bool(field) for field in required_fields)
+#         percent = int(100 * filled / len(required_fields))
+#         return percent
 
 
 class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
@@ -989,6 +990,15 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
     last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
 
+
+    latitude  = serializers.DecimalField(max_digits=18, decimal_places=12, required=False, allow_null=True)
+    longitude = serializers.DecimalField(max_digits=18, decimal_places=12, required=False, allow_null=True)
+
+    tfn = serializers.CharField(
+        source='tfn_number', write_only=True, required=False, allow_blank=True, allow_null=True
+    )
+    tfn_masked = serializers.SerializerMethodField(read_only=True)
+
     # write-only control flags
     tab = serializers.CharField(write_only=True, required=False)
     submitted_for_verification = serializers.BooleanField(write_only=True, required=False)
@@ -999,25 +1009,35 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
     class Meta:
         model = PharmacistOnboarding
         fields = [
-            # Basic info (user + pharmacist)
-            'username', 'first_name', 'last_name', 'phone_number',
-            'government_id', 'ahpra_number',
-
-            # optional address (belongs to basic tab)
-            'street_address', 'suburb', 'state', 'postcode',
-            'google_place_id', 'latitude', 'longitude',
-
-            # verification outputs
-            'gov_id_verified', 'gov_id_verification_note',
-            'ahpra_verified', 'ahpra_registration_status',
-            'ahpra_registration_type', 'ahpra_expiry_date',
+            # ---------- BASIC ----------
+            'username','first_name','last_name','phone_number',
+            'government_id','ahpra_number',
+            'street_address','suburb','state','postcode','google_place_id','latitude','longitude',
+            'gov_id_verified','gov_id_verification_note',
+            'ahpra_verified','ahpra_registration_status','ahpra_registration_type','ahpra_expiry_date',
             'ahpra_verification_note',
 
-            # profile flags
-            'verified', 'progress_percent',
 
-            # controls (write-only)
-            'tab', 'submitted_for_verification',
+            # -------- PAYMENT (add tfn here) --------
+            'payment_preference',
+            'abn','gst_registered',
+            'tfn',            # <— NEW write-only alias to tfn_number
+            'tfn_masked',     # <— read-only masked view
+            'super_fund_name','super_usi','super_member_number',
+            'abn_verified','abn_verification_note',
+            'abn_entity_name','abn_entity_type','abn_status',
+            'abn_gst_registered','abn_gst_from','abn_gst_to','abn_last_checked',
+            'abn_entity_confirmed',
+
+
+            # ----- REFEREES -----
+            'referee1_name','referee1_relation','referee1_email','referee1_workplace',
+            'referee1_confirmed','referee1_rejected','referee1_last_sent',
+            'referee2_name','referee2_relation','referee2_email','referee2_workplace',
+            'referee2_confirmed','referee2_rejected','referee2_last_sent',
+
+            'verified','progress_percent',
+            'tab','submitted_for_verification',
         ]
         extra_kwargs = {
             # user names are optional
@@ -1039,6 +1059,17 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             'latitude':        {'required': False, 'allow_null': True},
             'longitude':       {'required': False, 'allow_null': True},
 
+            # payment (optional – tab decides what’s required)
+            'payment_preference': {'required': False, 'allow_blank': True},
+            'abn':                {'required': False, 'allow_blank': True},
+            'gst_registered':     {'required': False},
+            'super_fund_name':    {'required': False, 'allow_blank': True},
+            'super_usi':          {'required': False, 'allow_blank': True},
+            'super_member_number':{'required': False, 'allow_blank': True},
+            'abn_entity_confirmed': {'required': False},
+            'tfn_masked': {'read_only': True},
+
+
             # read-only verification outputs
             'gov_id_verified': {'read_only': True},
             'gov_id_verification_note': {'read_only': True},
@@ -1048,34 +1079,97 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             'ahpra_expiry_date': {'read_only': True},
             'ahpra_verification_note': {'read_only': True},
 
+            'abn_verified': {'read_only': True},
+            'abn_verification_note': {'read_only': True},
+            'abn_entity_name': {'read_only': True},
+            'abn_entity_type': {'read_only': True},
+            'abn_status': {'read_only': True},
+            'abn_gst_registered': {'read_only': True},
+            'abn_gst_from': {'read_only': True},
+            'abn_gst_to': {'read_only': True},
+            'abn_last_checked': {'read_only': True},
+
+
+            # referees input
+            'referee1_name':       {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_relation':   {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_email':      {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_workplace':  {'required': False, 'allow_blank': True, 'allow_null': True},
+
+            'referee2_name':       {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_relation':   {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_email':      {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_workplace':  {'required': False, 'allow_blank': True, 'allow_null': True},
+
+            # status/read-only
+            'referee1_confirmed':  {'read_only': True},
+            'referee1_rejected':   {'read_only': True},
+            'referee1_last_sent':  {'read_only': True},
+            'referee2_confirmed':  {'read_only': True},
+            'referee2_rejected':   {'read_only': True},
+            'referee2_last_sent':  {'read_only': True},
+
             'verified': {'read_only': True},
             'progress_percent': {'read_only': True},
         }
 
+
+    # ---------------- representation helpers ----------------
+    def get_tfn_masked(self, obj):
+        """
+        Never expose raw TFN back to the client.
+        If you store TFN in the model as `tfn_number`, mask it on output.
+        """
+        tfn = getattr(obj, 'tfn_number', '') or ''
+        if not tfn:
+            return ''
+        return f'*** *** {tfn[-3:]}'
+
     # -------- progress --------
     def get_progress_percent(self, obj):
-        u = getattr(obj, 'user', None)
+        user = getattr(obj, 'user', None)
         checks = [
-            bool(getattr(u, 'username', None)),
-            bool(getattr(u, 'first_name', None)),
-            bool(getattr(u, 'last_name', None)),
+            bool(getattr(user, 'username', None)),
+            bool(getattr(user, 'first_name', None)),
+            bool(getattr(user, 'last_name', None)),
             bool(obj.phone_number),
             bool(obj.gov_id_verified),
             bool(obj.ahpra_verified),
+            bool(getattr(obj, 'referee1_confirmed', False)),
+            bool(getattr(obj, 'referee2_confirmed', False)),
         ]
-        done = sum(1 for x in checks if x)
+
+        # Payment contribution
+        pref = (obj.payment_preference or '').upper()
+        if pref == 'ABN':
+            # count only when ABN exists and has been verified by the task
+            checks.append(bool(obj.abn) and bool(obj.abn_verified))
+        elif pref == 'TFN':
+            # count when TFN text exists (we never return raw value)
+            checks.append(bool(getattr(obj, 'tfn_number', None)))
+        # if no preference yet -> contributes nothing
+
+        filled = sum(1 for x in checks if x)
         total = len(checks) or 1
-        return int(100 * done / total)
+        return int(100 * filled / total)
 
     # -------- update --------
     def update(self, instance, validated_data):
         tab = (self.initial_data.get('tab') or 'basic').strip().lower()
         submit = bool(self.initial_data.get('submitted_for_verification'))
+
         if tab == 'basic':
             return self._basic_tab(instance, validated_data, submit)
-        return instance  # ignore unknown tabs for now
+        if tab == 'payment':
+            return self._payment_tab(instance, validated_data, submit)
+        if tab == 'referees':
+            return self._referees_tab(instance, validated_data, submit)
 
-    # -------- Basic tab (inline) --------
+
+        # pass-through (shouldn’t happen)
+        return super().update(instance, validated_data)
+
+    # ---------------- BASIC TAB ----------------
     def _basic_tab(self, instance: PharmacistOnboarding, vdata: dict, submit: bool):
         # nested user data
         user_data = vdata.pop('user', {})
@@ -1135,7 +1229,15 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
 
         # trigger ONLY the basic-tab tasks when submitting
         if submit:
-            # AHPRA: changed OR not verified yet
+            ahpra = vdata.get('ahpra_number', instance.ahpra_number)
+            gov   = vdata.get('government_id', instance.government_id)
+            errors = {}
+            if not ahpra:
+                errors['ahpra_number'] = ['AHPRA number is required to submit.']
+            if not gov:
+                errors['government_id'] = ['Government ID file is required to submit.']
+            if errors:
+                raise serializers.ValidationError(errors)            # AHPRA: changed OR not verified yet
             if instance.ahpra_number and (ahpra_changed or not instance.ahpra_verified):
                 async_task(
                     'client_profile.tasks.verify_ahpra_task',
@@ -1159,6 +1261,182 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
 
         return instance
 
+    # ---------------- Payment TAB ----------------
+    def _payment_tab(self, instance: PharmacistOnboarding, vdata: dict, submit: bool):
+        """
+        Payment fields only. No GST file in V2.
+        - ABN: task scrapes ABR fields; user must confirm => abn_verified=True
+        - TFN: store raw in model.tfn_number, show only tfn_masked on reads
+        - When pref=TFN and submit=True -> TFN + super_* are required
+        """
+        payment_fields = [
+            'payment_preference', 'abn', 'gst_registered',
+            'super_fund_name', 'super_usi', 'super_member_number',
+            'abn_entity_confirmed',
+        ]
+        update_fields: list[str] = []
+
+        # normalize pref for logic below
+        pref_in = (vdata.get('payment_preference') or instance.payment_preference or '').upper()
+
+        # 1) regular writes
+        for f in payment_fields:
+            if f in vdata:
+                setattr(instance, f, vdata[f])
+                update_fields.append(f)
+
+        # 2) TFN payload – client sends "tfn" (source='tfn_number'), DRF puts it in vdata['tfn_number']
+        if 'tfn_number' in vdata:
+            instance.tfn_number = (vdata['tfn_number'] or '').strip()
+            update_fields.append('tfn_number')
+
+        # 3) if ABN changed -> reset verification + confirmation
+        abn_changed = ('abn' in vdata) and (vdata.get('abn') != getattr(instance, 'abn'))
+        if abn_changed:
+            instance.abn_verified = False
+            instance.abn_entity_confirmed = False
+            instance.abn_verification_note = ""
+            update_fields += ['abn_verified', 'abn_entity_confirmed', 'abn_verification_note']
+
+        # 4) confirmation gate: only user confirmation can set abn_verified=True
+        if 'abn_entity_confirmed' in vdata:
+            confirmed = bool(vdata['abn_entity_confirmed'])
+            if confirmed and instance.abn_entity_name:   # must have scraped data to confirm
+                instance.abn_verified = True
+                if not instance.abn_verification_note:
+                    instance.abn_verification_note = 'User confirmed ABN entity details.'
+                update_fields += ['abn_verified', 'abn_verification_note']
+            else:
+                if instance.abn_verified:
+                    instance.abn_verified = False
+                    update_fields.append('abn_verified')
+
+        # 5) optional sync of boolean gst_registered from ABR result if client didn’t send it
+        if 'gst_registered' not in vdata:
+            if instance.abn_gst_registered is True and not instance.gst_registered:
+                instance.gst_registered = True
+                update_fields.append('gst_registered')
+
+        # 6) TFN validation: when submitting TFN path, enforce super_* required
+        if submit and (pref_in or instance.payment_preference):
+            pref_effective = (pref_in or instance.payment_preference or '').upper()
+            if pref_effective == 'TFN':
+                errors = {}
+                if not instance.tfn_number:
+                    errors['tfn'] = ['TFN is required.']
+                if not instance.super_fund_name:
+                    errors['super_fund_name'] = ['Super fund name is required for TFN.']
+                if not instance.super_usi:
+                    errors['super_usi'] = ['USI is required for TFN.']
+                if not instance.super_member_number:
+                    errors['super_member_number'] = ['Member number is required for TFN.']
+                if errors:
+                    raise serializers.ValidationError(errors)
+
+        # 7) submitting this tab keeps the whole profile unverified until all tabs pass
+        if submit:
+            instance.verified = False
+            update_fields.append('verified')
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+
+        # 8) run ABN task on submit (TFN has no task)
+        if submit:
+            pref_effective = (pref_in or instance.payment_preference or '').upper()
+            if pref_effective == 'ABN' and instance.abn:
+                async_task(
+                    'client_profile.tasks.verify_abn_task',
+                    instance._meta.model_name,
+                    instance.pk,
+                    instance.abn,
+                    instance.user.first_name or '',
+                    instance.user.last_name or '',
+                    instance.user.email or '',
+                    note_field='abn_verification_note',  # task will only fill ABR fields + note
+                )
+
+        return instance
+
+
+    # ---------------- Referees TAB ----------------
+    def _referees_tab(self, instance, vdata: dict, submit: bool):
+        """
+        Two referees are required on submit.
+        Required per referee: name, relation, workplace, email.
+        If referee is already confirmed -> ignore edits (lock).
+        On change for a pending referee -> reset confirmed/rejected + last_sent.
+        On submit -> send referee emails (no final-eval). Scheduling happens in utils.
+        """
+        from .utils import send_referee_emails  # local import to avoid cycles
+        update_fields = []
+
+        def apply_ref(idx: int):
+            prefix = f"referee{idx}_"
+            locked = bool(getattr(instance, f"{prefix}confirmed", False))
+
+            incoming = {
+                'name': vdata.get(f"{prefix}name", getattr(instance, f"{prefix}name")),
+                'relation': vdata.get(f"{prefix}relation", getattr(instance, f"{prefix}relation")),
+                'email': clean_email(vdata.get(f"{prefix}email", getattr(instance, f"{prefix}email"))),
+                'workplace': vdata.get(f"{prefix}workplace", getattr(instance, f"{prefix}workplace")),
+            }
+
+            if locked:
+                return
+
+            changed = False
+            for key in ['name', 'relation', 'email', 'workplace']:
+                field = f"{prefix}{key}"
+                if field in vdata and getattr(instance, field) != incoming[key]:
+                    setattr(instance, field, incoming[key])
+                    update_fields.append(field)
+                    changed = True
+
+            if changed:
+                if getattr(instance, f"{prefix}confirmed", False):
+                    setattr(instance, f"{prefix}confirmed", False)
+                    update_fields.append(f"{prefix}confirmed")
+                if getattr(instance, f"{prefix}rejected", False):
+                    setattr(instance, f"{prefix}rejected", False)
+                    update_fields.append(f"{prefix}rejected")
+                if getattr(instance, f"{prefix}last_sent", None) is not None:
+                    setattr(instance, f"{prefix}last_sent", None)
+                    update_fields.append(f"{prefix}last_sent")
+
+        apply_ref(1)
+        apply_ref(2)
+
+        if submit:
+            errors = {}
+            for idx in [1, 2]:
+                prefix = f"referee{idx}_"
+                name = getattr(instance, f"{prefix}name")
+                relation = getattr(instance, f"{prefix}relation")
+                email = getattr(instance, f"{prefix}email")
+                workplace = getattr(instance, f"{prefix}workplace")
+                if not name:
+                    errors[prefix + 'name'] = ['Required.']
+                if not relation:
+                    errors[prefix + 'relation'] = ['Required.']
+                if not email:
+                    errors[prefix + 'email'] = ['Required.']
+                if not workplace:
+                    errors[prefix + 'workplace'] = ['Required.']
+            if errors:
+                raise serializers.ValidationError(errors)
+
+            if not instance.verified:
+                instance.verified = False
+                update_fields.append('verified')
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+
+        if submit:
+            send_referee_emails(instance, is_reminder=False)  # schedules per-ref inside
+
+        return instance
 
 # === Dashboards ===
 class ShiftSummarySerializer(serializers.Serializer):

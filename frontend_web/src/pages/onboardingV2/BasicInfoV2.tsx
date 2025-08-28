@@ -48,6 +48,8 @@ export default function BasicInfoV2() {
   const [snack, setSnack] = React.useState<string>('');
   const [error, setError] = React.useState<string>('');
   const [addressDisplay, setAddressDisplay] = React.useState<string>('');
+  const canSubmit =
+    Boolean(data.ahpra_number) && Boolean(govIdFile || data.government_id);
 
   // Google Places
   const { isLoaded, loadError } = useJsApiLoader({
@@ -276,24 +278,64 @@ export default function BasicInfoV2() {
           sx={{ flex: '0 1 140px', minWidth: 100, maxWidth: 160 }} />
       </Box>
 
-      {/* Gov ID row */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-          <Button variant="outlined" component="label">
-            {govIdFile ? 'Change Government ID' : 'Upload Government ID'}
-            <input hidden type="file" accept="image/*,.pdf"
-                   onChange={e => setGovIdFile(e.target.files?.[0] || null)} />
-          </Button>
-          {data.government_id ? (
-            <Link href={getFileUrl(data.government_id)} target="_blank" rel="noopener noreferrer">
-              View
-            </Link>
-          ) : (
-            <Typography variant="body2" color="text.secondary">No file uploaded</Typography>
-          )}
-        </Box>
-        <VerifiedChip ok={data.gov_id_verified} label="Government ID" />
-      </Box>
+{/* Gov ID row */}
+<Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: 2 }}>
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+    <Button variant="outlined" component="label">
+      {govIdFile ? 'Change Government ID' : 'Upload Government ID'}
+      <input
+        hidden
+        type="file"
+        accept="image/*,.pdf"
+        onChange={e => setGovIdFile(e.target.files?.[0] || null)}
+      />
+    </Button>
+
+    {data.government_id ? (
+      <Link
+        href={getFileUrl(data.government_id)}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        View
+      </Link>
+    ) : (
+      <Typography variant="body2" color="text.secondary">
+        No file uploaded
+      </Typography>
+    )}
+  </Box>
+
+  <VerifiedChip ok={data.gov_id_verified} label="Government ID" />
+
+  {typeof data.gov_id_verified === 'boolean' && (
+    <Typography
+      variant="body2"
+      title={
+        data.gov_id_verification_note ||
+        (data.gov_id_verified ? 'Verified' : 'Pending/Not verified')
+      }
+      sx={{
+        color: data.gov_id_verified
+          ? 'success.main'
+          : (data.gov_id_verification_note ? 'error.main' : 'text.secondary'),
+        flex: '1 1 260px',
+        minWidth: 180,
+        maxWidth: 520,
+        overflow: 'hidden',
+        display: '-webkit-box',
+        WebkitLineClamp: 2,
+        WebkitBoxOrient: 'vertical',
+      }}
+    >
+      {data.gov_id_verification_note ||
+        (data.gov_id_verified
+          ? 'Government ID verified.'
+          : 'Pending/Not verified')}
+    </Typography>
+  )}
+</Box>
+
 
       {/* AHPRA row — chip + note stay aligned, wrap nicely on small */}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: 2 }}>
@@ -332,9 +374,9 @@ export default function BasicInfoV2() {
         <Button variant="outlined" disabled={saving} onClick={() => save(false)}>
           {saving ? 'Saving…' : 'Save'}
         </Button>
-        <Button variant="contained" disabled={saving} onClick={() => save(true)}>
-          {saving ? 'Submitting…' : 'Submit & Verify Basic'}
-        </Button>
+      <Button variant="contained" disabled={saving || !canSubmit} onClick={() => save(true)}>
+        {saving ? 'Submitting…' : 'Submit & Verify Basic'}
+      </Button>
       </Box>
 
       <Snackbar open={!!snack} autoHideDuration={2400} onClose={() => setSnack('')} message={snack} />

@@ -1,0 +1,12 @@
+Update on Your References
+
+Hi {{ candidate_first_name|default:"there" }},
+
+Referee #{{ referee_index }} has declined to provide a reference for your ChemistTasker application.
+
+You can continue your application by updating your referees here:
+{{ dashboard_url }}
+
+If you believe this was a mistake, you can reach out to your referee directly or contact ChemistTasker support.
+
+— The ChemistTasker Team

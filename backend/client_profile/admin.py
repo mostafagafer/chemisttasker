@@ -36,11 +36,12 @@ class OwnerOnboardingAdmin(admin.ModelAdmin):
 class PharmacistOnboardingAdmin(admin.ModelAdmin):
     list_display = [
         'user', 'payment_preference', 'verified', 'member_of_chain',
-        'referee1_confirmed', 'referee2_confirmed', 'submitted_for_verification',             'gov_id_verified',
+        'referee1_confirmed', 'referee2_confirmed', 'submitted_for_verification','gov_id_verified',
             # Verification files
-            'gst_file_verified',
-            'tfn_declaration_verified',
+            # 'gst_file_verified',
+            # 'tfn_declaration_verified',
             'abn_verified',
+            'tfn_number',
             'ahpra_verified',
             'ahpra_registration_status',
             'ahpra_registration_type',
@@ -55,8 +56,7 @@ class PharmacistOnboardingAdmin(admin.ModelAdmin):
         'user',
         'government_id', 'ahpra_number', 'phone_number', 'short_bio', 'resume',
         'skills', 'software_experience', 'payment_preference',
-        'abn', 'gst_registered', 'gst_file',
-        'tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number',
+        'abn', 'gst_registered', 'super_fund_name', 'super_usi', 'super_member_number',
         # Referee 1
         'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
         # Referee 2

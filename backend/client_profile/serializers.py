@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 from django_q.models import Schedule
 from client_profile.tasks import schedule_referee_reminder
+import os
+import json
+from django.utils.text import slugify
+from django.core.files.storage import default_storage
 
 
 
@@ -999,6 +1003,10 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
     )
     tfn_masked = serializers.SerializerMethodField(read_only=True)
 
+
+    skills = serializers.ListField(child=serializers.CharField(), required=False)
+    skill_certificates = serializers.SerializerMethodField(read_only=True)
+   
     # write-only control flags
     tab = serializers.CharField(write_only=True, required=False)
     submitted_for_verification = serializers.BooleanField(write_only=True, required=False)
@@ -1035,6 +1043,18 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             'referee1_confirmed','referee1_rejected','referee1_last_sent',
             'referee2_name','referee2_relation','referee2_email','referee2_workplace',
             'referee2_confirmed','referee2_rejected','referee2_last_sent',
+
+
+            # ---------- SKILLS ----------
+            'skills',
+            'skill_certificates',   # read-only summary
+
+
+            # ---------- Rete preferences ----------
+            'rate_preference',
+
+            # ---------- Profile preferences ----------
+            'short_bio', 'resume',
 
             'verified','progress_percent',
             'tab','submitted_for_verification',
@@ -1109,6 +1129,17 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             'referee2_rejected':   {'read_only': True},
             'referee2_last_sent':  {'read_only': True},
 
+            # Skills
+            'skills': {'required': False},          # optional tab
+            'skill_certificates': {'read_only': True},
+
+
+            # Rate
+            'short_bio': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'resume':    {'required': False, 'allow_null': True},
+
+            # Rate Preferences
+            'rate_preference': {'required': False, 'allow_null': True},
             'verified': {'read_only': True},
             'progress_percent': {'read_only': True},
         }
@@ -1125,9 +1156,49 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             return ''
         return f'*** *** {tfn[-3:]}'
 
+    def _files_by_skill(self):
+        """
+        Accept files either as flat keys ('CBR') or nested 'skill_files[CBR]'.
+        """
+        req = self.context.get("request")
+        out = {}
+        if not req or not hasattr(req, "FILES"):
+            return out
+        for key, f in req.FILES.items():
+            if key.startswith("skill_files[") and key.endswith("]"):
+                code = key[len("skill_files["):-1]
+                out[code] = f
+            else:
+                out[key] = f
+        return out
+
+    def _save_skill_file(self, user_id: int, code: str, uploaded_file):
+        """
+        Save to: skill_certs/<user_id>/<CODE>/<base>_<CODE>_<YYYYmmddHHMMSS>.<ext>
+        (keeps historical versions; no deletes)
+        """
+        base, ext = os.path.splitext(uploaded_file.name or "certificate")
+        safe = slugify(base) or "certificate"
+        code_up = (code or "UNKNOWN").upper()
+        ts = timezone.now().strftime("%Y%m%d%H%M%S")
+        rel_path = f"skill_certs/{user_id}/{code_up}/{safe}_{code_up}_{ts}{ext.lower()}"
+        return default_storage.save(rel_path, uploaded_file)
+
+    def _list_existing(self, user_id: int, code: str):
+        folder = f"skill_certs/{user_id}/{(code or 'UNKNOWN').upper()}/"
+        try:
+            _dirs, files = default_storage.listdir(folder)
+        except Exception:
+            return []
+        return sorted(folder + name for name in files)
+
     # -------- progress --------
     def get_progress_percent(self, obj):
         user = getattr(obj, 'user', None)
+
+        def _filled_str(x):
+            return bool(x and str(x).strip())
+
         checks = [
             bool(getattr(user, 'username', None)),
             bool(getattr(user, 'first_name', None)),
@@ -1139,15 +1210,40 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             bool(getattr(obj, 'referee2_confirmed', False)),
         ]
 
-        # Payment contribution
+        # NEW — Address contribution (counts as one unit if core address is complete)
+        addr_ok = all([
+            _filled_str(getattr(obj, 'street_address', None)),
+            _filled_str(getattr(obj, 'suburb', None)),
+            _filled_str(getattr(obj, 'state', None)),
+            _filled_str(getattr(obj, 'postcode', None)),
+        ])
+        checks.append(addr_ok)
+
+        # Profile tab
+        checks.append(bool(getattr(obj, 'resume', None)))
+        checks.append(_filled_str(getattr(obj, 'short_bio', None)))
+
+        # Payment contribution (unchanged)
         pref = (obj.payment_preference or '').upper()
         if pref == 'ABN':
-            # count only when ABN exists and has been verified by the task
             checks.append(bool(obj.abn) and bool(obj.abn_verified))
         elif pref == 'TFN':
-            # count when TFN text exists (we never return raw value)
             checks.append(bool(getattr(obj, 'tfn_number', None)))
-        # if no preference yet -> contributes nothing
+
+        # Rates contribution (all fields)
+        rp = getattr(obj, 'rate_preference', None) or {}
+
+        # Day buckets (require a value)
+        checks.append(_filled_str(rp.get('weekday')))
+        checks.append(_filled_str(rp.get('saturday')))
+        checks.append(_filled_str(rp.get('sunday')))
+        checks.append(_filled_str(rp.get('public_holiday')))
+
+        # Early/Late: complete if explicit rate is set OR "same as day" is checked
+        early_ok = bool(rp.get('early_morning_same_as_day')) or _filled_str(rp.get('early_morning'))
+        late_ok  = bool(rp.get('late_night_same_as_day'))   or _filled_str(rp.get('late_night'))
+        checks.append(early_ok)
+        checks.append(late_ok)
 
         filled = sum(1 for x in checks if x)
         total = len(checks) or 1
@@ -1158,15 +1254,34 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         tab = (self.initial_data.get('tab') or 'basic').strip().lower()
         submit = bool(self.initial_data.get('submitted_for_verification'))
 
+        # --- Superuser notify: first-time submission gate (BASIC tab only) ---
+        first_submit = submit and (tab == 'basic') and not bool(getattr(instance, 'submitted_for_verification', False))
+        if first_submit:
+            # Persist first submission so we don't email again
+            instance.submitted_for_verification = True
+            instance.save(update_fields=['submitted_for_verification'])
+
+            # Local import avoids circular dependencies
+            from .utils import notify_superuser_on_onboarding
+            try:
+                notify_superuser_on_onboarding(instance)
+            except Exception:
+                # Never block user flow on email issues
+                pass
+
         if tab == 'basic':
             return self._basic_tab(instance, validated_data, submit)
         if tab == 'payment':
             return self._payment_tab(instance, validated_data, submit)
         if tab == 'referees':
             return self._referees_tab(instance, validated_data, submit)
+        if tab == 'skills':
+            return self._skills_tab(instance, validated_data, submit)
+        if tab == 'rate':
+            return self._rate_tab(instance, validated_data, submit)
+        if tab == 'profile':
+            return self._profile_tab(instance, validated_data, submit)
 
-
-        # pass-through (shouldn’t happen)
         return super().update(instance, validated_data)
 
     # ---------------- BASIC TAB ----------------
@@ -1183,18 +1298,49 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             if changed_user_fields:
                 instance.user.save(update_fields=changed_user_fields)
 
-        # fields written directly (exclude lat/lon to handle rounding)
+        # helper to compare file names safely
+        def _fname(f): 
+            return getattr(f, 'name', None) if f else None
+
+        # We will handle government_id explicitly (to delete old files safely),
+        # so do NOT include it in direct_fields.
         direct_fields = [
-            'phone_number', 'ahpra_number', 'government_id',
+            'phone_number', 'ahpra_number',
             'street_address', 'suburb', 'state', 'postcode', 'google_place_id',
         ]
 
-        # detect changes that affect verification flags
-        def _fname(f): return getattr(f, 'name', None) if f else None
+        # Detect changes that affect verification flags
         ahpra_changed = 'ahpra_number' in vdata and (vdata.get('ahpra_number') != getattr(instance, 'ahpra_number'))
-        gov_id_changed = 'government_id' in vdata and (_fname(vdata.get('government_id')) != _fname(getattr(instance, 'government_id')))
 
         update_fields = []
+
+        # --- government_id: delete old file on replace or explicit clear ---
+        gov_id_changed = False
+        if 'government_id' in vdata:
+            new_file = vdata.get('government_id')  # may be a file object or None
+            old_file = getattr(instance, 'government_id', None)
+            gov_id_changed = (_fname(new_file) != _fname(old_file))
+
+            if new_file is None:
+                # explicit clear
+                if old_file:
+                    try:
+                        old_file.delete(save=False)   # Azure/local safe
+                    except Exception:
+                        pass
+                instance.government_id = None
+                update_fields.append('government_id')
+            else:
+                # replacing: delete old first if it's different
+                if old_file and _fname(old_file) and _fname(old_file) != _fname(new_file):
+                    try:
+                        old_file.delete(save=False)
+                    except Exception:
+                        pass
+                instance.government_id = new_file
+                update_fields.append('government_id')
+
+        # regular writes for other basic fields
         for f in direct_fields:
             if f in vdata:
                 setattr(instance, f, vdata[f])
@@ -1237,7 +1383,9 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             if not gov:
                 errors['government_id'] = ['Government ID file is required to submit.']
             if errors:
-                raise serializers.ValidationError(errors)            # AHPRA: changed OR not verified yet
+                raise serializers.ValidationError(errors)
+
+            # AHPRA: changed OR not verified yet
             if instance.ahpra_number and (ahpra_changed or not instance.ahpra_verified):
                 async_task(
                     'client_profile.tasks.verify_ahpra_task',
@@ -1358,7 +1506,6 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
 
         return instance
 
-
     # ---------------- Referees TAB ----------------
     def _referees_tab(self, instance, vdata: dict, submit: bool):
         """
@@ -1435,6 +1582,185 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
 
         if submit:
             send_referee_emails(instance, is_reminder=False)  # schedules per-ref inside
+
+        return instance
+
+    # ---------------- Skills tab ----------------
+    def _skills_tab(self, instance, vdata: dict, submit: bool):
+        """
+        Rules:
+        - Checking a skill is optional.
+        - If a skill is checked, a certificate MUST exist (already saved or uploaded now).
+        - We store per-skill file metadata in instance.skill_certificates (JSON).
+        - This version deletes old files when replacing (and when a skill is unchecked) unless KEEP_SKILL_HISTORY=True.
+        """
+        # accept JSON string or list
+        raw = self.initial_data.get("skills", vdata.get("skills", []))
+        if isinstance(raw, str):
+            try:
+                skills = json.loads(raw)
+            except Exception:
+                raise serializers.ValidationError({"skills": "Must be a JSON array or list."})
+        else:
+            skills = list(raw or [])
+
+        uploads = self._files_by_skill()
+        cert_map = dict(instance.skill_certificates or {})
+        user_id = instance.user_id
+
+        # (A) If a skill was **unchecked/removed**, optionally delete its last stored file
+        if not getattr(self, "KEEP_SKILL_HISTORY", False):
+            removed_codes = [code for code in list(cert_map.keys()) if code not in skills]
+            for code in removed_codes:
+                old_path = (cert_map.get(code) or {}).get("path")
+                if old_path:
+                    try:
+                        default_storage.delete(old_path)  # works with Azure Blob via django-storages
+                    except Exception:
+                        pass
+                cert_map.pop(code, None)
+
+        # (B) Save any uploaded files for checked skills
+        #     Safe order: save the new file first; if it succeeds, delete the old one (if any).
+        for code, f in uploads.items():
+            if code in skills:
+                # remember old path (if any)
+                old_path = (cert_map.get(code) or {}).get("path")
+
+                # save new file
+                saved = self._save_skill_file(user_id, code, f)
+
+                # delete old file unless we're keeping history
+                if old_path and not getattr(self, "KEEP_SKILL_HISTORY", False):
+                    try:
+                        default_storage.delete(old_path)
+                    except Exception:
+                        # swallow storage deletion errors; user flow should not break
+                        pass
+
+                # point to the new file
+                cert_map[code] = {
+                    "path": saved,
+                    "uploaded_at": timezone.now().isoformat(),
+                }
+
+        # (C) Validation: each checked skill must have a certificate (either from before or uploaded now)
+        missing = [code for code in skills if code not in cert_map]
+        if missing:
+            raise serializers.ValidationError(
+                {"skills": f"Certificate required for checked skill(s): {', '.join(missing)}"}
+            )
+
+        # Persist
+        instance.skills = skills
+        instance.skill_certificates = cert_map
+        instance.save(update_fields=["skills", "skill_certificates"])
+        return instance
+
+    # --------------- read-only summary for UI ---------------
+    def get_skill_certificates(self, obj):
+        """
+        Return latest file per skill (by name sort). If you want all versions, expand here.
+        """
+        data = []
+        for code, meta in (obj.skill_certificates or {}).items():
+            path = (meta or {}).get("path")
+            if not path:
+                continue
+            try:
+                url = default_storage.url(path)
+            except Exception:
+                url = None
+            data.append({"skill_code": code, "path": path, "url": url, "uploaded_at": meta.get("uploaded_at")})
+        # stable order
+        return sorted(data, key=lambda r: r["skill_code"])
+
+    # ---------------- Rate tab ----------------
+    def _rate_tab(self, instance, vdata: dict, submit: bool):
+        """
+        Stores rate_preference JSON.
+        Accepts stringified JSON or dict with keys:
+        weekday, saturday, sunday, public_holiday, early_morning, late_night (strings),
+        early_morning_same_as_day (bool), late_night_same_as_day (bool)
+        """
+        raw = self.initial_data.get('rate_preference', vdata.get('rate_preference'))
+        if raw is None:
+            # allow clearing: leave as-is if not provided
+            return instance
+
+        try:
+            rp = json.loads(raw) if isinstance(raw, str) else dict(raw)
+        except Exception:
+            raise serializers.ValidationError({"rate_preference": "Must be a JSON object."})
+
+        # Soft sanitize: ensure keys exist, store as strings/booleans
+        def to_s(x): return '' if x is None else str(x)
+        rp_norm = {
+            "weekday": to_s(rp.get("weekday")),
+            "saturday": to_s(rp.get("saturday")),
+            "sunday": to_s(rp.get("sunday")),
+            "public_holiday": to_s(rp.get("public_holiday")),
+            "early_morning": to_s(rp.get("early_morning")),
+            "late_night": to_s(rp.get("late_night")),
+            "early_morning_same_as_day": bool(rp.get("early_morning_same_as_day", False)),
+            "late_night_same_as_day": bool(rp.get("late_night_same_as_day", False)),
+        }
+
+        instance.rate_preference = rp_norm
+        if submit:
+            instance.verified = False  # stays unverified until all tabs pass
+            instance.save(update_fields=["rate_preference", "verified"])
+        else:
+            instance.save(update_fields=["rate_preference"])
+        return instance
+
+    # ---------------- Profile tab ----------------
+    def _profile_tab(self, instance, vdata: dict, submit: bool):
+        """
+        Profile tab: resume file + short note (short_bio).
+        Behavior:
+        - If a new resume is uploaded, delete the old file first (Azure + dev parity).
+        - If resume is explicitly set to None, delete existing file.
+        - short_bio is plain text, optional.
+        """
+        update_fields = []
+
+        # Handle short_bio (optional)
+        if 'short_bio' in vdata:
+            instance.short_bio = vdata['short_bio']
+            update_fields.append('short_bio')
+
+        # Handle resume
+        if 'resume' in vdata:
+            new_file = vdata['resume']  # may be a file object or None
+            old_file = getattr(instance, 'resume', None)
+
+            if new_file is None:
+                # explicit clear
+                if old_file:
+                    old_file.delete(save=False)  # Azure/local safe
+                instance.resume = None
+                update_fields.append('resume')
+            else:
+                # replace file: delete old first to mimic overwrite behavior everywhere
+                if old_file:
+                    try:
+                        # delete only if name differs (optional; safe to always delete)
+                        if getattr(old_file, 'name', None) != getattr(new_file, 'name', None):
+                            old_file.delete(save=False)
+                    except Exception:
+                        # swallow storage deletion errors to avoid blocking user save
+                        pass
+                instance.resume = new_file
+                update_fields.append('resume')
+
+        # Submit does not auto-verify anything here; keep profile unverified until all tabs pass
+        if submit:
+            instance.verified = False
+            update_fields.append('verified')
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
 
         return instance
 

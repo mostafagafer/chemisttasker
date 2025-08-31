@@ -10,8 +10,8 @@ BASE_DIR = Path(settings.BASE_DIR)
 AWARD_RATES = json.load(open(BASE_DIR / 'client_profile/data/updated_award_rates.json'))
 PUBLIC_HOLIDAYS = json.load(open(BASE_DIR / 'client_profile/data/public_holidays.json'))
 
-EARLY_MORNING_END = time(7, 0)
-LATE_NIGHT_START = time(20, 0)
+EARLY_MORNING_END = time(8, 0)
+LATE_NIGHT_START = time(19, 0)
 
 
 def is_public_holiday(slot_date, state):
@@ -41,9 +41,26 @@ def get_locked_rate_for_slot(slot, shift, user, override_date=None):
     state = shift.pharmacy.state
 
     # Determine the context for the rate lookup
-    day_type = get_day_type(slot_date, state)
-    time_category = get_time_category(start_time, end_time)
-    rate_lookup_key = time_category or day_type # e.g., 'early_morning' or 'weekday'
+    day_type = get_day_type(slot_date, state)               # 'weekday' | 'saturday' | 'sunday' | 'public_holiday'
+    time_category = get_time_category(start_time, end_time) # 'early_morning' | 'late_night' | None
+
+    # Pull the user's rate prefs once (strings + our two booleans)
+    rate_pref = (
+        PharmacistOnboarding.objects
+        .filter(user=user)
+        .values_list('rate_preference', flat=True)
+        .first()
+    ) or {}
+
+    if time_category in ('early_morning', 'late_night'):
+        if time_category == 'early_morning' and rate_pref.get('early_morning_same_as_day'):
+            rate_lookup_key = day_type              # use weekday/sat/sun/PH rate
+        elif time_category == 'late_night' and rate_pref.get('late_night_same_as_day'):
+            rate_lookup_key = day_type              # use weekday/sat/sun/PH rate
+        else:
+            rate_lookup_key = time_category         # use explicit early/late rate
+    else:
+        rate_lookup_key = day_type                  # daytime: use the day bucket
 
     # Determine employment type (full/part-time vs. casual)
     membership = Membership.objects.filter(user=user, pharmacy=shift.pharmacy).first()

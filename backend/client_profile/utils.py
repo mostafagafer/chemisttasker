@@ -86,55 +86,6 @@ def clean_email(email):
     # \u200e (LTR), \u200f (RTL), \u202a-\u202e (bidi), \u200b (zero-width space), \s (any space)
     return re.sub(r'[\u200e\u200f\u202a-\u202e\u200b\s]', '', email)
 
-# def send_referee_emails(obj, is_reminder=False):
-#     """
-#     Sends referee email(s). Now handles both initial requests and reminders
-#     by choosing the correct template based on the `is_reminder` flag.
-#     """
-#     for idx in [1, 2]:
-#         email_raw = getattr(obj, f'referee{idx}_email', None)
-#         confirmed = getattr(obj, f'referee{idx}_confirmed', None)
-#         rejected = getattr(obj, f'referee{idx}_rejected', None)
-#         name = getattr(obj, f'referee{idx}_name', '')
-#         relation = getattr(obj, f'referee{idx}_relation', '')
-#         email = clean_email(email_raw)
-
-#         if email and not confirmed and not rejected:
-#             # --- FIX: CHOOSE TEMPLATE AND SUBJECT BASED ON THE REMINDER FLAG ---
-#             if is_reminder:
-#                 subject = f"Gentle Reminder: Reference Request for {obj.user.get_full_name()}"
-#                 template_name = "emails/referee_reminder.html"
-#                 text_template = "emails/referee_reminder.txt" # Assumes you have a .txt version
-#             else:
-#                 subject = "Reference Request: Please Confirm for ChemistTasker"
-#                 template_name = "emails/referee_request.html"
-#                 text_template = "emails/referee_request.txt"
-#             # --- END OF FIX ---
-
-#             confirm_url = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-confirm/{obj.pk}/{idx}"
-#             reject_url  = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-reject/{obj.pk}/{idx}"
-            
-#             async_task(
-#                 'users.tasks.send_async_email',
-#                 subject=subject,
-#                 recipient_list=[email],
-#                 template_name=template_name,
-#                 context={
-#                     "referee_name": name,
-#                     "referee_relation": relation,
-#                     "candidate_name": obj.user.get_full_name(),
-#                     "candidate_first_name": obj.user.first_name,
-#                     "candidate_last_name": obj.user.last_name,
-#                     "confirm_url": confirm_url,
-#                     "reject_url": reject_url,
-#                 },
-#                 text_template=text_template
-#             )
-#             setattr(obj, f'referee{idx}_last_sent', timezone.now())
-            
-#     # Save last_sent timestamps if they were updated
-#     obj.save(update_fields=['referee1_last_sent', 'referee2_last_sent'])
-
 def get_candidate_role(obj) -> str:
     """
     Pharmacist => 'Pharmacist'
@@ -157,7 +108,6 @@ def get_candidate_role(obj) -> str:
                 return str(rp[k])
 
     return model.replace('onboarding', '').replace('_', ' ').title()
-
 
 def send_referee_emails(obj, is_reminder=False):
     """
@@ -222,7 +172,7 @@ def send_referee_emails(obj, is_reminder=False):
             # Schedule THIS referee's reminder (initial)
             try:
                 from client_profile.tasks import schedule_referee_reminder
-                schedule_referee_reminder(obj._meta.model_name, obj.pk, idx, hours=0.1)  # keep your dev interval
+                schedule_referee_reminder(obj._meta.model_name, obj.pk, idx)
             except Exception:
                 pass
 

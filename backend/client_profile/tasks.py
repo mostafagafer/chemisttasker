@@ -992,7 +992,7 @@ def send_shift_reminders():
 
 
 # ========== Referee Reminder (Scheduled) ==========
-REFEREE_REMINDER_HOURS: float = float(getattr(settings, "REFEREE_REMINDER_HOURS", 0.1))
+REFEREE_REMINDER_HOURS: float = float(getattr(settings, "REFEREE_REMINDER_HOURS", 48))
 
 # The function path Django-Q will call
 REMINDER_FUNC = 'client_profile.tasks.run_referee_reminder'
@@ -1003,7 +1003,7 @@ def _rem_args(model_name: str, pk: int, ref_idx: int) -> str:
     return f"'{model_name}',{pk},{ref_idx}"
 
 
-def schedule_referee_reminder(model_name: str, pk: int, ref_idx: int, hours: float = 0.1) -> None:
+def schedule_referee_reminder(model_name: str, pk: int, ref_idx: int, hours: float | None = None) -> None:
     """
     Create a ONE-OFF schedule for a single referee.
     To test, pass hours=0.1 etc.
@@ -1011,11 +1011,12 @@ def schedule_referee_reminder(model_name: str, pk: int, ref_idx: int, hours: flo
     args = _rem_args(model_name, pk, ref_idx)
     if Schedule.objects.filter(func=REMINDER_FUNC, args=args, next_run__gt=timezone.now()).exists():
         return
+    delay = REFEREE_REMINDER_HOURS if hours is None else float(hours)
     Schedule.objects.create(
         func=REMINDER_FUNC,
         args=args,
         schedule_type=Schedule.ONCE,
-        next_run=timezone.now() + timedelta(hours=hours),
+        next_run=timezone.now() + timedelta(hours=delay),
         name=f"referee-reminder-{model_name}-{pk}-{ref_idx}",
     )
 
@@ -1087,4 +1088,4 @@ def run_referee_reminder(model_name: str, pk: int, ref_idx: int) -> None:
     )
 
     # Re-schedule this referee only (keep your dev interval)
-    schedule_referee_reminder(model_name, pk, ref_idx, hours=0.1)
+    schedule_referee_reminder(model_name, pk, ref_idx)

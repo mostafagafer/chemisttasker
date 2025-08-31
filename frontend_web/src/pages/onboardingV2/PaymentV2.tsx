@@ -52,6 +52,10 @@ const prettyDate = (d?: string | null) => {
   }
 };
 
+// digits-only helper (used by ABN/TFN validation & payload)
+const onlyDigits = (s: string) => (s || '').replace(/\D/g, '');
+
+
 export default function PaymentV2() {
   const url = API_ENDPOINTS.onboardingV2Detail('pharmacist');
 
@@ -66,6 +70,16 @@ export default function PaymentV2() {
   const [tfnInput, setTfnInput] = React.useState('');
   const [abnInput, setAbnInput] = React.useState('');
   const [showSuperABN, setShowSuperABN] = React.useState(false); // ABN-only toggle
+
+  // ---- local derived validation state ----
+  const abnDigits = React.useMemo(() => onlyDigits(abnInput), [abnInput]);
+  const abnValid  = abnDigits.length === 11;
+  const abnError  = (data.payment_preference || '').toUpperCase() === 'ABN' && abnInput.length > 0 && !abnValid;
+
+  const tfnDigits = React.useMemo(() => onlyDigits(tfnInput), [tfnInput]);
+  // TFN is usually 9 digits; some older TFNs are 8. Allow 8 or 9.
+  const tfnValid  = tfnDigits.length === 9 || tfnDigits.length === 8;
+  const tfnError  = (data.payment_preference || '').toUpperCase() === 'TFN' && tfnInput.length > 0 && !tfnValid;
 
   const isTFN = (data.payment_preference || '').toUpperCase() === 'TFN';
   const isABN = (data.payment_preference || '').toUpperCase() === 'ABN';
@@ -111,7 +125,10 @@ export default function PaymentV2() {
   // ---------- helpers ----------
   const renderABNChip = () => {
     if (data.abn_verified) {
-      return <Chip icon={<CheckCircleOutlineIcon />} color="success" label="ABN" variant="outlined" />;
+      return <Chip icon={<CheckCircleOutlineIcon />} color="success" label="ABN verified" variant="outlined" />;
+    }
+    if (!data.abn_entity_name && data.abn_verification_note) {
+      return <Chip icon={<ErrorOutlineIcon />} color="error" label="ABN – invalid/unavailable" variant="outlined" />;
     }
     if (data.abn_entity_name || data.abn_verification_note) {
       return <Chip icon={<HourglassBottomIcon />} label="ABN – awaiting confirmation" variant="outlined" />;
@@ -120,9 +137,22 @@ export default function PaymentV2() {
   };
 
   const abrBullets = () => {
-    if (!(data.abn_entity_name || data.abn_status || data.abn_entity_type || data.abn_gst_registered !== null)) {
-      return null;
+    const hasAny =
+      !!data.abn_entity_name ||
+      !!data.abn_status ||
+      !!data.abn_entity_type ||
+      data.abn_gst_registered !== null;
+
+    if (!hasAny && data.abn_verification_note) {
+      return (
+        <Alert severity="error">
+          We couldn’t verify this ABN. Reason: {data.abn_verification_note}
+        </Alert>
+      );
     }
+
+    if (!hasAny) return null;
+
     return (
       <Box sx={{ mt: 1 }}>
         <Typography variant="subtitle2" sx={{ mb: .5 }}>ABN details (from ABR)</Typography>
@@ -285,7 +315,12 @@ export default function PaymentV2() {
               value={tfnInput}
               onChange={e => setTfnInput(e.target.value)}
               placeholder={data.tfn_masked || 'Enter your TFN'}
-              helperText={data.tfn_masked ? `Stored as: ${data.tfn_masked} (server masks on read)` : 'Not set'}
+              error={tfnError}
+              helperText={
+                tfnError
+                  ? 'TFN must be 9 digits (some older TFNs are 8).'
+                  : (data.tfn_masked ? `Stored as: ${data.tfn_masked} (server masks on read)` : ' ')
+              }
               sx={{ flex: 1, minWidth: 260, maxWidth: 460 }}
             />
           </Stack>
@@ -335,6 +370,8 @@ export default function PaymentV2() {
               label="ABN"
               value={abnInput}
               onChange={e => setAbnInput(e.target.value)}
+              error={abnError}
+              helperText={abnError ? 'ABN must be 11 digits.' : ' '}
               sx={{ flex: 1, minWidth: 260, maxWidth: 420 }}
             />
             <Button variant="outlined" onClick={checkABN} disabled={checkingABN || !abnInput.trim()}>

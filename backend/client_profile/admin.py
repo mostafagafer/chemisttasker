@@ -55,7 +55,7 @@ class PharmacistOnboardingAdmin(admin.ModelAdmin):
     fields = [
         'user',
         'government_id', 'ahpra_number', 'phone_number', 'short_bio', 'resume',
-        'skills', 'software_experience', 'payment_preference',
+        'skills',  'payment_preference',
         'abn', 'gst_registered', 'super_fund_name', 'super_usi', 'super_member_number',
         # Referee 1
         'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',

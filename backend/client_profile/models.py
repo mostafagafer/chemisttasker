@@ -105,7 +105,8 @@ class PharmacistOnboarding(models.Model):
     resume = models.FileField(upload_to='resumes/', blank=True, null=True)
 
     skills = models.JSONField(default=list, blank=True)
-    software_experience = models.JSONField(default=list, blank=True)
+    skill_certificates = models.JSONField(default=dict, blank=True)
+    # software_experience = models.JSONField(default=list, blank=True)
 
     payment_preference = models.CharField(max_length=10, blank=True, null=True)
 
@@ -168,7 +169,7 @@ class PharmacistOnboarding(models.Model):
     abn_verification_note = models.TextField(blank=True, null=True)
 
     # Notifications
-    notifications = GenericRelation(OnboardingNotification)
+    # notifications = GenericRelation(OnboardingNotification)
 
     # Location
     street_address   = models.CharField(max_length=255, blank=True, null=True)

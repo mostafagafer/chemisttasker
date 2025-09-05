@@ -47,7 +47,9 @@ import ExplorerDashboardWrapper from './layouts/explorerDashboard';
 
 
 // owner stub pages
-import OverviewPageOwner          from './pages/dashboard/sidebar/OverviewPageOwner';
+// import OverviewPageOwner          from './pages/dashboard/sidebar/OverviewPageOwner';
+import OwnerOverviewContainer from './pages/dashboard/sidebar/owner/OwnerOverviewContainer';
+
 import OverviewPageStaff          from './pages/dashboard/sidebar/OverviewPageStaff';
 import ChainPage       from './pages/dashboard/sidebar/ChainPage';
 import PharmacyPage          from './pages/dashboard/sidebar/PharmacyPage';
@@ -184,8 +186,8 @@ const router = createBrowserRouter([
           </ProtectedRoute>
         ),
         children: [
-          { index: true, element: <OverviewPageOwner /> },
-          { path: 'overview', element: <OverviewPageOwner /> },
+          { index: true, element: <OwnerOverviewContainer /> },
+          { path: 'overview', element: <OwnerOverviewContainer /> },
           { path: 'onboarding', element: <OwnerOnboarding /> },
           {
             path: 'manage-pharmacies',

@@ -2575,19 +2575,41 @@ class RosterWorkerViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['get'])
     def pharmacies(self, request):
-        """
-        Returns a list of all pharmacies where user is an active member.
-        """
         user = request.user
-        memberships = Membership.objects.filter(user=user, is_active=True).select_related('pharmacy')
-        data = [
-            {
-                "id": m.pharmacy.id,
-                "name": m.pharmacy.name,
-                "address": m.pharmacy.address,
-            }
-            for m in memberships
-        ]
+        memberships = (
+            Membership.objects
+            .filter(user=user, is_active=True)
+            .select_related('pharmacy')
+        )
+
+        data = []
+        for m in memberships:
+            p = m.pharmacy
+
+            # Safely use legacy 'address' if it exists; otherwise compose from new parts.
+            address = (
+                getattr(p, "address", None)  # legacy compatibility (if still present anywhere)
+                or ", ".join(filter(None, [
+                    (p.street_address or "").strip(),
+                    (p.suburb or "").strip(),
+                    (p.state or "").strip(),
+                    (p.postcode or "").strip(),
+                ]))
+            )
+
+            data.append({
+                "id": p.id,
+                "name": p.name,
+                "address": address,
+                # keep returning the structured bits too (harmless + future-proof)
+                "street_address": p.street_address,
+                "suburb": p.suburb,
+                "state": p.state,
+                "postcode": p.postcode,
+                "latitude": p.latitude,
+                "longitude": p.longitude,
+            })
+
         return Response(data)
 
 class LeaveRequestViewSet(viewsets.ModelViewSet):

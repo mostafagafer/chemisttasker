@@ -19,12 +19,15 @@ import dateutil.parser
 from bs4 import BeautifulSoup
 from scrapingbee import ScrapingBeeClient
 from users.tasks import send_async_email
-from client_profile.models import ShiftSlotAssignment, OnboardingNotification
+from client_profile.models import ShiftSlotAssignment, OnboardingNotification, MembershipApplication, Membership, Pharmacy
 from django.contrib.contenttypes.models import ContentType
 from client_profile.utils import build_shift_email_context, simple_name_match,clean_email,get_candidate_role, send_referee_emails, get_frontend_dashboard_url 
 import logging
 import re
 from django.core.signing import TimestampSigner
+from django.contrib.auth import get_user_model
+from django.template.defaultfilters import date as datefilter
+from users.models import OrganizationMembership
 
 
 logger = logging.getLogger(__name__)
@@ -180,82 +183,6 @@ def verify_filefield_task(
         setattr(obj, note_field, failure_note[:255])
     obj.save(update_fields=[verification_field] + ([note_field] if note_field and hasattr(obj, note_field) else []))
 
-
-# --- Inline ABN scraping (no subprocess, no scripts) ---
-# def abn_lookup(abn_number):
-#     """Fetch the ABN details using the exact logic in your script."""
-#     url = f"https://abr.business.gov.au/ABN/View?id={abn_number}"
-#     logger.info(f"[abn_lookup] Fetching {url}")
-#     try:
-#         resp = requests.get(url, timeout=15)
-#         resp.raise_for_status()
-#     except Exception as e:
-#         logger.info(f"[abn_lookup] Error fetching ABN: {e}")
-#         return None, None
-
-#     soup = BeautifulSoup(resp.text, "html.parser")
-#     legal_name_tag = soup.find("span", {"itemprop": "legalName"})
-#     abn_legal_name = legal_name_tag.get_text(strip=True) if legal_name_tag else ""
-#     return abn_legal_name, resp.text
-
-# def verify_abn_task(model_name, object_pk, abn_number, first_name, last_name, email, **kwargs):
-#     note_field = kwargs.get('note_field')
-#     logger.info(f"[VERIFY ABN TASK] model={model_name}, pk={object_pk}, abn={abn_number}")
-#     Model = apps.get_model("client_profile", model_name)
-#     obj = fetch_instance_with_retries(Model, object_pk)
-    
-#     # --- THIS IS THE FIX ---
-#     # If a verification note already exists, the task has already run.
-#     if note_field and getattr(obj, note_field, None):
-#         logger.info(f"[ABN TASK] SKIPPING: Verification for pk={object_pk} already has a result.")
-#         return # Exit immediately
-#     # --- END OF FIX ---
-
-#     # Reset fields before running
-#     obj.abn_verified = False
-#     if note_field and hasattr(obj, note_field):
-#         setattr(obj, note_field, "")
-#         obj.save(update_fields=["abn_verified", note_field])
-#     else:
-#         obj.save(update_fields=["abn_verified"])
-
-#     is_verified = False
-#     failure_note = ""
-#     name_match = False
-#     abn_legal_name, html = abn_lookup(abn_number)
-
-#     if not abn_legal_name:
-#         failure_note = "Failed to fetch ABN details. ABN might be invalid or unresponsive."
-#         logger.info(f"[verify_abn_task] {failure_note}. Marking as not verified.")
-#     else:
-#         name_match = simple_name_match(abn_legal_name, first_name, last_name)
-
-#         if name_match:
-#             is_verified = True
-#             logger.info(f"[verify_abn_task] Name match: {name_match} (expected: {first_name} {last_name}, actual: {abn_legal_name})")
-#         else:
-#             failure_note = f"ABN legal name mismatch: Expected '{first_name} {last_name}', Found '{abn_legal_name}'."
-#             logger.info(f"[verify_abn_task] {failure_note}")
-
-#     output_html = save_output_file("abn_html", object_pk, "html")
-#     with open(output_html, "w", encoding="utf-8") as f:
-#         f.write(html if html else "No HTML captured.")
-#     output_json = save_output_file("abn", object_pk, "json")
-#     with open(output_json, "w", encoding="utf-8") as f:
-#         json.dump({
-#             "legal_name": abn_legal_name,
-#             "input_first_name": first_name,
-#             "input_last_name": last_name,
-#             "name_match": name_match,
-#             "failure_note": failure_note
-#         }, f, indent=2)
-
-#     obj.abn_verified = is_verified
-#     if note_field and hasattr(obj, note_field):
-#         setattr(obj, note_field, failure_note[:255])
-#     obj.save(update_fields=["abn_verified"] + ([note_field] if note_field and hasattr(obj, note_field) else []))
-
-
 # --- ABN lookup and verification -------------------------------------------------
 def abn_lookup(abn_number: str):
     url = f"https://abr.business.gov.au/ABN/View?id={abn_number}"
@@ -270,15 +197,6 @@ def abn_lookup(abn_number: str):
     soup = BeautifulSoup(resp.text, "html.parser")
     tag = soup.find("span", {"itemprop": "legalName"})
     return (tag.get_text(strip=True) if tag else ""), resp.text
-
-# def _try_parse_date(text: str):
-#     text = text.replace("\xa0", " ").strip()
-#     for fmt in ("%d %b %Y", "%d %B %Y"):
-#         try:
-#             return datetime.datetime.strptime(text, fmt).date()
-#         except Exception:
-#             pass
-#     return None
 
 def _parse_abn_html_fields(html_text: str) -> dict:
     """
@@ -1089,3 +1007,157 @@ def run_referee_reminder(model_name: str, pk: int, ref_idx: int) -> None:
 
     # Re-schedule this referee only (keep your dev interval)
     schedule_referee_reminder(model_name, pk, ref_idx)
+
+
+# ========== Magic link membership model tasks ==========
+
+def _frontend_base_url() -> str:
+    """
+    Returns the FE base URL for building absolute links.
+    Falls back to localhost:5174 for dev if not set.
+    """
+    base = getattr(settings, "FRONTEND_BASE_URL", "").rstrip("/")
+    return base or "http://localhost:5174"
+
+
+def _manage_path_for_role(recipient_role: str) -> str:
+    """
+    Map the recipient's role to the correct dashboard route.
+    - Owner & Pharmacy Admin use the Owner dashboard area
+    - Org Admin uses the Organization dashboard area
+    """
+    if recipient_role in ("OWNER", "PHARMACY_ADMIN"):
+        return "/dashboard/owner/manage-pharmacies/my-pharmacies"
+    if recipient_role == "ORG_ADMIN":
+        return "/dashboard/organization/manage-pharmacies/my-pharmacies"
+    # Fallback to owner area if something unexpected slips through
+    return "/dashboard/owner/manage-pharmacies/my-pharmacies"
+
+
+def email_membership_application_submitted(app_id: int):
+    """
+    Notify the pharmacy Owner, Pharmacy Admins, and Organization Admins
+    that a new membership application has been submitted.
+    Each recipient gets a link tailored to their dashboard area.
+    """
+    try:
+        app = (MembershipApplication.objects
+               .select_related("pharmacy", "invite_link")
+               .get(id=app_id))
+    except MembershipApplication.DoesNotExist:
+        logger.warning("Application %s not found", app_id)
+        return
+
+    pharmacy = app.pharmacy
+    base = _frontend_base_url()
+
+    # Build a mapping of recipient_email -> recipient_role
+    # Priority: OWNER > PHARMACY_ADMIN > ORG_ADMIN (if a user happens to have multiple roles)
+    recipients_by_role: dict[str, str] = {}
+
+    # Owner
+    owner_email = getattr(getattr(pharmacy, "owner", None), "user", None)
+    owner_email = getattr(owner_email, "email", None)
+    if owner_email:
+        recipients_by_role[owner_email] = "OWNER"
+
+    # Pharmacy Admins (membership table; do NOT rely on reverse name on User)
+    admin_emails = list(
+        Membership.objects
+        .filter(pharmacy=pharmacy, role="PHARMACY_ADMIN", is_active=True)
+        .select_related("user")
+        .values_list("user__email", flat=True)
+    )
+    for e in admin_emails:
+        if not e:
+            continue
+        # don't downgrade OWNER to PHARMACY_ADMIN
+        recipients_by_role.setdefault(e, "PHARMACY_ADMIN")
+
+    # Organization Admins (if pharmacy belongs to an organization)
+    if getattr(pharmacy, "organization_id", None):
+        org_admin_emails = list(
+            OrganizationMembership.objects
+            .filter(role="ORG_ADMIN", organization_id=pharmacy.organization_id)
+            .select_related("user")
+            .values_list("user__email", flat=True)
+        )
+        for e in org_admin_emails:
+            if not e:
+                continue
+            # don't override OWNER or PHARMACY_ADMIN with ORG_ADMIN
+            recipients_by_role.setdefault(e, "ORG_ADMIN")
+
+    if not recipients_by_role:
+        logger.info("No recipients for application %s (pharmacy=%s)", app_id, pharmacy.id)
+        return
+
+    # Common context for all recipients
+    ctx_common = {
+        "pharmacy_name": pharmacy.name,
+        "applicant_full_name": f"{app.first_name} {app.last_name}".strip(),
+        "role": app.role,
+        "category": (
+            "Full/Part-time (Pharmacy staff)"
+            if app.category == "FULL_PART_TIME"
+            else "Favorite (Locum/Shift Hero)"
+        ),
+        "submitted_at": datefilter(app.submitted_at or timezone.now(), "M d, Y H:i"),
+        "mobile_number": app.mobile_number or "",
+        "email": app.email or "",
+    }
+
+    # Send one email per recipient with a role-correct manage_url
+    for email, r_role in recipients_by_role.items():
+        manage_url = f"{base}{_manage_path_for_role(r_role)}"
+        ctx = {**ctx_common, "manage_url": manage_url}
+        send_async_email(
+            subject=f"New membership application — {pharmacy.name}",
+            recipient_list=[email],
+            template_name="emails/membership_application_submitted.html",
+            text_template="emails/membership_application_submitted.txt",
+            context=ctx,
+        )
+
+
+def email_membership_application_approved(app_id: int):
+    """
+    Notify the applicant that their application was approved.
+    (This is in addition to your existing invite/login email.)
+    """
+    try:
+        app = (MembershipApplication.objects
+               .select_related("pharmacy")
+               .get(id=app_id))
+    except MembershipApplication.DoesNotExist:
+        logger.warning("Application %s not found", app_id)
+        return
+
+    if not app.email:
+        logger.info("Application %s has no email; skipping applicant notification.", app_id)
+        return
+
+    base = _frontend_base_url()
+    pharmacy = app.pharmacy
+
+    ctx = {
+        "pharmacy_name": pharmacy.name,
+        "applicant_full_name": f"{app.first_name} {app.last_name}".strip(),
+        "role": app.role,
+        "category": (
+            "Full/Part-time (Pharmacy staff)"
+            if app.category == "FULL_PART_TIME"
+            else "Favorite (Locum/Shift Hero)"
+        ),
+        # Your existing invite helper still sends a login/reset link as needed;
+        # this is a friendly confirmation with a generic login entry point.
+        "login_url": f"{base}/login",
+    }
+
+    send_async_email(
+        subject=f"Your application to {pharmacy.name} was approved",
+        recipient_list=[app.email],
+        template_name="emails/membership_application_approved.html",
+        text_template="emails/membership_application_approved.txt",
+        context=ctx,
+    )

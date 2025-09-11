@@ -1,7 +1,8 @@
 /// <reference types="@types/google.maps" />
 import * as React from 'react';
 import {
-  Box, Button, Chip, Link, TextField, Typography,
+  Box, Button, Chip,  TextField, Typography,   Dialog, DialogTitle, DialogContent, DialogActions, 
+
   InputAdornment, Alert, Snackbar
 } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
@@ -10,7 +11,10 @@ import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
 
 import apiClient from '../../utils/apiClient';
-import { API_BASE_URL, API_ENDPOINTS } from '../../constants/api';
+import {  API_ENDPOINTS } from '../../constants/api';
+import { useAuth } from '../../contexts/AuthContext';
+import type { User } from '../../contexts/AuthContext';
+
 
 type ApiData = {
   // user*
@@ -44,12 +48,26 @@ export default function BasicInfoV2() {
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [data, setData] = React.useState<ApiData>({});
-  const [govIdFile, setGovIdFile] = React.useState<File | null>(null);
   const [snack, setSnack] = React.useState<string>('');
   const [error, setError] = React.useState<string>('');
   const [addressDisplay, setAddressDisplay] = React.useState<string>('');
-  const canSubmit =
-    Boolean(data.ahpra_number) && Boolean(govIdFile || data.government_id);
+    const canSubmit = Boolean(data.ahpra_number);
+
+
+
+  // --- mobile verification state & membership flag ---
+  const { user, setUser } = useAuth();
+
+  const hasMembership = Array.isArray(user?.memberships) && user.memberships.length > 0;
+  const isMobileVerified = Boolean((user as any)?.is_mobile_verified);
+  const [mobileVerifiedLocal, setMobileVerifiedLocal] = React.useState<boolean>(isMobileVerified);
+
+
+  const [otpOpen, setOtpOpen] = React.useState(false);
+  const [otp, setOtp] = React.useState('');
+  const [otpBusy, setOtpBusy] = React.useState(false);
+  const [otpMsg, setOtpMsg] = React.useState('');
+  const [otpErr, setOtpErr] = React.useState('');
 
   // Google Places
   const { isLoaded, loadError } = useJsApiLoader({
@@ -81,8 +99,8 @@ export default function BasicInfoV2() {
   const setField = (name: keyof ApiData, value: any) =>
     setData(prev => ({ ...prev, [name]: value }));
 
-  const getFileUrl = (path?: string | null) =>
-    path ? (path.startsWith('http') ? path : `${API_BASE_URL}${path}`) : '';
+  // const getFileUrl = (path?: string | null) =>
+  //   path ? (path.startsWith('http') ? path : `${API_BASE_URL}${path}`) : '';
 
   // When user picks a place, keep a nice full string AND store structured parts
   const onPickPlace = () => {
@@ -150,13 +168,11 @@ export default function BasicInfoV2() {
         });
 
       // government id file
-      if (govIdFile) fd.append('government_id', govIdFile);
 
       const res = await apiClient.patch(url, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setData(res.data);
-      setGovIdFile(null);
 
       // refresh the visible address line from saved parts (in case backend normalizes)
       const s = [res.data.street_address, res.data.suburb, res.data.state, res.data.postcode]
@@ -181,6 +197,54 @@ export default function BasicInfoV2() {
     if (ok === false)  return <Chip icon={<ErrorOutlineIcon />}   color="error"   label={`${label}`} variant="outlined" />;
     return               <Chip icon={<HourglassBottomIcon />}      label={`${label}`}               variant="outlined" />;
   };
+
+
+  // --- mobile OTP handlers ---
+const sendMobileOtp = async () => {
+  setOtpBusy(true); setOtpErr(''); setOtpMsg('');
+  try {
+    await apiClient.post(API_ENDPOINTS.mobileRequestOtp, {
+      mobile_number: data.phone_number,
+    });
+    setOtpMsg('Code sent to your mobile.');
+  } catch (e: any) {
+    setOtpErr(e?.response?.data?.error || e?.response?.data?.detail || e.message || 'Failed to send code.');
+  } finally {
+    setOtpBusy(false);
+  }
+};
+
+const verifyMobileOtp = async () => {
+  setOtpBusy(true); setOtpErr(''); setOtpMsg('');
+  try {
+    await apiClient.post(API_ENDPOINTS.mobileVerifyOtp, { otp });
+    setOtpMsg('Mobile verified!');
+    setMobileVerifiedLocal(true);
+if (setUser) {
+  setUser((prev: User | null) => (prev ? { ...prev, is_mobile_verified: true } : prev));
+}
+
+
+    // Optionally close after success:
+    // setTimeout(() => setOtpOpen(false), 800);
+  } catch (e: any) {
+    setOtpErr(e?.response?.data?.error || e?.response?.data?.detail || e.message || 'Verification failed.');
+  } finally {
+    setOtpBusy(false);
+  }
+};
+
+const resendMobileOtp = async () => {
+  setOtpBusy(true); setOtpErr(''); setOtpMsg('');
+  try {
+    await apiClient.post(API_ENDPOINTS.mobileResendOtp, {});
+    setOtpMsg('New code sent.');
+  } catch (e: any) {
+    setOtpErr(e?.response?.data?.error || e?.response?.data?.detail || e.message || 'Could not resend code.');
+  } finally {
+    setOtpBusy(false);
+  }
+};
 
   if (loading) return <Typography>Loading…</Typography>;
 
@@ -219,8 +283,32 @@ export default function BasicInfoV2() {
           label="Phone Number"
           value={data.phone_number || ''}
           onChange={e => setField('phone_number', e.target.value)}
+          required={!hasMembership}
+          disabled={isMobileVerified || mobileVerifiedLocal}
           sx={{ flex: '1 1 220px', minWidth: 200, maxWidth: 320 }}
         />
+{(isMobileVerified || mobileVerifiedLocal) ? (
+  <Box sx={{ mt: 1 }}>
+    <VerifiedChip ok={true} label="Mobile Verified" />
+  </Box>
+) : (
+  <Box sx={{ mt: 1 }}>
+    <Button
+      size="small"
+      variant="outlined"
+      onClick={() => setOtpOpen(true)}
+      disabled={!data.phone_number}
+    >
+      Verify mobile
+    </Button>
+    {!hasMembership && (
+      <Typography variant="caption" sx={{ ml: 1 }} color="text.secondary">
+        Required for regular registrations
+      </Typography>
+    )}
+  </Box>
+)}
+
       </Box>
 
 
@@ -278,63 +366,6 @@ export default function BasicInfoV2() {
           sx={{ flex: '0 1 140px', minWidth: 100, maxWidth: 160 }} />
       </Box>
 
-{/* Gov ID row */}
-<Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: 2 }}>
-  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-    <Button variant="outlined" component="label">
-      {govIdFile ? 'Change Government ID' : 'Upload Government ID'}
-      <input
-        hidden
-        type="file"
-        accept="image/*,.pdf"
-        onChange={e => setGovIdFile(e.target.files?.[0] || null)}
-      />
-    </Button>
-
-    {data.government_id ? (
-      <Link
-        href={getFileUrl(data.government_id)}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        View
-      </Link>
-    ) : (
-      <Typography variant="body2" color="text.secondary">
-        No file uploaded
-      </Typography>
-    )}
-  </Box>
-
-  <VerifiedChip ok={data.gov_id_verified} label="Government ID" />
-
-  {typeof data.gov_id_verified === 'boolean' && (
-    <Typography
-      variant="body2"
-      title={
-        data.gov_id_verification_note ||
-        (data.gov_id_verified ? 'Verified' : 'Pending/Not verified')
-      }
-      sx={{
-        color: data.gov_id_verified
-          ? 'success.main'
-          : (data.gov_id_verification_note ? 'error.main' : 'text.secondary'),
-        flex: '1 1 260px',
-        minWidth: 180,
-        maxWidth: 520,
-        overflow: 'hidden',
-        display: '-webkit-box',
-        WebkitLineClamp: 2,
-        WebkitBoxOrient: 'vertical',
-      }}
-    >
-      {data.gov_id_verification_note ||
-        (data.gov_id_verified
-          ? 'Government ID verified.'
-          : 'Pending/Not verified')}
-    </Typography>
-  )}
-</Box>
 
 
       {/* AHPRA row — chip + note stay aligned, wrap nicely on small */}
@@ -378,6 +409,40 @@ export default function BasicInfoV2() {
         {saving ? 'Submitting…' : 'Submit & Verify Basic'}
       </Button>
       </Box>
+      <Dialog open={otpOpen} onClose={() => setOtpOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Verify Mobile</DialogTitle>
+        <DialogContent>
+          {otpErr && <Alert severity="error" sx={{ mb: 1 }}>{otpErr}</Alert>}
+          {otpMsg && <Alert severity="success" sx={{ mb: 1 }}>{otpMsg}</Alert>}
+
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Number: <b>{data.phone_number || '—'}</b>
+          </Typography>
+
+          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+            <Button variant="outlined" onClick={sendMobileOtp} disabled={otpBusy || !data.phone_number}>
+              Send code
+            </Button>
+            <Button variant="text" onClick={resendMobileOtp} disabled={otpBusy}>
+              Resend
+            </Button>
+          </Box>
+
+          <TextField
+            fullWidth
+            label="Enter OTP"
+            value={otp}
+            onChange={(e) => setOtp(e.target.value)}
+            disabled={otpBusy}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOtpOpen(false)} disabled={otpBusy}>Close</Button>
+          <Button variant="contained" onClick={verifyMobileOtp} disabled={otpBusy || !otp}>
+            {otpBusy ? 'Please wait…' : 'Verify'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar open={!!snack} autoHideDuration={2400} onClose={() => setSnack('')} message={snack} />
     </Box>

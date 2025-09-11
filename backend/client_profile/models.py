@@ -6,6 +6,8 @@ from datetime import date
 import uuid
 from django.contrib.contenttypes.fields import GenericRelation, GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from datetime import timedelta
+from django.utils import timezone
 
 
 class Organization(models.Model):
@@ -95,10 +97,18 @@ class PharmacistOnboarding(models.Model):
     ('owner', 'Owner'),
     ('other', 'Other'),
     ]
+    ID_DOC_CHOICES = [
+        ('GOV_ID', 'Government ID'),
+        ('DRIVER_LICENSE', 'Driving license'),
+        ('VISA', 'Visa'),
+        ('AUS_PASSPORT', 'Australian Passport'),
+        ('OTHER_PASSPORT', 'Other Passport'),
+    ]
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
 
     government_id = models.FileField(upload_to='gov_ids/', blank=True, null=True)
+    government_id_type = models.CharField(max_length=32, choices=ID_DOC_CHOICES, blank=True, null=True)
     ahpra_number = models.CharField(max_length=100, blank=True, null=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     short_bio = models.TextField(blank=True, null=True)
@@ -558,6 +568,7 @@ STUDENT_YEAR_CHOICES = [
 # Membership Model - Manages the user roles within each pharmacy
 class Membership(models.Model):
     ROLE_CHOICES = [
+        ('PHARMACY_ADMIN', 'Pharmacy Admin'),
         ("PHARMACIST", "Pharmacist"),
         ("INTERN", "Intern Pharmacist"),
         ("TECHNICIAN", "Dispensary Technician"),
@@ -570,6 +581,7 @@ class Membership(models.Model):
         ("PART_TIME", "Part-time"),
         ("LOCUM", "Locum"),
         ("CASUAL", "Casual"),
+        ('SHIFT_HERO', 'Shift Hero')
     ]
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
@@ -647,11 +659,123 @@ class Membership(models.Model):
             models.Index(fields=['pharmacy', 'user']),
         ]
 
+    @property
+    def is_pharmacy_admin(self):
+        return self.role == 'PHARMACY_ADMIN'
+
+
+    @property
+    def staff_category(self) -> str:
+        """
+        Derived grouping for UI/filters:
+        - 'PHARMACY_STAFF' for FULL_TIME/PART_TIME/CASUAL
+        - 'FAVORITE_STAFF' for LOCUM/SHIFT_HERO
+        """
+        if self.employment_type in {'FULL_TIME', 'PART_TIME', 'CASUAL'}:
+            return 'PHARMACY_STAFF'
+        return 'FAVORITE_STAFF'
+
 
     def __str__(self):
         if self.pharmacy:
             return f"{self.user.email} in {self.pharmacy.name} ({self.role})"
         return self.user.email
+
+
+class MembershipInviteLink(models.Model):
+    """
+    Multi-use magic link an Owner/Org Admin/Pharmacy Admin can generate
+    for a specific pharmacy and category (FULL/PART-TIME vs LOCUM/CASUAL).
+    Candidates submit a short form from this link; each submission becomes
+    a MembershipApplication the owner can approve/reject.
+    """
+    CATEGORY_CHOICES = [
+        ('FULL_PART_TIME', 'Full/Part-time'),
+        ('LOCUM_CASUAL', 'Locum/Casual'),
+    ]
+
+    id = models.BigAutoField(primary_key=True)
+    pharmacy = models.ForeignKey('Pharmacy', on_delete=models.CASCADE, related_name='invite_links')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_invite_links')
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    expires_at = models.DateTimeField()
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['token']),
+            models.Index(fields=['pharmacy', 'is_active']),
+        ]
+
+    def is_valid(self) -> bool:
+        return self.is_active and timezone.now() < self.expires_at
+
+    def __str__(self):
+        return f"{self.pharmacy.name} · {self.category} · {self.token}"
+
+
+class MembershipApplication(models.Model):
+    """
+    A single candidate submission coming from a MembershipInviteLink.
+    Owner reviews (approve/reject). On approve, we create/attach Membership
+    and use your existing invite email flow.
+    """
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+    ]
+
+    id = models.BigAutoField(primary_key=True)
+    invite_link = models.ForeignKey(MembershipInviteLink, on_delete=models.CASCADE, related_name='applications')
+    pharmacy = models.ForeignKey('Pharmacy', on_delete=models.CASCADE, related_name='membership_applications')
+
+    # Category copied from link at submit time (for easy filtering)
+    category = models.CharField(max_length=20, choices=MembershipInviteLink.CATEGORY_CHOICES)
+
+    # Minimal fields per your spec
+    role = models.CharField(max_length=20, choices=Membership.ROLE_CHOICES)
+    first_name = models.CharField(max_length=150)
+    last_name = models.CharField(max_length=150)
+    mobile_number = models.CharField(max_length=32)
+
+    # LEVEL – we keep your existing per-role fields so approval can map 1:1 into Membership
+    pharmacist_award_level = models.CharField(
+        max_length=50, blank=True, null=True,
+        choices=PHARMACIST_AWARD_LEVEL_CHOICES,
+    )
+    otherstaff_classification_level = models.CharField(
+        max_length=50, blank=True, null=True,
+        choices=OTHERSTAFF_CLASSIFICATION_CHOICES,
+    )
+    intern_half = models.CharField(
+        max_length=50, blank=True, null=True,
+        choices=INTERN_HALF_CHOICES,
+    )
+    student_year = models.CharField(
+        max_length=50, blank=True, null=True,
+        choices=STUDENT_YEAR_CHOICES,
+    )
+
+    # Optional but RECOMMENDED to satisfy step (7) “existing user vs new”
+    email = models.EmailField()
+
+    submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='membership_applications')
+
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(blank=True, null=True)
+    decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='membership_applications_decided')
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['pharmacy', 'status']),
+        ]
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name} → {self.pharmacy.name} ({self.status})"
 
 # Chain Model - Represents a chain of pharmacies
 class Chain(models.Model):

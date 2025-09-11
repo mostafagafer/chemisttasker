@@ -10,6 +10,12 @@ export const API_ENDPOINTS = {
   verifyOtp: "/users/verify-otp/",
   resendOtp: "/users/resend-otp/",
   
+
+  // --- Mobile OTP (users app) ---
+  mobileRequestOtp: '/users/mobile/request-otp/',
+  mobileVerifyOtp:  '/users/mobile/verify-otp/',
+  mobileResendOtp:  '/users/mobile/resend-otp/',
+
   // Dashboards
   organizations: '/client_profile/organizations/',
 
@@ -72,6 +78,11 @@ export const API_ENDPOINTS = {
   membershipCreate: '/client-profile/memberships/',
   membershipBulkInvite: '/client-profile/memberships/bulk_invite/',
   membershipDelete: (membershipId: string) => `/client-profile/memberships/${membershipId}/`,
+  // Magic membership links & applications
+  membershipInviteLinks: '/client-profile/membership-invite-links/',              // POST to create link, GET to list (with ?pharmacy=)
+  membershipApplications: '/client-profile/membership-applications/',             // GET (list), actions below
+  magicMembershipInfo: (token: string) => `/client-profile/magic/memberships/${token}/`,          // GET (public) – validate/show link info
+  magicMembershipApply: (token: string) => `/client-profile/magic/memberships/${token}/apply/`,   // POST (public) – submit application
 
   // Shifts
   // Create & marketplace

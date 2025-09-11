@@ -20,6 +20,11 @@ urlpatterns = [
     path('verify-otp/', VerifyOTPView.as_view(), name='verify-otp'),
     path('resend-otp/', ResendOTPView.as_view(), name='resend-otp'),
 
+    # Mobile verification
+    path('mobile/request-otp/', RequestMobileOTPView.as_view(), name='mobile-request-otp'),
+    path('mobile/verify-otp/', VerifyMobileOTPView.as_view(), name='mobile-verify-otp'),
+    path('mobile/resend-otp/', ResendMobileOTPView.as_view(), name='mobile-resend-otp'),
+
     # ... other user routes ...
     path('invite-org-user/', InviteOrgUserView.as_view(), name='invite-org-user'),
 

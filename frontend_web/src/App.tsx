@@ -63,6 +63,15 @@ export default function App() {
     ) {
       return ORGANIZATION_NAV;
     }
+
+    // Allow Pharmacy Admins to use the Owner sidebar
+    if (
+      Array.isArray(user.memberships) &&
+      user.memberships.some((m) => m?.role === "PHARMACY_ADMIN")
+    ) {
+      return getOwnerNav(progress);
+    }
+
     if (user.role === "OWNER") return getOwnerNav(progress);
     if (user.role === "PHARMACIST") return getPharmacistNavDynamic(progress, workspace);
     if (user.role === "OTHER_STAFF") return getOtherStaffNavDynamic(progress, workspace);

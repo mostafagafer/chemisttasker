@@ -9,6 +9,7 @@ from client_profile.models import Organization
 from .models import OrganizationMembership
 import random
 from django.utils import timezone
+from client_profile.models import Pharmacy, Membership as PharmacyMembership
 
 User = get_user_model()
 
@@ -94,47 +95,86 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             from rest_framework.exceptions import AuthenticationFailed
             raise AuthenticationFailed("Please verify your email address (check your inbox for your OTP code).")
 
-        # pull in all org memberships for this user
-        memberships = OrganizationMembership.objects.filter(user=self.user)
+        # 1) Organization memberships
+        org_memberships = OrganizationMembership.objects.filter(user=self.user)
+        org_payload = [
+            {
+                'organization_id':   m.organization_id,
+                'organization_name': m.organization.name,
+                'role':              m.role,
+                'region':            m.region,
+            }
+            for m in org_memberships
+        ]
+
+        # 2) Pharmacy memberships
+        pharm_memberships = PharmacyMembership.objects.filter(
+            user=self.user,
+            is_active=True,
+        ).select_related('pharmacy')
+
+        pharm_payload = [
+            {
+                'pharmacy_id':   pm.pharmacy_id,
+                'pharmacy_name': pm.pharmacy.name if pm.pharmacy else None,
+                'role':          pm.role,
+            }
+            for pm in pharm_memberships
+        ]
+
+        # 3) Combined user payload (+ is_mobile_verified added)
         data['user'] = {
             'id':       self.user.id,
             'username': self.user.username,
             'email':    self.user.email,
             'role':     self.user.role,
-            'memberships': [
-                {
-                    'organization_id':   m.organization_id,
-                    'organization_name': m.organization.name,
-                    'role':              m.role,
-                    'region':            m.region,
-                }
-                for m in memberships
-            ]
+            'memberships': org_payload + pharm_payload,
+            'is_pharmacy_admin': any(pm.role == 'PHARMACY_ADMIN' for pm in pharm_memberships),
+            'is_mobile_verified': bool(getattr(self.user, 'is_mobile_verified', False)),  # <— added
         }
         return data
 
 class CustomTokenRefreshSerializer(TokenRefreshSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
-        # exactly the same payload shape you build in your login-serializer:
         refresh = RefreshToken(attrs['refresh'])
         user    = User.objects.get(id=refresh['user_id'])
-        memberships = OrganizationMembership.objects.filter(user=user)
+
+        org_memberships = OrganizationMembership.objects.filter(user=user)
+        org_payload = [
+            {
+                'organization_id':   m.organization_id,
+                'organization_name': m.organization.name,
+                'role':              m.role,
+                'region':            m.region,
+            }
+            for m in org_memberships
+        ]
+
+        pharm_memberships = PharmacyMembership.objects.filter(
+            user=user,
+            is_active=True,
+        ).select_related('pharmacy')
+
+        pharm_payload = [
+            {
+                'pharmacy_id':   pm.pharmacy_id,
+                'pharmacy_name': pm.pharmacy.name if pm.pharmacy else None,
+                'role':          pm.role,
+            }
+            for pm in pharm_memberships
+        ]
+
         data['user'] = {
             'id':       user.id,
             'username': user.username,
             'email':    user.email,
             'role':     user.role,
-            'memberships': [
-                {
-                    'organization_id':   m.organization_id,
-                    'organization_name': m.organization.name,
-                    'role':              m.role,
-                    'region':            m.region,
-                }
-                for m in memberships
-            ]
+            'memberships': org_payload + pharm_payload,
+            'is_pharmacy_admin': any(pm.role == 'PHARMACY_ADMIN' for pm in pharm_memberships),
+            'is_mobile_verified': bool(getattr(user, 'is_mobile_verified', False)),  # <— added
         }
+
         return data
 
 class InviteOrgUserSerializer(serializers.Serializer):

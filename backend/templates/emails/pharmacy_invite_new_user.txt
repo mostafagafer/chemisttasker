@@ -2,13 +2,28 @@
 
 Hi there,
 
-{{ inviter }} has invited you to join {{ pharmacy_name }} as a {{ role|title }} on ChemistTasker.
-To get started, just set your password using the link below:
+{% if is_admin -%}
+{{ inviter }} has invited you to join {{ pharmacy_name }} as a Pharmacy Admin on ChemistTasker.
+Set your password:
 
-Set your password: {{ magic_link }}
+{{ magic_link }}
+
+Once you’re in, head to your Admin Dashboard to:
+- Manage roster and create/assign shifts
+- Approve or reject membership applications
+- Invite and manage team members
+- Handle leave and shift escalations
+
+Admin Dashboard: {{ admin_landing_url }}
+{% else -%}
+{{ inviter }} has invited you to join {{ pharmacy_name }} as a {{ role|title }} on ChemistTasker.
+Set your password:
+
+{{ magic_link }}
 
 After you set your password, you’ll have immediate access to all community shifts for {{ pharmacy_name }}.
-(You can complete your profile later if you want to apply for public shifts.)
+{% endif -%}
+
 
 We’re excited to have you on the team—welcome aboard!
 

@@ -20,10 +20,12 @@ import PaymentV2 from "./PaymentV2";
 import RefereesV2 from "./RefereesV2";
 import ProfileV2 from "./ProfileV2";
 import RatesV2 from "./RatesV2";
+import IdentityV2 from "./IdentityV2";
 
-type StepKey = "basic" | "skills" | "payment" |"rate"| "referees" | "profile";
+type StepKey = "basic" | "identity" | "skills" | "payment" | "rate" | "referees" | "profile";
 const STEPS: Array<{ key: StepKey; label: string }> = [
   { key: "basic",    label: "Basic Info" },
+  { key: "identity", label: "Identity" },
   { key: "skills",   label: "Skills" },
   { key: "payment",  label: "Payment" },
   { key: "referees", label: "Referees" },
@@ -119,6 +121,8 @@ export default function PharmacistOnboardingV2Layout() {
           {/* Right: page content */}
             <Box sx={{ minHeight: 320 }}>
             {step === "basic" && <BasicInfoV2 /> }
+            {step === "identity" && <IdentityV2 /> }
+
             {step === "skills" && <SkillsV2 /> }
             {step === "payment" && <PaymentV2 /> }
             {step === "referees" && <RefereesV2 /> }

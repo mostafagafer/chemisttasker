@@ -2,10 +2,22 @@
 
 Hi {{ user_first_name|default:"there" }},
 
+{% if is_admin -%}
+{{ inviter }} has added you as a Pharmacy Admin at {{ pharmacy_name }} on ChemistTasker.
+
+As an admin you can:
+- Manage the roster and create/assign shifts
+- Approve or reject membership applications
+- Invite and manage team members
+- Handle leave and shift escalations
+
+Open Admin Dashboard: {{ frontend_dashboard_link }}
+{% else -%}
 {{ inviter }} has added you as a {{ role|title }} at {{ pharmacy_name }} on ChemistTasker.
 You now have access to all community shifts at this pharmacy.
 
 Go to ChemistTasker: {{ frontend_dashboard_link }}
+{% endif -%}
 
 As a member of this pharmacy, you'll get priority access to new shifts and can view all internal opportunities.
 

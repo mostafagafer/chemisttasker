@@ -294,3 +294,9 @@ class InvoiceAdmin(admin.ModelAdmin):
     readonly_fields = ('subtotal','gst_amount','super_amount','total')
 
 admin.site.register(ExplorerPost)
+
+
+admin.site.register(RefereeResponse)
+
+admin.site.register(MembershipApplication)
+

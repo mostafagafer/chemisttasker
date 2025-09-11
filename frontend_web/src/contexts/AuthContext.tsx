@@ -1,20 +1,31 @@
 // src/contexts/AuthContext.tsx
 
-import { createContext, useContext, ReactNode, useEffect, useState } from 'react';
+import { createContext, useContext, ReactNode, useEffect, useState, Dispatch, SetStateAction } from 'react';
+
 
 export interface OrgMembership {
   organization_id: number;
   organization_name: string;
-  role: string;
+  role: string;  // e.g. 'ORG_ADMIN'
   region: string;
+}
+
+// NEW: shape for pharmacy-level memberships returned by backend
+export interface PharmacyMembership {
+  pharmacy_id: number;
+  pharmacy_name?: string | null;
+  role: string;  // e.g. 'PHARMACY_ADMIN', 'PHARMACIST', etc.
 }
 
 export type User = {
   id?: number;
   username: string;
   email?: string;
-  role: string;
-  memberships?: OrgMembership[];
+  role: string; // top-level role (may still be 'EXPLORER' for Pharmacy Admins)
+  is_pharmacy_admin?: boolean; // NEW convenience flag from backend
+  // memberships now can include BOTH org and pharmacy entries
+  memberships?: Array<OrgMembership | PharmacyMembership>;
+  is_mobile_verified?: boolean; 
 };
 
 type AuthContextType = {
@@ -25,6 +36,7 @@ type AuthContextType = {
   login: (access: string, refresh: string, user: User) => void;
   logout: () => void;
   isLoading: boolean;
+  setUser: Dispatch<SetStateAction<User | null>>;
 };
 
 const AuthContext = createContext<AuthContextType>({
@@ -35,6 +47,7 @@ const AuthContext = createContext<AuthContextType>({
   login: () => {},
   logout: () => {},
   isLoading: true,
+  setUser: () => {},
 });
 
 type AuthProviderProps = {
@@ -47,14 +60,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Bulletproof localStorage/session bootstrap
+  // bootstrap from localStorage
   useEffect(() => {
     try {
       const storedAccess = localStorage.getItem('access');
       const storedRefresh = localStorage.getItem('refresh');
       const storedUser = localStorage.getItem('user');
 
-      // If any are missing, or user fails to parse, log out completely
       if (!storedAccess || !storedRefresh || !storedUser) {
         localStorage.removeItem('access');
         localStorage.removeItem('refresh');
@@ -68,7 +80,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setAccess(storedAccess);
           setRefresh(storedRefresh);
         } catch {
-          // Malformed user in storage, clear all
+          // malformed user; clear all
           localStorage.removeItem('user');
           setUser(null);
           setAccess(null);
@@ -76,7 +88,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
       }
     } catch {
-      // Catch-all: if anything explodes, clear everything
+      // catch-all; clear all
       localStorage.removeItem('access');
       localStorage.removeItem('refresh');
       localStorage.removeItem('user');
@@ -86,6 +98,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
     setIsLoading(false);
   }, []);
+
+
+  useEffect(() => {
+  if (user) {
+    localStorage.setItem('user', JSON.stringify(user));
+  }
+}, [user]);
 
   const login = (newAccess: string, newRefresh: string, userInfo: User) => {
     setAccess(newAccess);
@@ -117,6 +136,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         login,
         logout,
         isLoading,
+        setUser,
       }}
     >
       {children}

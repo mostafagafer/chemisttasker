@@ -1,4 +1,5 @@
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView  
+from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
 from rest_framework import viewsets, permissions, filters, generics, status
 from django.contrib.auth.tokens import default_token_generator
@@ -25,6 +26,8 @@ from .serializers import (
 )
 User = get_user_model()
 import requests
+from requests.auth import HTTPBasicAuth
+
 
 def verify_recaptcha(token):
     from django.conf import settings
@@ -85,7 +88,7 @@ class VerifyOTPView(APIView):
         user.otp_created_at = None
         user.save()
 
-        # --- Send welcome email ---
+        # --- Send welcome email (kept exactly as you have) ---
         onboarding_link = get_frontend_onboarding_url(user)
         ctx = {
             "first_name": user.first_name,
@@ -100,7 +103,54 @@ class VerifyOTPView(APIView):
             context=ctx,
             text_template="emails/welcome_email.txt"
         )
-        return Response({"detail": "OTP verified. Welcome email sent."}, status=200)
+
+        # --- Also return tokens + user payload so frontend can call mobile-verify authenticated ---
+        refresh = RefreshToken.for_user(user)
+
+        # Build memberships payload exactly like your serializers
+        from .models import OrganizationMembership
+        from client_profile.models import Membership as PharmacyMembership
+
+        org_memberships = OrganizationMembership.objects.filter(user=user)
+        org_payload = [
+            {
+                'organization_id':   m.organization_id,
+                'organization_name': m.organization.name,
+                'role':              m.role,
+                'region':            m.region,
+            }
+            for m in org_memberships
+        ]
+
+        pharm_memberships = PharmacyMembership.objects.filter(
+            user=user,
+            is_active=True,
+        ).select_related('pharmacy')
+
+        pharm_payload = [
+            {
+                'pharmacy_id':   pm.pharmacy_id,
+                'pharmacy_name': pm.pharmacy.name if pm.pharmacy else None,
+                'role':          pm.role,
+            }
+            for pm in pharm_memberships
+        ]
+
+        return Response({
+            "refresh": str(refresh),
+            "access": str(refresh.access_token),
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "role": user.role,
+                "memberships": org_payload + pharm_payload,
+                "is_pharmacy_admin": any(pm.role == 'PHARMACY_ADMIN' for pm in pharm_memberships),
+                # helpful flags for frontend:
+                "is_otp_verified": True,
+                "is_mobile_verified": bool(getattr(user, "is_mobile_verified", False)),
+            }
+        }, status=200)
 
 class ResendOTPView(APIView):
     def post(self, request):
@@ -130,6 +180,194 @@ class ResendOTPView(APIView):
         )
 
         return Response({"detail": "A new OTP has been sent to your email."}, status=200)
+
+# --- views.py (excerpt): mobile OTP flow ---
+
+import random
+from datetime import timedelta
+from django.utils import timezone
+from django.conf import settings
+
+import requests
+from requests.auth import HTTPBasicAuth
+
+from rest_framework import status, permissions
+from rest_framework.views import APIView
+from rest_framework.response import Response
+
+
+# Helpers
+def generate_otp() -> str:
+    """Return a 6-digit OTP as a string."""
+    return f"{random.randint(100000, 999999)}"
+
+
+def normalize_au_mobile(raw: str) -> str:
+    """
+    Normalize Australian numbers to 61XXXXXXXXX format.
+    Accepts: 0412..., +61412..., 61412..., with spaces/dashes.
+    """
+    if not raw:
+        return ""
+    n = raw.replace(" ", "").replace("-", "")
+    if n.startswith("+"):
+        n = n[1:]
+    if n.startswith("0") and len(n) >= 2:
+        n = "61" + n[1:]
+    return n
+
+
+def valid_otp_format(otp: str) -> bool:
+    """OTP must be exactly 6 digits."""
+    return bool(otp and otp.isdigit() and len(otp) == 6)
+
+
+class RequestMobileOTPView(APIView):
+    """
+    Step 1: User submits mobile number; system generates and sends OTP via SMS.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        mobile_number = request.data.get("mobile_number")
+
+        if not mobile_number:
+            return Response({"error": "Mobile number is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        normalized = normalize_au_mobile(mobile_number)
+        if not normalized or not normalized.startswith("61"):
+            return Response({"error": "Invalid Australian mobile number format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 60-second cooldown to prevent spamming
+        if user.mobile_otp_created_at and timezone.now() - user.mobile_otp_created_at < timedelta(seconds=60):
+            return Response(
+                {"error": "Please wait 60 seconds before requesting a new OTP."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        # Persist to user
+        otp_code = generate_otp()
+        user.mobile_number = normalized
+        user.mobile_otp_code = otp_code
+        user.mobile_otp_created_at = timezone.now()
+        user.is_mobile_verified = False
+        user.save()
+
+        # Send SMS
+        sms_payload = {
+            "enable_unicode": False,
+            "messages": [
+                {
+                    "to": normalized,
+                    "message": f"Your ChemistTasker verification code is {otp_code}",
+                    "sender": settings.MOBILEMESSAGE_SENDER,
+                }
+            ]
+        }
+
+        resp = requests.post(
+            "https://api.mobilemessage.com.au/v1/messages",
+            json=sms_payload,
+            auth=HTTPBasicAuth(settings.MOBILEMESSAGE_USERNAME, settings.MOBILEMESSAGE_PASSWORD),
+            timeout=20,
+        )
+
+        if resp.status_code != 200:
+            return Response(
+                {"error": "Failed to send OTP", "details": resp.text},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response({"detail": "OTP sent successfully"}, status=status.HTTP_200_OK)
+
+
+class VerifyMobileOTPView(APIView):
+    """
+    Step 2: User submits OTP to verify mobile.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        otp = request.data.get("otp")
+
+        if not valid_otp_format(otp):
+            return Response({"error": "Invalid OTP format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Enforce 10-minute expiry
+        if not user.mobile_otp_created_at or (timezone.now() - user.mobile_otp_created_at) > timedelta(minutes=10):
+            return Response({"error": "OTP has expired, please request a new one."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        if otp != user.mobile_otp_code:
+            return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Success: mark verified, clear code & (optionally) timestamp
+        user.is_mobile_verified = True
+        user.mobile_otp_code = None
+        user.mobile_otp_created_at = None
+        user.save()
+
+        return Response({"detail": "Mobile number verified successfully"}, status=status.HTTP_200_OK)
+
+
+class ResendMobileOTPView(APIView):
+    """
+    Step 3: User requests a resend of mobile OTP.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+
+        if not user.mobile_number:
+            return Response(
+                {"error": "No mobile number associated with this account."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 60-second cooldown
+        if user.mobile_otp_created_at and timezone.now() - user.mobile_otp_created_at < timedelta(seconds=60):
+            return Response(
+                {"error": "Please wait 60 seconds before resending OTP."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        # Generate new OTP, invalidate old one
+        otp_code = generate_otp()
+        user.mobile_otp_code = otp_code
+        user.mobile_otp_created_at = timezone.now()
+        user.is_mobile_verified = False
+        user.save()
+
+        # Send SMS
+        sms_payload = {
+            "enable_unicode": False,
+            "messages": [
+                {
+                    "to": user.mobile_number,
+                    "message": f"Your ChemistTasker verification code is {otp_code}",
+                    "sender": settings.MOBILEMESSAGE_SENDER,
+                }
+            ]
+        }
+
+        resp = requests.post(
+            "https://api.mobilemessage.com.au/v1/messages",
+            json=sms_payload,
+            auth=HTTPBasicAuth(settings.MOBILEMESSAGE_USERNAME, settings.MOBILEMESSAGE_PASSWORD),
+            timeout=20,
+        )
+
+        if resp.status_code != 200:
+            return Response(
+                {"error": "Failed to resend OTP", "details": resp.text},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response({"detail": "OTP resent successfully"}, status=status.HTTP_200_OK)
+
 
 class CustomLoginView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer

@@ -31,14 +31,27 @@
         <p>
             Hi {{ user_first_name|default:"there" }},
         </p>
+        {% if is_admin %}
+        <p>
+            <b>{{ inviter }}</b> has added you as a <b>Pharmacy Admin</b> at <b>{{ pharmacy_name }}</b> on ChemistTasker.
+        </p>
+        <p>As an admin you can:</p>
+        <ul>
+            <li>Manage the roster and create/assign shifts</li>
+            <li>Approve or reject membership applications</li>
+            <li>Invite and manage team members</li>
+            <li>Handle leave and shift escalations</li>
+        </ul>
+        <a class="btn" href="{{ frontend_dashboard_link }}">Open Admin Dashboard</a>
+        {% else %}
         <p>
             <b>{{ inviter }}</b> has added you as a <b>{{ role|title }}</b> at <b>{{ pharmacy_name }}</b> on ChemistTasker.<br>
             You now have access to all <b>community shifts</b> at this pharmacy.
         </p>
         <a class="btn" href="{{ frontend_dashboard_link }}">Go to ChemistTasker</a>
+        {% endif %}
         <p>
-            As a member of this pharmacy, you'll get priority access to new shifts and can view all internal opportunities.<br>
-            
+            As a member of this pharmacy, you'll get priority access to new shifts and can view all internal opportunities.
         </p>
         <p>
             If you have any questions or need assistance, our team is always happy to help.

@@ -14,9 +14,11 @@ import ResetPasswordPage from './pages/ResetPasswordPage';
 import PasswordResetRequestPage from './pages/PasswordResetRequestPage';
 import TermsOfServicePage from './pages/TermsOfServicePage';
 import NotFoundPage     from './pages/NotFoundPage';
+import MobileOTPVerify from './pages/MobileOTPVerify';
 
 import PublicJobBoardPage from './pages/PublicJobBoardPage';
 import SharedShiftLandingPage from './pages/SharedShiftLandingPage';
+import MembershipApplyPage from './pages/MembershipApplyPage';
 
 // Orgnization
 import OrganizationOverviewPage from './pages/dashboard/organization/OrganizationOverviewPage';
@@ -87,6 +89,7 @@ const router = createBrowserRouter([
       { index: true, element: <LandingPage /> },
       { path: 'login',    element: <Login /> },
       { path: 'otp-verify', element: <OTPVerify /> },
+      { path: 'mobile-verify', element: <MobileOTPVerify /> },
       { path: 'register', element: <Register /> },
       { path: 'password-reset', element: <PasswordResetRequestPage /> },
       { path: '/terms-of-service', element: <TermsOfServicePage /> },
@@ -94,6 +97,8 @@ const router = createBrowserRouter([
 
       { path: 'shifts/public-board', element: <PublicJobBoardPage /> },
       { path: 'shifts/link',         element: <SharedShiftLandingPage /> },
+
+      { path: 'membership/apply/:token', element: <MembershipApplyPage /> },
 
       // PUBLIC referee confirmation page (add here)
       // { path: 'onboarding/referee-confirm/:pk/:refIndex', element: <RefereeConfirmPage /> },

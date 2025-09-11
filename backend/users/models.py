@@ -64,6 +64,12 @@ class User(AbstractUser):
     accepted_terms = models.BooleanField(default=False)
     accepted_terms_at = models.DateTimeField(null=True, blank=True)
 
+    mobile_number = models.CharField(max_length=20, blank=True, null=True)
+    mobile_otp_code = models.CharField(max_length=6, blank=True, null=True)
+    mobile_otp_created_at = models.DateTimeField(blank=True, null=True)
+    is_mobile_verified = models.BooleanField(default=False)
+
+
 class OrganizationMembership(models.Model):
     """
     Assigns users to an Organization with one of three roles.

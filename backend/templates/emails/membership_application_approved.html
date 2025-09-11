@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Your Application Was Approved</title>
+  <style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+    .container {
+      padding: 30px 20px; background: #fff; border-radius: 10px;
+      box-shadow: 0 2px 8px #ececec; max-width: 560px; margin: 40px auto;
+    }
+    .wave { font-size: 2.2rem; line-height: 1; }
+    .subtitle { color: #666; margin-top: 4px; }
+    .card {
+      border: 1px solid #eee; border-radius: 8px; padding: 12px 14px; margin: 16px 0;
+      background: #fcfcff;
+    }
+    .row { margin: 6px 0; }
+    .label { color: #666; font-size: 13px; display: block; }
+    .value { font-weight: 600; margin-top: 2px; }
+    .btn {
+      display: inline-block; background: #23b59c; color: #fff; padding: 12px 28px;
+      text-decoration: none; border-radius: 8px; font-weight: 600; margin-top: 16px;
+    }
+    .footer { margin-top: 28px; color: #777; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="wave">🎉</div>
+    <h2 style="margin: 8px 0 0">You’re approved to join {{ pharmacy_name }}</h2>
+    <div class="subtitle">Welcome aboard, {{ applicant_full_name }}!</div>
+
+    <div class="card">
+      <div class="row">
+        <span class="label">Role</span>
+        <div class="value">{{ role|title }}</div>
+      </div>
+      <div class="row">
+        <span class="label">Category</span>
+        <div class="value">{{ category }}</div>
+      </div>
+    </div>
+
+    <a href="{{ login_url }}" class="btn">Go to Login</a>
+
+    <p style="margin-top: 14px; color: #666; line-height: 1.55;">
+      If you already have a ChemistTasker account, just sign in and you’ll see the pharmacy under your memberships.
+      If you’re new, check your inbox for the password setup / magic link.
+    </p>
+
+    <div class="footer">
+      Need help? Just reply to this email and we’ll jump in.<br />
+      — The ChemistTasker Team 💚
+    </div>
+  </div>
+</body>
+</html>

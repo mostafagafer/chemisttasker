@@ -31,6 +31,23 @@
         <p>
             Hi there,
         </p>
+        {% if is_admin %}
+        <p>
+            <b>{{ inviter }}</b> has invited you to join <b>{{ pharmacy_name }}</b> as a <b>Pharmacy Admin</b> on ChemistTasker.<br>
+            To get started, set your password below.
+        </p>
+        <a class="btn" href="{{ magic_link }}">Set Your Password</a>
+        <p>Once you’re in, head to your Admin Dashboard to:</p>
+        <ul>
+            <li>Manage roster and create/assign shifts</li>
+            <li>Approve or reject membership applications</li>
+            <li>Invite and manage team members</li>
+            <li>Handle leave and shift escalations</li>
+        </ul>
+        <p>
+            Admin Dashboard: <a href="{{ admin_landing_url }}">{{ admin_landing_url }}</a>
+        </p>
+        {% else %}
         <p>
             <b>{{ inviter }}</b> has invited you to join <b>{{ pharmacy_name }}</b> as a <b>{{ role|title }}</b> on ChemistTasker.<br>
             To get started, just set your password below!
@@ -40,6 +57,7 @@
             After you set your password, you’ll have immediate access to all community shifts for {{ pharmacy_name }}.<br>
             (You can complete your profile later if you want to apply for public shifts.)
         </p>
+        {% endif %}
         <p>
             We’re excited to have you on the team—welcome aboard!
         </p>

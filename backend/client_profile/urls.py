@@ -12,6 +12,8 @@ router.register(r'organizations', OrganizationViewSet, basename='organization')
 router.register(r'chains', ChainViewSet, basename='chain')
 router.register(r'pharmacies', PharmacyViewSet)
 router.register(r'memberships', MembershipViewSet, basename='membership')
+router.register(r'membership-invite-links', MembershipInviteLinkViewSet, basename='membership-invite-link')
+router.register(r'membership-applications', MembershipApplicationViewSet, basename='membership-application')
 
 router.register(r'community-shifts', CommunityShiftViewSet, basename='community-shifts')
 router.register(r'public-shifts',    PublicShiftViewSet,    basename='public-shifts')
@@ -51,6 +53,9 @@ urlpatterns = [
     # path('onboarding/referee-confirm/<int:profile_pk>/<int:ref_idx>/', RefereeConfirmView.as_view(), name='referee-confirm'),
     path('onboarding/submit-reference/<str:token>/', RefereeSubmitResponseView.as_view(), name='submit-referee-response'),
     path('onboarding/referee-reject/<int:profile_pk>/<int:ref_idx>/', RefereeRejectView.as_view(), name='referee-reject'),
+
+    path('magic/memberships/<str:token>/', MagicLinkInfoView.as_view(), name='magic-membership-detail'),
+    path('magic/memberships/<str:token>/apply/', SubmitMembershipApplication.as_view(), name='magic-membership-apply'),
 
     path('dashboard/organization/', OrganizationDashboardView.as_view(), name='organization-dashboard'),
     path('dashboard/organization/<int:organization_pk>/',OrganizationDashboardView.as_view(), name='organization-dashboard'),

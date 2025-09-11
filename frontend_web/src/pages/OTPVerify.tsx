@@ -30,9 +30,12 @@ export default function OTPVerify() {
     setStatus('');
     setLoading(true);
     try {
-      await axios.post(`${API_BASE_URL}${API_ENDPOINTS.verifyOtp}`, { email, otp });
+      const { data } = await axios.post(`${API_BASE_URL}${API_ENDPOINTS.verifyOtp}`, { email, otp });
+      if (data?.access) localStorage.setItem('access_token', data.access);
+      if (data?.refresh) localStorage.setItem('refresh_token', data.refresh);
       setStatus('Verification successful! Redirecting...');
-      setTimeout(() => navigate('/login'), 1000);
+      setTimeout(() => navigate('/mobile-verify'), 800);
+
     } catch (err) {
       if (axios.isAxiosError(err)) {
         setError(err.response?.data?.detail || 'Verification failed. Please check your code.');

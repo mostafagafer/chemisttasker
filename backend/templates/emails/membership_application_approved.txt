@@ -1,0 +1,15 @@
+🎉 You’re approved to join {{ pharmacy_name }}
+
+Hi {{ applicant_full_name }},
+
+Your application has been approved.
+
+Role: {{ role|title }}
+Category: {{ category }}
+
+Log in here: {{ login_url }}
+
+If you already have a ChemistTasker account, just sign in and you’ll see the pharmacy under your memberships.
+If you’re new, check your inbox for the password setup / magic link.
+
+— The ChemistTasker Team 💚

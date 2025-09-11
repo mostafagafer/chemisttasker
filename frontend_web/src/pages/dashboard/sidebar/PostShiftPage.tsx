@@ -72,6 +72,7 @@ export default function PostShiftPage() {
       .catch(() => showSnackbar('Failed to load pharmacies'));
   }, []);
 
+
   // — Form state —
   const [pharmacyId, setPharmacyId] = useState<number | ''>('');
   const [allowedVis, setAllowedVis] = useState<string[]>([]);
@@ -82,6 +83,12 @@ export default function PostShiftPage() {
     ORG_CHAIN: '',
     PLATFORM: '',
   });
+
+  useEffect(() => {
+     if (pharmacies.length === 1 && !editingShiftId && !pharmacyId) {
+       setPharmacyId(pharmacies[0].id);
+     }
+   }, [pharmacies, editingShiftId, pharmacyId]);
 
   // compute allowedVis & default visibility only when pharmacyId or user.role changes
   useEffect(() => {

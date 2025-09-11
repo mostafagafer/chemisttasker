@@ -30,6 +30,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 
+
+
 def verification_fields_changed(instance, validated_data, fields):
     for field in fields:
         old = getattr(instance, field, None)
@@ -73,6 +75,7 @@ class SyncUserMixin:
                 updated_fields.append(attr)
         if updated_fields:
             user_instance.save(update_fields=updated_fields)
+
 
 # === OnboardingVerificationMixin ===
 class OnboardingVerificationMixin:
@@ -993,6 +996,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
     username   = serializers.CharField(source='user.username',   required=False, allow_blank=True)
     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
     last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
+    phone_number = serializers.CharField(source='user.mobile_number', required=False, allow_blank=True, allow_null=True)
 
 
     latitude  = serializers.DecimalField(max_digits=18, decimal_places=12, required=False, allow_null=True)
@@ -1019,12 +1023,13 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         fields = [
             # ---------- BASIC ----------
             'username','first_name','last_name','phone_number',
-            'government_id','ahpra_number',
+            'ahpra_number',
             'street_address','suburb','state','postcode','google_place_id','latitude','longitude',
-            'gov_id_verified','gov_id_verification_note',
             'ahpra_verified','ahpra_registration_status','ahpra_registration_type','ahpra_expiry_date',
             'ahpra_verification_note',
 
+            # -------- IDENTITY (new tab) --------
+            'government_id','government_id_type','gov_id_verified','gov_id_verification_note',
 
             # -------- PAYMENT (add tfn here) --------
             'payment_preference',
@@ -1069,6 +1074,9 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
             'ahpra_number': {'required': False, 'allow_blank': True, 'allow_null': True},
             'government_id': {'required': False, 'allow_null': True},
+            'government_id_type': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'gov_id_verified': {'read_only': True},
+            'gov_id_verification_note': {'read_only': True},
 
             # address optional
             'street_address':  {'required': False, 'allow_blank': True, 'allow_null': True},
@@ -1203,14 +1211,14 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             bool(getattr(user, 'username', None)),
             bool(getattr(user, 'first_name', None)),
             bool(getattr(user, 'last_name', None)),
-            bool(obj.phone_number),
+            bool(getattr(user, 'mobile_number', None)),
             bool(obj.gov_id_verified),
             bool(obj.ahpra_verified),
             bool(getattr(obj, 'referee1_confirmed', False)),
             bool(getattr(obj, 'referee2_confirmed', False)),
         ]
 
-        # NEW — Address contribution (counts as one unit if core address is complete)
+        # Address completeness counts as one unit
         addr_ok = all([
             _filled_str(getattr(obj, 'street_address', None)),
             _filled_str(getattr(obj, 'suburb', None)),
@@ -1223,7 +1231,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         checks.append(bool(getattr(obj, 'resume', None)))
         checks.append(_filled_str(getattr(obj, 'short_bio', None)))
 
-        # Payment contribution (unchanged)
+        # Payment contribution
         pref = (obj.payment_preference or '').upper()
         if pref == 'ABN':
             checks.append(bool(obj.abn) and bool(obj.abn_verified))
@@ -1232,18 +1240,31 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
 
         # Rates contribution (all fields)
         rp = getattr(obj, 'rate_preference', None) or {}
-
-        # Day buckets (require a value)
         checks.append(_filled_str(rp.get('weekday')))
         checks.append(_filled_str(rp.get('saturday')))
         checks.append(_filled_str(rp.get('sunday')))
         checks.append(_filled_str(rp.get('public_holiday')))
-
-        # Early/Late: complete if explicit rate is set OR "same as day" is checked
         early_ok = bool(rp.get('early_morning_same_as_day')) or _filled_str(rp.get('early_morning'))
         late_ok  = bool(rp.get('late_night_same_as_day'))   or _filled_str(rp.get('late_night'))
         checks.append(early_ok)
         checks.append(late_ok)
+
+        # ---------- NEW: flip overall verified here, based on your gate ----------
+        phone_ok = bool(getattr(user, 'is_mobile_verified', False))
+        gate_ok = (
+            bool(getattr(obj, 'referee1_confirmed', False)) and
+            bool(getattr(obj, 'referee2_confirmed', False)) and
+            bool(getattr(obj, 'ahpra_verified', False)) and
+            phone_ok
+        )
+        if gate_ok and not bool(getattr(obj, 'verified', False)):
+            try:
+                obj.verified = True
+                obj.save(update_fields=['verified'])
+                print("[VERIFY DEBUG] progress flip -> verified=True", {"pk": obj.pk}, flush=True)
+            except Exception as e:
+                print("[VERIFY DEBUG] progress flip failed", {"pk": obj.pk, "err": str(e)}, flush=True)
+        # ------------------------------------------------------------------------
 
         filled = sum(1 for x in checks if x)
         total = len(checks) or 1
@@ -1281,6 +1302,8 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             return self._rate_tab(instance, validated_data, submit)
         if tab == 'profile':
             return self._profile_tab(instance, validated_data, submit)
+        if tab == 'identity':
+            return self._identity_tab(instance, validated_data, submit)
 
         return super().update(instance, validated_data)
 
@@ -1291,7 +1314,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
 
         if user_data:
             changed_user_fields = []
-            for k in ('username', 'first_name', 'last_name'):
+            for k in ('username', 'first_name', 'last_name', 'mobile_number'):
                 if k in user_data:
                     setattr(instance.user, k, user_data[k])
                     changed_user_fields.append(k)
@@ -1305,8 +1328,8 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         # We will handle government_id explicitly (to delete old files safely),
         # so do NOT include it in direct_fields.
         direct_fields = [
-            'phone_number', 'ahpra_number',
-            'street_address', 'suburb', 'state', 'postcode', 'google_place_id',
+        'ahpra_number',
+        'street_address', 'suburb', 'state', 'postcode', 'google_place_id',
         ]
 
         # Detect changes that affect verification flags
@@ -1315,30 +1338,30 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         update_fields = []
 
         # --- government_id: delete old file on replace or explicit clear ---
-        gov_id_changed = False
-        if 'government_id' in vdata:
-            new_file = vdata.get('government_id')  # may be a file object or None
-            old_file = getattr(instance, 'government_id', None)
-            gov_id_changed = (_fname(new_file) != _fname(old_file))
+        # gov_id_changed = False
+        # if 'government_id' in vdata:
+        #     new_file = vdata.get('government_id')  # may be a file object or None
+        #     old_file = getattr(instance, 'government_id', None)
+        #     gov_id_changed = (_fname(new_file) != _fname(old_file))
 
-            if new_file is None:
-                # explicit clear
-                if old_file:
-                    try:
-                        old_file.delete(save=False)   # Azure/local safe
-                    except Exception:
-                        pass
-                instance.government_id = None
-                update_fields.append('government_id')
-            else:
-                # replacing: delete old first if it's different
-                if old_file and _fname(old_file) and _fname(old_file) != _fname(new_file):
-                    try:
-                        old_file.delete(save=False)
-                    except Exception:
-                        pass
-                instance.government_id = new_file
-                update_fields.append('government_id')
+        #     if new_file is None:
+        #         # explicit clear
+        #         if old_file:
+        #             try:
+        #                 old_file.delete(save=False)   # Azure/local safe
+        #             except Exception:
+        #                 pass
+        #         instance.government_id = None
+        #         update_fields.append('government_id')
+        #     else:
+        #         # replacing: delete old first if it's different
+        #         if old_file and _fname(old_file) and _fname(old_file) != _fname(new_file):
+        #             try:
+        #                 old_file.delete(save=False)
+        #             except Exception:
+        #                 pass
+        #         instance.government_id = new_file
+        #         update_fields.append('government_id')
 
         # regular writes for other basic fields
         for f in direct_fields:
@@ -1360,10 +1383,10 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             instance.ahpra_verification_note = ""
             update_fields += ['ahpra_verified', 'ahpra_verification_note']
 
-        if gov_id_changed:
-            instance.gov_id_verified = False
-            instance.gov_id_verification_note = ""
-            update_fields += ['gov_id_verified', 'gov_id_verification_note']
+        # if gov_id_changed:
+        #     instance.gov_id_verified = False
+        #     instance.gov_id_verification_note = ""
+        #     update_fields += ['gov_id_verified', 'gov_id_verification_note']
 
         # full profile remains unverified until all tabs pass
         if submit:
@@ -1376,12 +1399,12 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         # trigger ONLY the basic-tab tasks when submitting
         if submit:
             ahpra = vdata.get('ahpra_number', instance.ahpra_number)
-            gov   = vdata.get('government_id', instance.government_id)
+            # gov   = vdata.get('government_id', instance.government_id)
             errors = {}
             if not ahpra:
                 errors['ahpra_number'] = ['AHPRA number is required to submit.']
-            if not gov:
-                errors['government_id'] = ['Government ID file is required to submit.']
+            # if not gov:
+            #     errors['government_id'] = ['Government ID file is required to submit.']
             if errors:
                 raise serializers.ValidationError(errors)
 
@@ -1395,6 +1418,79 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
                 )
 
             # GOV ID: file changed OR not verified yet
+            # if instance.government_id and (gov_id_changed or not instance.gov_id_verified):
+            #     async_task(
+            #         'client_profile.tasks.verify_filefield_task',
+            #         instance._meta.model_name, instance.pk,
+            #         'government_id',
+            #         instance.user.first_name or '',
+            #         instance.user.last_name or '',
+            #         instance.user.email or '',
+            #         verification_field='gov_id_verified',
+            #         note_field='gov_id_verification_note',
+            #     )
+
+        return instance
+
+
+    # ---------------- Identity TAB (new) ----------------
+    def _identity_tab(self, instance: PharmacistOnboarding, vdata: dict, submit: bool):
+        """
+        Handles government_id file and its 'government_id_type' dropdown.
+        On replace/clear: delete the old file safely, reset verification flags.
+        On submit: queue verify_filefield_task if a file exists (or changed / unverified).
+        """
+        update_fields = []
+
+        # helper to compare file names safely
+        def _fname(f):
+            return getattr(f, 'name', None) if f else None
+
+        # type (dropdown) – optional
+        if 'government_id_type' in vdata:
+            instance.government_id_type = vdata.get('government_id_type')
+            update_fields.append('government_id_type')
+
+        # file handling (replace / clear)
+        gov_id_changed = False
+        if 'government_id' in vdata:
+            new_file = vdata.get('government_id')
+            old_file = getattr(instance, 'government_id', None)
+            gov_id_changed = (_fname(new_file) != _fname(old_file))
+
+            if new_file is None:
+                if old_file:
+                    try:
+                        old_file.delete(save=False)
+                    except Exception:
+                        pass
+                instance.government_id = None
+                update_fields.append('government_id')
+            else:
+                if old_file and _fname(old_file) and _fname(old_file) != _fname(new_file):
+                    try:
+                        old_file.delete(save=False)
+                    except Exception:
+                        pass
+                instance.government_id = new_file
+                update_fields.append('government_id')
+
+        # reset verification flags if file changed or explicitly cleared
+        if gov_id_changed:
+            instance.gov_id_verified = False
+            instance.gov_id_verification_note = ""
+            update_fields += ['gov_id_verified', 'gov_id_verification_note']
+
+        # submitting this tab does not make the whole profile verified by itself
+        if submit:
+            instance.verified = False
+            update_fields.append('verified')
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+
+        # On submit: schedule verification task if needed
+        if submit:
             if instance.government_id and (gov_id_changed or not instance.gov_id_verified):
                 async_task(
                     'client_profile.tasks.verify_filefield_task',
@@ -1407,7 +1503,9 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
                     note_field='gov_id_verification_note',
                 )
 
+        # Recompute final verified gate on every pass
         return instance
+
 
     # ---------------- Payment TAB ----------------
     def _payment_tab(self, instance: PharmacistOnboarding, vdata: dict, submit: bool):
@@ -1503,7 +1601,6 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
                     instance.user.email or '',
                     note_field='abn_verification_note',  # task will only fill ABR fields + note
                 )
-
         return instance
 
     # ---------------- Referees TAB ----------------
@@ -1582,7 +1679,6 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
 
         if submit:
             send_referee_emails(instance, is_reminder=False)  # schedules per-ref inside
-
         return instance
 
     # ---------------- Skills tab ----------------
@@ -1712,6 +1808,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             instance.save(update_fields=["rate_preference", "verified"])
         else:
             instance.save(update_fields=["rate_preference"])
+
         return instance
 
     # ---------------- Profile tab ----------------
@@ -1761,7 +1858,6 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
 
         if update_fields:
             instance.save(update_fields=list(set(update_fields)))
-
         return instance
 
 # === Dashboards ===
@@ -1944,6 +2040,7 @@ class MembershipSerializer(serializers.ModelSerializer):
             'otherstaff_classification_level',
             'intern_half',
             'student_year',
+            'staff_category',
         ]
         read_only_fields = [
             'invited_by', 'invited_by_details', 'created_at', 'updated_at',
@@ -1952,6 +2049,45 @@ class MembershipSerializer(serializers.ModelSerializer):
     # No 'create' method needed. The default ModelSerializer.create() works perfectly
     # because all the classification fields are listed in Meta.fields. It will
     # create the new Membership object and save all provided fields in one step.
+
+
+    def validate(self, attrs):
+        """
+        Keep Membership data consistent:
+        - Default employment_type for Pharmacy Admin if it wasn't provided.
+        - Clear irrelevant classification fields according to the selected role.
+        """
+        # Resolve role and employment_type considering partial updates
+        role = attrs.get('role', getattr(self.instance, 'role', None))
+        employment_type = attrs.get('employment_type', getattr(self.instance, 'employment_type', None))
+
+        # 1) Pharmacy Admin: default employment_type if omitted
+        if role == 'PHARMACY_ADMIN' and not employment_type:
+            attrs['employment_type'] = 'FULL_TIME'
+
+        # 2) Role-based cleanup of classification fields
+        #    (prevents leaving stale data when role changes via PATCH)
+        def clear(*field_names):
+            for f in field_names:
+                if f in attrs:
+                    attrs[f] = None
+
+        if role == 'PHARMACY_ADMIN':
+            clear('pharmacist_award_level', 'otherstaff_classification_level', 'intern_half', 'student_year')
+        elif role == 'PHARMACIST':
+            clear('otherstaff_classification_level', 'intern_half', 'student_year')
+            # (pharmacist_award_level can stay / be set)
+        elif role in ('ASSISTANT', 'TECHNICIAN'):
+            clear('pharmacist_award_level', 'intern_half', 'student_year')
+            # (otherstaff_classification_level can stay / be set)
+        elif role == 'INTERN':
+            clear('pharmacist_award_level', 'otherstaff_classification_level', 'student_year')
+            # (intern_half can stay / be set)
+        elif role == 'STUDENT':
+            clear('pharmacist_award_level', 'otherstaff_classification_level', 'intern_half')
+            # (student_year can stay / be set)
+
+        return attrs
 
     def update(self, instance, validated_data):
         """
@@ -1971,6 +2107,50 @@ class MembershipSerializer(serializers.ModelSerializer):
         # It will efficiently update all fields from validated_data in a single database operation.
         return super().update(instance, validated_data)
 
+class MembershipInviteLinkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MembershipInviteLink
+        fields = ['id', 'pharmacy', 'created_by', 'category', 'token', 'expires_at', 'is_active', 'created_at']
+        read_only_fields = ['id', 'created_by', 'token', 'created_at']
+
+    def create(self, validated_data):
+        validated_data['created_by'] = self.context['request'].user
+        return super().create(validated_data)
+
+
+class MembershipApplicationSerializer(serializers.ModelSerializer):
+    invite_link = serializers.PrimaryKeyRelatedField(
+    queryset=MembershipInviteLink.objects.all(),
+    write_only=True
+    )
+    email = serializers.EmailField(required=True, allow_blank=False)
+
+    
+    pharmacy_name = serializers.CharField(source='pharmacy.name', read_only=True)
+
+    class Meta:
+        model = MembershipApplication
+        fields = [
+            'id', 'invite_link', 'pharmacy', 'pharmacy_name', 'category',
+            'role', 'first_name', 'last_name', 'mobile_number',
+            'pharmacist_award_level', 'otherstaff_classification_level',
+            'intern_half', 'student_year', 'email',
+            'submitted_by', 'status', 'submitted_at', 'decided_at', 'decided_by'
+        ]
+        read_only_fields = [
+            'id', 'pharmacy', 'pharmacy_name', 'category',
+            'submitted_by', 'status', 'submitted_at', 'decided_at', 'decided_by'
+        ]
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['submitted_by'] = request.user
+        # Freeze category from the link at submission time
+        link = validated_data['invite_link']
+        validated_data['category'] = link.category
+        validated_data['pharmacy'] = link.pharmacy
+        return super().create(validated_data)
 
 # === Shifts ===
 class ShiftSlotSerializer(serializers.ModelSerializer):

@@ -10,10 +10,12 @@ import {
   TableContainer, TableHead, TableRow, Paper,  InputAdornment,  
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { AddCircleOutline as AddIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { AddCircleOutline as AddIcon, Edit as EditIcon, Delete as DeleteIcon, ContentCopy as ContentCopyIcon, Done as DoneIcon, Close as CloseIcon } from '@mui/icons-material';
 import { AxiosError, AxiosResponse } from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
+import type { OrgMembership } from '../../../contexts/AuthContext';
+
 import apiClient from '../../../utils/apiClient';
 import { API_BASE_URL, API_ENDPOINTS } from '../../../constants/api';
 import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
@@ -38,6 +40,31 @@ const PHARMACIST_AWARD_LEVELS = [ { value: 'PHARMACIST', label: 'Pharmacist' }, 
 const OTHERSTAFF_CLASSIFICATIONS = [ { value: 'LEVEL_1', label: 'Level 1' }, { value: 'LEVEL_2', label: 'Level 2' }, { value: 'LEVEL_3', label: 'Level 3' }, { value: 'LEVEL_4', label: 'Level 4' }];
 const INTERN_HALVES = [ { value: 'FIRST_HALF', label: 'First Half' }, { value: 'SECOND_HALF', label: 'Second Half' }];
 const STUDENT_YEARS = [ { value: 'YEAR_1', label: 'Year 1' }, { value: 'YEAR_2', label: 'Year 2' }, { value: 'YEAR_3', label: 'Year 3' }, { value: 'YEAR_4', label: 'Year 4' }];
+// --- Invite UI constants ---
+const ROLE_OPTIONS = [
+  { value: 'PHARMACY_ADMIN', label: 'Admin' },
+  { value: 'PHARMACIST', label: 'Pharmacist' },
+  { value: 'TECHNICIAN', label: 'Technician' },
+  { value: 'ASSISTANT', label: 'Assistant' },
+  { value: 'INTERN', label: 'Intern' },
+  { value: 'STUDENT', label: 'Student' },
+] as const;
+
+const EMPLOYMENT_TYPES_INTERNAL = ['FULL_TIME', 'PART_TIME', 'CASUAL'] as const;
+const EMPLOYMENT_TYPES_EXTERNAL = ['LOCUM', 'SHIFT_HERO'] as const;
+
+
+const labelEmploymentType = (v?: string) =>
+  (v || '—')
+    .toLowerCase()
+    .split('_')
+    .map(s => s.charAt(0).toUpperCase() + s.slice(1))
+    .join(' ');
+
+const getAllowedTypesForCategory = (cat: 'FULL_PART_TIME' | 'LOCUM_CASUAL') =>
+  cat === 'FULL_PART_TIME'
+    ? ['FULL_TIME', 'PART_TIME', 'CASUAL']
+    : ['LOCUM', 'SHIFT_HERO'];
 
 const getMemberClassification = (member: any) => {
   switch (member.role) {
@@ -76,9 +103,28 @@ export default function PharmacyPage() {
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   const [memberships, setMemberships] = useState<Record<string, any[]>>({});
   const [openStaffDlg, setOpenStaffDlg] = useState(false);
+
+  // Magic link dialog state
+  const [openLinkDlg, setOpenLinkDlg] = useState(false);
+  const [linkCategory, setLinkCategory] = useState<'FULL_PART_TIME' | 'LOCUM_CASUAL'>('FULL_PART_TIME');
+  const [linkExpiryDays, setLinkExpiryDays] = useState<number>(14);
+  const [generatedLinkUrl, setGeneratedLinkUrl] = useState<string | null>(null);
+
+  // Applications state (per pharmacy)
+  const [applications, setApplications] = useState<Record<string, any[]>>({});
+
+  const [approveTypeById, setApproveTypeById] = useState<Record<number, string>>({});
+
+    // Invite mode and admin single-row state
+  const [inviteMode, setInviteMode] = useState<'internal' | 'locum' | 'admin'>('internal');
+  const [adminInvite, setAdminInvite] = useState<Partial<MemberInvite>>({
+    email: '',
+    invited_name: '',
+    role: 'PHARMACY_ADMIN',
+    employment_type: 'FULL_TIME',
+  });
   const [currentPh, setCurrentPh] = useState<Pharmacy | null>(null);
   const [memberInvites, setMemberInvites] = useState<Partial<MemberInvite>[]>([{ email: '', invited_name: '', role: 'PHARMACIST', employment_type: 'FULL_TIME', pharmacist_award_level: 'PHARMACIST' }]);
-  const [staffTab, setStaffTab] = useState(0);
   const [locumInvites, setLocumInvites] = useState<Partial<MemberInvite>[]>([{ email: '', invited_name: '', role: 'PHARMACIST', employment_type: 'LOCUM', pharmacist_award_level: 'PHARMACIST' }]);
   const [loading, setLoading] = useState(true);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
@@ -132,8 +178,72 @@ export default function PharmacyPage() {
     return path.startsWith('http') ? path : `${API_BASE_URL}${path}`;
   };
 
-  useEffect(() => { if (!user) return; const isOrgAdmin = Array.isArray(user?.memberships) && user.memberships.some(m => m?.role === 'ORG_ADMIN'); const load = async () => { try { const res: AxiosResponse<Pharmacy[]> = await apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.pharmacies}`); setPharmacies(res.data); const membershipPromises = res.data.map(ph => loadMembers(ph.id)); await Promise.all(membershipPromises); } catch (err) { if (err instanceof AxiosError && err.response?.status === 404) setNeedsOnboarding(true); else console.error(err); } finally { setLoading(false); } }; if (isOrgAdmin) { load(); } else { apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.onboardingDetail('owner')}`).then(load).catch((err: unknown) => { if (err instanceof AxiosError && err.response?.status === 404) setNeedsOnboarding(true); else console.error(err); }).finally(() => setLoading(false)); } }, [user]);
+
   const loadMembers = (phId: string) => { return apiClient.get<any[]>(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${phId}`).then(res => setMemberships(m => ({ ...m, [phId]: res.data }))).catch(console.error); };
+
+
+const loadApplications = (phId: string) => {
+  return apiClient
+    .get<any[]>(`${API_BASE_URL}${API_ENDPOINTS.membershipApplications}?status=PENDING`)
+    .then(res => {
+      const filtered = (res.data || []).filter((a: any) => String(a.pharmacy) === String(phId));
+      setApplications(prev => ({ ...prev, [phId]: filtered }));
+    })
+    .catch(console.error);
+};
+
+useEffect(() => {
+  if (!user) return;
+
+  const isOrgAdmin =
+    Array.isArray(user?.memberships) &&
+    user.memberships.some((m: any) => m?.role === 'ORG_ADMIN');
+
+  const isPharmacyAdmin =
+    !!user?.is_pharmacy_admin ||
+    (Array.isArray(user?.memberships) &&
+      user.memberships.some((m: any) => m?.role === 'PHARMACY_ADMIN'));
+
+  const load = async () => {
+    try {
+      const res: AxiosResponse<Pharmacy[]> = await apiClient.get(
+        `${API_BASE_URL}${API_ENDPOINTS.pharmacies}`
+      );
+      setPharmacies(res.data);
+
+      // load members + applications for each pharmacy
+      const membershipPromises = res.data.map(ph => loadMembers(ph.id));
+      const applicationPromises = res.data.map(ph => loadApplications(ph.id));
+      await Promise.all([...membershipPromises, ...applicationPromises]);
+    } catch (err) {
+      if (err instanceof AxiosError && err.response?.status === 404) {
+        setNeedsOnboarding(true);
+      } else {
+        console.error(err);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (isOrgAdmin || isPharmacyAdmin) {
+    // Admins (and org-admins) should load pharmacies immediately
+    load();
+  } else {
+    // Owners still need onboarding check first
+    apiClient
+      .get(`${API_BASE_URL}${API_ENDPOINTS.onboardingDetail('owner')}`)
+      .then(load)
+      .catch((err: unknown) => {
+        if (err instanceof AxiosError && err.response?.status === 404) {
+          setNeedsOnboarding(true);
+        } else {
+          console.error(err);
+        }
+      });
+    // Note: no extra setLoading(false) here; load() already sets it
+  }
+}, [user]);
 
 
 //   useEffect(() => {
@@ -233,7 +343,6 @@ const handlePlaceChanged = () => {
 
     fd.append('state', state);
     fd.append('abn', abnDigits);
-    fd.append('abn', abn);
     if (approvalCertFile) fd.append('methadone_s8_protocols', approvalCertFile);
     if (sopsFile) fd.append('sops', sopsFile);
     if (inductionGuidesFile) fd.append('induction_guides', inductionGuidesFile);
@@ -246,8 +355,16 @@ const handlePlaceChanged = () => {
     fd.append('default_rate_type', defaultRateType);
     if (defaultRateType === 'FIXED') fd.append('default_fixed_rate', defaultFixedRate);
     fd.append('about', about);
-    const orgMem = Array.isArray(user?.memberships) ? user.memberships.find(m => m?.role === 'ORG_ADMIN') : null;
-    if (orgMem?.organization_id) fd.append('organization', orgMem.organization_id.toString());
+const orgMem = Array.isArray(user?.memberships)
+  ? user.memberships.find(
+      (m): m is OrgMembership =>
+        (m as any)?.role === 'ORG_ADMIN' && 'organization_id' in (m as any)
+    )
+  : undefined;
+
+if (orgMem?.organization_id) {
+  fd.append('organization', String(orgMem.organization_id));
+}
     try {
       const urlBase = `${API_BASE_URL}${API_ENDPOINTS.pharmacies}`;
       if (editing) {
@@ -266,8 +383,150 @@ const handlePlaceChanged = () => {
     }
   };
   const handleDelete = async (id: string) => { try { await apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.pharmacies}${id}/`); setPharmacies(prev => prev.filter(p => p.id !== id)); setSnackMsg('Deleted successfully!'); setSnackbarOpen(true); } catch (err) { console.error(err); } };
-  const handleOpenInviteDialog = (pharmacy: Pharmacy) => { setCurrentPh(pharmacy); setMemberInvites([{ email: '', invited_name: '', role: 'PHARMACIST', employment_type: 'FULL_TIME', pharmacist_award_level: 'PHARMACIST' }]); setLocumInvites([{ email: '', invited_name: '', role: 'PHARMACIST', employment_type: 'LOCUM', pharmacist_award_level: 'PHARMACIST' }]); setStaffTab(0); setOpenStaffDlg(true); };
-  const handleSendInvites = async () => { const invites = (staffTab === 0 ? memberInvites : locumInvites).filter(row => row.email && row.role && row.employment_type).map(row => ({ ...row, pharmacy: currentPh?.id })); if (!invites.length) { setSnackMsg('Please fill out at least one invite.'); setSnackbarOpen(true); return; } try { await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`, { invitations: invites }); if (currentPh) loadMembers(currentPh.id); setSnackMsg('Invitations sent!'); } catch (e: any) { setSnackMsg(e?.response?.data?.detail || 'Failed to send invitations.'); } setSnackbarOpen(true); setOpenStaffDlg(false); };
+  const handleOpenInviteDialog = (pharmacy: Pharmacy, mode: 'internal' | 'locum' | 'admin') => {
+    setCurrentPh(pharmacy);
+    setInviteMode(mode);
+
+    if (mode === 'internal') {
+      setMemberInvites([{
+        email: '',
+        invited_name: '',
+        role: 'PHARMACIST',
+        employment_type: 'FULL_TIME',
+        pharmacist_award_level: 'PHARMACIST',
+      }]);
+    } else if (mode === 'locum') {
+      setLocumInvites([{
+        email: '',
+        invited_name: '',
+        role: 'PHARMACIST',
+        employment_type: 'LOCUM',
+        pharmacist_award_level: 'PHARMACIST',
+      }]);
+    } else {
+      setAdminInvite({
+        email: '',
+        invited_name: '',
+        role: 'PHARMACY_ADMIN',
+        employment_type: 'FULL_TIME',
+      });
+    }
+
+    setOpenStaffDlg(true);
+  };
+
+
+const handleOpenLinkDialog = (pharmacy: Pharmacy, category: 'FULL_PART_TIME' | 'LOCUM_CASUAL') => {
+  setCurrentPh(pharmacy);
+  setLinkCategory(category);
+  setLinkExpiryDays(14);
+  setGeneratedLinkUrl(null);
+  setOpenLinkDlg(true);
+};
+
+const handleCreateMagicLink = async () => {
+  if (!currentPh) return;
+  try {
+    const body = {
+      pharmacy: currentPh.id,
+      category: linkCategory,
+      expires_in_days: linkExpiryDays,
+    };
+    const res = await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipInviteLinks}`, body);
+    const token = res.data?.token;
+    const url = `${window.location.origin}/membership/apply/${token}`;
+    setGeneratedLinkUrl(url);
+  } catch (e: any) {
+    setSnackMsg(e?.response?.data?.detail || 'Failed to generate link.');
+    setSnackbarOpen(true);
+  }
+};
+
+const copyLinkToClipboard = async () => {
+  if (!generatedLinkUrl) return;
+  await navigator.clipboard.writeText(generatedLinkUrl);
+  setSnackMsg('Link copied to clipboard');
+  setSnackbarOpen(true);
+};
+
+const approveApplication = async (appId: number, pharmacyId: string, employmentType?: string) => {
+
+  try {
+    await apiClient.post(
+      `${API_BASE_URL}${API_ENDPOINTS.membershipApplications}${appId}/approve/`,
+      employmentType ? { employment_type: employmentType } : {}
+    );
+
+    await loadApplications(pharmacyId);
+    await loadMembers(pharmacyId);
+    setSnackMsg('Application approved');
+  } catch (e: any) {
+    setSnackMsg(e?.response?.data?.detail || 'Failed to approve.');
+  }
+  setSnackbarOpen(true);
+};
+
+const rejectApplication = async (appId: number, pharmacyId: string) => {
+  try {
+    await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipApplications}${appId}/reject/`, {});
+    await loadApplications(pharmacyId);
+    setSnackMsg('Application rejected');
+  } catch (e: any) {
+    setSnackMsg(e?.response?.data?.detail || 'Failed to reject.');
+  }
+  setSnackbarOpen(true);
+};
+
+
+  const handleSendInvites = async () => {
+    let invites: any[] = [];
+
+    if (inviteMode === 'admin') {
+      if (!adminInvite.email) {
+        setSnackMsg('Please enter an email.');
+        setSnackbarOpen(true);
+        return;
+      }
+      invites = [{
+        ...adminInvite,
+        role: 'PHARMACY_ADMIN',
+        employment_type: adminInvite.employment_type || 'FULL_TIME',
+        pharmacy: currentPh?.id,
+      }];
+    } else {
+      const rows = inviteMode === 'internal' ? memberInvites : locumInvites;
+      invites = rows
+        .filter(row => row.email && row.role)
+        .map(row => {
+          const base = { ...row, pharmacy: currentPh?.id };
+          if (base.role === 'PHARMACY_ADMIN' && !base.employment_type) {
+            base.employment_type = 'FULL_TIME';
+          }
+          return base;
+        });
+    }
+
+    if (!invites.length) {
+      setSnackMsg('Please fill out at least one invite.');
+      setSnackbarOpen(true);
+      return;
+    }
+
+    try {
+      await apiClient.post(
+        `${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`,
+        { invitations: invites }
+      );
+      if (currentPh) await loadMembers(currentPh.id);
+      setSnackMsg('Invitations sent!');
+    } catch (e: any) {
+      setSnackMsg(e?.response?.data?.detail || 'Failed to send invitations.');
+    }
+
+    setSnackbarOpen(true);
+    setOpenStaffDlg(false);
+  };
+
 
   if (needsOnboarding) { return ( <Box p={4} textAlign="center"> <Alert severity="warning"> Please complete <strong>Owner Onboarding</strong> first. </Alert> <Button variant="contained" sx={{ mt: 2 }} onClick={() => navigate('/onboarding/owner')}> Go to Onboarding </Button> </Box> ); }
   const paginatedPharmacies = pharmacies.slice((page - 1) * itemsPerPage, page * itemsPerPage);
@@ -353,34 +612,419 @@ const handlePlaceChanged = () => {
         </DialogActions>
       </Dialog>
       <Dialog open={openStaffDlg} onClose={() => setOpenStaffDlg(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Invite Staff to {currentPh?.name}</DialogTitle>
+        <DialogTitle>
+          {inviteMode === 'admin'
+            ? `Assign Admin for ${currentPh?.name ?? ''}`
+            : inviteMode === 'internal'
+              ? `Invite Full/Part Time to ${currentPh?.name ?? ''}`
+              : `Invite Favorite Staff (Locum/Shift Hero) to ${currentPh?.name ?? ''}` }
+        </DialogTitle>
+
         <DialogContent sx={{ pt: 2, pb: 2, minWidth: 400 }}>
-          <Tabs value={staffTab} onChange={(_, v) => setStaffTab(v)} sx={{ mb: 2 }} variant="fullWidth" textColor="inherit" indicatorColor="primary">
-            <Tab label="Internal (Full/Part Time)" />
-            <Tab label="External (Locum/Casual)" />
-          </Tabs>
-          {(staffTab === 0 ? memberInvites : locumInvites).map((row, idx) => {
-            const invites = staffTab === 0 ? memberInvites : locumInvites; const setInvites = staffTab === 0 ? setMemberInvites : setLocumInvites; const employmentTypesLocal = staffTab === 0 ? ['FULL_TIME', 'PART_TIME'] : ['LOCUM', 'CASUAL'];
-            const handleInviteChange = (field: keyof MemberInvite, value: string) => { const next = [...invites]; next[idx] = { ...next[idx], [field]: value }; setInvites(next); };
-            return ( <Box key={idx} sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 2, mb: 2, borderRadius: 2, border: '1px solid', borderColor: 'divider', p: 2 }} >
-                <TextField label="Full Name" value={row.invited_name || ''} onChange={e => handleInviteChange('invited_name', e.target.value)} fullWidth />
-                <TextField label="Email" value={row.email || ''} onChange={e => handleInviteChange('email', e.target.value)} fullWidth />
-                <TextField select label="Role" value={row.role || ''} onChange={e => handleInviteChange('role', e.target.value)} fullWidth> {['PHARMACIST', 'TECHNICIAN', 'ASSISTANT', 'INTERN', 'STUDENT'].map(opt => ( <MenuItem key={opt} value={opt}>{opt.charAt(0) + opt.slice(1).toLowerCase()}</MenuItem> ))} </TextField>
-                {row.role === 'PHARMACIST' && ( <TextField select fullWidth label="Award Level" value={row.pharmacist_award_level || 'PHARMACIST'} onChange={e => handleInviteChange('pharmacist_award_level', e.target.value)} > {PHARMACIST_AWARD_LEVELS.map(opt => ( <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem> ))} </TextField> )}
-                {(row.role === 'ASSISTANT' || row.role === 'TECHNICIAN') && ( <TextField select fullWidth label="Classification Level" value={row.otherstaff_classification_level || 'LEVEL_1'} onChange={e => handleInviteChange('otherstaff_classification_level', e.target.value)} > {OTHERSTAFF_CLASSIFICATIONS.map(opt => ( <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>))} </TextField>)}
-                {row.role === 'INTERN' && ( <TextField select fullWidth label="Intern Half" value={row.intern_half || 'FIRST_HALF'} onChange={e => handleInviteChange('intern_half', e.target.value)} > {INTERN_HALVES.map(opt => ( <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem> ))} </TextField> )}
-                {row.role === 'STUDENT' && ( <TextField select fullWidth label="Student Year" value={row.student_year || 'YEAR_1'} onChange={e => handleInviteChange('student_year', e.target.value)} > {STUDENT_YEARS.map(opt => ( <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>))} </TextField> )}
-                <TextField select label="Employment Type" value={row.employment_type || ''} onChange={e => handleInviteChange('employment_type', e.target.value)} fullWidth> {employmentTypesLocal.map(opt => ( <MenuItem key={opt} value={opt}>{opt.replace('_', ' ')}</MenuItem> ))} </TextField>
-                {invites.length > 1 && ( <Box><Button color="secondary" onClick={() => setInvites(v => v.filter((_, i) => i !== idx))}>Remove</Button></Box> )}
-              </Box> );
-          })}
-          <Box mt={2} display="flex" alignItems="center">
-            <Button onClick={() => (staffTab === 0 ? setMemberInvites : setLocumInvites)(v => [ ...v, { email: '', invited_name: '', role: 'PHARMACIST', employment_type: staffTab === 0 ? 'FULL_TIME' : 'LOCUM', pharmacist_award_level: 'PHARMACIST' }])}>+ Add Another</Button>
-            <Button variant="contained" sx={{ ml: 'auto' }} onClick={handleSendInvites}>Send Invitations</Button>
+          {/* INTERNAL (Full/Part) */}
+          {inviteMode === 'internal' && (
+            <>
+              {memberInvites.map((row, idx) => {
+                const handleInviteChangeInternal = (field: keyof MemberInvite, value: string) => {
+                  const next = [...memberInvites];
+                  next[idx] = { ...next[idx], [field]: value };
+                  setMemberInvites(next);
+                };
+
+                return (
+                  <Box
+                    key={idx}
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr',
+                      gap: 2,
+                      mb: 2,
+                      borderRadius: 2,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      p: 2,
+                    }}
+                  >
+                    <TextField
+                      label="Full Name"
+                      value={row.invited_name || ''}
+                      onChange={e => handleInviteChangeInternal('invited_name', e.target.value)}
+                      fullWidth
+                    />
+                    <TextField
+                      label="Email"
+                      value={row.email || ''}
+                      onChange={e => handleInviteChangeInternal('email', e.target.value)}
+                      fullWidth
+                    />
+
+                    {/* Role (Admin has its own button/flow) */}
+                    <TextField
+                      select
+                      label="Role"
+                      value={row.role || ''}
+                      onChange={e => handleInviteChangeInternal('role', e.target.value)}
+                      fullWidth
+                    >
+                      {ROLE_OPTIONS.filter(opt => opt.value !== 'PHARMACY_ADMIN').map(opt => (
+                        <MenuItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+
+                    {row.role === 'PHARMACIST' && (
+                      <TextField
+                        select
+                        fullWidth
+                        label="Award Level"
+                        value={row.pharmacist_award_level || 'PHARMACIST'}
+                        onChange={e => handleInviteChangeInternal('pharmacist_award_level', e.target.value)}
+                      >
+                        {PHARMACIST_AWARD_LEVELS.map(opt => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+
+                    {(row.role === 'ASSISTANT' || row.role === 'TECHNICIAN') && (
+                      <TextField
+                        select
+                        fullWidth
+                        label="Classification Level"
+                        value={row.otherstaff_classification_level || 'LEVEL_1'}
+                        onChange={e => handleInviteChangeInternal('otherstaff_classification_level', e.target.value)}
+                      >
+                        {OTHERSTAFF_CLASSIFICATIONS.map(opt => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+
+                    {row.role === 'INTERN' && (
+                      <TextField
+                        select
+                        fullWidth
+                        label="Intern Half"
+                        value={row.intern_half || 'FIRST_HALF'}
+                        onChange={e => handleInviteChangeInternal('intern_half', e.target.value)}
+                      >
+                        {INTERN_HALVES.map(opt => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+
+                    {row.role === 'STUDENT' && (
+                      <TextField
+                        select
+                        fullWidth
+                        label="Student Year"
+                        value={row.student_year || 'YEAR_1'}
+                        onChange={e => handleInviteChangeInternal('student_year', e.target.value)}
+                      >
+                        {STUDENT_YEARS.map(opt => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+
+                    {/* Employment Type — INTERNAL options only */}
+                    <TextField
+                      select
+                      label="Employment Type"
+                      value={row.employment_type || ''}
+                      onChange={e => handleInviteChangeInternal('employment_type', e.target.value)}
+                      fullWidth
+                    >
+                      {EMPLOYMENT_TYPES_INTERNAL.map(opt => (
+                        <MenuItem key={opt} value={opt}>
+                          {opt.replace('_', ' ')}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+
+                    {memberInvites.length > 1 && (
+                      <Box>
+                        <Button color="secondary" onClick={() => setMemberInvites(v => v.filter((_, i) => i !== idx))}>
+                          Remove
+                        </Button>
+                      </Box>
+                    )}
+                  </Box>
+                );
+              })}
+
+              <Box mt={2} display="flex" alignItems="center">
+                <Button
+                  onClick={() =>
+                    setMemberInvites(v => [
+                      ...v,
+                      {
+                        email: '',
+                        invited_name: '',
+                        role: 'PHARMACIST',
+                        employment_type: 'FULL_TIME',
+                        pharmacist_award_level: 'PHARMACIST',
+                      },
+                    ])
+                  }
+                >
+                  + Add Another
+                </Button>
+                <Button variant="contained" sx={{ ml: 'auto' }} onClick={handleSendInvites}>
+                  Send Invitations
+                </Button>
+              </Box>
+            </>
+          )}
+
+          {/* LOCUM/CASUAL */}
+          {inviteMode === 'locum' && (
+            <>
+              {locumInvites.map((row, idx) => {
+                const handleInviteChangeLocum = (field: keyof MemberInvite, value: string) => {
+                  const next = [...locumInvites];
+                  next[idx] = { ...next[idx], [field]: value };
+                  setLocumInvites(next);
+                };
+
+                return (
+                  <Box
+                    key={idx}
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr',
+                      gap: 2,
+                      mb: 2,
+                      borderRadius: 2,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      p: 2,
+                    }}
+                  >
+                    <TextField
+                      label="Full Name"
+                      value={row.invited_name || ''}
+                      onChange={e => handleInviteChangeLocum('invited_name', e.target.value)}
+                      fullWidth
+                    />
+                    <TextField
+                      label="Email"
+                      value={row.email || ''}
+                      onChange={e => handleInviteChangeLocum('email', e.target.value)}
+                      fullWidth
+                    />
+
+                    {/* Role (Admin has its own button/flow) */}
+                    <TextField
+                      select
+                      label="Role"
+                      value={row.role || ''}
+                      onChange={e => handleInviteChangeLocum('role', e.target.value)}
+                      fullWidth
+                    >
+                      {ROLE_OPTIONS.filter(opt => opt.value !== 'PHARMACY_ADMIN').map(opt => (
+                        <MenuItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+
+                    {row.role === 'PHARMACIST' && (
+                      <TextField
+                        select
+                        fullWidth
+                        label="Award Level"
+                        value={row.pharmacist_award_level || 'PHARMACIST'}
+                        onChange={e => handleInviteChangeLocum('pharmacist_award_level', e.target.value)}
+                      >
+                        {PHARMACIST_AWARD_LEVELS.map(opt => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+
+                    {(row.role === 'ASSISTANT' || row.role === 'TECHNICIAN') && (
+                      <TextField
+                        select
+                        fullWidth
+                        label="Classification Level"
+                        value={row.otherstaff_classification_level || 'LEVEL_1'}
+                        onChange={e => handleInviteChangeLocum('otherstaff_classification_level', e.target.value)}
+                      >
+                        {OTHERSTAFF_CLASSIFICATIONS.map(opt => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+
+                    {row.role === 'INTERN' && (
+                      <TextField
+                        select
+                        fullWidth
+                        label="Intern Half"
+                        value={row.intern_half || 'FIRST_HALF'}
+                        onChange={e => handleInviteChangeLocum('intern_half', e.target.value)}
+                      >
+                        {INTERN_HALVES.map(opt => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+
+                    {row.role === 'STUDENT' && (
+                      <TextField
+                        select
+                        fullWidth
+                        label="Student Year"
+                        value={row.student_year || 'YEAR_1'}
+                        onChange={e => handleInviteChangeLocum('student_year', e.target.value)}
+                      >
+                        {STUDENT_YEARS.map(opt => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+
+                    {/* Employment Type — EXTERNAL options only */}
+                    <TextField
+                      select
+                      label="Employment Type"
+                      value={row.employment_type || ''}
+                      onChange={e => handleInviteChangeLocum('employment_type', e.target.value)}
+                      fullWidth
+                    >
+                      {EMPLOYMENT_TYPES_EXTERNAL.map(opt => (
+                        <MenuItem key={opt} value={opt}>
+                          {opt.replace('_', ' ')}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+
+                    {locumInvites.length > 1 && (
+                      <Box>
+                        <Button color="secondary" onClick={() => setLocumInvites(v => v.filter((_, i) => i !== idx))}>
+                          Remove
+                        </Button>
+                      </Box>
+                    )}
+                  </Box>
+                );
+              })}
+
+              <Box mt={2} display="flex" alignItems="center">
+                <Button
+                  onClick={() =>
+                    setLocumInvites(v => [
+                      ...v,
+                      {
+                        email: '',
+                        invited_name: '',
+                        role: 'PHARMACIST',
+                        employment_type: 'LOCUM',
+                        pharmacist_award_level: 'PHARMACIST',
+                      },
+                    ])
+                  }
+                >
+                  + Add Another
+                </Button>
+                <Button variant="contained" sx={{ ml: 'auto' }} onClick={handleSendInvites}>
+                  Send Invitations
+                </Button>
+              </Box>
+            </>
+          )}
+
+          {/* ADMIN */}
+          {inviteMode === 'admin' && (
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 2 }}>
+              <TextField
+                label="Full Name"
+                value={adminInvite.invited_name || ''}
+                onChange={e => setAdminInvite(i => ({ ...i, invited_name: e.target.value }))}
+                fullWidth
+              />
+              <TextField
+                label="Email"
+                value={adminInvite.email || ''}
+                onChange={e => setAdminInvite(i => ({ ...i, email: e.target.value }))}
+                fullWidth
+              />
+              <TextField label="Role" value="Admin" fullWidth disabled />
+              <Box mt={1} display="flex">
+                <Button variant="contained" sx={{ ml: 'auto' }} onClick={handleSendInvites}>
+                  Send Invitation
+                </Button>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+
+        <DialogActions><Button onClick={() => setOpenStaffDlg(false)}>Cancel</Button></DialogActions>
+
+
+      </Dialog>
+
+
+      <Dialog open={openLinkDlg} onClose={() => setOpenLinkDlg(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Generate Membership Link</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 2 }}>
+            <TextField
+              select
+              label="Category"
+              value={linkCategory}
+              onChange={(e) => setLinkCategory(e.target.value as any)}
+              fullWidth
+            >
+              <MenuItem value="FULL_PART_TIME">Full/Part-time</MenuItem>
+              <MenuItem value="LOCUM_CASUAL">Favorite (Locum/Shift Hero)</MenuItem>
+
+            </TextField>
+
+            <TextField
+              label="Expires In (days)"
+              type="number"
+              value={linkExpiryDays}
+              onChange={(e) => setLinkExpiryDays(Number(e.target.value || 14))}
+              fullWidth
+              inputProps={{ min: 1, max: 90 }}
+            />
+
+            {generatedLinkUrl && (
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                <TextField fullWidth label="Shareable Link" value={generatedLinkUrl} InputProps={{ readOnly: true }} />
+                <IconButton aria-label="copy" onClick={copyLinkToClipboard}><ContentCopyIcon /></IconButton>
+              </Box>
+            )}
           </Box>
         </DialogContent>
-        <DialogActions><Button onClick={() => setOpenStaffDlg(false)}>Cancel</Button></DialogActions>
+        <DialogActions>
+          <Button onClick={() => setOpenLinkDlg(false)}>Close</Button>
+          <Button variant="contained" onClick={handleCreateMagicLink}>
+            {generatedLinkUrl ? 'Regenerate' : 'Create Link'}
+          </Button>
+        </DialogActions>
       </Dialog>
+
       <Snackbar open={snackbarOpen} autoHideDuration={3000} onClose={() => setSnackbarOpen(false)} message={snackMsg} />
       <Box mt={4}>
         {loading ? ( Array.from(new Array(3)).map((_, index) => (<Skeleton key={index} variant="rectangular" height={150} sx={{ mb: 3, borderRadius: 2 }} />)) ) : pharmacies.length === 0 ? ( <Typography variant="h6">You have no pharmacies.</Typography> ) : ( paginatedPharmacies.map(p => (
@@ -388,7 +1032,7 @@ const handlePlaceChanged = () => {
               <Card>
                 <CardContent>
                   <Typography variant="h6">{p.name}</Typography>
-                  <Typography variant="body2" color="textSecondary">{`${p.street_address}, ${p.suburb}, ${p.state} ${p.postcode}`}</Typography>
+                  <Typography variant="body2" color="text.secondary">{`${p.street_address}, ${p.suburb}, ${p.state} ${p.postcode}`}</Typography>
                   <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
                     <IconButton onClick={() => openDialog(p)}><EditIcon /></IconButton>
                     <IconButton onClick={() => handleDelete(p.id)}><DeleteIcon /></IconButton>
@@ -411,7 +1055,9 @@ const handlePlaceChanged = () => {
                                 <Box sx={{ fontWeight: 'bold' }}>{m.user_details?.email}</Box>
                                 {m.invited_name && (<Box sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>{m.invited_name}</Box>)}
                               </TableCell>
-                              <TableCell>{m.role}</TableCell><TableCell>{m.employment_type}</TableCell><TableCell>{classification || '—'}</TableCell>
+                              <TableCell>{m.role}</TableCell>
+                              <TableCell>{labelEmploymentType(m.employment_type)}</TableCell>
+                              <TableCell>{classification || '—'}</TableCell>
                               <TableCell align="right"><IconButton edge="end" aria-label="delete member" onClick={() => apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.membershipDelete(m.id)}`).then(() => loadMembers(p.id))}><DeleteIcon /></IconButton></TableCell>
                             </TableRow>
                           );
@@ -420,7 +1066,108 @@ const handlePlaceChanged = () => {
                     </Table>
                   </TableContainer>
                 </AccordionDetails>
-                <AccordionActions><Button onClick={() => handleOpenInviteDialog(p)}>Invite Staff</Button></AccordionActions>
+                <AccordionActions>
+                  <Button onClick={() => handleOpenInviteDialog(p, 'internal')}>Invite Full/Part</Button>
+                  <Button onClick={() => handleOpenInviteDialog(p, 'locum')}>Invite Favorite (Locum/Shift Hero)</Button>
+                  <Button onClick={() => handleOpenInviteDialog(p, 'admin')}>Assign Admin</Button>
+                  <Button onClick={() => handleOpenLinkDialog(p, 'FULL_PART_TIME')}>Generate Full/Part Link</Button>
+                  <Button onClick={() => handleOpenLinkDialog(p, 'LOCUM_CASUAL')}>Generate Favorite Link</Button>
+                </AccordionActions>
+
+                <Accordion sx={{ mt: 1 }}>
+  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+    <Typography>{p.name} — Applications</Typography>
+  </AccordionSummary>
+  <AccordionDetails>
+    <TableContainer component={Paper}>
+      <Table sx={{ minWidth: 650 }} aria-label="applications table">
+        <TableHead>
+          <TableRow>
+            <TableCell>Applicant</TableCell>
+            <TableCell>Role</TableCell>
+            <TableCell>Category</TableCell>
+            <TableCell>Submitted</TableCell>
+            <TableCell>Approve As</TableCell>
+
+            <TableCell align="right">Actions</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {(applications[p.id] || []).length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={6} align="center" sx={{ color: 'text.secondary' }}>
+
+                No pending applications.
+              </TableCell>
+            </TableRow>
+          ) : (
+            (applications[p.id] || []).map((a: any) => (
+              <TableRow key={a.id}>
+                <TableCell>
+                  <Box sx={{ fontWeight: 600 }}>
+                    {a.first_name} {a.last_name}
+                  </Box>
+                  {a.email && (
+                    <Box sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>
+                      {a.email}
+                    </Box>
+                  )}
+                </TableCell>
+                <TableCell>{a.role}</TableCell>
+                <TableCell>{a.category === 'FULL_PART_TIME' ? 'Full/Part-time' : 'Favorite (Locum/Shift Hero)'}</TableCell>
+
+                <TableCell>
+                  {a.submitted_at ? new Date(a.submitted_at).toLocaleString() : '—'}
+                </TableCell>
+
+                <TableCell>
+                  <FormControl fullWidth size="small">
+                    <Select
+                      value={
+                        approveTypeById[a.id] ??
+                        (a.category === 'FULL_PART_TIME' ? 'CASUAL' : 'LOCUM')
+                      }
+                      onChange={(e) =>
+                        setApproveTypeById((prev) => ({ ...prev, [a.id]: String(e.target.value) }))
+                      }
+                    >
+                      {getAllowedTypesForCategory(a.category).map((opt) => (
+                        <MenuItem key={opt} value={opt}>
+                          {labelEmploymentType(opt)}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </TableCell>
+
+                <TableCell align="right">
+                  <IconButton
+                    aria-label="approve"
+                    color="success"
+                    onClick={() =>
+                      approveApplication(
+                        a.id,
+                        p.id,
+                        approveTypeById[a.id] ?? (a.category === 'FULL_PART_TIME' ? 'CASUAL' : 'LOCUM')
+                      )
+                    }
+                  >
+
+                    <DoneIcon />
+                  </IconButton>
+                  <IconButton aria-label="reject" color="error" onClick={() => rejectApplication(a.id, p.id)}>
+                    <CloseIcon />
+                  </IconButton>
+                </TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  </AccordionDetails>
+</Accordion>
+
               </Accordion>
               </Card>
 

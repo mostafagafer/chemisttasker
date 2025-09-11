@@ -42,6 +42,9 @@ jobs:
           echo "AZURE_OCR_ENDPOINT=${{ secrets.AZURE_OCR_ENDPOINT }}" >> $GITHUB_ENV
           echo "AZURE_OCR_KEY=${{ secrets.AZURE_OCR_KEY }}" >> $GITHUB_ENV
           echo "SCRAPINGBEE_API_KEY=${{ secrets.SCRAPINGBEE_API_KEY }}" >> $GITHUB_ENV
+          echo "MOBILEMESSAGE_USERNAME=${{ secrets.MOBILEMESSAGE_USERNAME }}" >> $GITHUB_ENV
+          echo "MOBILEMESSAGE_PASSWORD=${{ secrets.MOBILEMESSAGE_PASSWORD }}" >> $GITHUB_ENV
+          echo "MOBILEMESSAGE_SENDER=${{ secrets.MOBILEMESSAGE_SENDER }}" >> $GITHUB_ENV
 
       - name: Install dependencies
         run: |

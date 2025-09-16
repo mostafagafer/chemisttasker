@@ -9,21 +9,17 @@ echo "[startup] Wiping old .python_packages directory to ensure a clean start...
 rm -rf /home/site/wwwroot/.python_packages
 
 # STEP 2: Install all necessary OS-level dependencies.
-echo "[startup] Installing system packages for build tools, Pillow, and WeasyPrint..."
+echo "[startup] Installing system packages..."
 apt-get update && apt-get install -y \
-  # Build tools for compiling packages
   build-essential libssl-dev libffi-dev python3-dev \
-  # Pillow dependencies
   libjpeg-dev zlib1g-dev \
-  # WeasyPrint dependencies
   libcairo2 libpango-1.0-0 libpangocairo-1.0-0 \
   libgdk-pixbuf2.0-0 shared-mime-info \
   libxml2 libxslt1.1 fonts-liberation
 
 # STEP 3: Install Python packages, building incompatible ones from source.
-echo "[startup] Installing Python dependencies and building cryptography from source..."
+echo "[startup] Installing Python dependencies..."
 pip install --upgrade pip
-# The --no-binary flag forces cryptography to compile on the server, avoiding GLIBC errors.
 pip install --no-binary cryptography -r requirements.txt
 
 # STEP 4: Run Django commands.

@@ -11,6 +11,15 @@ apt-get update && apt-get install -y \
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# 🔧 ACTIVATE VIRTUAL ENVIRONMENT
+if [ -f "$SCRIPT_DIR/antenv/bin/activate" ]; then
+    echo "[startup] Activating virtualenv..."
+    source "$SCRIPT_DIR/antenv/bin/activate"
+else
+    echo "[startup] Virtualenv not found at antenv/bin/activate"
+    exit 1
+fi
+
 # Debug info
 echo "[startup] PWD: $(pwd)"
 echo "[startup] Listing wwwroot:"
@@ -22,7 +31,6 @@ echo "[startup] Procfile contents:"
 cat Procfile || echo "[startup] Procfile missing!"
 
 # --- Minimal hotfix: ensure GLIBC-compatible cryptography in Azure runtime ---
-# Keep your requirements intact; this only corrects the runtime wheel if needed.
 echo "[startup] Enforcing GLIBC-safe crypto wheels..."
 python - <<'PY'
 import sys
@@ -30,17 +38,16 @@ try:
     import cryptography
     v = cryptography.__version__
     print(f"[startup] cryptography detected: {v}")
-    # Accept either pinned 43.0.3 (recommended by Azure threads) or 41.0.7 if you kept it
     sys.exit(0 if v in ("43.0.3","41.0.7") else 1)
 except Exception as e:
     print(f"[startup] cryptography import failed: {e}")
     sys.exit(1)
 PY
 if [ $? -ne 0 ]; then
-  # Force a reinstall into Azure's active site-packages (.python_packages)
+  echo "[startup] Reinstalling cryptography 43.0.3 into site-packages..."
   python -m pip install --no-cache-dir --force-reinstall "cryptography==43.0.3" "pyOpenSSL==24.2.1"
 fi
 # --- End hotfix ---
 
-# Start processes via Procfile
+# 🔁 Start app using Procfile via honcho
 exec python -m honcho start 2>&1 | tee /home/LogFiles/honcho.log

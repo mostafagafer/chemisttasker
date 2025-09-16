@@ -7,7 +7,10 @@ apt-get update && apt-get install -y \
 
 # Activate the virtual environment
 source venv/bin/activate
-cd backend
+
+# OPTIONAL: Log python path for debugging
+echo "Python path: $(which python)"
+echo "Daphne path: $(which daphne)"
 
 # Start Django Q cluster in background
 python manage.py qcluster &

@@ -54,15 +54,12 @@ jobs:
           pip install --upgrade pip
           pip install -r backend/requirements.txt
 
-      # --- ADDED: vendor runtime deps into the artifact ---
       - name: Vendor dependencies into artifact (.python_packages)
         run: |
-          # Put site-packages inside the deployment bundle so runtime can import them
           mkdir -p backend/.python_packages/lib/site-packages
           source venv/bin/activate
           pip install -r backend/requirements.txt \
             --target backend/.python_packages/lib/site-packages
-      # --- END ADDED ---
 
       - name: Run Django migrations
         run: |
@@ -91,18 +88,20 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}
 
-      # --- ADDED: enforce app settings needed at runtime ---
       - name: Ensure App Settings for vendored deps + no server build
         run: |
           az webapp config appsettings set \
             --name chemisttasker \
             --resource-group chemisttasker \
             --settings PYTHONPATH=/home/site/wwwroot/.python_packages/lib/site-packages SCM_DO_BUILD_DURING_DEPLOYMENT=false
-      # --- END ADDED ---
+
+      # NEW: restart clears any in-progress deployment/lock
+      - name: Restart Web App (clear any in-progress deployment)
+        run: az webapp restart --name chemisttasker --resource-group chemisttasker
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'chemisttasker'
-          slot-name: 'Production'
-          package: release.zip
+          # REMOVED: slot-name (production slot has no name)
+          package: ./release.zip   # explicit path

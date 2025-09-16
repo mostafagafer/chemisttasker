@@ -17,16 +17,18 @@ echo "[startup] Listing wwwroot:"
 ls -la
 
 # Activate venv if present (you zip it into backend/)
-if [ -f "venv/bin/activate" ]; then
-  source venv/bin/activate
-  echo "[startup] Python: $(which python)"
+if [ -f "./venv/bin/activate" ]; then
+  echo "[startup] Activating your custom venv"
+  source ./venv/bin/activate
 else
-  echo "[startup] WARNING: venv/bin/activate not found; continuing without venv"
+  echo "[startup] Custom venv not found"
 fi
 
 # Show Procfile + honcho path
 echo "[startup] Honcho: $(command -v honcho || echo 'not found')"
 echo "[startup] Procfile contents:"
+echo "[startup] Python version: $(python --version)"
+echo "[startup] Python path: $(which python)"
 cat Procfile || echo "[startup] Procfile missing!"
 
 # Pipe output to a log so you can inspect failures in /home/LogFiles

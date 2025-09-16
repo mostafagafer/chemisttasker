@@ -54,13 +54,6 @@ jobs:
           pip install --upgrade pip
           pip install -r backend/requirements.txt
 
-      - name: Vendor dependencies into artifact (.python_packages)
-        run: |
-          mkdir -p backend/.python_packages/lib/site-packages
-          source venv/bin/activate
-          pip install -r backend/requirements.txt \
-            --target backend/.python_packages/lib/site-packages
-
       - name: Run Django migrations
         run: |
           source venv/bin/activate
@@ -81,6 +74,7 @@ jobs:
           cd backend
           zip -r ../release.zip .
 
+
       - name: Azure Login
         uses: azure/login@v2
         with:
@@ -88,20 +82,9 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}
 
-      - name: Ensure App Settings for vendored deps + no server build
-        run: |
-          az webapp config appsettings set \
-            --name chemisttasker \
-            --resource-group chemisttasker \
-            --settings PYTHONPATH=/home/site/wwwroot/.python_packages/lib/site-packages SCM_DO_BUILD_DURING_DEPLOYMENT=false
-
-      # NEW: restart clears any in-progress deployment/lock
-      - name: Restart Web App (clear any in-progress deployment)
-        run: az webapp restart --name chemisttasker --resource-group chemisttasker
-
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'chemisttasker'
-          # REMOVED: slot-name (production slot has no name)
-          package: ./release.zip   # explicit path
+          slot-name: 'Production'
+          package: release.zip

@@ -30,4 +30,4 @@ echo "[startup] Procfile contents:"
 cat Procfile || echo "[startup] Procfile missing!"
 
 # Pipe output to a log so you can inspect failures in /home/LogFiles
-exec honcho start 2>&1 | tee /home/LogFiles/honcho.log
+exec python -m honcho start 2>&1 | tee /home/LogFiles/honcho.log

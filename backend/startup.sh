@@ -5,7 +5,12 @@ apt-get update && apt-get install -y \
     libgdk-pixbuf2.0-0 libffi-dev shared-mime-info \
     libxml2 libxslt1.1 fonts-liberation
 
-# Now use honcho to start your Procfile processes
-exec honcho start
+# Activate the virtual environment
+source venv/bin/activate
+cd backend
 
-#bash ./startup.sh
+# Start Django Q cluster in background
+python manage.py qcluster &
+
+# Start Daphne in foreground (main web process)
+exec daphne -b 0.0.0.0 -p 8000 core.asgi:application

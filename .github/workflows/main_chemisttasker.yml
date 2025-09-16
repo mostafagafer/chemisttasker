@@ -60,7 +60,10 @@ jobs:
       - name: Zip backend app for deployment
         run: |
           cd backend
-          zip -r ../release.zip . -x "*.python_packages/*"
+          zip -r ../release.zip . \
+            -x "venv/*" "antenv/*" ".python_packages/*" \
+            -x "__pycache__/*" "*.pyc" ".git/*" "*.log" \
+            -x "*.egg-info/*" "build/*" "dist/*"
 
       - name: Azure Login
         uses: azure/login@v2

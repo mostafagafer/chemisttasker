@@ -69,6 +69,7 @@ import MyConfirmedShiftsPage from './pages/dashboard/sidebar/MyConfirmedShiftsPa
 import MyHistoryShiftsPage   from './pages/dashboard/sidebar/MyHistoryShiftsPage';
 import PosterShiftDetailPage from './pages/dashboard/sidebar/PosterShiftDetailPage';
 import WorkerShiftDetailPage from './pages/dashboard/sidebar/WorkerShiftDetailPage';
+import ChatPage from './pages/dashboard/sidebar/ChatPage';
 
 
 // Invoice
@@ -121,6 +122,7 @@ const router = createBrowserRouter([
           { path: 'overview', element: <OrganizationOverviewPage /> },
           { path: 'invite',   element: <InviteStaffPage /> },
           { path: 'claim',    element: <ClaimPharmaciesPage /> },
+          { path: 'chat', element: <ChatPage /> },
           {
             path: 'manage-pharmacies',
             children: [
@@ -194,6 +196,7 @@ const router = createBrowserRouter([
           { index: true, element: <OwnerOverviewContainer /> },
           { path: 'overview', element: <OwnerOverviewContainer /> },
           { path: 'onboarding', element: <OwnerOnboarding /> },
+          { path: 'chat', element: <ChatPage /> },
           {
             path: 'manage-pharmacies',
             children: [
@@ -238,6 +241,7 @@ const router = createBrowserRouter([
             // NEW: V2 onboarding (tab-per-page layout with nested routes)
           // V2 — single page with its own left-buttons + progress bar
           { path: 'onboarding-v2', element: <PharmacistOnboardingV2 /> },
+          { path: 'chat', element: <ChatPage /> },
 
  
           {
@@ -281,6 +285,7 @@ const router = createBrowserRouter([
           { index: true, element: <OverviewPageStaff /> },
           { path: 'overview', element: <OverviewPageStaff /> },
           { path: 'onboarding', element: <OtherStaffOnboarding /> },
+          { path: 'chat', element: <ChatPage /> },
           {
             path: 'shifts',
             children: [
@@ -322,6 +327,7 @@ const router = createBrowserRouter([
           { index: true, element: <OverviewPageStaff /> },
           { path: 'overview', element: <OverviewPageStaff /> },
           { path: 'onboarding', element: <ExplorerOnboarding /> },
+          { path: 'chat', element: <ChatPage /> },
           {
             path: 'shifts',
             children: [

@@ -148,5 +148,17 @@ export const API_ENDPOINTS = {
   invoicePdf: (id: number) => `/client-profile/invoices/${id}/pdf/`,
   sendInvoice: (id: number) => `/client-profile/invoices/${id}/send/`,
 
+
+  // Chat app
+  rooms: '/client-profile/rooms/',
+  roomDetail: (id:number) => `/client-profile/rooms/${id}/`,
+  roomMessages: (id:number) => `/client-profile/rooms/${id}/messages/`,
+  roomMarkRead: (id:number) => `/client-profile/rooms/${id}/read/`,
+  startDm: '/client-profile/rooms/start-dm/',
+  myMemberships: '/client-profile/my-memberships/',
+  memberships: '/client-profile/memberships/',
+  // ✅ NEW: Add the endpoint for the new action
+  getOrCreategroup: () => `/client-profile/rooms/get-or-create-group/`,
+
 };
 

@@ -300,3 +300,6 @@ admin.site.register(RefereeResponse)
 
 admin.site.register(MembershipApplication)
 
+admin.site.register(Message)
+
+

@@ -60,6 +60,9 @@ CORS_ALLOW_HEADERS = [
 
 # Application definition
 INSTALLED_APPS = [
+
+    'daphne',
+
     'django.contrib.admin',
     # Async tasks
     'django_q',
@@ -82,6 +85,11 @@ INSTALLED_APPS = [
 
     # my apps
     "client_profile.apps.ClientProfileConfig",
+
+    # Realtime
+    'channels',
+
+
 ]
 
 
@@ -156,13 +164,6 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
-
 DATABASES = {
     'default': dj_database_url.config(
         default=env('AZURE_POSTGRESQL_CONNECTIONSTRING'),
@@ -171,6 +172,7 @@ DATABASES = {
         ssl_require=True
     )
 }
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
@@ -348,3 +350,31 @@ SCRAPINGBEE_API_KEY=env('SCRAPINGBEE_API_KEY')
 MOBILEMESSAGE_USERNAME = env('MOBILEMESSAGE_USERNAME')
 MOBILEMESSAGE_PASSWORD = env('MOBILEMESSAGE_PASSWORD')
 MOBILEMESSAGE_SENDER = env('MOBILEMESSAGE_SENDER')
+
+
+# ---------------------------------------------------------------------
+# Channels (ASGI) configuration
+# ---------------------------------------------------------------------
+ASGI_APPLICATION = "core.asgi.application"
+
+# Use a single REDIS_URL env var everywhere
+# Examples:
+#   Local dev (Docker): redis://127.0.0.1:6379/0
+#   Azure Cache for Redis (TLS): rediss://:<PASSWORD>@<NAME>.redis.cache.windows.net:6380/0
+from environ import Env
+env = Env()
+
+REDIS_URL = env("REDIS_URL", default="redis://127.0.0.1:6379/0")
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            # channels_redis accepts URLs with redis:// or rediss:// (TLS)
+            "hosts": [REDIS_URL],
+            # optional tuning:
+            # "capacity": 1000,  # in-memory queue per channel
+            # "expiry": 60,      # seconds to keep messages when no consumers
+        },
+    }
+}

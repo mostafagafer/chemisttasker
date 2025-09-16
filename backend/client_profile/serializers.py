@@ -2029,11 +2029,12 @@ class ChainSerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
 class MembershipSerializer(serializers.ModelSerializer):
     user_details = UserProfileSerializer(source='user', read_only=True)
     invited_by_details = UserProfileSerializer(source='invited_by', read_only=True)
+    pharmacy_detail = PharmacySerializer(source='pharmacy', read_only=True)
 
     class Meta:
         model = Membership
         fields = [
-            'id', 'user', 'user_details', 'pharmacy', 'invited_by', 'invited_by_details',
+            'id', 'user', 'user_details', 'pharmacy', 'pharmacy_detail', 'invited_by', 'invited_by_details',
             'invited_name', 'role', 'employment_type', 'is_active', 'created_at', 'updated_at',
             # All classification fields are included and will be handled automatically
             'pharmacist_award_level',
@@ -2682,3 +2683,139 @@ class UserAvailabilitySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id']
 
+
+
+# --- Chat Serializers --------------------------------------------------------
+
+class MessageSerializer(serializers.ModelSerializer):
+    # Keep the payload lean; frontend can look up user details by membership if needed.
+    sender = serializers.PrimaryKeyRelatedField(read_only=True)  # membership id
+    attachment_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Message
+        fields = [
+            "id",
+            "conversation",
+            "sender",
+            "body",
+            "attachment",
+            "attachment_url",
+            "created_at",
+        ]
+        read_only_fields = ["id", "conversation", "sender", "created_at", "attachment_url"]
+
+    def get_attachment_url(self, obj):
+        try:
+            f = obj.attachment
+            return f.url if f else None
+        except Exception:
+            return None
+
+
+class ConversationListSerializer(serializers.ModelSerializer):
+    # Lightweight list view with last_message and unread_count for the current user
+    last_message = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+    participant_ids = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Conversation
+        fields = [
+            "id",
+            "pharmacy",
+            "type",
+            "title",
+            "updated_at",
+            "last_message",
+            "unread_count",
+            "participant_ids",
+        ]
+
+    def _get_my_membership(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user or not request.user.is_authenticated:
+            return None
+        return Membership.objects.filter(
+            user=request.user, pharmacy=obj.pharmacy, is_active=True
+        ).first()
+
+    def get_last_message(self, obj):
+        msg = obj.messages.order_by("-created_at").first()
+        if not msg:
+            return None
+        return {
+            "id": msg.id,
+            "body": msg.body[:200],
+            "created_at": msg.created_at,
+            "sender": msg.sender_id,  # membership id
+        }
+
+    def get_unread_count(self, obj):
+        my_mem = self._get_my_membership(obj)
+        if not my_mem:
+            return 0
+        part = Participant.objects.filter(conversation=obj, membership=my_mem).first()
+        if not part:
+            return 0
+        since = part.last_read_at
+        if not since:
+            return obj.messages.count()
+        return obj.messages.filter(created_at__gt=since).count()
+
+    def get_participant_ids(self, obj):
+        # membership ids; useful for client-side DM detection
+        return list(obj.participants.values_list("membership_id", flat=True))
+
+
+class ConversationCreateSerializer(serializers.ModelSerializer):
+    """
+    Create group rooms (type=GROUP) and supply participant membership IDs.
+    The creator will be auto-added server-side if in same pharmacy.
+    """
+    participants = serializers.PrimaryKeyRelatedField(
+        queryset=Membership.objects.all(), many=True, write_only=True
+    )
+
+    class Meta:
+        model = Conversation
+        fields = ["id", "pharmacy", "type", "title", "participants"]
+        read_only_fields = ["id"]
+
+    def validate(self, data):
+        conv_type = data.get("type") or Conversation.Type.GROUP
+        pharmacy = data.get("pharmacy")
+        participants = data.get("participants", [])
+
+        if conv_type == Conversation.Type.DM:
+            if len(participants) != 2:
+                raise serializers.ValidationError("DM must include exactly two participants (membership IDs).")
+
+        # All participants must belong to the same pharmacy
+        bad = [m.id for m in participants if m.pharmacy_id != pharmacy.id or not m.is_active]
+        if bad:
+            raise serializers.ValidationError("All participants must be active members of the same pharmacy.")
+
+        return data
+
+    def create(self, validated_data):
+        participants = validated_data.pop("participants", [])
+        conv_type = validated_data.get("type") or Conversation.Type.GROUP
+
+        # Compute dm_key if DM
+        if conv_type == Conversation.Type.DM:
+            a, b = sorted([participants[0].id, participants[1].id])
+            validated_data["dm_key"] = make_dm_key(a, b)
+
+        conv = Conversation.objects.create(**validated_data)
+        # Attach participants
+        Participant.objects.bulk_create([
+            Participant(conversation=conv, membership=m) for m in participants
+        ])
+        return conv
+
+
+class ConversationDetailSerializer(ConversationListSerializer):
+    # Reuse list fields + include a richer participant list if needed later
+    class Meta(ConversationListSerializer.Meta):
+        fields = ConversationListSerializer.Meta.fields

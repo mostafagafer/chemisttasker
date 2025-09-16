@@ -36,6 +36,10 @@ router.register(r'my-confirmed-shifts',MyConfirmedShiftsViewSet,basename='my-con
 router.register(r'my-history-shifts',MyHistoryShiftsViewSet,basename='my-history-shifts')
 router.register(r'leave-requests', LeaveRequestViewSet, basename='leaverequest')
 
+#chat app
+router.register(r'rooms', ConversationViewSet, basename='conversation')
+router.register(r'my-memberships', MyMembershipsViewSet, basename='my-memberships')
+
 urlpatterns = [
     path('owner/onboarding/', OwnerOnboardingCreate.as_view(), name='owner-onboarding-create'),
     path('owner/onboarding/me/', OwnerOnboardingDetail.as_view(), name='owner-onboarding-detail'),

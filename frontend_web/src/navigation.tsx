@@ -25,6 +25,7 @@ export const ORGANIZATION_NAV: Navigation = [
   { segment: 'dashboard/organization/overview', title: 'Overview',        icon: <GroupsIcon /> },
   { segment: 'dashboard/organization/invite',   title: 'Invite Staff',    icon: <ManageAccountsSharpIcon /> },
   { segment: 'dashboard/organization/claim',    title: 'Claim Pharmacies',icon: <StoreIcon /> },
+  { segment: 'dashboard/organization/chat', title: 'Chat', icon: <GroupsIcon /> },
   { kind: 'divider' as const },
   { kind: 'header' as const, title: 'Manage Pharmacies and Shifts' },
   { segment: 'dashboard/organization/manage-pharmacies',
@@ -71,6 +72,7 @@ export function getOwnerNav(progress_percent: number) {
         />
       ),
     },
+  { segment: 'dashboard/owner/chat', title: 'Chat', icon: <GroupsIcon /> },
   { kind: 'divider' as const },
   { kind: 'header' as const, title: 'Manage Pharmacies and Shifts' },
   { segment: 'dashboard/owner/manage-pharmacies',
@@ -134,6 +136,7 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
         />
       ),
     },
+    { segment: 'dashboard/otherstaff/chat', title: 'Chat', icon: <GroupsIcon /> },
     { segment: 'dashboard/otherstaff/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
 
     // -- Divider & Shifts Section --
@@ -205,6 +208,7 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
         />
       ),
     },
+    { segment: 'dashboard/pharmacist/chat', title: 'Chat', icon: <GroupsIcon /> },
 
     { segment: 'dashboard/pharmacist/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
     { kind: 'divider' as const },
@@ -243,6 +247,7 @@ export function getExplorerNav(progress_percent: number) {
         />
       ),
     },
+  { segment: 'dashboard/explorer/chat', title: 'Chat', icon: <GroupsIcon /> },
   { kind: 'divider' as const },
   { kind: 'header' as const, title: 'Learning & Explorer Hub' },
   { segment: 'dashboard/explorer/interests',     title: 'Explore Interests', icon: <FavoriteIcon /> },

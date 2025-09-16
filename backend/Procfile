@@ -1,2 +1,2 @@
-web: gunicorn core.wsgi --bind=0.0.0.0:8000 --access-logfile - --error-logfile - --log-level info
+web: daphne -b 0.0.0.0 -p 8000 core.asgi:application
 worker: python manage.py qcluster

@@ -458,17 +458,6 @@ class Pharmacy(models.Model):
     longitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
 
 
-    # STATE_CHOICES = [
-    # #     ('QLD', 'Queensland'),
-    # #     ('NSW', 'New South Wales'),
-    # #     ('VIC', 'Victoria'),
-    # #     ('SA', 'South Australia'),
-    # #     ('WA', 'Western Australia'),
-    # #     ('TAS', 'Tasmania'),
-    # #     ('ACT', 'Australian Capital Territory'),
-    # #     ('NT',  'Northern Territory'),
-    # # ]
-
     # state = models.CharField(max_length=3, choices=STATE_CHOICES, blank=True, null=True)
     state = models.CharField(max_length=50, blank=True, null=True)
 
@@ -1330,3 +1319,115 @@ class UserAvailability(models.Model):
         times = "All Day" if self.is_all_day else f"{self.start_time}-{self.end_time}"
         return f"{self.user.username} available {times} on {self.date}"
 
+
+
+# --- Realtime Chat Models ----------------------------------------------------
+from django.conf import settings
+from django.db import models
+from django.utils import timezone
+
+
+class Conversation(models.Model):
+    """
+    A chat thread within a Pharmacy.
+    - GROUP: many participants
+    - DM: exactly two participants, unique per (pharmacy, pair)
+    """
+    class Type(models.TextChoices):
+        GROUP = "GROUP", "Group"
+        DM = "DM", "Direct"
+
+    pharmacy = models.ForeignKey('client_profile.Pharmacy',
+                                 on_delete=models.CASCADE,
+                                 related_name='conversations')
+    type = models.CharField(max_length=8, choices=Type.choices, default=Type.GROUP)
+    title = models.CharField(max_length=255, blank=True)
+    # For DM de-duplication (deterministic key for the pair, e.g. "12:45")
+    dm_key = models.CharField(max_length=63, blank=True, db_index=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['pharmacy', 'updated_at']),
+            models.Index(fields=['pharmacy', 'dm_key']),
+        ]
+        constraints = [
+            # Only enforce uniqueness when dm_key is set (i.e., DM rooms)
+            models.UniqueConstraint(fields=['pharmacy', 'dm_key'],
+                                    name='uniq_dm_per_pharmacy',
+                                    condition=~models.Q(dm_key="")),
+        ]
+
+    def __str__(self):
+        if self.type == self.Type.DM:
+            return f"DM {self.id} @ pharmacy {self.pharmacy_id}"
+        return self.title or f"Room {self.id} @ pharmacy {self.pharmacy_id}"
+
+
+class Participant(models.Model):
+    """
+    Links a Membership to a Conversation.
+    We use Membership (not bare User) to enforce pharmacy boundaries & active status.
+    """
+    conversation = models.ForeignKey('client_profile.Conversation',
+                                     on_delete=models.CASCADE,
+                                     related_name='participants')
+    membership = models.ForeignKey('client_profile.Membership',
+                                   on_delete=models.CASCADE,
+                                   related_name='chat_participations')
+    is_admin = models.BooleanField(default=False)
+    joined_at = models.DateTimeField(auto_now_add=True)
+    last_read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = [('conversation', 'membership')]
+        indexes = [
+            models.Index(fields=['conversation']),
+            models.Index(fields=['membership']),
+        ]
+
+    def __str__(self):
+        return f"Participant m#{self.membership_id} in c#{self.conversation_id}"
+
+
+def chat_upload_path(instance, filename):
+    return f"chat/{instance.conversation_id}/{filename}"
+
+
+class Message(models.Model):
+    """
+    A message in a conversation.
+    Attachments use your existing MEDIA storage config.
+    """
+    conversation = models.ForeignKey('client_profile.Conversation',
+                                     on_delete=models.CASCADE,
+                                     related_name='messages')
+    sender = models.ForeignKey('client_profile.Membership',
+                               on_delete=models.CASCADE,
+                               related_name='sent_messages')
+    body = models.TextField(blank=True)
+    attachment = models.FileField(upload_to=chat_upload_path, null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['conversation', 'created_at']),
+            models.Index(fields=['sender']),
+        ]
+
+    def __str__(self):
+        return f"Msg#{self.id} by m#{self.sender_id} in c#{self.conversation_id}"
+
+
+# --- Helper for DM key -------------------------------------------------------
+def make_dm_key(membership_id_a: int, membership_id_b: int) -> str:
+    """
+    Deterministic pair key so the same two memberships map to the same DM room.
+    e.g., make_dm_key(45, 12) -> '12:45'
+    """
+    a, b = sorted([int(membership_id_a), int(membership_id_b)])
+    return f"{a}:{b}"

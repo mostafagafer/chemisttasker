@@ -45,6 +45,7 @@ jobs:
           echo "MOBILEMESSAGE_USERNAME=${{ secrets.MOBILEMESSAGE_USERNAME }}" >> $GITHUB_ENV
           echo "MOBILEMESSAGE_PASSWORD=${{ secrets.MOBILEMESSAGE_PASSWORD }}" >> $GITHUB_ENV
           echo "MOBILEMESSAGE_SENDER=${{ secrets.MOBILEMESSAGE_SENDER }}" >> $GITHUB_ENV
+          echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> $GITHUB_ENV
 
       - name: Install dependencies
         run: |

@@ -1,5 +1,5 @@
 # client_profile/views.py
-from rest_framework import generics, permissions, status, viewsets
+from rest_framework import generics, permissions, status, viewsets, mixins
 from .serializers import *
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -749,17 +749,36 @@ class PharmacyViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         user = self.request.user
-        # Individual owner flow
-        if not OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').exists():
-            try:
-                owner = OwnerOnboarding.objects.get(user=user)
-            except OwnerOnboarding.DoesNotExist:
-                raise NotFound("Complete Owner Onboarding before adding pharmacies.")
-            serializer.save(owner=owner)
-        else:
-            # ORG_ADMIN flow → auto-assign organization
-            org = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').first().organization
-            serializer.save(organization=org)
+        owner_onboarding = None
+        organization = None
+
+        if hasattr(user, 'owneronboarding'):
+            owner_onboarding = user.owneronboarding
+        
+        org_membership = user.organization_memberships.filter(role='ORG_ADMIN').first()
+        if org_membership:
+            organization = org_membership.organization
+
+        if not owner_onboarding and not organization:
+            raise PermissionDenied("You must have an owner profile or be an org admin to create a pharmacy.")
+        
+        # Use a database transaction to ensure both operations succeed or fail together
+        with transaction.atomic():
+            # Save the pharmacy instance
+            pharmacy = serializer.save(owner=owner_onboarding, organization=organization)
+
+            # NOW, CREATE THE MEMBERSHIP RECORD FOR THE OWNER
+            # This ensures the owner is also a member and can use member-only features like chat.
+            Membership.objects.get_or_create(
+                user=user,
+                pharmacy=pharmacy,
+                defaults={
+                    'role': 'PHARMACY_ADMIN',
+                    'employment_type': 'FULL_TIME',
+                    'is_active': True,
+                    'invited_by': user,
+                }
+            )
 
     def perform_update(self, serializer):
         super().perform_update(serializer)
@@ -3471,3 +3490,173 @@ def send_invoice_email(request, invoice_id):
     invoice.save(update_fields=['status'])
 
     return Response({"status": "sent"})
+
+
+
+# -----------------------------------------------------------------------------
+# Chat API
+# -----------------------------------------------------------------------------
+class ConversationViewSet(mixins.ListModelMixin,
+                          mixins.RetrieveModelMixin,
+                          mixins.CreateModelMixin,
+                          viewsets.GenericViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        return (Conversation.objects
+                .filter(participants__membership__user=user,
+                        participants__membership__is_active=True)
+                .select_related('pharmacy')
+                .distinct()
+                .order_by('-updated_at'))
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return ConversationCreateSerializer
+        if self.action in ['retrieve', 'get_or_create_group']:
+            return ConversationDetailSerializer
+        return ConversationListSerializer
+    
+    def perform_create(self, serializer):
+        conv = serializer.save()
+        creator_mem = Membership.objects.filter(
+            user=self.request.user, pharmacy=conv.pharmacy, is_active=True
+        ).first()
+        if creator_mem and not Participant.objects.filter(conversation=conv, membership=creator_mem).exists():
+            Participant.objects.create(conversation=conv, membership=creator_mem)
+
+    @action(detail=False, methods=['post'], url_path='get-or-create-group')
+    def get_or_create_group(self, request):
+        pharmacy_id = request.data.get('pharmacy_id')
+        if not pharmacy_id:
+            return Response({"detail": "pharmacy_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        my_mem = Membership.objects.filter(
+            user=request.user, pharmacy_id=pharmacy_id, is_active=True
+        ).first()
+        if not my_mem:
+            return Response({"detail": "You are not an active member of this pharmacy."}, status=status.HTTP_403_FORBIDDEN)
+        
+        pharmacy = my_mem.pharmacy
+
+        with transaction.atomic():
+            existing_groups = Conversation.objects.filter(
+                pharmacy=pharmacy,
+                type=Conversation.Type.GROUP
+            ).order_by('-updated_at')
+
+            conv = existing_groups.first()
+            if not conv:
+                conv = Conversation.objects.create(
+                    pharmacy=pharmacy,
+                    type=Conversation.Type.GROUP,
+                    title=f"{pharmacy.name} Group Chat"
+                )
+
+            active_member_ids = set(Membership.objects.filter(pharmacy=pharmacy, is_active=True).values_list('id', flat=True))
+            current_participant_m_ids = set(Participant.objects.filter(conversation=conv).values_list('membership_id', flat=True))
+
+            members_to_add = active_member_ids - current_participant_m_ids
+            if members_to_add:
+                Participant.objects.bulk_create([
+                    Participant(conversation=conv, membership_id=m_id) for m_id in members_to_add
+                ])
+
+        serializer = self.get_serializer(conv)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get', 'post'])
+    def messages(self, request, pk=None):
+        conv = self.get_object()
+        my_mem = Membership.objects.filter(
+            user=request.user, pharmacy=conv.pharmacy, is_active=True
+        ).first()
+        if not my_mem or not Participant.objects.filter(conversation=conv, membership=my_mem).exists():
+            return Response({"detail": "Not a participant of this conversation."}, status=status.HTTP_403_FORBIDDEN)
+
+        if request.method.lower() == 'get':
+            qs = conv.messages.select_related('sender__user').order_by('-created_at')
+            page = self.paginate_queryset(qs)
+            ser = MessageSerializer(page if page is not None else qs, many=True)
+            return self.get_paginated_response(ser.data) if page else Response(ser.data)
+
+        # ✅ FIX: The POST logic is now extremely simple.
+        # Its only job is to create the message. The signal will handle the broadcast.
+        data = request.data or {}
+        body = (data.get('body') or '').strip()
+        attachment = request.FILES.get('attachment')
+
+        if not body and not attachment:
+            return Response({"detail": "Message body or attachment is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        msg = Message.objects.create(
+            conversation=conv, sender=my_mem, body=body, attachment=attachment
+        )
+        
+        Conversation.objects.filter(pk=conv.pk).update(updated_at=msg.created_at)
+
+        http_payload = MessageSerializer(msg).data
+        return Response(http_payload, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def read(self, request, pk=None):
+        conv = self.get_object()
+        my_mem = Membership.objects.filter(user=request.user, pharmacy=conv.pharmacy, is_active=True).first()
+        if not my_mem:
+            return Response({"detail": "No active membership for this pharmacy."}, status=status.HTTP_403_FORBIDDEN)
+        
+        part = Participant.objects.filter(conversation=conv, membership=my_mem).first()
+        if not part:
+            return Response({"detail": "Not a participant of this conversation."}, status=status.HTTP_403_FORBIDDEN)
+
+        part.last_read_at = timezone.now()
+        part.save(update_fields=['last_read_at'])
+        
+        return Response({"detail": "Read position updated.", "last_read_at": part.last_read_at})
+
+class MyMembershipsViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Lists all active memberships for the requesting user.
+    This view also intelligently handles pharmacy owners, ensuring they
+    have a membership record for each pharmacy they own.
+    """
+    serializer_class = MembershipSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # This logic is for Pharmacy Owners. It finds all pharmacies they own
+        # and creates a PHARMACY_ADMIN membership for them if it doesn't exist.
+        # This is a "healing" step that fixes existing data.
+        try:
+            # Check if the user has an owner profile
+            if hasattr(user, 'owneronboarding'):
+                # Get all pharmacies linked to this owner profile
+                owned_pharmacies = Pharmacy.objects.filter(owner=user.owneronboarding)
+                
+                # For each pharmacy they own, ensure a membership exists.
+                # get_or_create is efficient and only creates if it's missing.
+                for pharmacy in owned_pharmacies:
+                    Membership.objects.get_or_create(
+                        user=user,
+                        pharmacy=pharmacy,
+                        defaults={
+                            'role': 'PHARMACY_ADMIN',
+                            'employment_type': 'FULL_TIME',
+                            'is_active': True,
+                            'invited_by': user,
+                        }
+                    )
+        except OwnerOnboarding.DoesNotExist:
+            # This user is not an owner, so we skip this block.
+            pass
+
+        # Finally, return all active memberships for the user.
+        # This now includes their regular memberships AND the ones we just
+        # created/verified for their owned pharmacies.
+        return Membership.objects.filter(user=user, is_active=True).select_related('pharmacy', 'user')
+
+
+

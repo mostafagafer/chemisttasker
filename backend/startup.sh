@@ -7,7 +7,7 @@ apt-get update && apt-get install -y \
     libgdk-pixbuf2.0-0 libffi-dev shared-mime-info \
     libxml2 libxslt1.1 fonts-liberation
 
-# Always cd to the folder where this script lives (i.e., wwwroot after unzip)
+# Always cd to the folder where this script lives (wwwroot after unzip)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -21,5 +21,26 @@ echo "[startup] Honcho: $(command -v honcho || echo 'not found')"
 echo "[startup] Procfile contents:"
 cat Procfile || echo "[startup] Procfile missing!"
 
-# Pipe output to a log so you can inspect failures in /home/LogFiles
+# --- Minimal hotfix: ensure GLIBC-compatible cryptography in Azure runtime ---
+# Keep your requirements intact; this only corrects the runtime wheel if needed.
+echo "[startup] Enforcing GLIBC-safe crypto wheels..."
+python - <<'PY'
+import sys
+try:
+    import cryptography
+    v = cryptography.__version__
+    print(f"[startup] cryptography detected: {v}")
+    # Accept either pinned 43.0.3 (recommended by Azure threads) or 41.0.7 if you kept it
+    sys.exit(0 if v in ("43.0.3","41.0.7") else 1)
+except Exception as e:
+    print(f"[startup] cryptography import failed: {e}")
+    sys.exit(1)
+PY
+if [ $? -ne 0 ]; then
+  # Force a reinstall into Azure's active site-packages (.python_packages)
+  python -m pip install --no-cache-dir --force-reinstall "cryptography==43.0.3" "pyOpenSSL==24.2.1"
+fi
+# --- End hotfix ---
+
+# Start processes via Procfile
 exec python -m honcho start 2>&1 | tee /home/LogFiles/honcho.log

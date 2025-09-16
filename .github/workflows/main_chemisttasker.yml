@@ -47,19 +47,18 @@ jobs:
           echo "MOBILEMESSAGE_SENDER=${{ secrets.MOBILEMESSAGE_SENDER }}" >> $GITHUB_ENV
           echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> $GITHUB_ENV
 
+      # Local venv only to run manage.py tasks pre-deploy; runtime will use Azure's env
       - name: Install dependencies and prepare app
         run: |
           python -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
           pip install -r backend/requirements.txt
-          # 🔧 Force reinstall GLIBC-compatible cryptography + pyOpenSSL
-          pip install --no-cache-dir --force-reinstall "cryptography==43.0.3" "pyOpenSSL==24.2.1"
 
           cd backend
           python manage.py migrate --noinput
           python manage.py collectstatic --noinput
-
+          cd ..
 
       - name: Make startup.sh executable
         run: chmod +x backend/startup.sh

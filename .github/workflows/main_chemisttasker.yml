@@ -78,9 +78,10 @@ jobs:
       - name: Wait to avoid SCM conflicts
         run: sleep 60
 
-      - name: Deploy to Azure Web App
+      - name: Deploy to Azure Web App (Remote Build)
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'chemisttasker'
           slot-name: 'Production'
           package: release.zip
+          enable-oryx-build: true

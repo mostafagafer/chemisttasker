@@ -57,10 +57,7 @@ jobs:
           cd backend
           python manage.py migrate --noinput
           python manage.py collectstatic --noinput
-          cd ..
 
-          # Move venv into backend so it's included in ZIP
-          mv venv backend/
 
       - name: Make startup.sh executable
         run: chmod +x backend/startup.sh

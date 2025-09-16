@@ -8,12 +8,11 @@ apt-get update && apt-get install -y \
 # Activate virtualenv
 source venv/bin/activate
 
-# Log to check paths
-echo "Python path: $(which python)"
-echo "Daphne path: $(which daphne)"
+# Optional: Debug info
+echo "Using Python: $(which python)"
+echo "Using Honcho: $(which honcho)"
+echo "Procfile:"
+cat Procfile
 
-# Start Django Q worker
-python manage.py qcluster &
-
-# Start main web server
-exec daphne -b 0.0.0.0 -p 8000 core.asgi:application
+# Start processes using Procfile
+exec honcho start

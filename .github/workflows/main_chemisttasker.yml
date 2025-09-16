@@ -47,20 +47,19 @@ jobs:
           echo "MOBILEMESSAGE_SENDER=${{ secrets.MOBILEMESSAGE_SENDER }}" >> $GITHUB_ENV
           echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> $GITHUB_ENV
 
-      - name: Install dependencies and build
+      - name: Install dependencies and prepare app
         run: |
           python -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
           pip install -r backend/requirements.txt
 
-          # Run migrations and collectstatic in same shell
           cd backend
           python manage.py migrate --noinput
           python manage.py collectstatic --noinput
-
-          # Move venv inside backend so it gets zipped
           cd ..
+
+          # Move venv into backend so it's included in ZIP
           mv venv backend/
 
       - name: Make startup.sh executable

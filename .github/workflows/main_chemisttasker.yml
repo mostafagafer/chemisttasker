@@ -30,9 +30,9 @@ jobs:
           echo "WEBSITE_HOSTING=${{ secrets.WEBSITE_HOSTING }}" >> $GITHUB_ENV
           echo "AZURE_POSTGRESQL_CONNECTIONSTRING=${{ secrets.AZURE_POSTGRESQL_CONNECTIONSTRING }}" >> $GITHUB_ENV
           echo "DJANGO_SETTINGS_MODULE=core.deployment" >> $GITHUB_ENV
-          echo "AZURE_ACCOUNT_NAME=${{ secrets.AZURE_ACCOUNT_NAME }}"             >> $GITHUB_ENV
-          echo "AZURE_ACCOUNT_KEY=${{ secrets.AZURE_ACCOUNT_KEY }}"               >> $GITHUB_ENV
-          echo "AZURE_CONTAINER=${{ secrets.AZURE_CONTAINER }}"                   >> $GITHUB_ENV
+          echo "AZURE_ACCOUNT_NAME=${{ secrets.AZURE_ACCOUNT_NAME }}" >> $GITHUB_ENV
+          echo "AZURE_ACCOUNT_KEY=${{ secrets.AZURE_ACCOUNT_KEY }}" >> $GITHUB_ENV
+          echo "AZURE_CONTAINER=${{ secrets.AZURE_CONTAINER }}" >> $GITHUB_ENV
           echo "EMAIL_HOST_USER=${{ secrets.EMAIL_HOST_USER }}" >> $GITHUB_ENV
           echo "EMAIL_HOST_PASSWORD=${{ secrets.EMAIL_HOST_PASSWORD }}" >> $GITHUB_ENV
           echo "DEFAULT_FROM_EMAIL=${{ secrets.DEFAULT_FROM_EMAIL }}" >> $GITHUB_ENV
@@ -47,22 +47,21 @@ jobs:
           echo "MOBILEMESSAGE_SENDER=${{ secrets.MOBILEMESSAGE_SENDER }}" >> $GITHUB_ENV
           echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> $GITHUB_ENV
 
-      - name: Install dependencies
+      - name: Install dependencies and build
         run: |
+          python -m venv venv
+          source venv/bin/activate
           pip install --upgrade pip
           pip install -r backend/requirements.txt
 
-      - name: Run Django migrations
-        run: |
-          source venv/bin/activate
+          # Run migrations and collectstatic in same shell
           cd backend
           python manage.py migrate --noinput
-
-      - name: Run Django collectstatic
-        run: |
-          source venv/bin/activate
-          cd backend
           python manage.py collectstatic --noinput
+
+          # Move venv inside backend so it gets zipped
+          cd ..
+          mv venv backend/
 
       - name: Make startup.sh executable
         run: chmod +x backend/startup.sh
@@ -71,7 +70,6 @@ jobs:
         run: |
           cd backend
           zip -r ../release.zip .
-
 
       - name: Azure Login
         uses: azure/login@v2

@@ -5,13 +5,15 @@ apt-get update && apt-get install -y \
     libgdk-pixbuf2.0-0 libffi-dev shared-mime-info \
     libxml2 libxslt1.1 fonts-liberation
 
-# OPTIONAL: Debug paths
+# Activate virtualenv
+source venv/bin/activate
+
+# Log to check paths
 echo "Python path: $(which python)"
 echo "Daphne path: $(which daphne)"
-echo "Python version: $(python --version)"
 
-# Start Django Q cluster in background
+# Start Django Q worker
 python manage.py qcluster &
 
-# Start Daphne in foreground
+# Start main web server
 exec daphne -b 0.0.0.0 -p 8000 core.asgi:application

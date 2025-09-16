@@ -47,18 +47,8 @@ jobs:
           echo "MOBILEMESSAGE_SENDER=${{ secrets.MOBILEMESSAGE_SENDER }}" >> $GITHUB_ENV
           echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> $GITHUB_ENV
 
-      # Local venv only to run manage.py tasks pre-deploy; runtime will use Azure's env
-      - name: Install dependencies and prepare app
-        run: |
-          python -m venv venv
-          source venv/bin/activate
-          pip install --upgrade pip
-          pip install -r backend/requirements.txt
-
-          cd backend
-          python manage.py migrate --noinput
-          python manage.py collectstatic --noinput
-          cd ..
+      # Optional: Migrations and collectstatic locally (but NOT needed if done in app startup)
+      # Remove local venv and pip install -- not needed for remote build
 
       - name: Make startup.sh executable
         run: chmod +x backend/startup.sh
@@ -78,10 +68,9 @@ jobs:
       - name: Wait to avoid SCM conflicts
         run: sleep 60
 
-      - name: Deploy to Azure Web App (Remote Build)
+      - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'chemisttasker'
           slot-name: 'Production'
           package: release.zip
-          enable-oryx-build: true

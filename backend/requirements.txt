@@ -66,7 +66,8 @@ pycparser==2.22
 pydyf==0.11.0
 pyee==13.0.0
 PyJWT==2.9.0
-pyOpenSSL==24.2.1
+pyOpenSSL==23.2.0   
+cryptography==41.0.7
 pyphen==0.17.2
 python-dateutil==2.9.0.post0
 pytz==2025.2

@@ -19,11 +19,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: Export environment variables
         run: |
           echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> $GITHUB_ENV
@@ -47,16 +42,16 @@ jobs:
           echo "MOBILEMESSAGE_SENDER=${{ secrets.MOBILEMESSAGE_SENDER }}" >> $GITHUB_ENV
           echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> $GITHUB_ENV
 
-      # Optional: Migrations and collectstatic locally (but NOT needed if done in app startup)
-      # Remove local venv and pip install -- not needed for remote build
-
       - name: Make startup.sh executable
         run: chmod +x backend/startup.sh
 
-      - name: Zip backend app for deployment
+      - name: Create deployment ZIP (clean)
         run: |
           cd backend
-          zip -r ../release.zip .
+          zip -r ../release.zip . \
+            -x "venv/*" "antenv/*" ".python_packages/*" \
+            -x "__pycache__/*" "*.pyc" ".git/*" "*.log" \
+            -x "*.egg-info/*" "build/*" "dist/*"
 
       - name: Azure Login
         uses: azure/login@v2
@@ -66,9 +61,9 @@ jobs:
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}
 
       - name: Wait to avoid SCM conflicts
-        run: sleep 60
+        run: sleep 30
 
-      - name: Deploy to Azure Web App
+      - name: Deploy to Azure Web App (Remote Build)
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'chemisttasker'

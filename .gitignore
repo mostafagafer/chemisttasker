@@ -46,3 +46,15 @@ Documents/
 verification_outputs/
 ocr_verification
 **/jobs/
+
+# ─── Azure Safe Deploy Additions (DO NOT REMOVE) ───────────────────
+# Prevent accidental GLIBC issues from local builds
+.python_packages/
+**/.python_packages/
+antenv/
+**/antenv/
+.antenv/
+*.whl
+*.egg-info/
+build/
+dist/

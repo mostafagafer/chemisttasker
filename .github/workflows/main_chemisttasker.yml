@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  contents: read
   id-token: write
 
 jobs:
@@ -13,53 +14,59 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: 'Production'
-      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
-
-    # All secrets are set as environment variables for the job's steps to use
-    env:
-      DJANGO_SETTINGS_MODULE: core.deployment
-      SECRET_KEY: ${{ secrets.SECRET_KEY }}
-      WEBSITE_HOSTING: ${{ secrets.WEBSITE_HOSTING }}
-      AZURE_POSTGRESQL_CONNECTIONSTRING: ${{ secrets.AZURE_POSTGRESQL_CONNECTIONSTRING }}
-      AZURE_ACCOUNT_NAME: ${{ secrets.AZURE_ACCOUNT_NAME }}
-      AZURE_ACCOUNT_KEY: ${{ secrets.AZURE_ACCOUNT_KEY }}
-      AZURE_CONTAINER: ${{ secrets.AZURE_CONTAINER }}
-      EMAIL_HOST_USER: ${{ secrets.EMAIL_HOST_USER }}
-      EMAIL_HOST_PASSWORD: ${{ secrets.EMAIL_HOST_PASSWORD }}
-      DEFAULT_FROM_EMAIL: ${{ secrets.DEFAULT_FROM_EMAIL }}
-      TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
-      TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
-      RECAPTCHA_SECRET_KEY: ${{ secrets.RECAPTCHA_SECRET_KEY }}
-      AZURE_OCR_ENDPOINT: ${{ secrets.AZURE_OCR_ENDPOINT }}
-      AZURE_OCR_KEY: ${{ secrets.AZURE_OCR_KEY }}
-      SCRAPINGBEE_API_KEY: ${{ secrets.SCRAPINGBEE_API_KEY }}
-      MOBILEMESSAGE_USERNAME: ${{ secrets.MOBILEMESSAGE_USERNAME }}
-      MOBILEMESSAGE_PASSWORD: ${{ secrets.MOBILEMESSAGE_PASSWORD }}
-      MOBILEMESSAGE_SENDER: ${{ secrets.MOBILEMESSAGE_SENDER }}
-      REDIS_URL: ${{ secrets.REDIS_URL }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies, Migrate, and Collect Static
+      - name: Export environment variables
+        run: |
+          echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> $GITHUB_ENV
+          echo "WEBSITE_HOSTING=${{ secrets.WEBSITE_HOSTING }}" >> $GITHUB_ENV
+          echo "AZURE_POSTGRESQL_CONNECTIONSTRING=${{ secrets.AZURE_POSTGRESQL_CONNECTIONSTRING }}" >> $GITHUB_ENV
+          echo "DJANGO_SETTINGS_MODULE=core.deployment" >> $GITHUB_ENV
+          echo "AZURE_ACCOUNT_NAME=${{ secrets.AZURE_ACCOUNT_NAME }}" >> $GITHUB_ENV
+          echo "AZURE_ACCOUNT_KEY=${{ secrets.AZURE_ACCOUNT_KEY }}" >> $GITHUB_ENV
+          echo "AZURE_CONTAINER=${{ secrets.AZURE_CONTAINER }}" >> $GITHUB_ENV
+          echo "EMAIL_HOST_USER=${{ secrets.EMAIL_HOST_USER }}" >> $GITHUB_ENV
+          echo "EMAIL_HOST_PASSWORD=${{ secrets.EMAIL_HOST_PASSWORD }}" >> $GITHUB_ENV
+          echo "DEFAULT_FROM_EMAIL=${{ secrets.DEFAULT_FROM_EMAIL }}" >> $GITHUB_ENV
+          echo "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" >> $GITHUB_ENV
+          echo "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}" >> $GITHUB_ENV
+          echo "RECAPTCHA_SECRET_KEY=${{ secrets.RECAPTCHA_SECRET_KEY }}" >> $GITHUB_ENV
+          echo "AZURE_OCR_ENDPOINT=${{ secrets.AZURE_OCR_ENDPOINT }}" >> $GITHUB_ENV
+          echo "AZURE_OCR_KEY=${{ secrets.AZURE_OCR_KEY }}" >> $GITHUB_ENV
+          echo "SCRAPINGBEE_API_KEY=${{ secrets.SCRAPINGBEE_API_KEY }}" >> $GITHUB_ENV
+          echo "MOBILEMESSAGE_USERNAME=${{ secrets.MOBILEMESSAGE_USERNAME }}" >> $GITHUB_ENV
+          echo "MOBILEMESSAGE_PASSWORD=${{ secrets.MOBILEMESSAGE_PASSWORD }}" >> $GITHUB_ENV
+          echo "MOBILEMESSAGE_SENDER=${{ secrets.MOBILEMESSAGE_SENDER }}" >> $GITHUB_ENV
+          echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> $GITHUB_ENV
+
+      - name: Install dependencies and prepare app
         run: |
           python -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
           pip install -r backend/requirements.txt
+
           cd backend
           python manage.py migrate --noinput
           python manage.py collectstatic --noinput
+          cd ..
+
+          # Move venv into backend so it's included in ZIP
+          mv venv backend/
+
+      - name: Make startup.sh executable
+        run: chmod +x backend/startup.sh
 
       - name: Zip backend app for deployment
         run: |
-          zip -r release.zip venv/
           cd backend
           zip -r ../release.zip .
 
@@ -70,11 +77,12 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}
 
+      - name: Wait to avoid SCM conflicts
+        run: sleep 60
+
       - name: Deploy to Azure Web App
-        id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'chemisttasker'
+          slot-name: 'Production'
           package: release.zip
-          # This tells Azure not to run its own build, preventing the 409 Conflict error.
-          scm-do-build-during-deployment: false

@@ -2,7 +2,7 @@
 
 Hi there,
 
-{% if is_admin -%}
+{% if is_admin %}
 {{ inviter }} has invited you to join {{ pharmacy_name }} as a Pharmacy Admin on ChemistTasker.
 Set your password:
 
@@ -15,15 +15,14 @@ Once you’re in, head to your Admin Dashboard to:
 - Handle leave and shift escalations
 
 Admin Dashboard: {{ admin_landing_url }}
-{% else -%}
+{% else %}
 {{ inviter }} has invited you to join {{ pharmacy_name }} as a {{ role|title }} on ChemistTasker.
 Set your password:
 
 {{ magic_link }}
 
 After you set your password, you’ll have immediate access to all community shifts for {{ pharmacy_name }}.
-{% endif -%}
-
+{% endif %}
 
 We’re excited to have you on the team—welcome aboard!
 

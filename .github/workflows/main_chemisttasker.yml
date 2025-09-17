@@ -47,17 +47,12 @@ jobs:
           echo "MOBILEMESSAGE_SENDER=${{ secrets.MOBILEMESSAGE_SENDER }}" >> $GITHUB_ENV
           echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> $GITHUB_ENV
 
-      - name: Install dependencies locally (just for CI validation)
-        run: |
-          python -m venv venv
-          source venv/bin/activate
-          pip install --upgrade pip
-          pip install -r backend/requirements.txt
+      # No building a venv here. Let Azure (Oryx) build in its environment.
 
       - name: Make startup.sh executable
         run: chmod +x backend/startup.sh
 
-      - name: Zip backend app for deployment
+      - name: Zip backend app for deployment (CLEAN ZIP)
         run: |
           cd backend
           zip -r ../release.zip . \
@@ -73,7 +68,7 @@ jobs:
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}
 
       - name: Wait to avoid SCM conflicts
-        run: sleep 60
+        run: sleep 30
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3

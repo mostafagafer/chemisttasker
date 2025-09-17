@@ -29,6 +29,12 @@ python manage.py migrate --noinput
 echo "[startup] Collecting static files..."
 python manage.py collectstatic --noinput
 
-# STEP 5: Start the application.
+# STEP 5: Optional Redis connection check (non-blocking)
+echo "[startup] Verifying Redis connection..."
+python -c "import redis; r = redis.from_url('$REDIS_URL'); r.ping()" \
+  && echo "[startup] Redis reachable." \
+  || echo "[startup] Redis unreachable. Proceeding anyway..."
+
+# STEP 6: Start the application with honcho
 echo "[startup] Starting application with Honcho..."
 exec honcho start

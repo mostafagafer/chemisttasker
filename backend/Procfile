@@ -1,2 +1,2 @@
 web: python -m daphne -b 0.0.0.0 -p 8000 core.asgi:application
-worker: python manage.py qcluster
+worker: sh -c "sleep 10 && python manage.py qcluster"

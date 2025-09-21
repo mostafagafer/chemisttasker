@@ -134,14 +134,19 @@ const handleShare = async (shift: Shift) => {
   //   return Object.values(userIdToCounts).filter(x => x.count === slotCount).map(x => x.member);
   // }, []);
 
-  useEffect(() => {
+useEffect(() => {
     setLoadingShifts(true);
-    apiClient.get<Shift[]>(API_ENDPOINTS.getActiveShifts)
-      .then(res => { setShifts(res.data); })
+    apiClient.get(API_ENDPOINTS.getActiveShifts) // Expect a paginated object or a plain array
+      .then(res => {
+        // FIX: Check if the response contains a 'results' array (paginated).
+        // If so, use it. Otherwise, fall back to using the whole data object.
+        const shiftsData = Array.isArray(res.data.results) ? res.data.results : res.data;
+        setShifts(shiftsData);
+      })
       .catch(() => setSnackbar({ open: true, message: 'Failed to load active shifts' }))
       .finally(() => setLoadingShifts(false));
   }, []);
-
+  
 const loadTabData = useCallback(async (shift: Shift, levelIdx: number) => {
     const tabKey = getTabKey(shift.id, levelIdx);
     const escLevel = ESCALATION_LEVELS[levelIdx].key;
@@ -267,19 +272,25 @@ const loadTabData = useCallback(async (shift: Shift, levelIdx: number) => {
     setShiftToDelete(null);
   };
 
-  const handleAssign = (shift: Shift, userId: number, slotId: number | null) => {
+const handleAssign = (shift: Shift, userId: number, slotId: number | null) => {
     apiClient.post(`${API_ENDPOINTS.getActiveShifts}${shift.id}/accept_user/`, { user_id: userId, slot_id: slotId })
       .then(() => {
-        setSnackbar({ open: true, message: 'User assigned.' });
-        const currentActiveTabIdx = activeTabs[shift.id] ?? ESCALATION_LEVELS.findIndex(l => l.key === shift.visibility);
-        if (currentActiveTabIdx >= 0) loadTabData(shift, currentActiveTabIdx);
-        apiClient.get<Shift[]>(API_ENDPOINTS.getActiveShifts)
-          .then(res => setShifts(res.data))
-          .catch(() => setSnackbar({ open: true, message: 'Failed to refresh active shifts after assignment' }));
+        setSnackbar({ open: true, message: 'User assigned. Refreshing list...' });
+        
+        // After assigning, reload the entire list of active shifts correctly.
+        // The shift you just filled might disappear from this list if it's now fully booked.
+        setLoadingShifts(true);
+        apiClient.get(API_ENDPOINTS.getActiveShifts)
+          .then(res => {
+            // FIX: Handle the paginated response object correctly
+            const shiftsData = Array.isArray(res.data.results) ? res.data.results : res.data;
+            setShifts(shiftsData);
+          })
+          .catch(() => setSnackbar({ open: true, message: 'Failed to refresh shifts list' }))
+          .finally(() => setLoadingShifts(false));
       })
       .catch((err: any) => setSnackbar({ open: true, message: err.response?.data?.detail || 'Failed to assign user.' }));
   };
-
   const handleRevealPlatform = (shift: Shift, interest: Interest) => {
     apiClient.post<UserDetail>(`${API_ENDPOINTS.getActiveShifts}${shift.id}/reveal_profile/`, { slot_id: interest.slot_id, user_id: interest.user_id })
       .then(res => {

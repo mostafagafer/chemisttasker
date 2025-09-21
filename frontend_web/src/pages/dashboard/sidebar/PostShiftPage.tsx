@@ -67,8 +67,13 @@ export default function PostShiftPage() {
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   useEffect(() => {
     apiClient
-      .get<Pharmacy[]>(API_ENDPOINTS.pharmacies)
-      .then(res => setPharmacies(res.data))
+      .get(API_ENDPOINTS.pharmacies) // We expect a paginated object or an array
+      .then(res => {
+        // FIX: Check if the response is paginated and extract the 'results' array.
+        // If not, assume the data itself is the array.
+        const pharmacyData = Array.isArray(res.data.results) ? res.data.results : res.data;
+        setPharmacies(pharmacyData);
+      })
       .catch(() => showSnackbar('Failed to load pharmacies'));
   }, []);
 

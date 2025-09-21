@@ -1,5 +1,6 @@
 # client_profile/views.py
 from rest_framework import generics, permissions, status, viewsets, mixins
+from rest_framework.pagination import PageNumberPagination
 from .serializers import *
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -1713,65 +1714,109 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def accept_user(self, request, pk=None):
         """
-        Assign a user to:
-        - the entire shift if single_user_only=True, OR
-        - unassigned slots in a multi‐slot shift when slot_id is omitted, OR
-        - a specific slot if slot_id is provided.
+        Assigns a user to a shift.
+        - If the user is Full/Part-Time, it rosters them onto the shift.
+        - If the user is a Locum or other type, it accepts them and locks in the shift rate.
         """
         shift = self.get_object()
         user_id = request.data.get('user_id')
         if user_id is None:
             return Response({'detail': 'user_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-        candidate = get_object_or_404(User, pk=user_id)
         
-        # # Prevent Full/Part-Time employees from being accepted through this flow
-        # membership = Membership.objects.filter(user=candidate, pharmacy=shift.pharmacy).first()
-        # if membership and membership.employment_type in ['FULL_TIME', 'PART_TIME']:
-        #     return Response(
-        #         {"detail": "Full/Part-Time employees must be rostered via manual assignment, not accepted here."},
-        #         status=status.HTTP_400_BAD_REQUEST
-        #     )
-
-        # Prevent accepting Full/Part-Time employees via this flow
-        # EXCEPT when the shift is PUBLIC ('PLATFORM'), where acceptance is allowed.
-        membership = Membership.objects.filter(user=candidate, pharmacy=shift.pharmacy).first()
-        if (
-            membership
-            and membership.employment_type in ['FULL_TIME', 'PART_TIME']
-            and shift.visibility != 'PLATFORM'
-        ):
-            return Response(
-                {"detail": "Full/Part-Time employees must be rostered via manual assignment, not accepted here."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
+        candidate = get_object_or_404(User, pk=user_id)
         slot_id = request.data.get('slot_id')
 
-        # ✅ CASE 1: SINGLE‐USER‐ONLY SHIFT — Expand all dates and assign per-day
-        if shift.single_user_only:
+        membership = Membership.objects.filter(user=candidate, pharmacy=shift.pharmacy).first()
+        is_internal_staff = membership and membership.employment_type in ['FULL_TIME', 'PART_TIME']
+
+        # --- FIX: NEW LOGIC TO HANDLE BOTH EMPLOYEE TYPES ---
+
+        if is_internal_staff:
+            # --- This is for Full/Part-Time staff ---
+            # We treat this as a direct "rostering" action.
+            assignment_ids = []
+            slots_to_assign = []
+            
+            if shift.single_user_only or slot_id is None:
+                slots_to_assign = shift.slots.all()
+            else:
+                slots_to_assign = shift.slots.filter(pk=slot_id)
+
+            for slot in slots_to_assign:
+                for entry in expand_shift_slots(shift):
+                    if entry['slot'].id == slot.id:
+                        slot_date = entry['date']
+                        assn, _ = ShiftSlotAssignment.objects.update_or_create(
+                            slot=slot,
+                            slot_date=slot_date,
+                            defaults={
+                                "shift": shift,
+                                "user": candidate,
+                                "unit_rate": Decimal('0.00'),
+                                "rate_reason": {"source": "Rostered via shift interest"},
+                                "is_rostered": True # Mark as a rostered shift
+                            }
+                        )
+                        assignment_ids.append(assn.id)
+            
+            # (Optional) You can customize the email for rostered staff here if needed
+            ctx = build_shift_email_context(shift, user=candidate, role=candidate.role.lower())
+            async_task(
+                'users.tasks.send_async_email',
+                subject=f"You’ve been rostered for a shift at {shift.pharmacy.name}",
+                recipient_list=[candidate.email],
+                template_name="emails/shift_accept.html", # Can reuse or create a new template
+                context=ctx,
+                text_template="emails/shift_accept.txt"
+            )
+
+            return Response({
+                'status': f'{candidate.get_full_name()} has been rostered for the shift.',
+                'assignment_ids': assignment_ids
+            }, status=status.HTTP_200_OK)
+
+        else:
+            # --- This is the ORIGINAL logic for Locums/other staff ---
+            # It locks in the rate and assigns them as a temporary worker.
             assignment_ids = []
 
-            for entry in expand_shift_slots(shift):
-                slot = entry['slot']
-                slot_date = entry['date']
-                rate, reason = get_locked_rate_for_slot(shift=shift, slot=slot, user=candidate, override_date=slot_date)
+            # CASE 1: SINGLE-USER-ONLY SHIFT
+            if shift.single_user_only:
+                for entry in expand_shift_slots(shift):
+                    slot = entry['slot']
+                    slot_date = entry['date']
+                    rate, reason = get_locked_rate_for_slot(shift=shift, slot=slot, user=candidate, override_date=slot_date)
+                    a, _ = ShiftSlotAssignment.objects.update_or_create(
+                        slot=slot, slot_date=slot_date,
+                        defaults={'shift': shift, 'user': candidate, 'unit_rate': rate, 'rate_reason': reason}
+                    )
+                    assignment_ids.append(a.id)
+            
+            # CASE 2: MULTI-SLOT (ALL UNASSIGNED)
+            elif slot_id is None:
+                for entry in expand_shift_slots(shift):
+                    if not ShiftSlotAssignment.objects.filter(slot=entry['slot'], slot_date=entry['date']).exists():
+                        rate, reason = get_locked_rate_for_slot(shift=shift, slot=entry['slot'], user=candidate, override_date=entry['date'])
+                        a, _ = ShiftSlotAssignment.objects.update_or_create(
+                            slot=entry['slot'], slot_date=entry['date'],
+                            defaults={'shift': shift, 'user': candidate, 'unit_rate': rate, 'rate_reason': reason}
+                        )
+                        assignment_ids.append(a.id)
 
-                a, created = ShiftSlotAssignment.objects.update_or_create(
-                    slot=slot,
-                    slot_date=slot_date,
-                    defaults={
-                        'shift': shift,
-                        'user': candidate,
-                        'unit_rate': rate,
-                        'rate_reason': reason
-                    }
-                )
-                assignment_ids.append(a.id)
-            ctx = build_shift_email_context(
-            shift,
-            user=candidate,
-            role=candidate.role.lower(),
-            )
+            # CASE 3: SPECIFIC SLOT IN MULTI-SLOT SHIFT
+            else:
+                slot = get_object_or_404(shift.slots, pk=slot_id)
+                for entry in expand_shift_slots(shift):
+                    if entry['slot'].id == slot.id:
+                        slot_date = entry['date']
+                        rate, reason = get_locked_rate_for_slot(shift=shift, slot=slot, user=candidate, override_date=slot_date)
+                        a, _ = ShiftSlotAssignment.objects.update_or_create(
+                            slot=slot, slot_date=slot_date,
+                            defaults={'shift': shift, 'user': candidate, 'unit_rate': rate, 'rate_reason': reason}
+                        )
+                        assignment_ids.append(a.id)
+
+            ctx = build_shift_email_context(shift, user=candidate, role=candidate.role.lower())
             async_task(
                 'users.tasks.send_async_email',
                 subject=f"You’ve been accepted for a shift at {shift.pharmacy.name}",
@@ -1780,99 +1825,11 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 context=ctx,
                 text_template="emails/shift_accept.txt"
             )
-
-
+            
             return Response({
-                'status': f'{candidate.get_full_name()} assigned to entire shift (per-date)',
+                'status': f'{candidate.get_full_name()} assigned to the shift.',
                 'assignment_ids': assignment_ids
             }, status=status.HTTP_200_OK)
-
-        # ✅ CASE 2: MULTI‐SLOT BULK — assign user to all unassigned slot+dates
-        if slot_id is None:
-            assignment_ids = []
-
-            for entry in expand_shift_slots(shift):
-                slot = entry['slot']
-                slot_date = entry['date']
-
-                already_assigned = ShiftSlotAssignment.objects.filter(slot=slot, slot_date=slot_date).exists()
-                if already_assigned:
-                    continue
-
-                rate, reason = get_locked_rate_for_slot(shift=shift, slot=slot, user=candidate, override_date=slot_date)
-
-                a, created = ShiftSlotAssignment.objects.update_or_create(
-                    slot=slot,
-                    slot_date=slot_date,
-                    defaults={
-                        'shift': shift,
-                        'user': candidate,
-                        'unit_rate': rate,
-                        'rate_reason': reason
-                    }
-                )
-                assignment_ids.append(a.id)
-
-            ctx = build_shift_email_context(
-            shift,
-            user=candidate,
-            role=candidate.role.lower(),
-            )
-            async_task(
-                'users.tasks.send_async_email',
-                subject=f"You’ve been accepted for a shift at {shift.pharmacy.name}",
-                recipient_list=[candidate.email],
-                template_name="emails/shift_accept.html",
-                context=ctx,
-                text_template="emails/shift_accept.txt"
-            )
-
-            return Response({
-                'status': f'{candidate.get_full_name()} assigned to unassigned slots (per-date)',
-                'assignment_ids': assignment_ids
-            }, status=status.HTTP_200_OK)
-
-        # ✅ CASE 3: PER‐SLOT ASSIGNMENT — assign user to ALL dates of a single recurring slot
-        slot = get_object_or_404(shift.slots, pk=slot_id)
-        assignment_ids = []
-
-        for entry in expand_shift_slots(shift):
-            if entry['slot'].id != slot.id:
-                continue  # only process the selected slot
-
-            slot_date = entry['date']
-            rate, reason = get_locked_rate_for_slot(shift=shift, slot=slot, user=candidate, override_date=slot_date)
-
-            a, created = ShiftSlotAssignment.objects.update_or_create(
-                slot=slot,
-                slot_date=slot_date,
-                defaults={
-                    'shift': shift,
-                    'user': candidate,
-                    'unit_rate': rate,
-                    'rate_reason': reason
-                }
-            )
-            assignment_ids.append(a.id)
-
-        ctx = build_shift_email_context(
-        shift,
-        user=candidate,
-        role=candidate.role.lower(),
-        )
-        async_task(
-            'users.tasks.send_async_email',
-            subject=f"You’ve been accepted for a shift at {shift.pharmacy.name}",
-            recipient_list=[candidate.email],
-            template_name="emails/shift_accept.html",
-            context=ctx,
-            text_template="emails/shift_accept.txt"
-        )
-
-        return Response({
-            'status': f'{candidate.get_full_name()} assigned to slot {slot.id} (per-date)',
-            'assignment_ids': assignment_ids
-        }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
@@ -3496,12 +3453,19 @@ def send_invoice_email(request, invoice_id):
 # -----------------------------------------------------------------------------
 # Chat API
 # -----------------------------------------------------------------------------
+class ChatMessagePagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
 class ConversationViewSet(mixins.ListModelMixin,
                           mixins.RetrieveModelMixin,
                           mixins.CreateModelMixin,
                           viewsets.GenericViewSet):
     permission_classes = [permissions.IsAuthenticated]
-
+    pagination_class = ChatMessagePagination 
+    
     def get_queryset(self):
         user = self.request.user
         return (Conversation.objects
@@ -3526,45 +3490,58 @@ class ConversationViewSet(mixins.ListModelMixin,
         if creator_mem and not Participant.objects.filter(conversation=conv, membership=creator_mem).exists():
             Participant.objects.create(conversation=conv, membership=creator_mem)
 
-    @action(detail=False, methods=['post'], url_path='get-or-create-group')
-    def get_or_create_group(self, request):
+    @action(detail=False, methods=['post'], url_path='get-or-create-dm')
+    def get_or_create_dm(self, request):
         pharmacy_id = request.data.get('pharmacy_id')
-        if not pharmacy_id:
-            return Response({"detail": "pharmacy_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        partner_membership_id = request.data.get('partner_membership_id')
 
-        my_mem = Membership.objects.filter(
-            user=request.user, pharmacy_id=pharmacy_id, is_active=True
+        if not pharmacy_id or not partner_membership_id:
+            return Response({"detail": "pharmacy_id and partner_membership_id are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 1. Get the current user's membership in the specified pharmacy
+        my_membership = Membership.objects.filter(
+            user=request.user,
+            pharmacy_id=pharmacy_id,
+            is_active=True
         ).first()
-        if not my_mem:
+
+        if not my_membership:
             return Response({"detail": "You are not an active member of this pharmacy."}, status=status.HTTP_403_FORBIDDEN)
         
-        pharmacy = my_mem.pharmacy
+        # 2. Get the partner's membership (ensure it's in the same pharmacy)
+        partner_membership = get_object_or_404(
+            Membership, 
+            pk=partner_membership_id, 
+            pharmacy_id=pharmacy_id,
+            is_active=True
+        )
 
+        if my_membership.id == partner_membership.id:
+            return Response({"detail": "Cannot create a DM with yourself."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 3. Use the helper to create a unique, sorted key for the DM pair
+        dm_key = make_dm_key(my_membership.id, partner_membership.id)
+
+        # 4. Atomically get or create the conversation
         with transaction.atomic():
-            existing_groups = Conversation.objects.filter(
-                pharmacy=pharmacy,
-                type=Conversation.Type.GROUP
-            ).order_by('-updated_at')
+            conversation, created = Conversation.objects.get_or_create(
+                pharmacy_id=pharmacy_id,
+                dm_key=dm_key,
+                defaults={
+                    'type': Conversation.Type.DM,
+                    'title': f"DM between {my_membership.id} and {partner_membership.id}"
+                }
+            )
 
-            conv = existing_groups.first()
-            if not conv:
-                conv = Conversation.objects.create(
-                    pharmacy=pharmacy,
-                    type=Conversation.Type.GROUP,
-                    title=f"{pharmacy.name} Group Chat"
-                )
-
-            active_member_ids = set(Membership.objects.filter(pharmacy=pharmacy, is_active=True).values_list('id', flat=True))
-            current_participant_m_ids = set(Participant.objects.filter(conversation=conv).values_list('membership_id', flat=True))
-
-            members_to_add = active_member_ids - current_participant_m_ids
-            if members_to_add:
+            # 5. If it's a new conversation, add both users as participants
+            if created:
                 Participant.objects.bulk_create([
-                    Participant(conversation=conv, membership_id=m_id) for m_id in members_to_add
+                    Participant(conversation=conversation, membership=my_membership),
+                    Participant(conversation=conversation, membership=partner_membership)
                 ])
 
-        serializer = self.get_serializer(conv)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        serializer = self.get_serializer(conversation)
+        return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
     @action(detail=True, methods=['get', 'post'])
     def messages(self, request, pk=None):

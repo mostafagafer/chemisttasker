@@ -69,7 +69,7 @@ import MyConfirmedShiftsPage from './pages/dashboard/sidebar/MyConfirmedShiftsPa
 import MyHistoryShiftsPage   from './pages/dashboard/sidebar/MyHistoryShiftsPage';
 import PosterShiftDetailPage from './pages/dashboard/sidebar/PosterShiftDetailPage';
 import WorkerShiftDetailPage from './pages/dashboard/sidebar/WorkerShiftDetailPage';
-import ChatPage from './pages/dashboard/sidebar/ChatPage';
+import ChatPage from './pages/dashboard/sidebar/chat/ChatPage';
 
 
 // Invoice

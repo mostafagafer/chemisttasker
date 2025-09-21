@@ -2687,9 +2687,33 @@ class UserAvailabilitySerializer(serializers.ModelSerializer):
 
 # --- Chat Serializers --------------------------------------------------------
 
+class ChatMemberSerializer(serializers.ModelSerializer):
+    """
+    A lightweight serializer for displaying user details within a chat context.
+    Source is the User model.
+    """
+    class Meta:
+        model = User
+        fields = ["id", "first_name", "last_name", "email"]
+
+
+class ChatMembershipSerializer(serializers.ModelSerializer):
+    """
+    A serializer for the 'sender' object, linking a membership to a user.
+    """
+    user_details = ChatMemberSerializer(source='user', read_only=True)
+
+    class Meta:
+        model = Membership
+        fields = ["id", "user_details"]
+
+
 class MessageSerializer(serializers.ModelSerializer):
-    # Keep the payload lean; frontend can look up user details by membership if needed.
-    sender = serializers.PrimaryKeyRelatedField(read_only=True)  # membership id
+    """
+    CORRECTED: The message payload now ALWAYS includes the sender's details,
+    both for REST API history and for WebSocket broadcasts.
+    """
+    sender = ChatMembershipSerializer(read_only=True)
     attachment_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -2697,27 +2721,28 @@ class MessageSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "conversation",
-            "sender",
+            "sender", # This is now a nested object with id (membership) and user_details
             "body",
             "attachment",
             "attachment_url",
             "created_at",
         ]
-        read_only_fields = ["id", "conversation", "sender", "created_at", "attachment_url"]
+        read_only_fields = fields # Make all fields read-only for this serializer's context
 
     def get_attachment_url(self, obj):
         try:
-            f = obj.attachment
-            return f.url if f else None
+            return obj.attachment.url if obj.attachment else None
         except Exception:
             return None
 
 
 class ConversationListSerializer(serializers.ModelSerializer):
-    # Lightweight list view with last_message and unread_count for the current user
     last_message = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
     participant_ids = serializers.SerializerMethodField()
+    # FIX: Add this new field to get the current user's read status
+    my_last_read_at = serializers.SerializerMethodField()
+    title = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
@@ -2730,41 +2755,75 @@ class ConversationListSerializer(serializers.ModelSerializer):
             "last_message",
             "unread_count",
             "participant_ids",
+            "my_last_read_at", # FIX: Add the new field to the list
         ]
 
-    def _get_my_membership(self, obj):
+
+    def get_title(self, obj: Conversation) -> str:
+        # For DMs, find the name of the OTHER participant
+        if obj.type == Conversation.Type.DM:
+            request = self.context.get("request")
+            if request and hasattr(request, 'user'):
+                # Exclude the current user to find the other participant(s)
+                other_participant = obj.participants.exclude(membership__user=request.user).first()
+                if other_participant:
+                    partner_user = other_participant.membership.user
+                    # Return the partner's full name, or their email as a fallback
+                    return partner_user.get_full_name() or partner_user.email
+        
+        # For Group chats, use the pharmacy name if no explicit title is set
+        if obj.type == Conversation.Type.GROUP:
+            return obj.title or obj.pharmacy.name
+        
+        # Fallback
+        return obj.title or "Conversation"
+
+    def _get_my_participant(self, obj):
+        """Helper to get the Participant object for the current user in this conversation."""
         request = self.context.get("request")
-        if not request or not request.user or not request.user.is_authenticated:
+        if not request or not hasattr(request, 'user') or not request.user.is_authenticated:
             return None
-        return Membership.objects.filter(
-            user=request.user, pharmacy=obj.pharmacy, is_active=True
-        ).first()
+        
+        # Use a request-level cache to avoid redundant DB queries
+        if not hasattr(self, '_participant_cache'):
+            self._participant_cache = {}
+        
+        cache_key = (request.user.id, obj.id)
+        if cache_key not in self._participant_cache:
+            self._participant_cache[cache_key] = Participant.objects.filter(
+                conversation=obj,
+                membership__user=request.user
+            ).first()
+        return self._participant_cache[cache_key]
+
+    def get_my_last_read_at(self, obj):
+        my_part = self._get_my_participant(obj)
+        if my_part and my_part.last_read_at:
+            return my_part.last_read_at.isoformat()
+        return None
 
     def get_last_message(self, obj):
+        # ... (this method remains the same)
         msg = obj.messages.order_by("-created_at").first()
         if not msg:
             return None
         return {
             "id": msg.id,
             "body": msg.body[:200],
-            "created_at": msg.created_at,
-            "sender": msg.sender_id,  # membership id
+            "created_at": msg.created_at.isoformat(),
+            "sender": msg.sender_id,
         }
 
     def get_unread_count(self, obj):
-        my_mem = self._get_my_membership(obj)
-        if not my_mem:
-            return 0
-        part = Participant.objects.filter(conversation=obj, membership=my_mem).first()
-        if not part:
-            return 0
-        since = part.last_read_at
-        if not since:
-            return obj.messages.count()
+        # ... (this method can be simplified to use the helper)
+        my_part = self._get_my_participant(obj)
+        if not my_part: return 0
+        since = my_part.last_read_at
+        if not since: return obj.messages.count()
         return obj.messages.filter(created_at__gt=since).count()
 
     def get_participant_ids(self, obj):
-        # membership ids; useful for client-side DM detection
+        # ... (this method remains the same)
         return list(obj.participants.values_list("membership_id", flat=True))
 
 

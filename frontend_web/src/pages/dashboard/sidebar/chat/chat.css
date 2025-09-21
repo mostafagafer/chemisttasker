@@ -1,0 +1,144 @@
+/* Root layout: sidebar fixed, only conversation pane scrolls */
+.chatpage-root{
+  display: flex;
+  /* FIX: This is the real solution.
+    Instead of 100vh or 100%, we calculate the exact height needed.
+    We take the full viewport height (100vh) and subtract the height of the main dashboard header (~64px)
+    and the vertical padding of the container (~48px). This makes the chat page fit perfectly.
+  */
+  height: calc(100vh - 112px);
+  overflow: hidden;
+  background: #f7f8fa;
+}
+
+.chatpage-loading{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  height:100vh;
+}
+
+.chatpage-sidebar{
+  width:300px;
+  min-width:300px;
+  border-right:1px solid #e6e8ee;
+  background:#fff;
+  display:flex;
+  flex-direction:column;
+}
+
+.sidebar-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:12px 16px;
+  border-bottom:1px solid #e6e8ee;
+}
+
+.sidebar-filter{
+  padding:8px 12px;
+  border-bottom:1px solid #e6e8ee;
+}
+
+.sidebar-section-label{
+  padding:8px 16px;
+  font-size:11px;
+  letter-spacing:.08em;
+  color:#7783a0;
+  text-transform:uppercase;
+}
+
+.sidebar-list{
+  flex:1;
+  overflow:auto;         /* sidebar can scroll independently if long */
+  padding:6px 8px 12px 8px;
+}
+
+/* Sidebar rows */
+.sidebar-item{
+  display:flex;
+  align-items:center;
+  padding:10px 10px;
+  border-radius:10px;
+  cursor:pointer;
+  gap:10px;
+}
+.sidebar-item:hover{ background:#f2f5ff; }
+.sidebar-item.active{ background:#e9f0ff; }
+
+.sidebar-item .avatar{
+  width:36px;height:36px;border-radius:50%;
+  background:#2f6fec; color:#fff;
+  display:flex; align-items:center; justify-content:center;
+  font-weight:700;
+}
+
+.sidebar-item .meta{ min-width:0; flex:1; }
+.sidebar-item .name{
+  font-weight:700; font-size:14px; color:#0b1736;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.sidebar-item .preview{
+  font-size:12px; color:#7a859e;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+
+.sidebar-item .badge{
+  min-width:20px; height:20px; padding:0 6px;
+  border-radius:999px; background:#2f6fec; color:#fff;
+  display:flex; align-items:center; justify-content:center;
+  font-size:12px; font-weight:700;
+}
+
+/* Main panel */
+.chatpage-main{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+}
+
+/* ConversationPanel should use .conversation-scroll on the messages area */
+.conversation-scroll{
+  flex:1;
+  overflow:auto;           /* ONLY messages scroll */
+  padding:16px 20px 24px 20px;
+  background:#f3f5fa;
+}
+
+/* Empty/welcome */
+.chatpage-empty{
+  flex:1; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; text-align:center; padding:24px;
+}
+
+/* Message bubbles — keep your prior look */
+.bubble{
+  display:inline-block;
+  padding:12px 14px;
+  border-radius:12px;
+  background:#fff;
+  color:#0b1736;
+  max-width:540px;
+  box-shadow: 0 1px 0 rgba(16,24,40,.05);
+}
+.bubble.me{
+  background:#2f6fec; color:#fff;
+  border-top-right-radius:10px; border-top-left-radius:10px;
+}
+
+.msg-row{
+  display:flex; gap:10px; margin-bottom:14px;
+}
+.msg-row.me{ flex-direction:row-reverse; }
+.msg-row .initials{
+  width:36px;height:36px;border-radius:50%;
+  background:#dfe3ec; color:#6a738b;
+  display:flex; align-items:center; justify-content:center; font-weight:700;
+}
+.msg-row.me .initials{
+  background:#2f6fec; color:#fff;
+}
+.msg-meta{
+  font-size:11px; color:#7a859e; margin-top:6px;
+}

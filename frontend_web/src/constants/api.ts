@@ -157,7 +157,6 @@ export const API_ENDPOINTS = {
   startDm: '/client-profile/rooms/start-dm/',
   myMemberships: '/client-profile/my-memberships/',
   memberships: '/client-profile/memberships/',
-  // ✅ NEW: Add the endpoint for the new action
   getOrCreategroup: () => `/client-profile/rooms/get-or-create-group/`,
 
 };

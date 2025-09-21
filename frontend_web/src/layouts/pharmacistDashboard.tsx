@@ -23,7 +23,17 @@ export default function PharmacistDashboardWrapper() {
         sidebarFooter: SidebarFooter,
       }}
     >
-      <PageContainer slots={{ header: () => null }}>
+      {/* FIX: Make the PageContainer a full-height flex container. 
+          This creates the correct boundary for the ChatPage to live in. */}
+      <PageContainer 
+        slots={{ header: () => null }} 
+        sx={{ 
+          height: '100%', 
+          display: 'flex',
+          flexDirection: 'column',
+          // Keep the default padding by not overriding it with p: 0
+        }}
+      >
         <Outlet />
       </PageContainer>
     </DashboardLayout>

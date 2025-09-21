@@ -5,55 +5,63 @@ from django.db import transaction
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from client_profile.models import Message
+from django.utils.text import slugify
 import logging
+from client_profile.serializers import MessageSerializer
+
 log = logging.getLogger("client_profile.signals")
 
 ROOM_GROUP_FMT = "room.{room_id}"
 
+def _user_initials(user):
+    try:
+        fn = (user.first_name or "").strip()[:1]
+        ln = (user.last_name or "").strip()[:1]
+        if not (fn or ln):
+            # fallback: split full_name or username
+            base = (getattr(user, "full_name", None) or user.get_username() or "").strip()
+            parts = base.split()
+            fn = (parts[0][:1] if parts else "") or "?"
+            ln = (parts[1][:1] if len(parts) > 1 else "")
+        return (fn + ln).upper() or "?"
+    except Exception:
+        return "?"
+
 @receiver(post_save, sender=Message)
 def broadcast_new_message(sender, instance, created, **kwargs):
     """
-    Broadcast AFTER commit. Adds very loud prints/logs so you can see
-    whether the signal ran, whether a channel layer is present, and
-    whether group_send raised.
+    Broadcast AFTER commit with fully-populated sender_details so the client
+    can render name/avatar immediately (no extra fetch / no refresh needed).
     """
     if not created:
         return
 
     def _notify():
         try:
-            print(f"[SIGNALS] on_commit() for message={instance.id}, conv={instance.conversation_id}", flush=True)
             layer = get_channel_layer()
             if not layer:
-                print("[SIGNALS] get_channel_layer() returned None (no CHANNEL_LAYERS in settings?)", flush=True)
-                log.error("No channel layer available. Check CHANNEL_LAYERS.")
+                log.warning("No channel layer configured; cannot broadcast message.created")
                 return
 
-            group_name = ROOM_GROUP_FMT.format(room_id=instance.conversation_id)
-            payload = {
-                "id": instance.id,
-                "conversation": instance.conversation_id,
-                "sender": instance.sender_id,   # membership id
-                "body": instance.body,
-                "attachment_url": (
-                    instance.attachment.url if getattr(instance, "attachment", None) else None
-                ),
-                "created_at": instance.created_at.isoformat(),
-            }
+            # Re-fetch with related user so the serializer can include user_details
+            msg = (
+                Message.objects
+                .select_related("sender__user")
+                .get(pk=instance.pk)
+            )
 
-            log.info("Broadcasting message %s to %s", instance.id, group_name)
-            print(f"[SIGNALS] group_send -> {group_name} payload.id={payload['id']}", flush=True)
+            # 🔄 Build payload exactly like REST does
+            payload = MessageSerializer(msg).data  # matches fields: id, conversation, sender{ id, user_details{...} }, body, attachment, attachment_url, created_at
 
+            group_name = ROOM_GROUP_FMT.format(room_id=msg.conversation_id)
             async_to_sync(layer.group_send)(
                 group_name,
                 {
-                    "type": "message.created",    # maps to consumer.message_created
-                    "message": payload,           # nested
+                    "type": "message.created",   # consumer.message_created
+                    "message": payload,          # keep nested "message" as before
                 },
             )
-            print("[SIGNALS] group_send DONE", flush=True)
-        except Exception as e:
-            print(f"[SIGNALS] EXCEPTION in _notify: {e}", flush=True)
+        except Exception:
             log.exception("Error while broadcasting message.created")
 
     transaction.on_commit(_notify)

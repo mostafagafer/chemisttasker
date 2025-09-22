@@ -24,24 +24,26 @@ export default function OwnerOverviewContainer() {
     let mounted = true;
     (async () => {
       try {
-        const res = await apiClient.get<PharmacyDTO[]>(`${API_BASE_URL}${API_ENDPOINTS.pharmacies}`);
+        const res = await apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.pharmacies}`);
         if (!mounted) return;
-        setPharmacies(res.data || []);
+        
+        // FIX: Extract the array from the 'results' property if it exists.
+        const pharmacyData: PharmacyDTO[] = Array.isArray(res.data.results) ? res.data.results : res.data;
+        setPharmacies(pharmacyData || []);
 
         // Load memberships for each pharmacy
         const map: Record<string, MembershipDTO[]> = {};
         await Promise.all(
-          (res.data || []).map(async (p) => {
-            const m = await apiClient.get<MembershipDTO[]>(
-              `${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${p.id}`
-            );
-            map[p.id] = m.data || [];
+          // FIX: Use the corrected 'pharmacyData' array here
+          (pharmacyData || []).map(async (p) => {
+            const m = await apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${p.id}`);
+            // Also fix the membership response handling, just in case it's paginated too
+            map[p.id] = Array.isArray(m.data.results) ? m.data.results : m.data || [];
           })
         );
         if (!mounted) return;
         setMembershipsByPharmacy(map);
       } catch (e) {
-        // Handle silently; you can show a toast if you want
         console.error("OwnerOverviewContainer fetch error:", e);
       }
     })();
@@ -49,6 +51,7 @@ export default function OwnerOverviewContainer() {
       mounted = false;
     };
   }, []);
+
 
   const activePharmacy = useMemo(
     () => pharmacies.find((p) => p.id === activePharmacyId) || null,

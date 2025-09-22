@@ -52,6 +52,7 @@ export type ChatMessage = {
   original_body?: string | null;
   // ✨ FIX: Add the reactions property
   reactions?: Reaction[];
+  attachment_filename?: string | null;
 };
 
 export type MemberCache = Record<number, Record<number, UserLite>>;

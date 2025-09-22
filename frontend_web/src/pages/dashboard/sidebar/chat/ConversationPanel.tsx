@@ -2,6 +2,7 @@ import { FC, useRef, useEffect, useState, useMemo, Fragment, UIEvent } from 'rea
 import { Box, IconButton, InputBase, Tooltip, Typography, CircularProgress, Divider, Chip } from '@mui/material';
 import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
 import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
+import CancelIcon from '@mui/icons-material/Cancel';
 import { MessageBubble } from './MessageBubble';
 import type { ChatMessage, ChatRoom, MemberCache, PharmacyRef } from './types';
 import './chat.css';
@@ -21,7 +22,7 @@ type Props = {
   currentUserId?: number;
   memberCache: MemberCache;
   onSendText: (body: string) => void;
-  onSendAttachment: (file: File, body?: string) => void;
+  onSendAttachment: (files: File[], body?: string) => void;
   isLoadingMessages: boolean;
   onStartDm: (partnerMembershipId: number) => void;
   hasMore: boolean;
@@ -56,6 +57,8 @@ export const ConversationPanel: FC<Props> = ({
   const fileRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [scrollContext, setScrollContext] = useState({ loading: false, prevHeight: 0 });
+  
+  const [attachments, setAttachments] = useState<File[]>([]);
 
   const headerTitle = useMemo(() => {
     if (activeRoom.type === 'GROUP') {
@@ -98,35 +101,45 @@ export const ConversationPanel: FC<Props> = ({
       scroller.scrollTop = scroller.scrollHeight;
     }
   }, [messages, activeRoom.id, scrollContext]);
-
-
+  
   const handleSend = async () => {
     const body = text.trim();
-    if (!body || sending) return;
+    if ((!body && attachments.length === 0) || sending) return;
+
     setSending(true);
     try {
-      await onSendText(body);
+      if (attachments.length > 0) {
+        await onSendAttachment(attachments, body || undefined);
+      } else {
+        await onSendText(body);
+      }
       setText('');
+      setAttachments([]);
     } finally {
       setSending(false);
     }
   };
-
-  const handleAttach = () => fileRef.current?.click();
   
-  const handleFileChange: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file || sending) return;
-    setSending(true);
-    try {
-      await onSendAttachment(file, text.trim() || undefined);
-      setText('');
-      if (e.target) e.target.value = '';
-    } finally {
-      setSending(false);
+  const handleFileChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    const newAttachments: File[] = [];
+    for (const file of files) {
+      if (file.size > 10 * 1024 * 1024) { 
+        alert(`File "${file.name}" exceeds the 10 MB size limit.`);
+        continue;
+      }
+      newAttachments.push(file);
     }
+    setAttachments(prev => [...prev, ...newAttachments]);
+    if (e.target) e.target.value = '';
   };
 
+  const removeAttachment = (fileName: string) => {
+    setAttachments(prev => prev.filter(f => f.name !== fileName));
+  };
+  
   const handleScroll = (e: UIEvent<HTMLDivElement>) => {
     if (e.currentTarget.scrollTop === 0 && hasMore && !isLoadingMore) {
       if (scrollRef.current) {
@@ -164,6 +177,7 @@ export const ConversationPanel: FC<Props> = ({
             )}
             <MessageBubble 
               msg={m} 
+              prevMsg={index > 0 ? messages[index - 1] : null}
               isMe={Boolean(myMembershipId && m.sender?.id === myMembershipId)} 
               onStartDm={onStartDm}
               roomType={activeRoom.type}
@@ -174,16 +188,30 @@ export const ConversationPanel: FC<Props> = ({
           </Fragment>
         ))}
       </Box>
+      
+      {attachments.length > 0 && (
+        <Box sx={{ p: 1, borderTop: '1px solid #e6e8ee', display: 'flex', flexDirection: 'column', gap: 1, bgcolor: 'background.default' }}>
+          {attachments.map(file => (
+            <Chip
+              key={file.name}
+              label={file.name}
+              size="small"
+              onDelete={() => removeAttachment(file.name)}
+              deleteIcon={<CancelIcon onMouseDown={(e) => e.stopPropagation()} />}
+            />
+          ))}
+        </Box>
+      )}
 
       <Box sx={{ p: 1.5, borderTop: '1px solid #e6e8ee', bgcolor: '#fff', display: 'flex', alignItems: 'center', gap: 1 }}>
         <Tooltip title="Attach">
           <span>
-            <IconButton onClick={handleAttach} size="small" disabled={sending}>
+            <IconButton onClick={() => fileRef.current?.click()} size="small" disabled={sending}>
               <AttachFileOutlinedIcon />
             </IconButton>
           </span>
         </Tooltip>
-        <input ref={fileRef} type="file" hidden onChange={handleFileChange} />
+        <input ref={fileRef} type="file" hidden multiple onChange={handleFileChange} />
         <InputBase
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -200,7 +228,7 @@ export const ConversationPanel: FC<Props> = ({
             }
           }}
         />
-        <IconButton color="primary" onClick={handleSend} disabled={sending || !text.trim()}>
+        <IconButton color="primary" onClick={handleSend} disabled={sending || (!text.trim() && attachments.length === 0)}>
           {sending ? <CircularProgress size={20} /> : <SendOutlinedIcon />}
         </IconButton>
       </Box>

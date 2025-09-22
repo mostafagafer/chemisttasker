@@ -23,9 +23,12 @@ export const ChatListItem: FC<ChatListItemProps> = ({
   previewOverride,
   displayName, // FIX: Use the new prop
 }) => {
+  const lastMessage = room.last_message;
   const preview =
     (previewOverride && previewOverride.trim()) ||
-    (room.last_message?.body?.trim() || 'No messages yet.');
+    (lastMessage?.body?.trim()) ||
+    (lastMessage ? '📎 Attachment' : 'No messages yet.'); // Show 'Attachment' if there's a last message with no body
+
 
   return (
     <Box

@@ -3555,30 +3555,46 @@ class ConversationViewSet(mixins.ListModelMixin,
             return Response({"detail": "Not a participant of this conversation."}, status=status.HTTP_403_FORBIDDEN)
 
         if request.method.lower() == 'get':
-            # ... your GET logic is correct and unchanged ...
+            # ... GET logic is unchanged ...
             qs = conv.messages.select_related('sender__user').order_by('-created_at')
             page = self.paginate_queryset(qs)
             ser = MessageSerializer(page if page is not None else qs, many=True)
             return self.get_paginated_response(ser.data) if page else Response(ser.data)
 
-        # ✨ FIX: The POST logic is now extremely simple.
-        # Its only job is to create the message. The signal will handle the broadcast.
+        # --- POST Logic ---
         data = request.data or {}
         body = (data.get('body') or '').strip()
-        attachment = request.FILES.get('attachment')
+        attachments = request.FILES.getlist('attachment') # Use getlist to handle multiple files
 
-        if not body and not attachment:
+        if not body and not attachments:
             return Response({"detail": "Message body or attachment is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        msg = Message.objects.create(
-            conversation=conv, sender=my_mem, body=body, attachment=attachment
-        )
-        
-        # This part is important to keep so the room's 'updated_at' is fresh
-        Conversation.objects.filter(pk=conv.pk).update(updated_at=msg.created_at)
+        created_messages = []
 
-        # This is the only part that should be returned via HTTP
-        http_payload = MessageSerializer(msg).data
+        # ✨ FIX: Loop through each uploaded file and create a message for it
+        if attachments:
+            for attachment_file in attachments:
+                msg = Message.objects.create(
+                    conversation=conv, 
+                    sender=my_mem, 
+                    body=body if not created_messages else "", 
+                    attachment=attachment_file,
+                    # ✨ FIX: Save the original filename from the upload
+                    attachment_filename=attachment_file.name 
+                )
+                created_messages.append(msg)
+        # If there's only a text body, create a single message
+        elif body:
+            msg = Message.objects.create(
+                conversation=conv, sender=my_mem, body=body
+            )
+            created_messages.append(msg)
+        
+        # Update the conversation's timestamp based on the last message created
+        if created_messages:
+            Conversation.objects.filter(pk=conv.pk).update(updated_at=created_messages[-1].created_at)
+
+        http_payload = MessageSerializer(created_messages, many=True).data
         return Response(http_payload, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])

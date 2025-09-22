@@ -1409,6 +1409,7 @@ class Message(models.Model):
                                related_name='sent_messages')
     body = models.TextField(blank=True)
     attachment = models.FileField(upload_to=chat_upload_path, null=True, blank=True)
+    attachment_filename = models.CharField(max_length=255, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 

@@ -20,6 +20,7 @@ const isImage = (url: string) => {
 
 type Props = {
   msg: ChatMessage;
+  prevMsg: ChatMessage | null;
   isMe: boolean;
   onStartDm: (partnerMembershipId: number) => void;
   roomType: 'GROUP' | 'DM';
@@ -28,7 +29,7 @@ type Props = {
   onReact: (messageId: number, reaction: string) => void;
 };
 
-export const MessageBubble: FC<Props> = ({ msg, isMe, onStartDm, roomType, onEdit, onDelete, onReact }) => {
+export const MessageBubble: FC<Props> = ({ msg, prevMsg, isMe, onStartDm, roomType, onEdit, onDelete, onReact }) => {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -42,7 +43,9 @@ export const MessageBubble: FC<Props> = ({ msg, isMe, onStartDm, roomType, onEdi
   }
   
   const fullName = ((user.first_name || '') + (user.last_name ? ' ' + user.last_name : '')).trim();
-  const attachmentFilename = msg.attachment_url ? msg.attachment_url.split('/').pop() : 'Download';
+  const attachmentFilename = msg.attachment_filename || (msg.attachment_url ? msg.attachment_url.split('/').pop() : 'Download');
+
+  const isSameSenderAsPrevious = prevMsg?.sender.id === msg.sender.id;
 
   const handleOpenMenu = (event: React.MouseEvent<HTMLElement>) => setMenuAnchor(event.currentTarget);
   const handleCloseMenu = () => setMenuAnchor(null);
@@ -81,23 +84,21 @@ export const MessageBubble: FC<Props> = ({ msg, isMe, onStartDm, roomType, onEdi
       className={`msg-row ${isMe ? 'me' : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => { setIsHovered(false); setPickerOpen(false); }}
+      sx={{ mt: isSameSenderAsPrevious ? 0.5 : 2 }}
     >
-      <Box sx={{ width: 36, opacity: (isHovered && !msg.is_deleted) ? 1 : 0, transition: 'opacity 0.2s', display: 'flex', alignItems: 'center' }}>
-        { (isMe || roomType === 'GROUP') && (
-          <IconButton size="small" onClick={handleOpenMenu}><MoreHorizIcon /></IconButton>
+      <Box sx={{ width: 36, display: 'flex', alignItems: 'center' }}>
+        {!isSameSenderAsPrevious && (isMe || roomType === 'GROUP') && (
+          <IconButton sx={{ opacity: (isHovered && !msg.is_deleted) ? 1 : 0 }} size="small" onClick={handleOpenMenu}><MoreHorizIcon /></IconButton>
         )}
       </Box>
 
-      <Box className="initials">{initialsOf(user.first_name, user.last_name)}</Box>
+      {isSameSenderAsPrevious ? (
+        <Box sx={{ width: 36, flexShrink: 0 }} />
+      ) : (
+        <Box className="initials">{initialsOf(user.first_name, user.last_name)}</Box>
+      )}
 
-      {/* ✨ FIX: This container now correctly aligns its content (bubble and reactions) to the right or left */}
-      <Box sx={{
-          minWidth: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: isMe ? 'flex-end' : 'flex-start',
-        }}
-      >
+      <Box sx={{ minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
         <Box sx={{ position: 'relative', display: 'inline-block' }}>
           {msg.is_deleted ? (
             <Box className={`bubble ${isMe ? 'me' : ''}`}>
@@ -132,27 +133,12 @@ export const MessageBubble: FC<Props> = ({ msg, isMe, onStartDm, roomType, onEdi
           )}
 
           {!isMe && !msg.is_deleted && (
-            <Box
-              sx={{
-                position: 'absolute',
-                top: -16,
-                right: 0,
-                display: 'flex',
-                alignItems: 'center',
-                opacity: isHovered ? 1 : 0,
-                transition: 'opacity 0.2s',
-              }}
-            >
+            <Box sx={{ position: 'absolute', top: -16, right: 0, display: 'flex', alignItems: 'center', opacity: isHovered ? 1 : 0, transition: 'opacity 0.2s' }}>
               <Tooltip title="Add Reaction">
-                <IconButton
-                  size="small"
-                  onClick={(e) => { e.stopPropagation(); setPickerOpen(!pickerOpen); }}
-                  sx={{ bgcolor: 'background.paper', boxShadow: 1, '&:hover': { bgcolor: 'background.default' } }}
-                >
+                <IconButton size="small" onClick={(e) => { e.stopPropagation(); setPickerOpen(!pickerOpen); }} sx={{ bgcolor: 'background.paper', boxShadow: 1, '&:hover': { bgcolor: 'background.default' } }}>
                   <AddReactionOutlinedIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-
               {pickerOpen && (
                 <Paper sx={{ ml: 1, boxShadow: 3, zIndex: 10 }}>
                   <Box sx={{ p: 0.5, display: 'flex' }}>
@@ -180,7 +166,7 @@ export const MessageBubble: FC<Props> = ({ msg, isMe, onStartDm, roomType, onEdi
         )}
 
         <Box className="msg-meta">
-          {!isMe && fullName ? `${fullName}  •  ` : ''}
+          {!isMe && !isSameSenderAsPrevious && fullName ? `${fullName}  •  ` : ''}
           {new Date(msg.created_at).toLocaleString()}
           {msg.is_edited && (
             <Tooltip title={`Original: ${msg.original_body}`}>

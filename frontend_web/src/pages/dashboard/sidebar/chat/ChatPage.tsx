@@ -273,12 +273,14 @@ const ChatPage: FC = () => {
     try { await apiClient.post(EP.roomMessages(activeRoomId), { body }); } catch (e) { console.error('send text error', e); }
   };
 
-  const handleSendAttachment = async (file: File, body?: string) => {
+  const handleSendAttachment = async (files: File[], body?: string) => {
     if (!activeRoomId) return;
     try {
       const form = new FormData();
       if (body) form.append('body', body);
-      form.append('attachment', file);
+      files.forEach(file => {
+        form.append('attachment', file);
+      });
       await apiClient.post(EP.roomMessages(activeRoomId), form, { headers: { 'Content-Type': 'multipart/form-data' }, });
     } catch (e) { console.error('send attachment error', e); }
   };
@@ -410,7 +412,7 @@ const ChatPage: FC = () => {
             memberCache={memberCache}
             onSendText={handleSendText}
             onSendAttachment={handleSendAttachment}
-            isLoadingMessages={activeRoom ? !messagesMap[activeRoom.id] : false}
+            isLoadingMessages={(activeRoom ? !messagesMap[activeRoom.id] : false) || Object.keys(memberCache).length === 0}
             onStartDm={handleStartDm}
             hasMore={activeRoomMessagesState.hasMore}
             isLoadingMore={isLoadingMore}

@@ -2731,6 +2731,7 @@ class MessageSerializer(serializers.ModelSerializer):
             "body",
             "attachment",
             "attachment_url",
+            "attachment_filename",
             "created_at",
             "is_deleted",     
             "is_edited",      
@@ -2744,6 +2745,12 @@ class MessageSerializer(serializers.ModelSerializer):
             return obj.attachment.url if obj.attachment else None
         except Exception:
             return None
+    def get_attachment_filename(self, obj):
+        if obj.attachment and hasattr(obj.attachment, 'name'):
+            # os.path.basename will correctly get the filename from the full path
+            import os
+            return os.path.basename(obj.attachment.name)
+        return None
 
 
 class ConversationListSerializer(serializers.ModelSerializer):

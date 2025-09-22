@@ -39,6 +39,7 @@ router.register(r'leave-requests', LeaveRequestViewSet, basename='leaverequest')
 #chat app
 router.register(r'rooms', ConversationViewSet, basename='conversation')
 router.register(r'my-memberships', MyMembershipsViewSet, basename='my-memberships')
+router.register(r'messages', MessageViewSet, basename='message')
 
 urlpatterns = [
     path('owner/onboarding/', OwnerOnboardingCreate.as_view(), name='owner-onboarding-create'),
@@ -87,6 +88,9 @@ urlpatterns = [
     path('invoices/generate/', GenerateInvoiceView.as_view(), name='generate-invoice'),
     path('invoices/<int:invoice_id>/pdf/', invoice_pdf_view, name='invoice_pdf'),
     path('invoices/<int:invoice_id>/send/', send_invoice_email, name='send-invoice-email'),
+
+
+    path('messages/<int:message_id>/react/', MessageReactionView.as_view(), name='message-react'),
 
     # Include the API routes for CRUD operations
     path('', include(router.urls)),

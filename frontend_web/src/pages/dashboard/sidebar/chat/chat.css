@@ -86,8 +86,10 @@
 .sidebar-item .badge{
   min-width:20px; height:20px; padding:0 6px;
   border-radius:999px; background:#2f6fec; color:#fff;
-  display:flex; align-items:center; justify-content:center;
   font-size:12px; font-weight:700;
+  display: inline-flex; 
+  align-items: center;
+  justify-content: center;
 }
 
 /* Main panel */

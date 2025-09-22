@@ -4,7 +4,7 @@ import { ReactRouterAppProvider } from '@toolpad/core/react-router';
 import { useAuth } from "./contexts/AuthContext";
 import { useWorkspace } from "./contexts/WorkspaceContext";
 import {
-  ORGANIZATION_NAV,
+  getOrganizationNav,
   getOwnerNav,
   getPharmacistNavDynamic,
   getOtherStaffNavDynamic,
@@ -12,7 +12,7 @@ import {
 } from "./navigation";
 import apiClient from "./utils/apiClient";
 
-// ✨ Update: use the full user object, not just role
+// ✨ HOOK 1: Your existing hook for onboarding progress
 function useOnboardingProgress(user: any) {
   const [progress, setProgress] = useState<number>(0);
 
@@ -45,39 +45,42 @@ function useOnboardingProgress(user: any) {
 }
 
 export default function App() {
-  const { user, isLoading } = useAuth();
+  // FIX: Get user, isLoading, AND the new unreadCount directly from the AuthContext
+  const { user, isLoading, unreadCount } = useAuth();
   const { workspace } = useWorkspace();
-
-  // No change here: pass the user object instead of just role
+  
+  // Call your existing progress hook
   const progress = useOnboardingProgress(user);
-
+  
   const nav = useMemo(() => {
     if (!user) return [];
+    
+    // FIX: Use the unreadCount from the context to determine if there are new messages
+    const hasUnreadMessages = unreadCount > 0;
+
+    // The rest of your navigation logic correctly uses the hasUnreadMessages flag
     if (
       Array.isArray(user.memberships) &&
       user.memberships.some(
-        (m) =>
-          m?.role &&
-          ["ORG_ADMIN", "ORG_OWNER", "ORG_STAFF"].includes(m.role)
+        (m) => m?.role && ["ORG_ADMIN", "ORG_OWNER", "ORG_STAFF"].includes(m.role)
       )
     ) {
-      return ORGANIZATION_NAV;
+      return getOrganizationNav(hasUnreadMessages);
     }
 
-    // Allow Pharmacy Admins to use the Owner sidebar
     if (
       Array.isArray(user.memberships) &&
       user.memberships.some((m) => m?.role === "PHARMACY_ADMIN")
     ) {
-      return getOwnerNav(progress);
+      return getOwnerNav(progress, hasUnreadMessages);
     }
 
-    if (user.role === "OWNER") return getOwnerNav(progress);
-    if (user.role === "PHARMACIST") return getPharmacistNavDynamic(progress, workspace);
-    if (user.role === "OTHER_STAFF") return getOtherStaffNavDynamic(progress, workspace);
-    if (user.role === "EXPLORER") return getExplorerNav(progress);
+    if (user.role === "OWNER") return getOwnerNav(progress, hasUnreadMessages);
+    if (user.role === "PHARMACIST") return getPharmacistNavDynamic(progress, workspace, hasUnreadMessages);
+    if (user.role === "OTHER_STAFF") return getOtherStaffNavDynamic(progress, workspace, hasUnreadMessages);
+    if (user.role === "EXPLORER") return getExplorerNav(progress, hasUnreadMessages);
     return [];
-  }, [user, progress, workspace]);
+  }, [user, progress, workspace, unreadCount]); // Add unreadCount to dependency array
 
   if (isLoading) return null;
   if (!user) return <Outlet />;

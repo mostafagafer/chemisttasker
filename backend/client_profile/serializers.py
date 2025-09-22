@@ -2707,6 +2707,11 @@ class ChatMembershipSerializer(serializers.ModelSerializer):
         model = Membership
         fields = ["id", "user_details"]
 
+class ReactionSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(source='user.id')
+    class Meta:
+        model = MessageReaction
+        fields = ['reaction', 'user_id']
 
 class MessageSerializer(serializers.ModelSerializer):
     """
@@ -2715,17 +2720,22 @@ class MessageSerializer(serializers.ModelSerializer):
     """
     sender = ChatMembershipSerializer(read_only=True)
     attachment_url = serializers.SerializerMethodField()
+    reactions = ReactionSerializer(many=True, read_only=True)
 
     class Meta:
         model = Message
         fields = [
             "id",
             "conversation",
-            "sender", # This is now a nested object with id (membership) and user_details
+            "sender", 
             "body",
             "attachment",
             "attachment_url",
             "created_at",
+            "is_deleted",     
+            "is_edited",      
+            "original_body",  
+            "reactions",
         ]
         read_only_fields = fields # Make all fields read-only for this serializer's context
 
@@ -2740,9 +2750,9 @@ class ConversationListSerializer(serializers.ModelSerializer):
     last_message = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
     participant_ids = serializers.SerializerMethodField()
-    # FIX: Add this new field to get the current user's read status
     my_last_read_at = serializers.SerializerMethodField()
     title = serializers.SerializerMethodField()
+    my_membership_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
@@ -2755,7 +2765,8 @@ class ConversationListSerializer(serializers.ModelSerializer):
             "last_message",
             "unread_count",
             "participant_ids",
-            "my_last_read_at", # FIX: Add the new field to the list
+            "my_last_read_at", 
+            "my_membership_id",
         ]
 
 
@@ -2795,6 +2806,10 @@ class ConversationListSerializer(serializers.ModelSerializer):
                 membership__user=request.user
             ).first()
         return self._participant_cache[cache_key]
+
+    def get_my_membership_id(self, obj):
+        my_part = self._get_my_participant(obj)
+        return my_part.membership_id if my_part else None
 
     def get_my_last_read_at(self, obj):
         my_part = self._get_my_participant(obj)

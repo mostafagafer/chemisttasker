@@ -1412,6 +1412,10 @@ class Message(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
+    is_deleted = models.BooleanField(default=False)
+    is_edited = models.BooleanField(default=False)
+    original_body = models.TextField(blank=True, null=True, help_text="Stores the original message body before an edit.")
+
     class Meta:
         ordering = ['created_at']
         indexes = [
@@ -1422,6 +1426,26 @@ class Message(models.Model):
     def __str__(self):
         return f"Msg#{self.id} by m#{self.sender_id} in c#{self.conversation_id}"
 
+class MessageReaction(models.Model):
+    REACTION_CHOICES = [
+        ('👍', 'Thumbs Up'),
+        ('❤️', 'Heart'),
+        ('🔥', 'Fire'),
+        ('💩', 'Poop'),
+    ]
+
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='reactions')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='message_reactions')
+    reaction = models.CharField(max_length=4, choices=REACTION_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Ensures a user can only give one type of reaction per message
+        unique_together = ('message', 'user', 'reaction')
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"{self.user} reacted with {self.reaction} to message {self.message.id}"
 
 # --- Helper for DM key -------------------------------------------------------
 def make_dm_key(membership_id_a: int, membership_id_b: int) -> str:

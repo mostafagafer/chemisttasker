@@ -14,7 +14,6 @@ import './chat.css';
 
 type Pharmacy = { id: number; name: string };
 
-// Define a type for the state of each room's message data
 type RoomMessagesState = {
   messages: ChatMessage[];
   nextUrl: string | null;
@@ -49,7 +48,7 @@ const EP = {
 };
 
 const ChatPage: FC = () => {
-  const { user } = useAuth();
+  const { user, refreshUnreadCount } = useAuth(); 
   const [isLoading, setIsLoading] = useState(true);
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
@@ -136,7 +135,14 @@ const ChatPage: FC = () => {
 
   useEffect(() => {
     if (wsRef.current) wsRef.current.close();
-    setMyMembershipIdInActiveRoom(null);
+    
+    const activeRoom = rooms.find(r => r.id === activeRoomId);
+    if (activeRoom) {
+      setMyMembershipIdInActiveRoom(activeRoom.my_membership_id || null);
+    } else {
+      setMyMembershipIdInActiveRoom(null);
+    }
+    
     if (!activeRoomId || !accessToken) return;
 
     const ws = new WebSocket(makeWsUrl(`/ws/chat/rooms/${activeRoomId}/`, accessToken));
@@ -148,16 +154,21 @@ const ChatPage: FC = () => {
           setRooms(prev => prev.map(r => 
               (r.id === activeRoomId ? { ...r, unread_count: 0, my_last_read_at: newLastRead } : r)
           ));
+          refreshUnreadCount(); 
       }).catch(() => {});
     };
 
     ws.onmessage = (evt) => {
       try {
         const payload = JSON.parse(evt.data);
+
         if (payload.type === 'ready' && payload.membership) {
-          setMyMembershipIdInActiveRoom(payload.membership);
+          if (!myMembershipIdInActiveRoom) {
+             setMyMembershipIdInActiveRoom(payload.membership);
+          }
           return;
         }
+
         if (payload.type === 'message.created') {
           const newMsg: ChatMessage = payload.message;
           if (newMsg.attachment_url && newMsg.attachment_url.startsWith('/')) {
@@ -169,10 +180,7 @@ const ChatPage: FC = () => {
             const currentRoomState = prevMap[newMsg.conversation] || { messages: [], hasMore: false, nextUrl: null };
             return {
               ...prevMap,
-              [newMsg.conversation]: {
-                ...currentRoomState,
-                messages: [...current, newMsg],
-              },
+              [newMsg.conversation]: { ...currentRoomState, messages: [...current, newMsg] },
             };
           });
           setRooms(prevRooms => {
@@ -190,12 +198,75 @@ const ChatPage: FC = () => {
             });
             return [...updatedRooms].sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime());
           });
+          if (newMsg.conversation !== activeRoomId) {
+            refreshUnreadCount();
+          }
+          return;
         }
+
+        if (payload.type === 'message.updated') {
+          const updatedMsg: ChatMessage = payload.message;
+          setMessagesMap(prevMap => {
+            const roomState = prevMap[updatedMsg.conversation];
+            if (!roomState) return prevMap;
+            const updatedMessages = roomState.messages.map(m => m.id === updatedMsg.id ? updatedMsg : m);
+            return { ...prevMap, [updatedMsg.conversation]: { ...roomState, messages: updatedMessages } };
+          });
+          return;
+        }
+
+        if (payload.type === 'message.deleted') {
+          const { message_id } = payload;
+          setMessagesMap(prevMap => {
+            let targetRoomId: number | null = null;
+            for (const roomId in prevMap) {
+              if (prevMap[roomId].messages.some(m => m.id === message_id)) {
+                targetRoomId = parseInt(roomId);
+                break;
+              }
+            }
+            if (!targetRoomId) return prevMap;
+            const roomState = prevMap[targetRoomId];
+            const updatedMessages = roomState.messages.map(m => 
+              m.id === message_id ? { ...m, is_deleted: true } : m
+            );
+            return { ...prevMap, [targetRoomId]: { ...roomState, messages: updatedMessages } };
+          });
+          return;
+        }
+        
+        if (payload.type === 'reaction.updated') {
+          const { message_id, reactions } = payload;
+          setMessagesMap(prevMap => {
+            let targetRoomId: number | null = null;
+            for (const roomId in prevMap) {
+              if (prevMap[roomId].messages.some(m => m.id === message_id)) {
+                targetRoomId = parseInt(roomId);
+                break;
+              }
+            }
+            if (!targetRoomId) return prevMap;
+
+            const roomState = prevMap[targetRoomId];
+            const updatedMessages = roomState.messages.map(m =>
+              m.id === message_id ? { ...m, reactions: reactions } : m
+            );
+
+            return {
+              ...prevMap,
+              [targetRoomId]: { ...roomState, messages: updatedMessages }
+            };
+          });
+          return;
+        }
+
       } catch (e) { console.error('ws onmessage error', e); }
     };
+    
     ws.onclose = () => {};
     return () => ws.close();
-  }, [activeRoomId, accessToken]);
+    
+  }, [activeRoomId, accessToken, refreshUnreadCount]);
 
   const handleSendText = async (body: string) => {
     if (!activeRoomId) return;
@@ -214,10 +285,8 @@ const ChatPage: FC = () => {
 
   const handleLoadMore = async () => {
     if (!activeRoomId || isLoadingMore) return;
-
     const roomState = messagesMap[activeRoomId];
     if (!roomState || !roomState.hasMore || !roomState.nextUrl) return;
-
     setIsLoadingMore(true);
     try {
       const res = await apiClient.get(roomState.nextUrl);
@@ -282,9 +351,34 @@ const ChatPage: FC = () => {
     setActiveRoomId(d.id);
   };
 
+  const handleEditMessage = async (messageId: number, newBody: string) => {
+    try {
+      await apiClient.patch(`/client-profile/messages/${messageId}/`, { body: newBody });
+    } catch (e) {
+      console.error('Failed to edit message', e);
+    }
+  };
+
+  const handleDeleteMessage = async (messageId: number) => {
+    if (window.confirm('Are you sure you want to delete this message? This cannot be undone.')) {
+      try {
+        await apiClient.delete(`/client-profile/messages/${messageId}/`);
+      } catch (e) {
+        console.error('Failed to delete message', e);
+      }
+    }
+  };
+
+  const handleReact = async (messageId: number, reaction: string) => {
+    try {
+      await apiClient.post(`/client-profile/messages/${messageId}/react/`, { reaction });
+    } catch (e) {
+      console.error('Failed to send reaction', e);
+    }
+  };
+
   const activeRoom = rooms.find(r => r.id === activeRoomId) || null;
   const activeRoomMessagesState = activeRoom ? (messagesMap[activeRoom.id] || { messages: [], hasMore: false, nextUrl: null }) : { messages: [], hasMore: false, nextUrl: null };
-
 
   if (isLoading) { return ( <Box className="chatpage-loading"><CircularProgress /></Box> ); }
 
@@ -309,7 +403,7 @@ const ChatPage: FC = () => {
             key={activeRoom.id}
             activeRoom={activeRoom}
             pharmacies={pharmacies}
-            messages={activeRoomMessagesState.messages}
+            messages={activeRoomMessagesState.messages && Object.keys(memberCache).length > 0 ? activeRoomMessagesState.messages : []}
             myMemberships={myMemberships}
             myMembershipId={myMembershipIdInActiveRoom ?? undefined}
             currentUserId={user?.id}
@@ -321,6 +415,9 @@ const ChatPage: FC = () => {
             hasMore={activeRoomMessagesState.hasMore}
             isLoadingMore={isLoadingMore}
             onLoadMore={handleLoadMore}
+            onEditMessage={handleEditMessage}
+            onDeleteMessage={handleDeleteMessage}
+            onReact={handleReact}
           />
         ) : (
           <Box className="chatpage-empty">

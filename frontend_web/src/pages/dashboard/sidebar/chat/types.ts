@@ -28,6 +28,13 @@ export type ChatRoom = {
   last_message?: LastMessageAPI | null;
   my_last_read_at?: string | null;
   participant_ids: number[];
+  my_membership_id?: number | null;
+};
+
+
+export type Reaction = {
+  reaction: string;
+  user_id: number;
 };
 
 export type ChatMessage = {
@@ -40,7 +47,11 @@ export type ChatMessage = {
   body: string;
   attachment_url: string | null;
   created_at: string;
-  edited?: boolean;
+  is_deleted?: boolean;
+  is_edited?: boolean;
+  original_body?: string | null;
+  // ✨ FIX: Add the reactions property
+  reactions?: Reaction[];
 };
 
 export type MemberCache = Record<number, Record<number, UserLite>>;

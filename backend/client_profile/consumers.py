@@ -79,6 +79,28 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
             "last_read_at": event.get("last_read_at"),
         })
 
+
+    async def message_updated(self, event):
+        await self.send_json({
+            "type": "message.updated",
+            "message": event.get("message"),
+        })
+
+    # ✨ FIX: Add a handler for the 'message.deleted' event
+    async def message_deleted(self, event):
+        await self.send_json({
+            "type": "message.deleted",
+            "message_id": event.get("message_id"),
+        })
+
+
+    async def reaction_updated(self, event):
+        await self.send_json({
+            "type": "reaction.updated",
+            "message_id": event.get("message_id"),
+            "reactions": event.get("reactions"),
+        })
+
     # ---- DB helpers ----
     @database_sync_to_async
     def _get_membership(self, conversation_id: int, user_id: int):
@@ -103,3 +125,5 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
         )
         Conversation.objects.filter(pk=conversation_id).update(updated_at=msg.created_at)
         return msg
+
+

@@ -1,5 +1,5 @@
 import { FC } from 'react';
-import { Box, Typography, Badge } from '@mui/material';
+import { Box, Typography} from '@mui/material';
 import { ChatRoom } from './types';
 
 const initials = (text: string) => {
@@ -68,13 +68,39 @@ export const ChatListItem: FC<ChatListItemProps> = ({
           {displayName}
         </Typography>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.25 }}>
-          <Typography variant="body2" color="text.secondary" noWrap className="preview">
+          <Typography 
+            variant="body2" 
+            color="text.secondary" 
+            noWrap 
+            className="preview"
+            sx={{ flexGrow: 1, marginRight: 1 }} 
+          >
             {preview}
           </Typography>
           {room.unread_count && room.unread_count > 0 ? (
-            <Badge badgeContent={room.unread_count} color="primary" className="badge" />
+            // FIX: Replace the Badge component with this one
+            <Box
+              sx={{
+                minWidth: '20px',
+                height: '20px',
+                padding: '0 6px',
+                borderRadius: '999px',
+                bgcolor: '#2f6fec', // from your chat.css
+                color: '#fff',       // from your chat.css
+                fontSize: '12px',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                ml: 1
+              }}
+            >
+              {room.unread_count}
+            </Box>
           ) : null}
         </Box>
+
       </Box>
     </Box>
   );

@@ -27,6 +27,9 @@ type Props = {
   hasMore: boolean;
   isLoadingMore: boolean;
   onLoadMore: () => void;
+  onEditMessage: (messageId: number, newBody: string) => void;
+  onDeleteMessage: (messageId: number) => void;
+  onReact: (messageId: number, reaction: string) => void;
 };
 
 export const ConversationPanel: FC<Props> = ({
@@ -41,18 +44,18 @@ export const ConversationPanel: FC<Props> = ({
   onSendAttachment,
   isLoadingMessages,
   onStartDm,
-  // FIX: Destructure new props
   hasMore,
   isLoadingMore,
   onLoadMore,
+  onEditMessage,
+  onDeleteMessage,
+  onReact,
 }) => {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  // FIX: State to help preserve scroll position during message loading
   const [scrollContext, setScrollContext] = useState({ loading: false, prevHeight: 0 });
-
 
   const headerTitle = useMemo(() => {
     if (activeRoom.type === 'GROUP') {
@@ -84,17 +87,14 @@ export const ConversationPanel: FC<Props> = ({
     );
   }, [activeRoom?.my_last_read_at, messages, currentUserId]);
   
-  // FIX: This effect now smartly handles scrolling for both new and old messages.
   useEffect(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
 
     if (scrollContext.loading) {
-      // Just loaded older messages, restore scroll position
       scroller.scrollTop = scroller.scrollHeight - scrollContext.prevHeight;
       setScrollContext({ loading: false, prevHeight: 0 });
     } else {
-      // New message arrived or room changed, scroll to bottom
       scroller.scrollTop = scroller.scrollHeight;
     }
   }, [messages, activeRoom.id, scrollContext]);
@@ -127,17 +127,14 @@ export const ConversationPanel: FC<Props> = ({
     }
   };
 
-  // FIX: New handler for the onScroll event
   const handleScroll = (e: UIEvent<HTMLDivElement>) => {
     if (e.currentTarget.scrollTop === 0 && hasMore && !isLoadingMore) {
-      // Before loading more, save the current scroll height
       if (scrollRef.current) {
         setScrollContext({ loading: true, prevHeight: scrollRef.current.scrollHeight });
       }
       onLoadMore();
     }
   };
-
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }} className="chatpage-main">
@@ -152,9 +149,7 @@ export const ConversationPanel: FC<Props> = ({
         </Box>
       </Box>
 
-      {/* FIX: Added onScroll handler */}
       <Box ref={scrollRef} className="conversation-scroll" onScroll={handleScroll}>
-        {/* FIX: Show a loading spinner at the top when fetching older messages */}
         {isLoadingMore && (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
             <CircularProgress size={24} />
@@ -172,6 +167,9 @@ export const ConversationPanel: FC<Props> = ({
               isMe={Boolean(myMembershipId && m.sender?.id === myMembershipId)} 
               onStartDm={onStartDm}
               roomType={activeRoom.type}
+              onEdit={onEditMessage}
+              onDelete={onDeleteMessage}
+              onReact={onReact}
             />
           </Fragment>
         ))}

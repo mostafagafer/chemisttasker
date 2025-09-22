@@ -42,6 +42,8 @@ from decimal import Decimal                      # used in manual_assign
 import uuid                                      # used in generate_share_link
 from django.contrib.auth import get_user_model   # used in ChainViewSet.add_user
 from users.models import User                    # referenced throughout (accept_user, etc.)
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 
 
 # Onboardings
@@ -3553,12 +3555,13 @@ class ConversationViewSet(mixins.ListModelMixin,
             return Response({"detail": "Not a participant of this conversation."}, status=status.HTTP_403_FORBIDDEN)
 
         if request.method.lower() == 'get':
+            # ... your GET logic is correct and unchanged ...
             qs = conv.messages.select_related('sender__user').order_by('-created_at')
             page = self.paginate_queryset(qs)
             ser = MessageSerializer(page if page is not None else qs, many=True)
             return self.get_paginated_response(ser.data) if page else Response(ser.data)
 
-        # ✅ FIX: The POST logic is now extremely simple.
+        # ✨ FIX: The POST logic is now extremely simple.
         # Its only job is to create the message. The signal will handle the broadcast.
         data = request.data or {}
         body = (data.get('body') or '').strip()
@@ -3571,8 +3574,10 @@ class ConversationViewSet(mixins.ListModelMixin,
             conversation=conv, sender=my_mem, body=body, attachment=attachment
         )
         
+        # This part is important to keep so the room's 'updated_at' is fresh
         Conversation.objects.filter(pk=conv.pk).update(updated_at=msg.created_at)
 
+        # This is the only part that should be returned via HTTP
         http_payload = MessageSerializer(msg).data
         return Response(http_payload, status=status.HTTP_201_CREATED)
 
@@ -3635,5 +3640,132 @@ class MyMembershipsViewSet(viewsets.ReadOnlyModelViewSet):
         # created/verified for their owned pharmacies.
         return Membership.objects.filter(user=user, is_active=True).select_related('pharmacy', 'user')
 
+class MessageViewSet(viewsets.ModelViewSet):
+    serializer_class = MessageSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # Users can only see messages in conversations they are a part of
+        user = self.request.user
+        return Message.objects.filter(conversation__participants__membership__user=user)
+
+    def update(self, request, *args, **kwargs):
+        """
+        Handles editing a message (PATCH request).
+        """
+        message = self.get_object()
+        
+        # Security Check: Only the sender can edit their own message
+        my_membership = Membership.objects.filter(user=request.user, pharmacy=message.conversation.pharmacy).first()
+        if not my_membership or message.sender != my_membership:
+            raise PermissionDenied("You can only edit your own messages.")
+
+        new_body = request.data.get("body", "").strip()
+        if not new_body:
+            raise ValidationError({"body": "Message body cannot be empty."})
+
+        # Logic to handle the edit
+        if not message.is_edited:
+            message.original_body = message.body # Save original content on first edit
+        
+        message.body = new_body
+        message.is_edited = True
+        message.save()
+        layer = get_channel_layer()
+        group_name = f"room.{message.conversation_id}"
+        async_to_sync(layer.group_send)(
+            group_name,
+            {
+                "type": "message.updated",
+                "message": self.get_serializer(message).data,
+            },
+        )
+        
+        return Response(self.get_serializer(message).data)
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        Handles "deleting" a message (DELETE request).
+        """
+        message = self.get_object()
+        
+        # Security Check: Only the sender can delete their own message
+        my_membership = Membership.objects.filter(user=request.user, pharmacy=message.conversation.pharmacy).first()
+        if not my_membership or message.sender != my_membership:
+            raise PermissionDenied("You can only delete your own messages.")
+
+        # Instead of actually deleting, we mark it as deleted
+        message.is_deleted = True
+        message.body = "" # Clear the body
+        message.attachment = None # Clear any attachment
+        message.save()
+        layer = get_channel_layer()
+        group_name = f"room.{message.conversation_id}"
+        async_to_sync(layer.group_send)(
+            group_name,
+            {
+                "type": "message.deleted",
+                "message_id": message.id, # Send the ID of the deleted message
+            },
+        )
+        
+        # Now, update the message object as before
+        message.is_deleted = True
+        message.body = ""
+        message.attachment = None
+        message.save()
+        
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class MessageReactionView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, message_id):
+        message = get_object_or_404(Message, pk=message_id)
+        reaction_char = request.data.get('reaction')
+        
+        valid_reactions = [r[0] for r in MessageReaction.REACTION_CHOICES]
+        if reaction_char not in valid_reactions:
+            return Response({'detail': 'Invalid reaction.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # ✨ FIX: New logic to handle changing an emoji
+        
+        # 1. Find any existing reaction by this user on this message
+        existing_reaction = MessageReaction.objects.filter(message=message, user=request.user).first()
+
+        status_code = status.HTTP_201_CREATED # Assume we are adding a new one
+
+        if existing_reaction:
+            # If the user is clicking the same emoji again, delete it.
+            if existing_reaction.reaction == reaction_char:
+                existing_reaction.delete()
+                status_code = status.HTTP_204_NO_CONTENT
+            # If the user is clicking a DIFFERENT emoji, update the existing one.
+            else:
+                existing_reaction.reaction = reaction_char
+                existing_reaction.save()
+        else:
+            # If no reaction exists, create a new one.
+            MessageReaction.objects.create(
+                message=message,
+                user=request.user,
+                reaction=reaction_char
+            )
+        
+        # After any change, fetch all current reactions and broadcast
+        reactions = MessageReaction.objects.filter(message=message)
+        reactions_data = [{'reaction': r.reaction, 'user_id': r.user_id} for r in reactions]
+        
+        layer = get_channel_layer()
+        group_name = f"room.{message.conversation_id}"
+        async_to_sync(layer.group_send)(
+            group_name,
+            {
+                "type": "reaction.updated",
+                "message_id": message.id,
+                "reactions": reactions_data,
+            },
+        )
+        
+        return Response(status=status_code)

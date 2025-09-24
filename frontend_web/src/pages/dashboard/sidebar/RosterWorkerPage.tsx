@@ -61,6 +61,12 @@ interface Assignment {
   shift_detail: ShiftDetail;
   leave_request: LeaveRequest | null;
 }
+interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
 
 // --- Constants ---
 const ROLES = ['PHARMACIST', 'ASSISTANT', 'INTERN', 'TECHNICIAN'];
@@ -135,15 +141,15 @@ export default function RosterWorkerPage() {
       if (!currentUserId) return;
       setIsPageLoading(true);
       try {
-        const pharmacyRes = await apiClient.get<Pharmacy[]>(`${API_ENDPOINTS.getRosterWorker}pharmacies/`);
-        const loadedPharmacies = pharmacyRes.data;
-        setPharmacies(loadedPharmacies);
-        
-        if (loadedPharmacies.length > 0) {
-          setSelectedPharmacyId(loadedPharmacies[0].id);
-        }
-        
-        await reloadAssignments();
+  const pharmacyRes = await apiClient.get<Pharmacy[]>(`${API_ENDPOINTS.getRosterWorker}pharmacies/`);
+  const loadedPharmacies = pharmacyRes.data || [];
+  setPharmacies(loadedPharmacies);
+  
+  if (loadedPharmacies.length > 0) {
+    setSelectedPharmacyId(loadedPharmacies[0].id);
+  }
+
+
 
       } catch (err) { 
         console.error("Failed to load initial page data", err); 
@@ -153,7 +159,8 @@ export default function RosterWorkerPage() {
     };
     
     loadInitialData();
-  }, [currentUserId]);
+  }, [currentUserId, calendarDate, calendarView]);
+
 
   useEffect(() => {
     if (!isPageLoading && selectedPharmacyId) {
@@ -168,8 +175,8 @@ export default function RosterWorkerPage() {
     const end = moment(calendarDate).endOf(calendarView as moment.unitOfTime.StartOf).format('YYYY-MM-DD');
     
     try {
-      const res = await apiClient.get<Assignment[]>(`${API_ENDPOINTS.getRosterWorker}?pharmacy=${selectedPharmacyId}&start_date=${start}&end_date=${end}`);
-      setAllAssignments(res.data);
+      const res = await apiClient.get<PaginatedResponse<Assignment>>(`${API_ENDPOINTS.getRosterWorker}?pharmacy=${selectedPharmacyId}&start_date=${start}&end_date=${end}`);
+      setAllAssignments(res.data.results || []);
     } catch (err) { 
       console.error("Failed to load roster assignments", err); 
     } finally {

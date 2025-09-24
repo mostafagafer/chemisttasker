@@ -1,15 +1,15 @@
-// client_profile/components/Chat/ChatPage.tsx
-
 import { useEffect, useMemo, useRef, useState, FC } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import ChatIcon from '@mui/icons-material/Chat';
 import apiClient from '../../../../utils/apiClient';
 import { API_ENDPOINTS, API_BASE_URL } from '../../../../constants/api';
 import { useAuth } from '../../../../contexts/AuthContext';
+import { useSearchParams } from 'react-router-dom'; // Add this import
 
-import { ChatRoom, ChatMessage, UserLite, MemberCache } from './types';
+import { ChatRoom, ChatMessage, MemberCache, CachedMember } from './types';
 import { ChatSidebar } from './ChatSidebar';
 import { ConversationPanel } from './ConversationPanel';
+import { NewChatModal } from './NewChatModal';
 import './chat.css';
 
 type Pharmacy = { id: number; name: string };
@@ -18,6 +18,16 @@ type RoomMessagesState = {
   messages: ChatMessage[];
   nextUrl: string | null;
   hasMore: boolean;
+};
+
+const useIsMobile = (breakpoint = 768) => {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < breakpoint);
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < breakpoint);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [breakpoint]);
+  return isMobile;
 };
 
 const FULL_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
@@ -60,44 +70,88 @@ const ChatPage: FC = () => {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const accessToken = useMemo(() => localStorage.getItem('access'), []);
+  const isMobile = useIsMobile();
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams(); // Add this hook
+  const [participantCache, setParticipantCache] = useState<Record<number, CachedMember>>({}); // <-- NEW STATE
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingRoom, setEditingRoom] = useState<ChatRoom | null>(null);
+
+  const canCreateChat = useMemo(() => {
+    if (!user) return false;
+    const isGlobalAdmin = ['OWNER', 'ORG_ADMIN'].includes(user.role);
+    const isPharmacyAdmin = myMemberships.some(m => m.role === 'PHARMACY_ADMIN');
+    return isGlobalAdmin || isPharmacyAdmin;
+  }, [user, myMemberships]);
 
   useEffect(() => {
     const loadInitial = async () => {
       setIsLoading(true);
       try {
-        const [membershipsRes, roomsRes] = await Promise.all([
+        const [membershipsRes, roomsRes, participantsRes] = await Promise.all([
           apiClient.get(EP.myMemberships),
           apiClient.get(EP.rooms),
+          // THIS CALL WILL NOW SUCCEED
+          apiClient.get(API_ENDPOINTS.chatParticipants) 
         ]);
+
+        // --- 1. Populate the new Participant Cache (for preserving names) ---
+        const allParticipants: any[] = participantsRes.data?.results ?? participantsRes.data ?? [];
+        const pCache = allParticipants.reduce((acc: Record<number, CachedMember>, m: any) => {
+            if (m.user_details) {
+                acc[m.id] = {
+                    details: m.user_details,
+                    role: m.role,
+                    employment_type: m.employment_type,
+                    invited_name: m.invited_name,
+                };
+            }
+            return acc;
+        }, {});
+        setParticipantCache(pCache);
+
+        // --- 2. Process active memberships for the "New Chat" modal ---
         const allMyMemberships: any[] = membershipsRes.data?.results ?? membershipsRes.data ?? [];
         setMyMemberships(allMyMemberships);
+
         const uniquePharmacies = new Map<number, Pharmacy>();
         allMyMemberships.forEach(m => {
           if (m.pharmacy_detail) uniquePharmacies.set(m.pharmacy_detail.id, m.pharmacy_detail);
         });
         const pharms = Array.from(uniquePharmacies.values());
         setPharmacies(pharms);
-        const cachePromises = Array.from(uniquePharmacies.keys()).map(pid =>
+
+        // --- 3. Build the Member Cache (for active members only) ---
+        const cachePromises = pharms.map(pharmacy =>
           apiClient
-            .get(`${EP.memberships}?pharmacy_id=${pid}`)
+            .get(`${EP.memberships}?pharmacy_id=${pharmacy.id}`)
             .then(res => {
               const items = res.data?.results ?? res.data ?? [];
-              const map = items.reduce((acc: Record<number, UserLite>, m: any) => {
-                if (m.user_details) acc[m.id] = m.user_details;
+              const map = items.reduce((acc: Record<number, CachedMember>, m: any) => {
+                if (m.user_details) {
+                    acc[m.id] = { 
+                        details: m.user_details, 
+                        role: m.role, 
+                        employment_type: m.employment_type,
+                        invited_name: m.invited_name,
+                    };
+                }
                 return acc;
               }, {});
-              return { pid, map };
+              return { pid: pharmacy.id, map };
             })
         );
         const cacheParts = await Promise.all(cachePromises);
         setMemberCache(Object.fromEntries(cacheParts.map(({ pid, map }) => [pid, map])));
+        
+        // --- 4. Set up the chat rooms ---
         const initialRooms: ChatRoom[] = roomsRes.data?.results ?? roomsRes.data ?? [];
         initialRooms.sort(
-          (a, b) =>
-            new Date(b.updated_at || 0).getTime() -
-            new Date(a.updated_at || 0).getTime()
+          (a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
         );
         setRooms(initialRooms);
+
       } catch (e) {
         console.error('loadInitial error', e);
       } finally {
@@ -106,6 +160,7 @@ const ChatPage: FC = () => {
     };
     loadInitial();
   }, []);
+
 
   useEffect(() => {
     if (!activeRoomId) return;
@@ -161,14 +216,12 @@ const ChatPage: FC = () => {
     ws.onmessage = (evt) => {
       try {
         const payload = JSON.parse(evt.data);
-
         if (payload.type === 'ready' && payload.membership) {
           if (!myMembershipIdInActiveRoom) {
              setMyMembershipIdInActiveRoom(payload.membership);
           }
           return;
         }
-
         if (payload.type === 'message.created') {
           const newMsg: ChatMessage = payload.message;
           if (newMsg.attachment_url && newMsg.attachment_url.startsWith('/')) {
@@ -203,7 +256,6 @@ const ChatPage: FC = () => {
           }
           return;
         }
-
         if (payload.type === 'message.updated') {
           const updatedMsg: ChatMessage = payload.message;
           setMessagesMap(prevMap => {
@@ -214,7 +266,6 @@ const ChatPage: FC = () => {
           });
           return;
         }
-
         if (payload.type === 'message.deleted') {
           const { message_id } = payload;
           setMessagesMap(prevMap => {
@@ -234,7 +285,6 @@ const ChatPage: FC = () => {
           });
           return;
         }
-        
         if (payload.type === 'reaction.updated') {
           const { message_id, reactions } = payload;
           setMessagesMap(prevMap => {
@@ -246,12 +296,10 @@ const ChatPage: FC = () => {
               }
             }
             if (!targetRoomId) return prevMap;
-
             const roomState = prevMap[targetRoomId];
             const updatedMessages = roomState.messages.map(m =>
               m.id === message_id ? { ...m, reactions: reactions } : m
             );
-
             return {
               ...prevMap,
               [targetRoomId]: { ...roomState, messages: updatedMessages }
@@ -259,14 +307,49 @@ const ChatPage: FC = () => {
           });
           return;
         }
-
       } catch (e) { console.error('ws onmessage error', e); }
     };
-    
     ws.onclose = () => {};
     return () => ws.close();
-    
   }, [activeRoomId, accessToken, refreshUnreadCount]);
+
+
+  useEffect(() => {
+    const startDmWithUser = searchParams.get('startDmWithUser');
+
+    if (startDmWithUser) {
+      const partnerUserId = Number(startDmWithUser);
+
+      // Call the new backend endpoint
+      apiClient.post(API_ENDPOINTS.getOrCreateDmByUser, { partner_user_id: partnerUserId })
+        .then(res => {
+          const newOrExistingRoom: ChatRoom = res.data;
+          
+          // Add the room to our state if it's new
+          setRooms(prevRooms => {
+            if (prevRooms.some(r => r.id === newOrExistingRoom.id)) {
+              return prevRooms;
+            }
+            return [newOrExistingRoom, ...prevRooms];
+          });
+          
+          // Set it as the active room
+          setActiveRoomId(newOrExistingRoom.id);
+          
+          // Clean the URL to prevent this from running again on refresh
+          searchParams.delete('startDmWithUser');
+          setSearchParams(searchParams);
+        })
+        .catch(err => {
+          console.error("Failed to start DM from URL", err);
+          alert(err.response?.data?.detail || "Could not start the chat.");
+          
+          // Also clean the URL on failure
+          searchParams.delete('startDmWithUser');
+          setSearchParams(searchParams);
+        });
+    }
+  }, [searchParams, setSearchParams]); // Run only when searchParams change
 
   const handleSendText = async (body: string) => {
     if (!activeRoomId) return;
@@ -299,7 +382,6 @@ const ChatPage: FC = () => {
           }
           return msg;
       });
-      
       setMessagesMap(prev => {
           const currentRoom = prev[activeRoomId];
           return {
@@ -311,7 +393,6 @@ const ChatPage: FC = () => {
               }
           };
       });
-
     } catch (e) {
       console.error("Failed to load more messages", e);
     } finally {
@@ -319,22 +400,55 @@ const ChatPage: FC = () => {
     }
   };
 
-  const handleStartDm = async (partnerMembershipId: number) => {
-    const currentRoom = rooms.find(r => r.id === activeRoomId);
-    if (!currentRoom) {
-      console.error("Cannot start DM, no active room selected.");
-      return;
+  const handleStartDm = async (partnerMembershipId: number, partnerPharmacyId: number) => {
+    const partnerDetails = memberCache[partnerPharmacyId]?.[partnerMembershipId]?.details;
+    if (!partnerDetails || !user) {
+        alert('Could not find user details to start chat.');
+        return;
     }
+    const partnerUserId = partnerDetails.id;
+
+    const findExistingDm = (targetUserId: number) => {
+        for (const room of rooms) {
+            if (room.type === 'DM' && room.participant_ids.length === 2) {
+                const myMem = myMemberships.find(m => room.participant_ids.includes(m.id));
+                const partnerMemId = room.participant_ids.find(id => id !== myMem?.id);
+
+                if (partnerMemId) {
+                    for (const pharmId in memberCache) {
+                        if (memberCache[pharmId][partnerMemId]) {
+                            const partnerInRoom = memberCache[pharmId][partnerMemId].details;
+                            if (partnerInRoom.id === targetUserId) {
+                                return room;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    };
+
+    const existingRoom = findExistingDm(partnerUserId);
+
+    if (existingRoom) {
+        setActiveRoomId(existingRoom.id);
+    } else {
     try {
-      const res = await apiClient.post(EP.getOrCreateDM, {
-        pharmacy_id: currentRoom.pharmacy,
-        partner_membership_id: partnerMembershipId,
-      });
-      const newRoom: ChatRoom = res.data;
-      setRooms(prev => (prev.some(r => r.id === newRoom.id) ? prev : [newRoom, ...prev]));
-      setActiveRoomId(newRoom.id);
-    } catch (e) {
-      console.error('Failed to get or create DM', e);
+        // We now send the pharmacy_id in the payload to the backend.
+        const res = await apiClient.post(EP.getOrCreateDM, {
+            partner_membership_id: partnerMembershipId,
+            pharmacy_id: partnerPharmacyId,
+        });
+        
+        // The handleSaveRoom function you already have will take care of updating the UI.
+        handleSaveRoom(res.data);
+
+    } catch (e: any) {
+        console.error('Failed to get or create DM', e);
+        alert(e.response?.data?.detail || 'Could not start the chat.');
+    }
+
     }
   };
   
@@ -378,29 +492,77 @@ const ChatPage: FC = () => {
       console.error('Failed to send reaction', e);
     }
   };
+  
+  const handleOpenEditModal = (room: ChatRoom) => {
+    setEditingRoom(room);
+    setIsModalOpen(true);
+  };
+
+  const handleDeleteChat = async (roomId: number, roomName: string) => {
+    if (window.confirm(`Are you sure you want to delete the chat "${roomName}"? This action cannot be undone.`)) {
+      try {
+        await apiClient.delete(`${EP.rooms}${roomId}/`);
+        setRooms(prevRooms => prevRooms.filter(r => r.id !== roomId));
+        if (activeRoomId === roomId) {
+          setActiveRoomId(null);
+        }
+      } catch (e) {
+        console.error('Failed to delete chat', e);
+        alert('Failed to delete chat.');
+      }
+    }
+  };
+
+  const handleSaveRoom = (savedRoom: ChatRoom) => {
+    setRooms(prevRooms => {
+        const roomExists = prevRooms.some(room => room.id === savedRoom.id);
+        if (roomExists) {
+            const updatedRooms = prevRooms.map(r => (r.id === savedRoom.id ? savedRoom : r));
+            return [...updatedRooms].sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime());
+        }
+        const newRooms = [savedRoom, ...prevRooms];
+        return newRooms.sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime());
+    });
+    setActiveRoomId(savedRoom.id);
+  };
+  
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setTimeout(() => setEditingRoom(null), 300);
+  };
 
   const activeRoom = rooms.find(r => r.id === activeRoomId) || null;
   const activeRoomMessagesState = activeRoom ? (messagesMap[activeRoom.id] || { messages: [], hasMore: false, nextUrl: null }) : { messages: [], hasMore: false, nextUrl: null };
 
+  const showConversation = isMobile ? !!activeRoomId : true;
+  const rootClassName = `chatpage-root ${isMobile && activeRoomId ? 'mobile-conversation-active' : ''} ${isSidebarCollapsed ? 'sidebar-collapsed-view' : ''}`;
+
   if (isLoading) { return ( <Box className="chatpage-loading"><CircularProgress /></Box> ); }
 
   return (
-    <Box className="chatpage-root">
+    <Box className={rootClassName}>
       <ChatSidebar
         rooms={rooms}
         pharmacies={pharmacies}
         myMemberships={myMemberships}
         activeRoomId={activeRoomId}
         onSelectRoom={handleSelectRoom}
-        memberCache={memberCache}
+        participantCache={participantCache} // <-- PASS THE NEW PROP HERE
+        isCollapsed={isSidebarCollapsed} 
+        onToggleCollapse={() => setIsSidebarCollapsed(prev => !prev)}
+        onNewChat={() => setIsModalOpen(true)}
+        onEdit={handleOpenEditModal}
+        onDelete={handleDeleteChat}
+        canCreateChat={canCreateChat}
         getLatestMessage={(roomId) => {
           const roomState = messagesMap[roomId];
           const arr = roomState?.messages;
           return arr && arr.length ? arr[arr.length - 1] : undefined;
         }}
       />
-      <Box className="chatpage-main">
-        {activeRoom ? (
+      
+      {showConversation ? (
+        activeRoom ? (
           <ConversationPanel
             key={activeRoom.id}
             activeRoom={activeRoom}
@@ -413,24 +575,46 @@ const ChatPage: FC = () => {
             onSendText={handleSendText}
             onSendAttachment={handleSendAttachment}
             isLoadingMessages={(activeRoom ? !messagesMap[activeRoom.id] : false) || Object.keys(memberCache).length === 0}
-            onStartDm={handleStartDm}
+            onStartDm={(partnerMembershipId) => {
+                for (const pharmId in memberCache) {
+                    if (memberCache[pharmId][partnerMembershipId]) {
+                        handleStartDm(partnerMembershipId, Number(pharmId));
+                        return;
+                    }
+                }
+            }}
             hasMore={activeRoomMessagesState.hasMore}
             isLoadingMore={isLoadingMore}
             onLoadMore={handleLoadMore}
             onEditMessage={handleEditMessage}
             onDeleteMessage={handleDeleteMessage}
             onReact={handleReact}
+            isMobile={isMobile}
+            onBack={() => setActiveRoomId(null)}
           />
         ) : (
-          <Box className="chatpage-empty">
-            <ChatIcon sx={{ fontSize: 64, mb: 1, color: 'grey.400' }} />
-            <Box>
-              <Typography variant="h5" fontWeight={700} color="text.secondary">Welcome to Chemist Tasker Chat</Typography>
-              <Typography color="text.secondary" sx={{ mt: .5 }}>Select a conversation to start chatting.</Typography>
+          !isMobile && (
+            <Box className="chatpage-empty">
+              <ChatIcon sx={{ fontSize: 64, mb: 1, color: 'grey.400' }} />
+              <Box>
+                <Typography variant="h5" fontWeight={700} color="text.secondary">Welcome to Chemist Tasker Chat</Typography>
+                <Typography color="text.secondary" sx={{ mt: .5 }}>Select a conversation to start chatting.</Typography>
+              </Box>
             </Box>
-          </Box>
-        )}
-      </Box>
+          )
+        )
+      ) : null}
+
+      <NewChatModal
+        open={isModalOpen}
+        onClose={handleCloseModal}
+        onSave={handleSaveRoom}
+        pharmacies={pharmacies}
+        memberCache={memberCache}
+        currentUserId={user?.id}
+        editingRoom={editingRoom}
+        onDmSelect={handleStartDm}
+      />
     </Box>
   );
 };

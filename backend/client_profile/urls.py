@@ -41,6 +41,9 @@ router.register(r'rooms', ConversationViewSet, basename='conversation')
 router.register(r'my-memberships', MyMembershipsViewSet, basename='my-memberships')
 router.register(r'messages', MessageViewSet, basename='message')
 
+# explorer post
+router.register(r'explorer-posts', ExplorerPostViewSet, basename='explorer-post')
+
 urlpatterns = [
     path('owner/onboarding/', OwnerOnboardingCreate.as_view(), name='owner-onboarding-create'),
     path('owner/onboarding/me/', OwnerOnboardingDetail.as_view(), name='owner-onboarding-detail'),
@@ -91,6 +94,7 @@ urlpatterns = [
 
 
     path('messages/<int:message_id>/react/', MessageReactionView.as_view(), name='message-react'),
+    path('chat-participants/', ChatParticipantView.as_view(), name='chat-participants-list'),
 
     # Include the API routes for CRUD operations
     path('', include(router.urls)),

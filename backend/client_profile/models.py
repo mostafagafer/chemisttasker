@@ -1279,16 +1279,81 @@ class InvoiceLineItem(models.Model):
 
 
 # ExplorerPost Model
+def explorer_post_upload_path(instance, filename):
+    # Keep it flat & CDN-friendly (works with local MEDIA or Azure in prod)
+    # e.g. explorer_posts/<post_id>/<filename>
+    return f"explorer_posts/{instance.post_id}/{filename}"
+
 class ExplorerPost(models.Model):
-    explorer_profile = models.ForeignKey('ExplorerOnboarding', on_delete=models.CASCADE)  # The explorer posting the interest
-    headline = models.CharField(max_length=255)  # Title of the post
-    body = models.TextField()  # Detailed description of the explorer's interests or background
-    view_count = models.IntegerField(default=0)  # Number of views the post has received
-    created_at = models.DateTimeField(auto_now_add=True)  # Timestamp when the post was created
-    updated_at = models.DateTimeField(auto_now=True)  # Timestamp when the post was last updated
+    explorer_profile = models.ForeignKey(
+        'ExplorerOnboarding',
+        on_delete=models.CASCADE,
+        related_name='posts'
+    )
+    headline    = models.CharField(max_length=255)
+    body        = models.TextField(blank=True)
+    # Denormalized counters (kept in sync in views)
+    view_count  = models.PositiveIntegerField(default=0)
+    like_count  = models.PositiveIntegerField(default=0)
+    reply_count = models.PositiveIntegerField(default=0)  # future-ready (comments)
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['-created_at']),
+            models.Index(fields=['explorer_profile', '-created_at']),
+        ]
 
     def __str__(self):
         return f"{self.headline} - {self.explorer_profile.user.get_full_name()}"
+
+class ExplorerPostAttachment(models.Model):
+    """
+    Supports multiple attachments per post (image/video/pdf/etc.).
+    Stored via your MEDIA backend (local dev) or Azure (prod), per settings.
+    """
+    IMAGE = 'IMAGE'
+    VIDEO = 'VIDEO'
+    FILE  = 'FILE'
+    KIND_CHOICES = [(IMAGE, 'Image'), (VIDEO, 'Video'), (FILE, 'File')]
+
+    post      = models.ForeignKey(ExplorerPost, on_delete=models.CASCADE, related_name='attachments')
+    file      = models.FileField(upload_to=explorer_post_upload_path)
+    kind      = models.CharField(max_length=10, choices=KIND_CHOICES, default=FILE)
+    caption   = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['post'])]
+
+    @property
+    def post_id(self):
+        return self.post_id  # used by upload path
+
+class ExplorerPostReaction(models.Model):
+    """
+    Simple 'like' for now (one per user per post).
+    Extend later for emojis by adding a 'type' field.
+    """
+    post   = models.ForeignKey(ExplorerPost, on_delete=models.CASCADE, related_name='reactions')
+    user   = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='explorer_post_reactions')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [('post', 'user')]
+        indexes = [
+            models.Index(fields=['post']),
+            models.Index(fields=['user']),
+        ]
+
+    def __str__(self):
+        return f"❤️ u#{self.user_id} → p#{self.post_id}"
+
+
+
+
+
 
 class UserAvailability(models.Model):
     """
@@ -1322,64 +1387,68 @@ class UserAvailability(models.Model):
 
 
 # --- Realtime Chat Models ----------------------------------------------------
-from django.conf import settings
-from django.db import models
-from django.utils import timezone
-
 
 class Conversation(models.Model):
-    """
-    A chat thread within a Pharmacy.
-    - GROUP: many participants
-    - DM: exactly two participants, unique per (pharmacy, pair)
-    """
     class Type(models.TextChoices):
         GROUP = "GROUP", "Group"
         DM = "DM", "Direct"
 
-    pharmacy = models.ForeignKey('client_profile.Pharmacy',
-                                 on_delete=models.CASCADE,
-                                 related_name='conversations')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='created_conversations'
+    )
     type = models.CharField(max_length=8, choices=Type.choices, default=Type.GROUP)
     title = models.CharField(max_length=255, blank=True)
-    # For DM de-duplication (deterministic key for the pair, e.g. "12:45")
     dm_key = models.CharField(max_length=63, blank=True, db_index=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # 👇 THIS IS THE MISSING FIELD TO ADD
+    # This links a conversation to a pharmacy, identifying it as a "community" chat.
+    pharmacy = models.ForeignKey(
+        'client_profile.Pharmacy',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='group_conversations'
+    )
+
     class Meta:
         indexes = [
-            models.Index(fields=['pharmacy', 'updated_at']),
-            models.Index(fields=['pharmacy', 'dm_key']),
+            models.Index(fields=['created_by', 'updated_at']),
+            models.Index(fields=['pharmacy']),
+            models.Index(fields=['dm_key']),
         ]
         constraints = [
-            # Only enforce uniqueness when dm_key is set (i.e., DM rooms)
-            models.UniqueConstraint(fields=['pharmacy', 'dm_key'],
-                                    name='uniq_dm_per_pharmacy',
+            # This rule prevents duplicate community chats for the same pharmacy.
+            models.UniqueConstraint(
+                fields=['pharmacy'],
+                name='uniq_community_chat_per_pharmacy',
+                condition=models.Q(pharmacy__isnull=False)
+            ),
+            models.UniqueConstraint(fields=['dm_key'],
+                                    name='uniq_dm_per_user_pair',
                                     condition=~models.Q(dm_key="")),
         ]
 
     def __str__(self):
-        if self.type == self.Type.DM:
-            return f"DM {self.id} @ pharmacy {self.pharmacy_id}"
-        return self.title or f"Room {self.id} @ pharmacy {self.pharmacy_id}"
-
+        return self.title or f"Conversation {self.id}"
 
 class Participant(models.Model):
-    """
-    Links a Membership to a Conversation.
-    We use Membership (not bare User) to enforce pharmacy boundaries & active status.
-    """
     conversation = models.ForeignKey('client_profile.Conversation',
                                      on_delete=models.CASCADE,
                                      related_name='participants')
     membership = models.ForeignKey('client_profile.Membership',
-                                   on_delete=models.CASCADE,
+                                   on_delete=models.PROTECT,
                                    related_name='chat_participations')
     is_admin = models.BooleanField(default=False)
     joined_at = models.DateTimeField(auto_now_add=True)
     last_read_at = models.DateTimeField(null=True, blank=True)
+
+    # FIX: Add is_pinned field to track pinning on a per-user basis.
+    is_pinned = models.BooleanField(default=False)
 
     class Meta:
         unique_together = [('conversation', 'membership')]
@@ -1390,6 +1459,7 @@ class Participant(models.Model):
 
     def __str__(self):
         return f"Participant m#{self.membership_id} in c#{self.conversation_id}"
+
 
 
 def chat_upload_path(instance, filename):

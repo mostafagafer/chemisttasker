@@ -151,6 +151,7 @@ export const API_ENDPOINTS = {
 
   // Chat app
   rooms: '/client-profile/rooms/',
+  chatParticipants: '/client-profile/chat-participants/', // <-- THIS IS CORRECT
   roomDetail: (id:number) => `/client-profile/rooms/${id}/`,
   roomMessages: (id:number) => `/client-profile/rooms/${id}/messages/`,
   roomMarkRead: (id:number) => `/client-profile/rooms/${id}/read/`,
@@ -158,6 +159,18 @@ export const API_ENDPOINTS = {
   myMemberships: '/client-profile/my-memberships/',
   memberships: '/client-profile/memberships/',
   getOrCreategroup: () => `/client-profile/rooms/get-or-create-group/`,
+  getOrCreateDmByUser: '/client-profile/rooms/get-or-create-dm-by-user/',
+
+
+  // --- Explorer Posts ---
+  explorerPosts:              '/client-profile/explorer-posts/',
+  explorerPostDetail:         (id: number) => `/client-profile/explorer-posts/${id}/`,
+  explorerPostFeed:           '/client-profile/explorer-posts/feed/',
+  explorerPostByProfile:      (profileId: number) => `/client-profile/explorer-posts/by-profile/${profileId}/`,
+  explorerPostAddView:        (id: number) => `/client-profile/explorer-posts/${id}/view/`,
+  explorerPostLike:           (id: number) => `/client-profile/explorer-posts/${id}/like/`,
+  explorerPostUnlike:         (id: number) => `/client-profile/explorer-posts/${id}/unlike/`,
+  explorerPostAttachments:    (id: number) => `/client-profile/explorer-posts/${id}/attachments/`,
 
 };
 

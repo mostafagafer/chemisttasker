@@ -10,7 +10,7 @@ __pycache__/
 
 # SQLite DB
 db.sqlite3
-
+openapi.yaml
 # dotenv files
 .env
 

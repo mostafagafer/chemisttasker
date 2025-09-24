@@ -44,6 +44,14 @@ interface LeaveRequest {
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   note: string;
 }
+
+interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
 interface Pharmacy { id: number; name: string; }
 interface UserDetail { id: number; first_name: string; last_name: string; email: string; role: string; }
 interface SlotDetail { id: number; date: string; start_time: string; end_time: string; }
@@ -143,8 +151,10 @@ export default function RosterOwnerPage() {
     const loadInitialData = async () => {
       setIsPageLoading(true);
       try {
-        const pharmacyRes = await apiClient.get<Pharmacy[]>(API_ENDPOINTS.pharmacies);
-        const loadedPharmacies = pharmacyRes.data;
+        const pharmacyRes = await apiClient.get<PaginatedResponse<Pharmacy>>(API_ENDPOINTS.pharmacies);
+
+        const loadedPharmacies = pharmacyRes.data.results || [];
+
         setPharmacies(loadedPharmacies);
         
         if (loadedPharmacies.length > 0) {
@@ -153,8 +163,8 @@ export default function RosterOwnerPage() {
           const start = moment(calendarDate).startOf(calendarView as moment.unitOfTime.StartOf).format('YYYY-MM-DD');
           const end = moment(calendarDate).endOf(calendarView as moment.unitOfTime.StartOf).format('YYYY-MM-DD');
           // The RosterOwner endpoint now returns leave_request data automatically
-          const assignmentsRes = await apiClient.get<Assignment[]>(`${API_ENDPOINTS.getRosterOwner}?pharmacy=${firstPharmacyId}&start_date=${start}&end_date=${end}`);
-          setAssignments(assignmentsRes.data);
+          const assignmentsRes = await apiClient.get<PaginatedResponse<Assignment>>(`${API_ENDPOINTS.getRosterOwner}?pharmacy=${firstPharmacyId}&start_date=${start}&end_date=${end}`);
+          setAssignments(assignmentsRes.data.results || []);
         }
       } catch (err) { 
         console.error("Failed to load initial page data", err); 
@@ -198,8 +208,8 @@ export default function RosterOwnerPage() {
   const loadAssignments = async (pharmacyId: number, startDate?: string, endDate?: string) => {
     setIsAssignmentsLoading(true);
     try {
-      const res = await apiClient.get<Assignment[]>(`${API_ENDPOINTS.getRosterOwner}?pharmacy=${pharmacyId}&start_date=${startDate}&end_date=${endDate}`);
-      setAssignments(res.data);
+      const res = await apiClient.get<PaginatedResponse<Assignment>>(`${API_ENDPOINTS.getRosterOwner}?pharmacy=${pharmacyId}&start_date=${startDate}&end_date=${endDate}`);
+      setAssignments(res.data.results || []);
     } catch (err) { console.error("Failed to load roster assignments", err); }
     finally { setIsAssignmentsLoading(false); }
   };

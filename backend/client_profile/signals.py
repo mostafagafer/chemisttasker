@@ -8,6 +8,7 @@ from client_profile.models import Message
 from django.utils.text import slugify
 import logging
 from client_profile.serializers import MessageSerializer
+from .models import Membership, Conversation, Participant
 
 log = logging.getLogger("client_profile.signals")
 
@@ -65,3 +66,20 @@ def broadcast_new_message(sender, instance, created, **kwargs):
             log.exception("Error while broadcasting message.created")
 
     transaction.on_commit(_notify)
+
+
+@receiver(post_save, sender=Membership)
+def sync_membership_to_community_chat(sender, instance, created, **kwargs):
+    if instance.is_active and instance.pharmacy:
+        community_chat, chat_created = Conversation.objects.get_or_create(
+            pharmacy=instance.pharmacy,
+            type=Conversation.Type.GROUP,
+            defaults={
+                'title': instance.pharmacy.name,
+                'created_by': instance.invited_by or instance.user
+            }
+        )
+        Participant.objects.get_or_create(
+            conversation=community_chat,
+            membership=instance
+        )

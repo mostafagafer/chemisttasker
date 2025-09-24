@@ -1,5 +1,6 @@
 import { FC, useRef, useEffect, useState, useMemo, Fragment, UIEvent } from 'react';
 import { Box, IconButton, InputBase, Tooltip, Typography, CircularProgress, Divider, Chip } from '@mui/material';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
 import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
 import CancelIcon from '@mui/icons-material/Cancel';
@@ -31,6 +32,8 @@ type Props = {
   onEditMessage: (messageId: number, newBody: string) => void;
   onDeleteMessage: (messageId: number) => void;
   onReact: (messageId: number, reaction: string) => void;
+  isMobile: boolean;
+  onBack: () => void;
 };
 
 export const ConversationPanel: FC<Props> = ({
@@ -51,6 +54,8 @@ export const ConversationPanel: FC<Props> = ({
   onEditMessage,
   onDeleteMessage,
   onReact,
+  isMobile,
+  onBack,
 }) => {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -62,20 +67,26 @@ export const ConversationPanel: FC<Props> = ({
 
   const headerTitle = useMemo(() => {
     if (activeRoom.type === 'GROUP') {
-      const pharmacy = pharmacies.find(p => p.id === activeRoom.pharmacy);
-      return activeRoom.title || pharmacy?.name || 'Group Chat';
+        if (activeRoom.title) return activeRoom.title;
+        // Fallback for old groups that are tied to a pharmacy
+        const pharmacy = pharmacies.find(p => p.id === activeRoom.pharmacy);
+        return pharmacy?.name || 'Group Chat';
     }
+    // Logic for DM titles
     if (activeRoom.title && activeRoom.title !== 'Direct Message' && !activeRoom.title.startsWith('DM between')) {
         return activeRoom.title;
     }
     const myMembershipInRoom = myMemberships.find(myMem => activeRoom.participant_ids?.includes(myMem.id));
     if (!myMembershipInRoom) { return activeRoom.title || 'Direct Message'; }
     const partnerMembershipId = activeRoom.participant_ids?.find(pId => pId !== myMembershipInRoom.id);
-    if (partnerMembershipId && memberCache[activeRoom.pharmacy]) {
-        const partnerUser = memberCache[activeRoom.pharmacy][partnerMembershipId];
-        if (partnerUser) {
-            const fullName = `${partnerUser.first_name || ''} ${partnerUser.last_name || ''}`.trim();
-            return fullName || partnerUser.email || 'Direct Message';
+    // Find partner in cache across all pharmacies
+    if (partnerMembershipId) {
+        for (const pharmacyId in memberCache) {
+            if (memberCache[pharmacyId][partnerMembershipId]) {
+                const partnerUser = memberCache[pharmacyId][partnerMembershipId].details;
+                const fullName = `${partnerUser.first_name || ''} ${partnerUser.last_name || ''}`.trim();
+                return fullName || partnerUser.email || 'Direct Message';
+            }
         }
     }
     return activeRoom.title || 'Direct Message';
@@ -123,7 +134,6 @@ export const ConversationPanel: FC<Props> = ({
   const handleFileChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-
     const newAttachments: File[] = [];
     for (const file of files) {
       if (file.size > 10 * 1024 * 1024) { 
@@ -150,9 +160,14 @@ export const ConversationPanel: FC<Props> = ({
   };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }} className="chatpage-main">
-      <Box sx={{ p: 2, borderBottom: '1px solid #e6e8ee', bgcolor: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Box sx={{ minWidth: 0 }}>
+    <Box className="chatpage-main">
+      <Box className="conversation-header">
+        {isMobile && (
+          <IconButton onClick={onBack} sx={{ mr: 1 }}>
+            <ArrowBackIcon />
+          </IconButton>
+        )}
+        <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography variant="subtitle1" fontWeight={700} noWrap title={headerTitle}>
             {headerTitle}
           </Typography>
@@ -203,7 +218,7 @@ export const ConversationPanel: FC<Props> = ({
         </Box>
       )}
 
-      <Box sx={{ p: 1.5, borderTop: '1px solid #e6e8ee', bgcolor: '#fff', display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Box className="conversation-footer">
         <Tooltip title="Attach">
           <span>
             <IconButton onClick={() => fileRef.current?.click()} size="small" disabled={sending}>

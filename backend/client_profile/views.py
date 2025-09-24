@@ -796,44 +796,55 @@ class MembershipViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        
+        # 1. Determine ALL pharmacies where the user should be able to see the member list.
+        
+        # Pharmacies they own
+        owned_pharmacies = Pharmacy.objects.none()
+        if hasattr(user, 'owneronboarding'):
+            owned_pharmacies = Pharmacy.objects.filter(owner=user.owneronboarding)
 
-        # 1. Determine pharmacies visible to me
+        # Pharmacies in their org (if ORG_ADMIN)
+        org_pharmacies = Pharmacy.objects.none()
         if OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').exists():
-            # org-admin sees all in their org
-            org = OrganizationMembership.objects.filter(
-                user=user, role='ORG_ADMIN'
-            ).first().organization
-            visible_pharmacies = Pharmacy.objects.filter(
-                Q(organization=org) | Q(owner__organization=org)
+            org_ids = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').values_list('organization', flat=True)
+            org_pharmacies = Pharmacy.objects.filter(
+                Q(organization_id__in=org_ids) | Q(owner__organization_id__in=org_ids)
             )
-        else:
-            # individual owner sees only their own
-            try:
-                owner = OwnerOnboarding.objects.get(user=user)
-                visible_pharmacies = Pharmacy.objects.filter(owner=owner)
-            except OwnerOnboarding.DoesNotExist:
-                visible_pharmacies = Pharmacy.objects.none()
-        admin_pharmacies = Pharmacy.objects.filter(
-                    memberships__user=user,
-                    memberships__role='PHARMACY_ADMIN',
-                    memberships__is_active=True
-                )
-        if 'visible_pharmacies' in locals():
-            visible_pharmacies = (visible_pharmacies | admin_pharmacies).distinct()
-        else:
-            visible_pharmacies = admin_pharmacies
 
+        # Pharmacies they are a PHARMACY_ADMIN in
+        admin_pharmacies = Pharmacy.objects.filter(
+            memberships__user=user,
+            memberships__role='PHARMACY_ADMIN',
+            memberships__is_active=True
+        )
+        
+        # NEW RULE: Pharmacies they are a regular, active member of
+        member_pharmacies = Pharmacy.objects.filter(
+            memberships__user=user,
+            memberships__is_active=True
+        )
+
+        # Combine all visible pharmacies into one master queryset
+        visible_pharmacies = (owned_pharmacies | org_pharmacies | admin_pharmacies | member_pharmacies).distinct()
+
+        # 2. Base the Membership query on these visible pharmacies.
         qs = Membership.objects.filter(pharmacy__in=visible_pharmacies)
 
-        # 2. Optional query filters
+        # 3. Apply the optional query filters from the request.
         pharmacy_id = self.request.query_params.get('pharmacy_id')
         chain_id = self.request.query_params.get('chain_id')
+        
         if pharmacy_id:
             qs = qs.filter(pharmacy_id=pharmacy_id)
         elif chain_id:
-            qs = qs.filter(pharmacy__chain_id=chain_id)
+            # --- THIS IS THE FIX ---
+            # Correctly filter by pharmacies belonging to a chain using the proper relationship
+            qs = qs.filter(pharmacy__chains__id=chain_id)
+            # ---------------------
 
         return qs.distinct()
+
 
     def check_object_permissions(self, request, obj):
         user = request.user
@@ -861,6 +872,27 @@ class MembershipViewSet(viewsets.ModelViewSet):
             return
 
         self.permission_denied(request, message="Not allowed to modify this membership.")
+
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        Permanently deletes a membership.
+        First, it removes the member from any chat rooms they are a part of to satisfy the PROTECT rule.
+        Then, it deletes the membership record itself.
+        WARNING: This will also delete all messages sent by this member.
+        """
+        membership = self.get_object()
+
+        with transaction.atomic():
+            # Step 1: Delete the protecting Participant records first.
+            # The related_name on the Participant model is 'chat_participations'.
+            membership.chat_participations.all().delete()
+
+            # Step 2: Now that the protection is removed, delete the membership.
+            # This will also cascade-delete all of their messages.
+            membership.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _create_membership_invite(self, data, inviter):
         """
@@ -1692,7 +1724,7 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         try:
             po = PharmacistOnboarding.objects.get(user=candidate)
             profile_data = {
-                'phone_number': po.phone_number,
+                'phone_number': candidate.mobile_number,
                 'short_bio': po.short_bio,
                 'resume': request.build_absolute_uri(po.resume.url) if po.resume else None,
                 'rate_preference': po.rate_preference or None,
@@ -2358,7 +2390,7 @@ class ConfirmedShiftViewSet(BaseShiftViewSet):
         try:
             po = PharmacistOnboarding.objects.get(user=candidate)
             profile_data = {
-                'phone_number': po.phone_number,
+                'phone_number': candidate.mobile_number, 
                 'short_bio': po.short_bio,
                 'resume': request.build_absolute_uri(po.resume.url) if po.resume else None,
                 'rate_preference': po.rate_preference or None,
@@ -3278,9 +3310,181 @@ class MyHistoryShiftsViewSet(BaseShiftViewSet):
 
         return qs.distinct()
 
+
+
+# -----------------------------------------------------------------------------
+# Explorer 
+# -----------------------------------------------------------------------------
+class IsPostOwner(permissions.BasePermission):
+    """
+    Object-level check: user must own the post's explorer_profile.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        return (
+            request.user.is_authenticated
+            and getattr(obj.explorer_profile, "user_id", None) == request.user.id
+        )
+
+
 class ExplorerPostViewSet(viewsets.ModelViewSet):
-    queryset = ExplorerPost.objects.all()
-    serializer_class = ExplorerPostSerializer
+    """
+    Authenticated users can view.
+    Only Explorers (who own the profile) can create/update/delete/react/attach.
+    """
+    queryset = (
+        ExplorerPost.objects
+        .select_related("explorer_profile__user")
+        .prefetch_related("attachments")
+        .order_by("-created_at")
+    )
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+
+    # --------- serializers ---------
+    def get_serializer_class(self):
+        if self.action in ["create", "update", "partial_update"]:
+            return ExplorerPostWriteSerializer
+        return ExplorerPostReadSerializer
+
+    # --------- permissions ---------
+    def get_permissions(self):
+        # Read-only endpoints → any authenticated user
+        read_actions = ["list", "retrieve", "feed", "by_profile", "add_view"]
+
+        # Owner-required writes → must be Explorer (ownership checked later)
+        owner_write_actions = ["create", "update", "partial_update", "destroy", "attachments"]
+
+        # Reactions → any authenticated user (no Explorer requirement)
+        react_actions = ["like", "unlike"]
+
+        if self.action in read_actions:
+            return [permissions.IsAuthenticated()]
+        if self.action in owner_write_actions:
+            return [permissions.IsAuthenticated(), IsExplorer()]
+        if self.action in react_actions:
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated()]
+
+
+    def perform_create(self, serializer):
+        """
+        Enforce that the creating user owns the explorer_profile.
+        """
+        explorer_profile = serializer.validated_data.get("explorer_profile")
+        if not explorer_profile or explorer_profile.user_id != self.request.user.id:
+            # Hard fail if mismatch
+            raise permissions.PermissionDenied("You can only post from your own explorer profile.")
+        serializer.save()
+
+    def perform_update(self, serializer):
+        # Only owner can update (object-level)
+        instance = self.get_object()
+        self.check_object_permissions_for_write(instance)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        # Only owner can delete (object-level)
+        self.check_object_permissions_for_write(instance)
+        instance.delete()
+
+    def check_object_permissions_for_write(self, obj):
+        if not IsPostOwner().has_object_permission(self.request, self, obj):
+            raise permissions.PermissionDenied("Only the owner can modify this post.")
+
+    # --------- Feeds ---------
+    @action(detail=False, methods=["get"], url_path="feed")
+    def feed(self, request):
+        """
+        Newest-first feed. (Extend with follow-graph later if needed.)
+        """
+        qs = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(qs)
+        ser = ExplorerPostReadSerializer(page or qs, many=True, context={"request": request})
+        if page is not None:
+            return self.get_paginated_response(ser.data)
+        return Response(ser.data)
+
+    @action(detail=False, methods=["get"], url_path=r"by-profile/(?P<profile_id>[^/.]+)")
+    def by_profile(self, request, profile_id=None):
+        qs = self.get_queryset().filter(explorer_profile_id=profile_id)
+        page = self.paginate_queryset(qs)
+        ser = ExplorerPostReadSerializer(page or qs, many=True, context={"request": request})
+        if page is not None:
+            return self.get_paginated_response(ser.data)
+        return Response(ser.data)
+
+    # --------- Lightweight counters ---------
+    @action(detail=True, methods=["post"], url_path="view")
+    def add_view(self, request, pk=None):
+        """
+        Increment view count; any authenticated user can call.
+        """
+        post = self.get_object()
+        ExplorerPost.objects.filter(pk=post.pk).update(view_count=models.F("view_count") + 1)
+        post.refresh_from_db(fields=["view_count"])
+        return Response({"view_count": post.view_count})
+
+    # --------- Attachments (owner only) ---------
+    @action(detail=True, methods=["post"], url_path="attachments")
+    def attachments(self, request, pk=None):
+        """
+        Multipart form-data for one or many files:
+        - file: <binary>  (use `file` multiple times to send many)
+        - kind: IMAGE | VIDEO | FILE (optional; default FILE)
+        - caption: optional
+        """
+        post = self.get_object()
+        self.check_object_permissions_for_write(post)
+
+        files = request.FILES.getlist("file") or ([request.FILES["file"]] if "file" in request.FILES else [])
+        kind = request.data.get("kind", "FILE")
+        caption = request.data.get("caption", "")
+
+        created = []
+        with transaction.atomic():
+            if files:
+                for f in files:
+                    created.append(
+                        ExplorerPostAttachment.objects.create(
+                            post=post, file=f, kind=kind, caption=caption
+                        )
+                    )
+            else:
+                # JSON payload fallback (rare)
+                ser = ExplorerPostAttachmentSerializer(data=request.data)
+                ser.is_valid(raise_exception=True)
+                ser.save(post=post)
+                created.append(ser.instance)
+
+        return Response(ExplorerPostAttachmentSerializer(created, many=True).data, status=status.HTTP_201_CREATED)
+
+    # --------- Reactions (like/unlike) (owner NOT required, but must be Explorer) ---------
+    @action(detail=True, methods=["post"], url_path="like")
+    def like(self, request, pk=None):
+        """
+        Like a post; available to any authenticated Explorer.
+        """
+        post = self.get_object()
+        created = False
+        with transaction.atomic():
+            obj, created = ExplorerPostReaction.objects.get_or_create(post=post, user=request.user)
+            if created:
+                ExplorerPost.objects.filter(pk=post.pk).update(like_count=models.F("like_count") + 1)
+        post.refresh_from_db(fields=["like_count"])
+        return Response({"liked": True, "like_count": post.like_count, "created": created})
+
+    @action(detail=True, methods=["post"], url_path="unlike")
+    def unlike(self, request, pk=None):
+        """
+        Unlike a post; available to any authenticated Explorer.
+        """
+        post = self.get_object()
+        with transaction.atomic():
+            deleted, _ = ExplorerPostReaction.objects.filter(post=post, user=request.user).delete()
+            if deleted:
+                ExplorerPost.objects.filter(pk=post.pk).update(like_count=models.F("like_count") - 1)
+        post.refresh_from_db(fields=["like_count"])
+        return Response({"liked": False, "like_count": post.like_count, "deleted": bool(deleted)})
 
 # Availability
 class UserAvailabilityViewSet(viewsets.ModelViewSet):
@@ -3460,82 +3664,76 @@ class ChatMessagePagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 100
 
-
 class ConversationViewSet(mixins.ListModelMixin,
                           mixins.RetrieveModelMixin,
                           mixins.CreateModelMixin,
+                          mixins.UpdateModelMixin,
+                          mixins.DestroyModelMixin,
                           viewsets.GenericViewSet):
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = ChatMessagePagination 
     
     def get_queryset(self):
         user = self.request.user
-        return (Conversation.objects
-                .filter(participants__membership__user=user,
-                        participants__membership__is_active=True)
-                .select_related('pharmacy')
-                .distinct()
-                .order_by('-updated_at'))
+        # This is the most reliable way to get all conversations a user is in.
+        conversation_ids = Participant.objects.filter(
+            membership__user=user
+        ).values_list('conversation_id', flat=True)
+        return Conversation.objects.filter(pk__in=conversation_ids).order_by('-updated_at')
 
     def get_serializer_class(self):
-        if self.action == 'create':
+        if self.action in ['create', 'update', 'partial_update']:
             return ConversationCreateSerializer
-        if self.action in ['retrieve', 'get_or_create_group']:
+        if self.action in ['retrieve', 'get_or_create_dm', 'toggle_pin']:
             return ConversationDetailSerializer
         return ConversationListSerializer
-    
+
     def perform_create(self, serializer):
-        conv = serializer.save()
-        creator_mem = Membership.objects.filter(
-            user=self.request.user, pharmacy=conv.pharmacy, is_active=True
-        ).first()
-        if creator_mem and not Participant.objects.filter(conversation=conv, membership=creator_mem).exists():
-            Participant.objects.create(conversation=conv, membership=creator_mem)
+        # This correctly creates a custom group and adds the creator as a participant.
+        conv = serializer.save(created_by=self.request.user)
+        # Find ANY active membership for the creator to add them to the participant list.
+        creator_membership = Membership.objects.filter(user=self.request.user, is_active=True).first()
+        if creator_membership:
+             # Also add the other participants passed in the request.
+            participant_memberships = set(serializer.validated_data.get('participants', []))
+            participant_memberships.add(creator_membership)
+            Participant.objects.bulk_create([
+                Participant(conversation=conv, membership=m, is_admin=(m == creator_membership)) for m in participant_memberships
+            ])
+
+    def perform_destroy(self, instance):
+        if instance.pharmacy_id is not None:
+            raise PermissionDenied("Pharmacy-wide community chats cannot be deleted.")
+        my_participant = instance.participants.filter(membership__user=self.request.user).first()
+        if not my_participant:
+            raise PermissionDenied("You are not a member of this conversation.")
+        if instance.type == 'GROUP' and not my_participant.is_admin:
+            raise PermissionDenied("Only group admins can delete this conversation.")
+        instance.delete()
 
     @action(detail=False, methods=['post'], url_path='get-or-create-dm')
     def get_or_create_dm(self, request):
-        pharmacy_id = request.data.get('pharmacy_id')
         partner_membership_id = request.data.get('partner_membership_id')
-
-        if not pharmacy_id or not partner_membership_id:
-            return Response({"detail": "pharmacy_id and partner_membership_id are required."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 1. Get the current user's membership in the specified pharmacy
-        my_membership = Membership.objects.filter(
-            user=request.user,
-            pharmacy_id=pharmacy_id,
-            is_active=True
-        ).first()
-
-        if not my_membership:
-            return Response({"detail": "You are not an active member of this pharmacy."}, status=status.HTTP_403_FORBIDDEN)
+        # This no longer requires pharmacy_id, making it more robust.
+        if not partner_membership_id:
+            return Response({"detail": "partner_membership_id is required."}, status=status.HTTP_400_BAD_REQUEST)
         
-        # 2. Get the partner's membership (ensure it's in the same pharmacy)
-        partner_membership = get_object_or_404(
-            Membership, 
-            pk=partner_membership_id, 
-            pharmacy_id=pharmacy_id,
-            is_active=True
-        )
+        my_membership = Membership.objects.filter(user=request.user, is_active=True).first()
+        if not my_membership:
+            return Response({"detail": "You must have at least one active membership to start a DM."}, status=status.HTTP_403_FORBIDDEN)
+        
+        partner_membership = get_object_or_404(Membership, pk=partner_membership_id, is_active=True)
 
         if my_membership.id == partner_membership.id:
             return Response({"detail": "Cannot create a DM with yourself."}, status=status.HTTP_400_BAD_REQUEST)
         
-        # 3. Use the helper to create a unique, sorted key for the DM pair
         dm_key = make_dm_key(my_membership.id, partner_membership.id)
 
-        # 4. Atomically get or create the conversation
         with transaction.atomic():
             conversation, created = Conversation.objects.get_or_create(
-                pharmacy_id=pharmacy_id,
                 dm_key=dm_key,
-                defaults={
-                    'type': Conversation.Type.DM,
-                    'title': f"DM between {my_membership.id} and {partner_membership.id}"
-                }
+                defaults={ 'type': Conversation.Type.DM, 'created_by': request.user }
             )
-
-            # 5. If it's a new conversation, add both users as participants
             if created:
                 Participant.objects.bulk_create([
                     Participant(conversation=conversation, membership=my_membership),
@@ -3548,112 +3746,70 @@ class ConversationViewSet(mixins.ListModelMixin,
     @action(detail=True, methods=['get', 'post'])
     def messages(self, request, pk=None):
         conv = self.get_object()
-        my_mem = Membership.objects.filter(
-            user=request.user, pharmacy=conv.pharmacy, is_active=True
-        ).first()
-        if not my_mem or not Participant.objects.filter(conversation=conv, membership=my_mem).exists():
-            return Response({"detail": "Not a participant of this conversation."}, status=status.HTTP_403_FORBIDDEN)
-
+        # This logic is simpler and correctly finds your participation record.
+        my_part = Participant.objects.filter(conversation=conv, membership__user=request.user, membership__is_active=True).first()
+        if not my_part:
+            return Response({"detail": "Not an active participant of this conversation."}, status=status.HTTP_403_FORBIDDEN)
+        
         if request.method.lower() == 'get':
-            # ... GET logic is unchanged ...
             qs = conv.messages.select_related('sender__user').order_by('-created_at')
             page = self.paginate_queryset(qs)
             ser = MessageSerializer(page if page is not None else qs, many=True)
             return self.get_paginated_response(ser.data) if page else Response(ser.data)
 
-        # --- POST Logic ---
+        # POST logic for sending a message
         data = request.data or {}
         body = (data.get('body') or '').strip()
-        attachments = request.FILES.getlist('attachment') # Use getlist to handle multiple files
-
+        attachments = request.FILES.getlist('attachment')
         if not body and not attachments:
             return Response({"detail": "Message body or attachment is required."}, status=status.HTTP_400_BAD_REQUEST)
-
+        
         created_messages = []
-
-        # ✨ FIX: Loop through each uploaded file and create a message for it
+        sender_membership = my_part.membership # Use the correct membership from the participant record.
         if attachments:
             for attachment_file in attachments:
-                msg = Message.objects.create(
-                    conversation=conv, 
-                    sender=my_mem, 
-                    body=body if not created_messages else "", 
-                    attachment=attachment_file,
-                    # ✨ FIX: Save the original filename from the upload
-                    attachment_filename=attachment_file.name 
-                )
+                msg = Message.objects.create(conversation=conv, sender=sender_membership, body=body if not created_messages else "", attachment=attachment_file, attachment_filename=attachment_file.name)
                 created_messages.append(msg)
-        # If there's only a text body, create a single message
         elif body:
-            msg = Message.objects.create(
-                conversation=conv, sender=my_mem, body=body
-            )
+            msg = Message.objects.create(conversation=conv, sender=sender_membership, body=body)
             created_messages.append(msg)
         
-        # Update the conversation's timestamp based on the last message created
         if created_messages:
             Conversation.objects.filter(pk=conv.pk).update(updated_at=created_messages[-1].created_at)
-
+        
         http_payload = MessageSerializer(created_messages, many=True).data
         return Response(http_payload, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
     def read(self, request, pk=None):
         conv = self.get_object()
-        my_mem = Membership.objects.filter(user=request.user, pharmacy=conv.pharmacy, is_active=True).first()
-        if not my_mem:
-            return Response({"detail": "No active membership for this pharmacy."}, status=status.HTTP_403_FORBIDDEN)
-        
-        part = Participant.objects.filter(conversation=conv, membership=my_mem).first()
+        part = Participant.objects.filter(conversation=conv, membership__user=request.user).first()
         if not part:
-            return Response({"detail": "Not a participant of this conversation."}, status=status.HTTP_403_FORBIDDEN)
-
+            return Response({"detail": "Not a participant."}, status=status.HTTP_404_NOT_FOUND)
         part.last_read_at = timezone.now()
         part.save(update_fields=['last_read_at'])
-        
         return Response({"detail": "Read position updated.", "last_read_at": part.last_read_at})
 
 class MyMembershipsViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    Lists all active memberships for the requesting user.
-    This view also intelligently handles pharmacy owners, ensuring they
-    have a membership record for each pharmacy they own.
-    """
     serializer_class = MembershipSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
-
-        # This logic is for Pharmacy Owners. It finds all pharmacies they own
-        # and creates a PHARMACY_ADMIN membership for them if it doesn't exist.
-        # This is a "healing" step that fixes existing data.
-        try:
-            # Check if the user has an owner profile
-            if hasattr(user, 'owneronboarding'):
-                # Get all pharmacies linked to this owner profile
-                owned_pharmacies = Pharmacy.objects.filter(owner=user.owneronboarding)
-                
-                # For each pharmacy they own, ensure a membership exists.
-                # get_or_create is efficient and only creates if it's missing.
-                for pharmacy in owned_pharmacies:
-                    Membership.objects.get_or_create(
-                        user=user,
-                        pharmacy=pharmacy,
-                        defaults={
-                            'role': 'PHARMACY_ADMIN',
-                            'employment_type': 'FULL_TIME',
-                            'is_active': True,
-                            'invited_by': user,
-                        }
-                    )
-        except OwnerOnboarding.DoesNotExist:
-            # This user is not an owner, so we skip this block.
-            pass
-
-        # Finally, return all active memberships for the user.
-        # This now includes their regular memberships AND the ones we just
-        # created/verified for their owned pharmacies.
+        # This "healing" step for owners is crucial and remains.
+        if hasattr(user, 'owneronboarding'):
+            owned_pharmacies = Pharmacy.objects.filter(owner=user.owneronboarding)
+            for pharmacy in owned_pharmacies:
+                Membership.objects.get_or_create(
+                    user=user,
+                    pharmacy=pharmacy,
+                    defaults={
+                        'role': 'PHARMACY_ADMIN',
+                        'employment_type': 'FULL_TIME',
+                        'is_active': True,
+                        'invited_by': user,
+                    }
+                )
         return Membership.objects.filter(user=user, is_active=True).select_related('pharmacy', 'user')
 
 class MessageViewSet(viewsets.ModelViewSet):
@@ -3661,7 +3817,6 @@ class MessageViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Users can only see messages in conversations they are a part of
         user = self.request.user
         return Message.objects.filter(conversation__participants__membership__user=user)
 
@@ -3671,23 +3826,23 @@ class MessageViewSet(viewsets.ModelViewSet):
         """
         message = self.get_object()
         
-        # Security Check: Only the sender can edit their own message
-        my_membership = Membership.objects.filter(user=request.user, pharmacy=message.conversation.pharmacy).first()
-        if not my_membership or message.sender != my_membership:
+        my_participant = message.conversation.participants.filter(membership__user=request.user).first()
+        if not my_participant or message.sender != my_participant.membership:
             raise PermissionDenied("You can only edit your own messages.")
 
         new_body = request.data.get("body", "").strip()
         if not new_body:
             raise ValidationError({"body": "Message body cannot be empty."})
 
-        # Logic to handle the edit
         if not message.is_edited:
-            message.original_body = message.body # Save original content on first edit
+            message.original_body = message.body
         
         message.body = new_body
         message.is_edited = True
         message.save()
+        
         layer = get_channel_layer()
+        # --- FIX: Changed "chat_" back to "room." to match your consumers.py ---
         group_name = f"room.{message.conversation_id}"
         async_to_sync(layer.group_send)(
             group_name,
@@ -3701,38 +3856,32 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         """
-        Handles "deleting" a message (DELETE request).
+        Handles "deleting" a message (DELETE request) by marking it as deleted.
         """
         message = self.get_object()
         
-        # Security Check: Only the sender can delete their own message
-        my_membership = Membership.objects.filter(user=request.user, pharmacy=message.conversation.pharmacy).first()
-        if not my_membership or message.sender != my_membership:
+        my_participant = message.conversation.participants.filter(membership__user=request.user).first()
+        if not my_participant or message.sender != my_participant.membership:
             raise PermissionDenied("You can only delete your own messages.")
 
-        # Instead of actually deleting, we mark it as deleted
         message.is_deleted = True
-        message.body = "" # Clear the body
-        message.attachment = None # Clear any attachment
+        message.body = ""
+        message.attachment = None
+        message.attachment_filename = None
         message.save()
+        
         layer = get_channel_layer()
+        # --- FIX: Changed "chat_" back to "room." to match your consumers.py ---
         group_name = f"room.{message.conversation_id}"
         async_to_sync(layer.group_send)(
             group_name,
             {
                 "type": "message.deleted",
-                "message_id": message.id, # Send the ID of the deleted message
+                "message_id": message.id,
             },
         )
         
-        # Now, update the message object as before
-        message.is_deleted = True
-        message.body = ""
-        message.attachment = None
-        message.save()
-        
         return Response(status=status.HTTP_204_NO_CONTENT)
-
 
 class MessageReactionView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -3785,3 +3934,22 @@ class MessageReactionView(APIView):
         )
         
         return Response(status=status_code)
+
+class ChatParticipantView(generics.ListAPIView):
+    """
+    Returns a flat list of all unique membership profiles that are participants
+    in any of the requesting user's conversations. This includes inactive members
+    to ensure their names are preserved in the chat history.
+    """
+    serializer_class = ChatParticipantSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        # Get all conversations the user is in
+        user_conversations = Conversation.objects.filter(participants__membership__user=user)
+        # Get all memberships participating in those conversations
+        participant_memberships = Membership.objects.filter(
+            chat_participations__conversation__in=user_conversations
+        ).distinct()
+        return participant_memberships

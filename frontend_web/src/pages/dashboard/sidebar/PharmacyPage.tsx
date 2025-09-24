@@ -36,6 +36,13 @@ interface Pharmacy {
 }
 interface MemberInvite { email: string; invited_name: string; role: string; employment_type: string; pharmacist_award_level: string; otherstaff_classification_level: string; intern_half: string; student_year: string; }
 
+interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
 const PHARMACIST_AWARD_LEVELS = [ { value: 'PHARMACIST', label: 'Pharmacist' }, { value: 'EXPERIENCED_PHARMACIST', label: 'Experienced Pharmacist' }, { value: 'PHARMACIST_IN_CHARGE', label: 'Pharmacist In Charge' }, { value: 'PHARMACIST_MANAGER', label: 'Pharmacist Manager' }];
 const OTHERSTAFF_CLASSIFICATIONS = [ { value: 'LEVEL_1', label: 'Level 1' }, { value: 'LEVEL_2', label: 'Level 2' }, { value: 'LEVEL_3', label: 'Level 3' }, { value: 'LEVEL_4', label: 'Level 4' }];
 const INTERN_HALVES = [ { value: 'FIRST_HALF', label: 'First Half' }, { value: 'SECOND_HALF', label: 'Second Half' }];
@@ -179,14 +186,15 @@ export default function PharmacyPage() {
   };
 
 
-  const loadMembers = (phId: string) => { return apiClient.get<any[]>(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${phId}`).then(res => setMemberships(m => ({ ...m, [phId]: res.data }))).catch(console.error); };
+  const loadMembers = (phId: string) => { return apiClient.get<PaginatedResponse<any>>(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${phId}`).then(res => setMemberships(m => ({ ...m, [phId]: res.data.results || [] }))).catch(console.error); };
+
 
 
 const loadApplications = (phId: string) => {
   return apiClient
-    .get<any[]>(`${API_BASE_URL}${API_ENDPOINTS.membershipApplications}?status=PENDING`)
+    .get<PaginatedResponse<any>>(`${API_BASE_URL}${API_ENDPOINTS.membershipApplications}?status=PENDING`)
     .then(res => {
-      const filtered = (res.data || []).filter((a: any) => String(a.pharmacy) === String(phId));
+      const filtered = (res.data.results || []).filter((a: any) => String(a.pharmacy) === String(phId));
       setApplications(prev => ({ ...prev, [phId]: filtered }));
     })
     .catch(console.error);
@@ -206,14 +214,15 @@ useEffect(() => {
 
   const load = async () => {
     try {
-      const res: AxiosResponse<Pharmacy[]> = await apiClient.get(
+      const res: AxiosResponse<PaginatedResponse<Pharmacy>> = await apiClient.get(
         `${API_BASE_URL}${API_ENDPOINTS.pharmacies}`
       );
-      setPharmacies(res.data);
+      const pharmacyResults = res.data.results || [];
+      setPharmacies(pharmacyResults);
 
       // load members + applications for each pharmacy
-      const membershipPromises = res.data.map(ph => loadMembers(ph.id));
-      const applicationPromises = res.data.map(ph => loadApplications(ph.id));
+      const membershipPromises = pharmacyResults.map(ph => loadMembers(ph.id));
+      const applicationPromises = pharmacyResults.map(ph => loadApplications(ph.id));
       await Promise.all([...membershipPromises, ...applicationPromises]);
     } catch (err) {
       if (err instanceof AxiosError && err.response?.status === 404) {

@@ -38,6 +38,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import CloseIcon from '@mui/icons-material/Close';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ChatIcon from '@mui/icons-material/Chat';
 // --- 1. ADD IMPORT ---
 import ShareIcon from '@mui/icons-material/Share';
 import { green, grey } from '@mui/material/colors';
@@ -117,6 +118,18 @@ const handleShare = async (shift: Shift) => {
     setSharingShiftId(null);
   }
 };
+
+
+  const handleChatWithCandidate = (candidateId: number) => {
+    // Determine the base path based on the current user's role
+    let basePath = '/dashboard/owner/chat'; // Default path for owners
+    if (user && ['ORG_ADMIN', 'ORG_OWNER', 'ORG_STAFF'].includes(user.role)) {
+      basePath = '/dashboard/organization/chat';
+    }
+    
+    // Navigate to the chat page with a query parameter to initiate the DM
+    navigate(`${basePath}?startDmWithUser=${candidateId}`);
+  };
 
   // ... All your other functions like getTabKey, useEffect, etc. remain exactly as you provided them ...
   const getTabKey = useCallback((shiftId: number, levelIdx: number) => `${shiftId}_${levelIdx}`, []);
@@ -483,9 +496,59 @@ const handleAssign = (shift: Shift, userId: number, slotId: number | null) => {
       )}
       <Dialog open={platformInterestDialog.open} onClose={() => setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null })}>
         <DialogTitle>Candidate Details</DialogTitle>
-        <DialogContent>{platformInterestDialog.user ? <Box><Typography variant="body1"><b>Name:</b> {platformInterestDialog.user.first_name} {platformInterestDialog.user.last_name}</Typography><Typography variant="body2"><b>Email:</b> {platformInterestDialog.user.email}</Typography>{platformInterestDialog.user.phone_number && <Typography variant="body2"><b>Phone:</b> {platformInterestDialog.user.phone_number}</Typography>}{platformInterestDialog.user.short_bio && <Typography variant="body2"><b>Bio:</b> {platformInterestDialog.user.short_bio}</Typography>}{platformInterestDialog.user.resume && (<Button href={platformInterestDialog.user.resume} target="_blank" sx={{ mt: 1 }}>Download CV</Button>)}{platformInterestDialog.user.rate_preference && (<Box mt={2}><Typography variant="subtitle2" gutterBottom><strong>Rate Preference</strong></Typography><List dense>{Object.entries(platformInterestDialog.user.rate_preference).map(([key, value]) => (<ListItem key={key} sx={{ py: 0, px: 0 }}><ListItemText primary={key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} secondary={value || "N/A"} /></ListItem>))}</List></Box>)}</Box> : <CircularProgress />}</DialogContent>
-        <DialogActions><Button onClick={() => setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null })}>Close</Button>{platformInterestDialog.user && (<Button variant="contained" color="success" onClick={handleAssignPlatform}>Assign to Shift</Button>)}</DialogActions>
+        <DialogContent>
+          {platformInterestDialog.user ? (
+            <Box>
+              <Typography variant="body1"><b>Name:</b> {platformInterestDialog.user.first_name} {platformInterestDialog.user.last_name}</Typography>
+              <Typography variant="body2"><b>Email:</b> {platformInterestDialog.user.email}</Typography>
+              {platformInterestDialog.user.phone_number && <Typography variant="body2"><b>Phone:</b> {platformInterestDialog.user.phone_number}</Typography>}
+              {platformInterestDialog.user.short_bio && <Typography variant="body2"><b>Bio:</b> {platformInterestDialog.user.short_bio}</Typography>}
+              {platformInterestDialog.user.resume && (<Button href={platformInterestDialog.user.resume} target="_blank" sx={{ mt: 1 }}>Download CV</Button>)}
+              {platformInterestDialog.user.rate_preference && (
+                <Box mt={2}>
+                  <Typography variant="subtitle2" gutterBottom><strong>Rate Preference</strong></Typography>
+                  <List dense>
+                    {Object.entries(platformInterestDialog.user.rate_preference).map(([key, value]) => (
+                      <ListItem key={key} sx={{ py: 0, px: 0 }}>
+                        <ListItemText 
+                          primary={key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} 
+                          secondary={value || "N/A"} 
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Box>
+              )}
+            </Box>
+          ) : <CircularProgress />}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null })}>Close</Button>
+          
+          {/* --- THIS IS THE NEW BUTTON --- */}
+          {platformInterestDialog.user && (
+            <Button
+              variant="outlined"
+              color="primary"
+              startIcon={<ChatIcon />}
+              onClick={() => handleChatWithCandidate(platformInterestDialog.user!.id)}
+            >
+              Chat with Candidate
+            </Button>
+          )}
+
+          {platformInterestDialog.user && (
+            <Button 
+              variant="contained" 
+              color="success" 
+              onClick={handleAssignPlatform}
+            >
+              Assign to Shift
+            </Button>
+          )}
+        </DialogActions>
       </Dialog>
+
       <Dialog open={openDeleteConfirm} onClose={cancelDelete} aria-labelledby="delete-confirmation-title" aria-describedby="delete-confirmation-description">
         <DialogTitle id="delete-confirmation-title">Confirm Delete</DialogTitle><DialogContent><Typography id="delete-confirmation-description">Are you sure you want to cancel/delete this shift? This action cannot be undone.</Typography></DialogContent>
         <DialogActions><Button onClick={cancelDelete} color="primary" variant="outlined">Cancel</Button><Button onClick={confirmDelete} color="error" variant="contained" disabled={deleting[shiftToDelete || 0]}>{deleting[shiftToDelete || 0] ? <CircularProgress size={24} /> : 'Delete'}</Button></DialogActions>

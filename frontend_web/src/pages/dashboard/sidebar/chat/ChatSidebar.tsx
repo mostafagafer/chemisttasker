@@ -1,8 +1,10 @@
-import { FC, useMemo, useState } from 'react';
-import { Box, Typography, Button, Divider } from '@mui/material';
+import { FC, useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { Box, Typography, Button, Divider, IconButton, Tooltip, TextField, InputAdornment } from '@mui/material';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import SearchIcon from '@mui/icons-material/Search';
+import AddIcon from '@mui/icons-material/Add';
 import { ChatListItem } from './ChatListItem';
-// FIX: Changed to a type-only import to resolve the warning
-import type { ChatRoom, MemberCache, PharmacyRef } from './types';
+import type { ChatRoom, PharmacyRef, CachedMember } from './types';
 
 type Membership = {
   id: number;
@@ -15,9 +17,15 @@ interface ChatSidebarProps {
   pharmacies: PharmacyRef[];
   myMemberships: Membership[];
   activeRoomId: number | null;
-  onSelectRoom: (details: { type: 'dm' | 'group'; id: number }) => void;
-  memberCache: MemberCache;
+  onSelectRoom: (details: { type: 'dm' | 'group'; id: number } | { type: 'pharmacy'; id: number }) => void;
+  participantCache: Record<number, CachedMember>;
   getLatestMessage: (roomId: number) => { body: string } | undefined;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
+  onNewChat: () => void;
+  onEdit: (room: ChatRoom) => void;
+  onDelete: (roomId: number, roomName: string) => void;
+  canCreateChat: boolean;
 }
 
 export const ChatSidebar: FC<ChatSidebarProps> = ({
@@ -26,91 +34,152 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
   myMemberships,
   activeRoomId,
   onSelectRoom,
-  memberCache,
+  participantCache,
   getLatestMessage,
+  isCollapsed,
+  onToggleCollapse,
+  onNewChat,
+  onEdit,
+  onDelete,
+  canCreateChat,
 }) => {
   const [filter, setFilter] = useState<'all' | 'group' | 'dm'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // This function is now stable and uses the correct cache.
+  const getDisplayName = useCallback((room: ChatRoom): string => {
+    if (room.type === 'GROUP') {
+        if (room.pharmacy) {
+            const pharmacy = pharmacies.find(p => p.id === room.pharmacy);
+            return pharmacy?.name || room.title || 'Group Chat';
+        }
+        return room.title || 'Group Chat';
+    }
+    const myMembershipInRoom = myMemberships.find(myMem => room.participant_ids?.includes(myMem.id));
+    if (!myMembershipInRoom) {
+        return room.title || 'Direct Message';
+    }
+    const partnerMembershipId = room.participant_ids?.find(pId => pId !== myMembershipInRoom.id);
+    if (partnerMembershipId) {
+        // --- THIS IS THE KEY CHANGE ---
+        // It now looks in the persistent participantCache to find the user's name.
+        const partnerDetails = participantCache[partnerMembershipId];
+        if (partnerDetails?.details) {
+            const fullName = `${partnerDetails.details.first_name || ''} ${partnerDetails.details.last_name || ''}`.trim();
+            // It uses the invited_name as a reliable fallback.
+            return fullName || partnerDetails.invited_name || partnerDetails.details.email || 'Direct Message';
+        }
+    }
+    return room.title || 'Direct Message';
+  }, [pharmacies, myMemberships, participantCache]);
+    
+  // This logic correctly de-duplicates rooms.
   const { groupChats, dmChats } = useMemo(() => {
-    const seenPharmacyGroup = new Set<number>();
-    const uniqueRooms: ChatRoom[] = [];
-    const sortedRooms = [...rooms].sort((a, b) => 
+    const sortedRooms = [...rooms].sort((a, b) =>
       new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
     );
-    for (const room of sortedRooms) {
+    const filteredBySearch = searchQuery
+      ? sortedRooms.filter(room => getDisplayName(room).toLowerCase().includes(searchQuery.toLowerCase()))
+      : sortedRooms;
+    
+    const finalGroupChats: ChatRoom[] = [];
+    const finalDmChats: ChatRoom[] = [];
+    const seenPharmacyIds = new Set<number>();
+    const seenBrokenGroupTitles = new Set<string>();
+
+    for (const room of filteredBySearch) {
       if (room.type === 'GROUP') {
-        if (!seenPharmacyGroup.has(room.pharmacy)) {
-          uniqueRooms.push(room);
-          seenPharmacyGroup.add(room.pharmacy);
+        if (room.pharmacy != null) {
+          if (!seenPharmacyIds.has(room.pharmacy)) {
+            finalGroupChats.push(room);
+            seenPharmacyIds.add(room.pharmacy);
+          }
+        } else {
+          if (!seenBrokenGroupTitles.has(room.title)) {
+            finalGroupChats.push(room);
+            seenBrokenGroupTitles.add(room.title);
+          }
         }
-      } else {
-        uniqueRooms.push(room);
+      } else if (room.type === 'DM') {
+        finalDmChats.push(room);
       }
     }
     return {
-      groupChats: uniqueRooms.filter(r => r.type === 'GROUP'),
-      dmChats: uniqueRooms.filter(r => r.type === 'DM'),
+      groupChats: finalGroupChats,
+      dmChats: finalDmChats,
     };
-  }, [rooms]);
+  }, [rooms, searchQuery, getDisplayName]);
 
   const chatsToDisplay = useMemo(() => {
     if (filter === 'group') return { groupChats, dmChats: [] };
     if (filter === 'dm') return { groupChats: [], dmChats };
-    return { groupChats, dmChats }; // 'all'
+    return { groupChats, dmChats };
   }, [filter, groupChats, dmChats]);
 
-const getDisplayName = (room: ChatRoom): string => {
-    if (room.type === 'GROUP') {
-      const pharmacy = pharmacies.find(p => p.id === room.pharmacy);
-      return room.title || pharmacy?.name || 'Group Chat';
-    }
-    // For DMs:
-    // First, try to use the title from the backend, as it's definitive.
-    if (room.title && room.title !== 'Direct Message' && !room.title.startsWith('DM between')) {
-        return room.title;
-    }
-
-    // If the title is generic, fall back to calculating it on the client side.
-    // Find which of my memberships is in this specific room.
-    const myMembershipInRoom = myMemberships.find(myMem => room.participant_ids?.includes(myMem.id));
-
-    if (!myMembershipInRoom) {
-        return room.title || 'Direct Message'; // Can't identify my role here
-    }
-
-    // Find the participant ID that is not mine.
-    const partnerMembershipId = room.participant_ids?.find(pId => pId !== myMembershipInRoom.id);
-
-    if (partnerMembershipId && memberCache[room.pharmacy]) {
-        const partnerUser = memberCache[room.pharmacy][partnerMembershipId];
-        if (partnerUser) {
-            const fullName = `${partnerUser.first_name || ''} ${partnerUser.last_name || ''}`.trim();
-            // Return full name, or email as a fallback
-            return fullName || partnerUser.email || 'Direct Message';
-        }
-    }
-
-    // Final fallback
-    return room.title || 'Direct Message';
-  };
-
-  
   return (
-    <Box className="chatpage-sidebar">
+    <Box className={`chatpage-sidebar ${isCollapsed ? 'collapsed' : ''}`}>
       <Box className="sidebar-header">
-        <Typography variant="h6" fontWeight={700}>Messages</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flexShrink: 1 }}>
+            <Tooltip title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"} placement="right">
+                <IconButton onClick={onToggleCollapse} className="sidebar-toggle-button" size="small">
+                    <ChevronLeftIcon />
+                </IconButton>
+            </Tooltip>
+            {!isCollapsed && <Typography variant="h6" fontWeight={700} noWrap>Messages</Typography>}
+        </Box>
+        {!isCollapsed && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <TextField
+                    size="small"
+                    placeholder="Search (Ctrl+K)"
+                    variant="outlined"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    inputRef={searchInputRef}
+                    InputProps={{
+                        startAdornment: (
+                        <InputAdornment position="start">
+                            <SearchIcon fontSize="small" />
+                        </InputAdornment>
+                        ),
+                    }}
+                    sx={{ width: '150px' }}
+                />
+                {canCreateChat && (
+                  <IconButton
+                    color="primary"
+                    onClick={onNewChat}
+                    sx={{ bgcolor: 'primary.main', color: 'white', '&:hover': { bgcolor: 'primary.dark' } }}
+                  >
+                      <AddIcon />
+                  </IconButton>
+                )}
+            </Box>
+        )}
       </Box>
-
-      <Box className="sidebar-filter" sx={{ display: 'flex', gap: 1 }}>
-        <Button size="small" variant={filter === 'all' ? 'contained' : 'outlined'} onClick={() => setFilter('all')}>All</Button>
-        <Button size="small" variant={filter === 'group' ? 'contained' : 'outlined'} onClick={() => setFilter('group')}>Group</Button>
-        <Button size="small" variant={filter === 'dm' ? 'contained' : 'outlined'} onClick={() => setFilter('dm')}>DM</Button>
-      </Box>
-
+      {!isCollapsed && (
+        <Box className="sidebar-filter" sx={{ display: 'flex', gap: 1 }}>
+            <Button size="small" variant={filter === 'all' ? 'contained' : 'outlined'} onClick={() => setFilter('all')}>All</Button>
+            <Button size="small" variant={filter === 'group' ? 'contained' : 'outlined'} onClick={() => setFilter('group')}>Group</Button>
+            <Button size="small" variant={filter === 'dm' ? 'contained' : 'outlined'} onClick={() => setFilter('dm')}>DM</Button>
+        </Box>
+      )}
       <Box className="sidebar-list">
         {chatsToDisplay.groupChats.length > 0 && (
           <>
-            <Box className="sidebar-section-label">MY COMMUNITY</Box>
+            {!isCollapsed && <Box className="sidebar-section-label">MY COMMUNITY</Box>}
             {chatsToDisplay.groupChats.map(room => (
               <ChatListItem
                 key={`group-${room.id}`}
@@ -119,15 +188,17 @@ const getDisplayName = (room: ChatRoom): string => {
                 onSelect={(roomId) => onSelectRoom({ type: 'group', id: roomId })}
                 previewOverride={getLatestMessage(room.id)?.body}
                 displayName={getDisplayName(room)}
+                isCollapsed={isCollapsed}
+                onEdit={onEdit}
+                onDelete={onDelete}
               />
             ))}
           </>
         )}
-
         {chatsToDisplay.dmChats.length > 0 && (
           <>
-            {filter === 'all' && chatsToDisplay.groupChats.length > 0 && <Divider sx={{ my: 1 }} />}
-            <Box className="sidebar-section-label">DIRECT MESSAGES</Box>
+            {filter === 'all' && chatsToDisplay.groupChats.length > 0 && !isCollapsed && <Divider sx={{ my: 1 }} />}
+            {!isCollapsed && <Box className="sidebar-section-label">DIRECT MESSAGES</Box>}
             {chatsToDisplay.dmChats.map(room => (
               <ChatListItem
                 key={`dm-${room.id}`}
@@ -136,6 +207,9 @@ const getDisplayName = (room: ChatRoom): string => {
                 onSelect={(roomId) => onSelectRoom({ type: 'dm', id: roomId })}
                 previewOverride={getLatestMessage(room.id)?.body}
                 displayName={getDisplayName(room)}
+                isCollapsed={isCollapsed}
+                onEdit={onEdit}
+                onDelete={onDelete}
               />
             ))}
           </>

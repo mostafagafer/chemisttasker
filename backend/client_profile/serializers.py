@@ -1,5 +1,6 @@
 # client_profile/serializers.py
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field, OpenApiTypes
 from .models import *
 from users.models import OrganizationMembership
 from users.serializers import UserProfileSerializer
@@ -755,7 +756,7 @@ class ExplorerOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFilesMi
     class Meta:
         model  = ExplorerOnboarding
         fields = [
-            'username', 'first_name', 'last_name',
+            'id', 'username', 'first_name', 'last_name',
             'government_id', 'role_type', 'phone_number',
             'interests',
             'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
@@ -766,6 +767,7 @@ class ExplorerOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFilesMi
             'submitted_for_verification',
         ]
         extra_kwargs = {
+            'id': {'read_only': True},  # <-- optional but nice
             'verified': {'read_only': True},
             'submitted_for_verification': {'required': False},
             'first_name': {'required': False, 'allow_blank': True},
@@ -1967,11 +1969,14 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
         ]
 
         read_only_fields = ["owner", "organization", "verified"]
-    def get_has_chain(self, obj):
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_has_chain(self, obj) -> bool:
         # “Does this owner have at least one Chain?”
         return Chain.objects.filter(owner=obj.owner).exists()
 
-    def get_claimed(self, obj):
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_claimed(self, obj) -> bool:
         # “Has the owner been claimed by an Organization?”
         return getattr(obj.owner, 'organization_claimed', False)
 
@@ -2203,7 +2208,14 @@ class ShiftSerializer(serializers.ModelSerializer):
 
         # Only restrict rate fields on write methods
         if request and request.method in ['POST', 'PUT', 'PATCH']:
-            role = request.data.get('role_needed') or self.initial_data.get('role_needed')
+            # ⬇️ replace this line:
+            # role = request.data.get('role_needed') or self.initial_data.get('role_needed')
+
+            # ⬇️ with this guarded version (so schema gen doesn't crash):
+            idata = getattr(self, 'initial_data', {}) or {}
+            req_role = getattr(request, 'data', {}).get('role_needed') if hasattr(request, 'data') else None
+            role = req_role or idata.get('role_needed')
+
             if role != 'PHARMACIST':
                 fields.pop('fixed_rate', None)
                 fields.pop('rate_type', None)
@@ -2246,7 +2258,9 @@ class ShiftSerializer(serializers.ModelSerializer):
         tiers.append('PLATFORM')
         return tiers
 
-    def get_allowed_escalation_levels(self, obj):
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_allowed_escalation_levels(self, obj) -> list[str]:
         request = self.context.get('request')
         if request:
             # Make sure _build_allowed_tiers is also defined within ShiftSerializer
@@ -2335,8 +2349,8 @@ class ShiftSerializer(serializers.ModelSerializer):
         
         return ShiftSlotSerializer(filtered_slots, many=True).data
 
-
-    def get_slot_assignments(self, shift):
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_slot_assignments(self, shift) -> list[dict]:
         return [
         {'slot_id': a.slot.id, 'user_id': a.user.id}
             for a in shift.slot_assignments.all()
@@ -2667,10 +2681,83 @@ class InvoiceSerializer(serializers.ModelSerializer):
         return instance
 
 # ExplorerPost Serializer
-class ExplorerPostSerializer(serializers.ModelSerializer):
+class ExplorerPostAttachmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExplorerPostAttachment
+        fields = ["id", "kind", "file", "caption", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+
+class ExplorerPostReadSerializer(serializers.ModelSerializer):
+    explorer_name = serializers.SerializerMethodField()
+    attachments = ExplorerPostAttachmentSerializer(many=True, read_only=True)
+    is_liked_by_me = serializers.SerializerMethodField()
+
     class Meta:
         model = ExplorerPost
-        fields = '__all__'
+        fields = [
+            "id",
+            "explorer_profile",
+            "headline",
+            "body",
+            "view_count",
+            "like_count",
+            "reply_count",
+            "created_at",
+            "updated_at",
+            "attachments",
+            "explorer_name",
+            "is_liked_by_me",
+        ]
+        read_only_fields = fields  # read serializer only
+
+    def get_explorer_name(self, obj):
+        u = getattr(obj.explorer_profile, "user", None)
+        return u.get_full_name() if u else ""
+
+    def get_is_liked_by_me(self, obj):
+        req = self.context.get("request")
+        if not req or not req.user or not req.user.is_authenticated:
+            return False
+        return ExplorerPostReaction.objects.filter(post=obj, user=req.user).exists()
+
+
+class ExplorerPostWriteSerializer(serializers.ModelSerializer):
+    """
+    Write serializer; you can optionally pass initial attachments:
+    attachments=[{file, kind, caption}, ...]
+    """
+    attachments = ExplorerPostAttachmentSerializer(many=True, write_only=True, required=False)
+
+    class Meta:
+        model = ExplorerPost
+        fields = ["id", "explorer_profile", "headline", "body", "attachments"]
+
+    def validate(self, attrs):
+        """
+        Ensure the creator owns the explorer_profile.
+        (We re-check in perform_create too, but this gives nice 400s earlier.)
+        """
+        request = self.context.get("request")
+        profile = attrs.get("explorer_profile")
+        if request and request.user.is_authenticated and profile:
+            if getattr(profile, "user_id", None) != request.user.id:
+                raise serializers.ValidationError("You can only post from your own explorer profile.")
+        return attrs
+
+    def create(self, validated_data):
+        atts = validated_data.pop("attachments", [])
+        post = ExplorerPost.objects.create(**validated_data)
+        for a in atts:
+            ExplorerPostAttachment.objects.create(post=post, **a)
+        return post
+
+    def update(self, instance, validated_data):
+        # editing text only; attachments are handled by the attachments endpoint
+        instance.headline = validated_data.get("headline", instance.headline)
+        instance.body = validated_data.get("body", instance.body)
+        instance.save(update_fields=["headline", "body", "updated_at"])
+        return instance
 
 # Availability
 class UserAvailabilitySerializer(serializers.ModelSerializer):
@@ -2686,23 +2773,13 @@ class UserAvailabilitySerializer(serializers.ModelSerializer):
 
 
 # --- Chat Serializers --------------------------------------------------------
-
 class ChatMemberSerializer(serializers.ModelSerializer):
-    """
-    A lightweight serializer for displaying user details within a chat context.
-    Source is the User model.
-    """
     class Meta:
         model = User
         fields = ["id", "first_name", "last_name", "email"]
 
-
 class ChatMembershipSerializer(serializers.ModelSerializer):
-    """
-    A serializer for the 'sender' object, linking a membership to a user.
-    """
     user_details = ChatMemberSerializer(source='user', read_only=True)
-
     class Meta:
         model = Membership
         fields = ["id", "user_details"]
@@ -2714,32 +2791,18 @@ class ReactionSerializer(serializers.ModelSerializer):
         fields = ['reaction', 'user_id']
 
 class MessageSerializer(serializers.ModelSerializer):
-    """
-    CORRECTED: The message payload now ALWAYS includes the sender's details,
-    both for REST API history and for WebSocket broadcasts.
-    """
     sender = ChatMembershipSerializer(read_only=True)
     attachment_url = serializers.SerializerMethodField()
     reactions = ReactionSerializer(many=True, read_only=True)
-
+    attachment_filename = serializers.SerializerMethodField()
     class Meta:
         model = Message
         fields = [
-            "id",
-            "conversation",
-            "sender", 
-            "body",
-            "attachment",
-            "attachment_url",
-            "attachment_filename",
-            "created_at",
-            "is_deleted",     
-            "is_edited",      
-            "original_body",  
-            "reactions",
+            "id", "conversation", "sender", "body", "attachment", "attachment_url",
+            "attachment_filename", "created_at", "is_deleted", "is_edited",
+            "original_body", "reactions",
         ]
-        read_only_fields = fields # Make all fields read-only for this serializer's context
-
+        read_only_fields = fields
     def get_attachment_url(self, obj):
         try:
             return obj.attachment.url if obj.attachment else None
@@ -2747,11 +2810,9 @@ class MessageSerializer(serializers.ModelSerializer):
             return None
     def get_attachment_filename(self, obj):
         if obj.attachment and hasattr(obj.attachment, 'name'):
-            # os.path.basename will correctly get the filename from the full path
             import os
             return os.path.basename(obj.attachment.name)
         return None
-
 
 class ConversationListSerializer(serializers.ModelSerializer):
     last_message = serializers.SerializerMethodField()
@@ -2760,59 +2821,54 @@ class ConversationListSerializer(serializers.ModelSerializer):
     my_last_read_at = serializers.SerializerMethodField()
     title = serializers.SerializerMethodField()
     my_membership_id = serializers.SerializerMethodField()
+    is_pinned = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
         fields = [
-            "id",
-            "pharmacy",
-            "type",
-            "title",
-            "updated_at",
-            "last_message",
-            "unread_count",
-            "participant_ids",
-            "my_last_read_at", 
-            "my_membership_id",
+            "id", "created_by", "type", "title","pharmacy","updated_at", "last_message",
+            "unread_count", "participant_ids", "my_last_read_at", "my_membership_id",
+            "is_pinned",
         ]
 
-
     def get_title(self, obj: Conversation) -> str:
-        # For DMs, find the name of the OTHER participant
-        if obj.type == Conversation.Type.DM:
-            request = self.context.get("request")
-            if request and hasattr(request, 'user'):
-                # Exclude the current user to find the other participant(s)
-                other_participant = obj.participants.exclude(membership__user=request.user).first()
-                if other_participant:
-                    partner_user = other_participant.membership.user
-                    # Return the partner's full name, or their email as a fallback
-                    return partner_user.get_full_name() or partner_user.email
-        
-        # For Group chats, use the pharmacy name if no explicit title is set
-        if obj.type == Conversation.Type.GROUP:
-            return obj.title or obj.pharmacy.name
-        
-        # Fallback
-        return obj.title or "Conversation"
+            # --- START OF FIX ---
+            # Prioritize the pharmacy link to guarantee the correct name for community chats.
+            if hasattr(obj, 'pharmacy') and obj.pharmacy:
+                return obj.pharmacy.name
+            
+            # Fallback for DMs and custom groups that use the title field.
+            if obj.type == Conversation.Type.DM:
+                request = self.context.get("request")
+                if request and hasattr(request, 'user'):
+                    # This correctly finds the other user's name for DMs
+                    other_participant = obj.participants.exclude(membership__user=request.user).first()
+                    if other_participant:
+                        partner_user = other_participant.membership.user
+                        return partner_user.get_full_name() or partner_user.email
+            
+            # If it's a custom group or a DM where the partner can't be found, use the stored title.
+            if obj.title:
+                return obj.title
+            
+            # Final fallback.
+            return "Group Chat"
+
 
     def _get_my_participant(self, obj):
-        """Helper to get the Participant object for the current user in this conversation."""
         request = self.context.get("request")
         if not request or not hasattr(request, 'user') or not request.user.is_authenticated:
             return None
-        
-        # Use a request-level cache to avoid redundant DB queries
         if not hasattr(self, '_participant_cache'):
             self._participant_cache = {}
-        
         cache_key = (request.user.id, obj.id)
         if cache_key not in self._participant_cache:
-            self._participant_cache[cache_key] = Participant.objects.filter(
-                conversation=obj,
-                membership__user=request.user
-            ).first()
+            self._participant_cache[cache_key] = Participant.objects.filter(conversation=obj, membership__user=request.user).first()
         return self._participant_cache[cache_key]
+    
+    def get_is_pinned(self, obj):
+        my_part = self._get_my_participant(obj)
+        return my_part.is_pinned if my_part else False
 
     def get_my_membership_id(self, obj):
         my_part = self._get_my_participant(obj)
@@ -2820,24 +2876,14 @@ class ConversationListSerializer(serializers.ModelSerializer):
 
     def get_my_last_read_at(self, obj):
         my_part = self._get_my_participant(obj)
-        if my_part and my_part.last_read_at:
-            return my_part.last_read_at.isoformat()
-        return None
+        return my_part.last_read_at.isoformat() if my_part and my_part.last_read_at else None
 
     def get_last_message(self, obj):
-        # ... (this method remains the same)
         msg = obj.messages.order_by("-created_at").first()
-        if not msg:
-            return None
-        return {
-            "id": msg.id,
-            "body": msg.body[:200],
-            "created_at": msg.created_at.isoformat(),
-            "sender": msg.sender_id,
-        }
+        if not msg: return None
+        return {"id": msg.id, "body": msg.body[:200], "created_at": msg.created_at.isoformat(), "sender": msg.sender_id}
 
     def get_unread_count(self, obj):
-        # ... (this method can be simplified to use the helper)
         my_part = self._get_my_participant(obj)
         if not my_part: return 0
         since = my_part.last_read_at
@@ -2845,58 +2891,75 @@ class ConversationListSerializer(serializers.ModelSerializer):
         return obj.messages.filter(created_at__gt=since).count()
 
     def get_participant_ids(self, obj):
-        # ... (this method remains the same)
         return list(obj.participants.values_list("membership_id", flat=True))
 
-
+# FIX: Renamed class back to ConversationCreateSerializer to match views.py
 class ConversationCreateSerializer(serializers.ModelSerializer):
-    """
-    Create group rooms (type=GROUP) and supply participant membership IDs.
-    The creator will be auto-added server-side if in same pharmacy.
-    """
     participants = serializers.PrimaryKeyRelatedField(
-        queryset=Membership.objects.all(), many=True, write_only=True
+        queryset=Membership.objects.filter(is_active=True), 
+        many=True, 
+        write_only=True,
+        required=False
     )
 
     class Meta:
         model = Conversation
-        fields = ["id", "pharmacy", "type", "title", "participants"]
-        read_only_fields = ["id"]
-
-    def validate(self, data):
-        conv_type = data.get("type") or Conversation.Type.GROUP
-        pharmacy = data.get("pharmacy")
-        participants = data.get("participants", [])
-
-        if conv_type == Conversation.Type.DM:
-            if len(participants) != 2:
-                raise serializers.ValidationError("DM must include exactly two participants (membership IDs).")
-
-        # All participants must belong to the same pharmacy
-        bad = [m.id for m in participants if m.pharmacy_id != pharmacy.id or not m.is_active]
-        if bad:
-            raise serializers.ValidationError("All participants must be active members of the same pharmacy.")
-
-        return data
+        fields = ["id", "type", "title", "participants", "created_by"]
+        read_only_fields = ["id", "created_by", "type"]
 
     def create(self, validated_data):
-        participants = validated_data.pop("participants", [])
-        conv_type = validated_data.get("type") or Conversation.Type.GROUP
-
-        # Compute dm_key if DM
-        if conv_type == Conversation.Type.DM:
-            a, b = sorted([participants[0].id, participants[1].id])
-            validated_data["dm_key"] = make_dm_key(a, b)
-
+        participants_data = validated_data.pop("participants", [])
+        validated_data['created_by'] = self.context['request'].user
+        
         conv = Conversation.objects.create(**validated_data)
-        # Attach participants
-        Participant.objects.bulk_create([
-            Participant(conversation=conv, membership=m) for m in participants
-        ])
+        
+        creator_membership = Membership.objects.filter(user=self.context['request'].user, is_active=True).first()
+        if creator_membership:
+            participant_memberships = set(participants_data)
+            participant_memberships.add(creator_membership)
+            
+            Participant.objects.bulk_create([
+                Participant(conversation=conv, membership=m) for m in participant_memberships if m.is_active
+            ])
         return conv
+    
+    def update(self, instance, validated_data):
+        if 'participants' in validated_data:
+            new_participants_qs = validated_data.pop('participants')
+            new_participant_ids = {p.id for p in new_participants_qs}
+            
+            current_participant_ids = set(instance.participants.values_list('membership_id', flat=True))
+            ids_to_add = new_participant_ids - current_participant_ids
+            if ids_to_add:
+                memberships_to_add = Membership.objects.filter(id__in=ids_to_add)
+                Participant.objects.bulk_create([
+                    Participant(conversation=instance, membership=m) for m in memberships_to_add
+                ])
+
+            ids_to_remove = current_participant_ids - new_participant_ids
+            if ids_to_remove:
+                instance.participants.filter(membership_id__in=ids_to_remove).delete()
+
+        return super().update(instance, validated_data)
 
 
 class ConversationDetailSerializer(ConversationListSerializer):
-    # Reuse list fields + include a richer participant list if needed later
     class Meta(ConversationListSerializer.Meta):
         fields = ConversationListSerializer.Meta.fields
+
+
+class ChatParticipantSerializer(serializers.ModelSerializer):
+    """
+    A specific serializer to provide user details for all participants
+    in a user's conversations, regardless of their active status.
+    """
+    user_details = ChatMemberSerializer(source='user', read_only=True)
+    class Meta:
+        model = Membership
+        fields = [
+            "id",
+            "user_details",
+            "role",
+            "employment_type",
+            "invited_name",
+        ]

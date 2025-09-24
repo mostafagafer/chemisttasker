@@ -63,7 +63,6 @@ SECRET_KEY = env("SECRET_KEY")
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    "core.mw_security.SecurityHeadersMiddleware",   # ← add this line
     "whitenoise.middleware.WhiteNoiseMiddleware",
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',

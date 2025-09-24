@@ -68,7 +68,7 @@ jobs:
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}
 
       - name: Wait to avoid SCM conflicts
-        run: sleep 30
+        run: sleep 90
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3

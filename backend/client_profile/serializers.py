@@ -2689,7 +2689,11 @@ class ExplorerPostAttachmentSerializer(serializers.ModelSerializer):
 
 
 class ExplorerPostReadSerializer(serializers.ModelSerializer):
-    explorer_name = serializers.SerializerMethodField()
+    explorer_name = serializers.CharField(source='explorer_profile.user.get_full_name', read_only=True)
+    # --- ADD THESE TWO FIELDS ---
+    explorer_user_id = serializers.IntegerField(source='explorer_profile.user.id', read_only=True)
+    explorer_role_type = serializers.CharField(source='explorer_profile.role_type', read_only=True)
+    
     attachments = ExplorerPostAttachmentSerializer(many=True, read_only=True)
     is_liked_by_me = serializers.SerializerMethodField()
 
@@ -2707,6 +2711,9 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
             "updated_at",
             "attachments",
             "explorer_name",
+            # --- ADD THE NEW FIELDS TO THE LIST ---
+            "explorer_user_id",
+            "explorer_role_type",
             "is_liked_by_me",
         ]
         read_only_fields = fields  # read serializer only
@@ -2771,6 +2778,79 @@ class UserAvailabilitySerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 
+#  Ratings  
+class RatingReadSerializer(serializers.ModelSerializer):
+    rater_user_id = serializers.IntegerField(source="rater_user.id", read_only=True)
+    ratee_user_id = serializers.IntegerField(source="ratee_user.id", read_only=True)
+    ratee_pharmacy_id = serializers.IntegerField(source="ratee_pharmacy.id", read_only=True)
+
+    class Meta:
+        model = Rating
+        fields = [
+            "id", "direction", "stars", "comment",
+            "rater_user_id", "ratee_user_id", "ratee_pharmacy_id",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class RatingWriteSerializer(serializers.ModelSerializer):
+    """
+    Upsert semantics: if a rating already exists for (direction, rater, target),
+    we update stars/comment; otherwise we create it.
+    rater_user is taken from request.user in the view.
+    """
+    class Meta:
+        model = Rating
+        fields = ["direction", "ratee_user", "ratee_pharmacy", "stars", "comment"]
+
+    def validate(self, attrs):
+        direction = attrs.get("direction")
+        ratee_user = attrs.get("ratee_user")
+        ratee_pharmacy = attrs.get("ratee_pharmacy")
+
+        if direction == Rating.Direction.OWNER_TO_WORKER:
+            if not ratee_user or ratee_pharmacy is not None:
+                raise serializers.ValidationError("OWNER_TO_WORKER requires ratee_user and no ratee_pharmacy.")
+        elif direction == Rating.Direction.WORKER_TO_PHARMACY:
+            if not ratee_pharmacy or ratee_user is not None:
+                raise serializers.ValidationError("WORKER_TO_PHARMACY requires ratee_pharmacy and no ratee_user.")
+        else:
+            raise serializers.ValidationError({"direction": "Unknown direction."})
+
+        stars = attrs.get("stars")
+        if stars is None or not (1 <= int(stars) <= 5):
+            raise serializers.ValidationError({"stars": "Stars must be between 1 and 5."})
+        return attrs
+
+
+class RatingSummarySerializer(serializers.Serializer):
+    """
+    Read-only aggregate: average + count for a target.
+    Used by GET /ratings/summary?target_type=...&target_id=...
+    """
+    average = serializers.FloatField()
+    count = serializers.IntegerField()
+
+
+class MyRatingSerializer(serializers.Serializer):
+    """
+    Read-only: current user's rating (if any) on a target.
+    Used by GET /ratings/mine?target_type=...&target_id=...
+    """
+    id = serializers.IntegerField(allow_null=True)
+    direction = serializers.CharField()
+    stars = serializers.IntegerField(allow_null=True)
+    comment = serializers.CharField(allow_blank=True, allow_null=True)
+
+
+class PendingRatingsSerializer(serializers.Serializer):
+    """
+    Read-only: IDs the user can still rate.
+    Used by GET /ratings/pending
+    """
+    workers_to_rate = serializers.ListField(child=serializers.IntegerField(), allow_empty=True)
+    pharmacies_to_rate = serializers.ListField(child=serializers.IntegerField(), allow_empty=True)
 
 # --- Chat Serializers --------------------------------------------------------
 class ChatMemberSerializer(serializers.ModelSerializer):
@@ -2795,12 +2875,13 @@ class MessageSerializer(serializers.ModelSerializer):
     attachment_url = serializers.SerializerMethodField()
     reactions = ReactionSerializer(many=True, read_only=True)
     attachment_filename = serializers.SerializerMethodField()
+    is_pinned = serializers.SerializerMethodField()
     class Meta:
         model = Message
         fields = [
             "id", "conversation", "sender", "body", "attachment", "attachment_url",
             "attachment_filename", "created_at", "is_deleted", "is_edited",
-            "original_body", "reactions",
+            "original_body", "reactions",  "is_pinned",
         ]
         read_only_fields = fields
     def get_attachment_url(self, obj):
@@ -2808,11 +2889,16 @@ class MessageSerializer(serializers.ModelSerializer):
             return obj.attachment.url if obj.attachment else None
         except Exception:
             return None
+ 
     def get_attachment_filename(self, obj):
         if obj.attachment and hasattr(obj.attachment, 'name'):
             import os
             return os.path.basename(obj.attachment.name)
         return None
+ 
+    def get_is_pinned(self, obj):
+        # A message is pinned if its ID matches the conversation's pinned_message_id
+        return obj.conversation.pinned_message_id == obj.id
 
 class ConversationListSerializer(serializers.ModelSerializer):
     last_message = serializers.SerializerMethodField()
@@ -2822,13 +2908,16 @@ class ConversationListSerializer(serializers.ModelSerializer):
     title = serializers.SerializerMethodField()
     my_membership_id = serializers.SerializerMethodField()
     is_pinned = serializers.SerializerMethodField()
+    pinned_message = MessageSerializer(read_only=True)
+    created_by_user_id = serializers.IntegerField(source='created_by_id', read_only=True)
 
     class Meta:
         model = Conversation
         fields = [
             "id", "created_by", "type", "title","pharmacy","updated_at", "last_message",
             "unread_count", "participant_ids", "my_last_read_at", "my_membership_id",
-            "is_pinned",
+            "is_pinned", "pinned_message", "created_by_user_id",
+
         ]
 
     def get_title(self, obj: Conversation) -> str:
@@ -2853,7 +2942,6 @@ class ConversationListSerializer(serializers.ModelSerializer):
             
             # Final fallback.
             return "Group Chat"
-
 
     def _get_my_participant(self, obj):
         request = self.context.get("request")
@@ -2893,7 +2981,6 @@ class ConversationListSerializer(serializers.ModelSerializer):
     def get_participant_ids(self, obj):
         return list(obj.participants.values_list("membership_id", flat=True))
 
-# FIX: Renamed class back to ConversationCreateSerializer to match views.py
 class ConversationCreateSerializer(serializers.ModelSerializer):
     participants = serializers.PrimaryKeyRelatedField(
         queryset=Membership.objects.filter(is_active=True), 
@@ -2910,43 +2997,83 @@ class ConversationCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         participants_data = validated_data.pop("participants", [])
         validated_data['created_by'] = self.context['request'].user
-        
+
         conv = Conversation.objects.create(**validated_data)
-        
-        creator_membership = Membership.objects.filter(user=self.context['request'].user, is_active=True).first()
+
+        # Add creator + dedupe, mark creator admin
+        creator_membership = (
+            Membership.objects.filter(user=self.context['request'].user, is_active=True).first()
+        )
         if creator_membership:
-            participant_memberships = set(participants_data)
+            # Normalise & dedupe incoming participants (can be Membership instances)
+            participant_memberships = {m if isinstance(m, Membership) else None for m in participants_data}
+            participant_memberships = {m for m in participant_memberships if isinstance(m, Membership)}
             participant_memberships.add(creator_membership)
-            
-            Participant.objects.bulk_create([
-                Participant(conversation=conv, membership=m) for m in participant_memberships if m.is_active
-            ])
+
+            # Insert; mark creator as admin; ignore conflicts if client sent creator too
+            Participant.objects.bulk_create(
+                [
+                    Participant(
+                        conversation=conv,
+                        membership=m,
+                        is_admin=(m.id == creator_membership.id)
+                    )
+                    for m in participant_memberships
+                    if getattr(m, "is_active", True)
+                ],
+                ignore_conflicts=True,
+            )
         return conv
-    
+
+
     def update(self, instance, validated_data):
         if 'participants' in validated_data:
+            # Incoming can be a queryset or list of Membership objects
             new_participants_qs = validated_data.pop('participants')
             new_participant_ids = {p.id for p in new_participants_qs}
-            
-            current_participant_ids = set(instance.participants.values_list('membership_id', flat=True))
+
+            # Current links
+            current_participant_ids = set(
+                instance.participants.values_list('membership_id', flat=True)
+            )
+
+            # Ensure creator is always included
+            creator_user = instance.created_by
+            creator_mem = (
+                Membership.objects.filter(user=creator_user, is_active=True).first()
+                or Membership.objects.filter(user=creator_user).first()
+            )
+            if creator_mem:
+                new_participant_ids.add(creator_mem.id)
+
+            # Add missing memberships (keep creator admin)
             ids_to_add = new_participant_ids - current_participant_ids
             if ids_to_add:
-                memberships_to_add = Membership.objects.filter(id__in=ids_to_add)
-                Participant.objects.bulk_create([
-                    Participant(conversation=instance, membership=m) for m in memberships_to_add
-                ])
+                memberships_to_add = list(Membership.objects.filter(id__in=ids_to_add))
+                Participant.objects.bulk_create(
+                    [
+                        Participant(
+                            conversation=instance,
+                            membership=m,
+                            is_admin=(creator_mem and m.id == creator_mem.id)
+                        )
+                        for m in memberships_to_add
+                    ],
+                    ignore_conflicts=True,
+                )
 
+            # Remove those no longer present (but never remove creator)
+            if creator_mem:
+                current_participant_ids.discard(creator_mem.id)
             ids_to_remove = current_participant_ids - new_participant_ids
             if ids_to_remove:
                 instance.participants.filter(membership_id__in=ids_to_remove).delete()
 
         return super().update(instance, validated_data)
 
-
 class ConversationDetailSerializer(ConversationListSerializer):
     class Meta(ConversationListSerializer.Meta):
         fields = ConversationListSerializer.Meta.fields
-
 
 class ChatParticipantSerializer(serializers.ModelSerializer):
     """

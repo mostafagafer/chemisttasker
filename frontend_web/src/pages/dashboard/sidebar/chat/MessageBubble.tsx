@@ -6,6 +6,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
 import AddReactionOutlinedIcon from '@mui/icons-material/AddReactionOutlined';
 import { ChatMessage } from './types';
+import PushPinIcon from '@mui/icons-material/PushPin';
 
 const initialsOf = (first?: string, last?: string) => {
   const f = (first || '').trim();
@@ -27,9 +28,10 @@ type Props = {
   onEdit: (messageId: number, newBody: string) => void;
   onDelete: (messageId: number) => void;
   onReact: (messageId: number, reaction: string) => void;
+  onTogglePin: (target: 'conversation' | 'message', messageId?: number) => void;
 };
 
-export const MessageBubble: FC<Props> = ({ msg, prevMsg, isMe, onStartDm, roomType, onEdit, onDelete, onReact }) => {
+export const MessageBubble: FC<Props> = ({ msg, prevMsg, isMe, onStartDm, roomType, onEdit, onDelete, onReact, onTogglePin  }) => {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -179,8 +181,10 @@ export const MessageBubble: FC<Props> = ({ msg, prevMsg, isMe, onStartDm, roomTy
       <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={handleCloseMenu}>
         {isMe ? [
             <MenuItem key="edit" onClick={handleEditClick}><EditIcon sx={{ mr: 1 }} fontSize="small" /> Edit</MenuItem>,
+            <MenuItem key="pin" onClick={() => { onTogglePin('message', msg.id); handleCloseMenu(); }}><PushPinIcon sx={{ mr: 1 }} fontSize="small" /> {msg.is_pinned ? 'Unpin' : 'Pin'} Message</MenuItem>,
             <MenuItem key="delete" onClick={handleDeleteClick} sx={{ color: 'error.main' }}><DeleteIcon sx={{ mr: 1 }} fontSize="small" /> Delete</MenuItem>
         ] : [
+            <MenuItem key="pin" onClick={() => { onTogglePin('message', msg.id); handleCloseMenu(); }}><PushPinIcon sx={{ mr: 1 }} fontSize="small" /> {msg.is_pinned ? 'Unpin' : 'Pin'} Message</MenuItem>,
             <MenuItem key="dm" onClick={handleStartDmClick}>Send a direct message</MenuItem>
         ]}
       </Menu>

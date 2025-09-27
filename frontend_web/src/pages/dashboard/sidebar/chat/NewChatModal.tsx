@@ -76,15 +76,21 @@ export const NewChatModal: FC<NewChatModalProps> = ({ open, onClose, onSave, pha
         setMode('group');
         setGroupName(editingRoom.title);
         const initialSelected = new Map<number, number>();
-        const pharmacyIdForMembers = editingRoom.pharmacy || (Object.keys(memberCache).length > 0 ? Object.keys(memberCache)[0] : undefined);
-        editingRoom.participant_ids.forEach(membershipId => {
-          if (pharmacyIdForMembers) {
-            const memberDetails = memberCache[Number(pharmacyIdForMembers)]?.[membershipId]?.details;
-            if (memberDetails && memberDetails.id !== currentUserId) {
-              initialSelected.set(membershipId, Number(pharmacyIdForMembers));
+
+        const allPharmacyIds = Object.keys(memberCache).map(n => Number(n));
+        const participants = editingRoom.participant_ids ?? [];
+
+        participants.forEach((membershipId: number) => {
+          // Find which pharmacy cache actually holds this membership
+          for (const pid of allPharmacyIds) {
+            const rec = memberCache[pid]?.[membershipId];
+            if (rec?.details && rec.details.id !== currentUserId) {
+              initialSelected.set(membershipId, pid);
+              break; // stop at the first match
             }
           }
         });
+
         setSelectedUsers(initialSelected);
       } else {
         setMode('dm');

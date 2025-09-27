@@ -29,6 +29,8 @@ export type ChatRoom = {
   my_last_read_at?: string | null;
   participant_ids: number[];
   my_membership_id?: number | null;
+  is_pinned: boolean;
+  pinned_message: ChatMessage | null;
 };
 
 export type Reaction = {
@@ -42,6 +44,8 @@ export type ChatMessage = {
   sender: {
     id: number; // membership_id
     user_details: UserLite;
+    pharmacy: number; // pharmacy_id
+
   };
   body: string;
   attachment_url: string | null;
@@ -51,6 +55,7 @@ export type ChatMessage = {
   original_body?: string | null;
   reactions?: Reaction[];
   attachment_filename?: string | null;
+  is_pinned?: boolean;
 };
 
 // **THE FIX FOR "UNKNOWN USER" STARTS HERE**

@@ -14,6 +14,7 @@ import {
   Snackbar,
   IconButton,
   Skeleton,
+  Rating,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../../utils/apiClient';
@@ -78,6 +79,7 @@ export default function PublicShiftsPage() {
 
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true); // Set to true initially for skeleton loading
+  const [pharmacySummaries, setPharmacySummaries] = useState<Record<number, { average: number; count: number }>>({});
   const [disabledSlots, setDisabledSlots] = useState<number[]>([]);
   const [disabledShifts, setDisabledShifts] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +133,35 @@ export default function PublicShiftsPage() {
             owner_adjusted_rate: s.owner_adjusted_rate ?? null, // ✅ add this
           }))
         );
+
+                // Fetch rating summaries (average + count) for each unique pharmacy
+        const uniquePharmacyIds = Array.from(
+          new Set(
+            available
+              .map(s => (s.pharmacy?.id ?? s.pharmacy_detail?.id))
+              .filter((id): id is number => typeof id === 'number')
+          )
+        );
+
+        await Promise.all(
+          uniquePharmacyIds.map(async (pharmacyId) => {
+            try {
+              const res = await apiClient.get(
+                `${API_ENDPOINTS.ratingsSummary}?target_type=pharmacy&target_id=${pharmacyId}`
+              );
+              setPharmacySummaries(prev => ({
+                ...prev,
+                [pharmacyId]: {
+                  average: res.data?.average ?? 0,
+                  count:   res.data?.count   ?? 0,
+                },
+              }));
+            } catch (e) {
+              // leave summary missing on error; keep UI resilient
+            }
+          })
+        );
+
 
         const rawInt: Interest[] = Array.isArray(interestsRes.data.results)
         ? interestsRes.data.results
@@ -270,10 +301,26 @@ export default function PublicShiftsPage() {
           return (
             <Card key={shift.id} sx={{ mb: 3 }}>
               <CardContent>
-                {/* Pharmacy name */}
-                <Typography variant="h6">
-                  {pharm?.name ?? 'Unknown Pharmacy'}
-                </Typography>
+                {/* Pharmacy name + rating summary */}
+                <Box display="flex" alignItems="center" justifyContent="space-between">
+                  <Typography variant="h6">
+                    {pharm?.name ?? 'Unknown Pharmacy'}
+                  </Typography>
+
+                  {pharm?.id != null && pharmacySummaries[pharm.id] && (
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Rating
+                        value={pharmacySummaries[pharm.id].average}
+                        precision={0.5}
+                        readOnly
+                        size="small"
+                      />
+                      <Typography variant="body2" color="textSecondary">
+                        ({pharmacySummaries[pharm.id].count})
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
                 <Divider sx={{ my: 1 }} />
                 
                 {/* THIS IS THE UPDATED DISPLAY LOGIC */}

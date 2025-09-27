@@ -109,7 +109,6 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
             .filter(
                 conversation_id=conversation_id,
                 membership__user_id=user_id,
-                membership__is_active=True,
             )
             .select_related("membership")
             .first()

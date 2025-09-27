@@ -1,8 +1,9 @@
 import { FC, useState } from 'react';
-import { Box, Typography, Tooltip, Menu, MenuItem, IconButton } from '@mui/material';
+import { Box, Typography, Tooltip, Menu, MenuItem, IconButton, ListItemIcon, ListItemText } from '@mui/material';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import PushPinIcon from '@mui/icons-material/PushPin';
 import { ChatRoom } from './types';
 
 const initials = (text: string) => {
@@ -19,7 +20,10 @@ interface ChatListItemProps {
   isCollapsed: boolean;
   onEdit: (room: ChatRoom) => void;
   onDelete: (roomId: number, roomName: string) => void;
+  canEditDelete?: boolean;
 }
+
+
 
 export const ChatListItem: FC<ChatListItemProps> = ({
   room,
@@ -30,6 +34,8 @@ export const ChatListItem: FC<ChatListItemProps> = ({
   isCollapsed,
   onEdit,
   onDelete,
+  canEditDelete,
+
 }) => {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
 
@@ -42,10 +48,20 @@ export const ChatListItem: FC<ChatListItemProps> = ({
     setMenuAnchor(null);
   };
 
-  // A custom group is one that is NOT linked to a pharmacy, or a DM
-  const isCustomGroup = room.type === 'GROUP' && !room.pharmacy;
-  const isDeletable = isCustomGroup || room.type === 'DM';
+  const isGroup = room.type === 'GROUP';
 
+  // Show Edit for any GROUP when I'm allowed (admin/creator).
+  const canShowEdit = isGroup && !!canEditDelete;
+
+  // Show Delete for:
+  //   - DMs (always),
+  //   - any GROUP when I'm allowed (admin/creator).
+  const canShowDelete = isGroup ? !!canEditDelete : room.type === 'DM';
+
+
+
+
+  const isPinnable = true;
   const lastMessage = room.last_message;
   const preview =
     (previewOverride && previewOverride.trim()) ||
@@ -153,16 +169,14 @@ export const ChatListItem: FC<ChatListItemProps> = ({
             </Box>
           </Box>
           
-          {(isCustomGroup || room.type === 'DM') && (
-            <IconButton
-                size="small"
-                className="options-button"
-                onClick={handleOpenMenu}
-                sx={{ opacity: 0, transition: 'opacity 0.2s', ml: 1 }}
-            >
-                <MoreHorizIcon />
-            </IconButton>
-          )}
+          <IconButton
+              size="small"
+              className="options-button"
+              onClick={handleOpenMenu}
+              sx={{ opacity: isActive ? 1 : 0, transition: 'opacity 0.2s', ml: 1 }}
+          >
+              <MoreHorizIcon />
+          </IconButton>
         </Box>
       )}
     </Box>
@@ -178,14 +192,26 @@ export const ChatListItem: FC<ChatListItemProps> = ({
         listItemContent
       )}
       <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={handleCloseMenu}>
-        {isCustomGroup && (
+        {isPinnable && (
+            <MenuItem onClick={() => {
+                // This will be handled by a function passed from ChatPage
+                // onTogglePin(room.id, 'conversation');
+                handleCloseMenu();
+            }}>
+                <ListItemIcon><PushPinIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>{room.is_pinned ? 'Unpin Chat' : 'Pin Chat'}</ListItemText>
+            </MenuItem>
+        )}
+        {canShowEdit && (
           <MenuItem onClick={() => { onEdit(room); handleCloseMenu(); }}>
-            <EditIcon sx={{ mr: 1 }} fontSize="small" /> Edit Group
+            <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Edit Group</ListItemText>
           </MenuItem>
         )}
-        {isDeletable && (
+        {canShowDelete && (
           <MenuItem onClick={() => { onDelete(room.id, displayName); handleCloseMenu(); }} sx={{ color: 'error.main' }}>
-            <DeleteIcon sx={{ mr: 1 }} fontSize="small" /> Delete Chat
+            <ListItemIcon><DeleteIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Delete Chat</ListItemText>
           </MenuItem>
         )}
       </Menu>

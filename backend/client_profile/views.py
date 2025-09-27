@@ -16,7 +16,7 @@ from users.serializers import (
 from django.shortcuts import get_object_or_404
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 import json
-from django.db.models import Q, Count, F
+from django.db.models import Q, Count, F, Avg, Exists, OuterRef
 from django.utils import timezone
 from client_profile.services import get_locked_rate_for_slot, expand_shift_slots, generate_invoice_from_shifts, render_invoice_to_pdf, generate_preview_invoice_lines
 from client_profile.utils import build_shift_email_context, clean_email, build_roster_email_link, get_frontend_dashboard_url
@@ -2454,17 +2454,75 @@ class HistoryShiftViewSet(BaseShiftViewSet):
         ).filter(assigned_count__gte=F('slot_count'))
 
         # slots ended
-        past_oneoff = (
-            Q(slots__date__lt=today) |
-            Q(slots__date=today, slots__end_time__lt=now.time())
-        )
-        past_recurring = Q(
-            slots__is_recurring=True,
-            slots__recurring_end_date__lt=today
-        )
-        qs = qs.filter(past_oneoff | past_recurring)
+        # past_oneoff = (
+        #     Q(slots__date__lt=today) |
+        #     Q(slots__date=today, slots__end_time__lt=now.time())
+        # )
+        # past_recurring = Q(
+        #     slots__is_recurring=True,
+        #     slots__recurring_end_date__lt=today
+        # )
+        # qs = qs.filter(past_oneoff | past_recurring)
 
         return qs.distinct()
+
+
+    @action(detail=True, methods=['post'], url_path='view_assigned_profile')
+    def view_assigned_profile(self, request, pk=None):
+        shift = self.get_object()
+        user_id = request.data.get('user_id')
+        if user_id is None:
+            return Response({'detail': 'user_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        candidate = get_object_or_404(User, pk=user_id)
+        slot_id = request.data.get('slot_id')
+
+        # Verify the user is actually assigned to this shift/slot
+        if shift.single_user_only:
+            if not ShiftSlotAssignment.objects.filter(shift=shift, user=candidate).exists():
+                return Response({'detail': 'User is not assigned to this shift.'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            if slot_id is None:
+                # If slot_id is not provided for a multi-slot shift, check if assigned to any slot of this shift
+                if not ShiftSlotAssignment.objects.filter(shift=shift, user=candidate).exists():
+                    return Response({'detail': 'User is not assigned to any slot in this shift.'}, status=status.HTTP_404_NOT_FOUND)
+            else:
+                if not ShiftSlotAssignment.objects.filter(shift=shift, slot_id=slot_id, user=candidate).exists():
+                    return Response({'detail': 'User is not assigned to this specific slot.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Retrieve profile data without sending an email or consuming reveal quota
+        profile_data = {}
+        try:
+            po = PharmacistOnboarding.objects.get(user=candidate)
+            profile_data = {
+                'phone_number': candidate.mobile_number,
+                'short_bio': po.short_bio,
+                'resume': request.build_absolute_uri(po.resume.url) if po.resume else None,
+                'rate_preference': po.rate_preference or None,
+            }
+        except PharmacistOnboarding.DoesNotExist:
+            try:
+                os = OtherStaffOnboarding.objects.get(user=candidate)
+                profile_data = {
+                    'phone_number': os.phone_number,
+                    'short_bio': os.short_bio,
+                    'resume': request.build_absolute_uri(os.resume.url) if os.resume else None,
+                }
+            except OtherStaffOnboarding.DoesNotExist:
+                profile_data = {
+                    'phone_number': None,
+                    'short_bio': None,
+                    'resume': None,
+                    'rate_preference': None,
+                }
+
+        return Response({
+            'id': candidate.id,
+            'first_name': candidate.first_name,
+            'last_name': candidate.last_name,
+            'email': candidate.email,
+            **profile_data
+        })
 
 class ShiftInterestViewSet(viewsets.ModelViewSet):
     """
@@ -3310,7 +3368,273 @@ class MyHistoryShiftsViewSet(BaseShiftViewSet):
 
         return qs.distinct()
 
+# -----------------------------------------------------------------------------
+# Rating 
+# -----------------------------------------------------------------------------
+class RatingViewSet(viewsets.GenericViewSet):
+    """
+    Relationship-level ratings (NOT per shift/slot):
+      - OWNER_TO_WORKER: owner/org-admin/pharmacy-admin → worker (pharmacist/other staff)
+      - WORKER_TO_PHARMACY: worker → pharmacy
+    Each relationship can have exactly ONE editable rating.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = Rating.objects.all()
 
+    def get_serializer_class(self):
+        return RatingReadSerializer if self.action in ["list", "retrieve"] else RatingWriteSerializer
+
+    # ---------- helpers ----------
+    def _user_controls_pharmacy(self, user, pharmacy: Pharmacy) -> bool:
+        """Check if a user owns/controls a given pharmacy."""
+        # 1) Direct owner
+        if getattr(pharmacy, "owner", None) and pharmacy.owner.user_id == user.id:
+            return True
+        # 2) Org-admin of pharmacy's organization
+        if OrganizationMembership.objects.filter(
+            user=user, role="ORG_ADMIN", organization_id=pharmacy.organization_id
+        ).exists():
+            return True
+        # 3) Pharmacy admin of THIS pharmacy
+        if Membership.objects.filter(
+            user=user, pharmacy=pharmacy, role="PHARMACY_ADMIN", is_active=True
+        ).exists():
+            return True
+        return False
+
+    def _has_completed_relationship_owner_to_worker(self, rater, worker_user) -> bool:
+        """
+        True if the rater controls at least one pharmacy (as Owner, Org Admin, or Pharmacy Admin)
+        where the given worker has at least one assignment (any time). No date filtering here.
+        """
+        # Pharmacies directly owned by rater
+        owned_pharmacies = Pharmacy.objects.filter(owner__user=rater).values_list("id", flat=True)
+
+        # Pharmacies where rater is PHARMACY_ADMIN
+        pharmacy_admin_ids = Membership.objects.filter(
+            user=rater, role="PHARMACY_ADMIN", is_active=True
+        ).values_list("pharmacy_id", flat=True)
+
+        # Pharmacies under organizations where rater is ORG_ADMIN
+        org_ids = OrganizationMembership.objects.filter(
+            user=rater, role="ORG_ADMIN"
+        ).values_list("organization_id", flat=True)
+        org_pharmacy_ids = Pharmacy.objects.filter(
+            organization_id__in=list(org_ids)
+        ).values_list("id", flat=True)
+
+        controlled_pharmacy_ids = set(owned_pharmacies) | set(pharmacy_admin_ids) | set(org_pharmacy_ids)
+        if not controlled_pharmacy_ids:
+            return False
+
+        return ShiftSlotAssignment.objects.filter(
+            user=worker_user,
+            shift__pharmacy_id__in=list(controlled_pharmacy_ids),
+        ).exists()
+
+    def _has_completed_relationship_worker_to_pharmacy(self, worker, pharmacy: Pharmacy) -> bool:
+        """
+        True if the worker has at least one assignment at the pharmacy (any time). No date filtering here.
+        """
+        return ShiftSlotAssignment.objects.filter(
+            user=worker,
+            shift__pharmacy=pharmacy,
+        ).exists()
+
+
+    # ---------- create (upsert) ----------
+    def create(self, request, *args, **kwargs):
+        """
+        Create or update a rating:
+        - OWNER_TO_WORKER: Owner → Worker
+        - WORKER_TO_PHARMACY: Worker → Pharmacy
+        """
+        ser = RatingWriteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+        user = request.user
+
+        direction = data["direction"]
+        stars = data["stars"]
+        comment = data.get("comment", "")
+
+        if direction == Rating.Direction.OWNER_TO_WORKER:
+            worker = data["ratee_user"]
+            # eligibility: rater controls at least one pharmacy where this worker completed >=1 assignment
+            if not self._has_completed_relationship_owner_to_worker(user, worker):
+                return Response(
+                    {"detail": "You can only rate workers who completed an assignment at your pharmacy."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            obj, created = Rating.objects.get_or_create(
+                rater_user=user,
+                ratee_user=worker,
+                direction=direction,
+                defaults={"stars": stars, "comment": comment},
+            )
+            if not created:
+                obj.stars = stars
+                obj.comment = comment
+                obj.save(update_fields=["stars", "comment", "updated_at"])
+            return Response(RatingReadSerializer(obj).data, status=201 if created else 200)
+
+        elif direction == Rating.Direction.WORKER_TO_PHARMACY:
+            pharm = data["ratee_pharmacy"]
+            # eligibility: worker completed >=1 assignment at this pharmacy
+            if not self._has_completed_relationship_worker_to_pharmacy(user, pharm):
+                return Response(
+                    {"detail": "You can only rate pharmacies where you completed an assignment."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            obj, created = Rating.objects.get_or_create(
+                rater_user=user,
+                ratee_pharmacy=pharm,
+                direction=direction,
+                defaults={"stars": stars, "comment": comment},
+            )
+            if not created:
+                obj.stars = stars
+                obj.comment = comment
+                obj.save(update_fields=["stars", "comment", "updated_at"])
+            return Response(RatingReadSerializer(obj).data, status=201 if created else 200)
+
+        return Response({"detail": "Invalid direction."}, status=400)
+
+    # ---------- list ----------
+    def list(self, request, *args, **kwargs):
+        """
+        Filter:
+          - ?target_type=worker&target_id=<user_id>
+          - ?target_type=pharmacy&target_id=<pharmacy_id>
+        """
+        ttype = request.query_params.get("target_type")
+        tid = request.query_params.get("target_id")
+
+        qs = Rating.objects.all()
+        if ttype == "worker" and tid:
+            qs = qs.filter(direction=Rating.Direction.OWNER_TO_WORKER, ratee_user_id=tid)
+        elif ttype == "pharmacy" and tid:
+            qs = qs.filter(direction=Rating.Direction.WORKER_TO_PHARMACY, ratee_pharmacy_id=tid)
+        else:
+            return Response({"detail": "Provide target_type=worker|pharmacy and target_id."}, status=400)
+
+        page = self.paginate_queryset(qs.order_by("-updated_at"))
+        if page is not None:
+            return self.get_paginated_response(RatingReadSerializer(page, many=True).data)
+        return Response(RatingReadSerializer(qs, many=True).data)
+
+    # ---------- summary ----------
+    @action(detail=False, methods=["get"], url_path="summary")
+    def summary(self, request):
+        """
+        Returns aggregate rating for a target:
+          - ?target_type=worker&target_id=<user_id>
+          - ?target_type=pharmacy&target_id=<pharmacy_id>
+        """
+        ttype = request.query_params.get("target_type")
+        tid = request.query_params.get("target_id")
+        if not ttype or not tid:
+            return Response({"detail": "Provide target_type and target_id."}, status=400)
+
+        if ttype == "worker":
+            qs = Rating.objects.filter(direction=Rating.Direction.OWNER_TO_WORKER, ratee_user_id=tid)
+        elif ttype == "pharmacy":
+            qs = Rating.objects.filter(direction=Rating.Direction.WORKER_TO_PHARMACY, ratee_pharmacy_id=tid)
+        else:
+            return Response({"detail": "Invalid target_type."}, status=400)
+
+        agg = qs.aggregate(average=Avg("stars"), count=Count("id"))
+        data = {
+            "average": float(agg["average"] or 0.0),
+            "count": int(agg["count"] or 0),
+        }
+        return Response(RatingSummarySerializer(data).data)
+
+    # ---------- my rating ----------
+    @action(detail=False, methods=["get"], url_path="mine")
+    def mine(self, request):
+        """
+        Returns the current user's rating (if any) on the given target:
+          - ?target_type=worker&target_id=<user_id>
+          - ?target_type=pharmacy&target_id=<pharmacy_id>
+        """
+        user = request.user
+        ttype = request.query_params.get("target_type")
+        tid = request.query_params.get("target_id")
+        if not ttype or not tid:
+            return Response({"detail": "Provide target_type and target_id."}, status=400)
+
+        if ttype == "worker":
+            obj = Rating.objects.filter(
+                direction=Rating.Direction.OWNER_TO_WORKER,
+                rater_user=user,
+                ratee_user_id=tid,
+            ).first()
+            direction = Rating.Direction.OWNER_TO_WORKER
+        elif ttype == "pharmacy":
+            obj = Rating.objects.filter(
+                direction=Rating.Direction.WORKER_TO_PHARMACY,
+                rater_user=user,
+                ratee_pharmacy_id=tid,
+            ).first()
+            direction = Rating.Direction.WORKER_TO_PHARMACY
+        else:
+            return Response({"detail": "Invalid target_type."}, status=400)
+
+        payload = {
+            "id": obj.id if obj else None,
+            "direction": direction,
+            "stars": obj.stars if obj else None,
+            "comment": obj.comment if obj else "",
+        }
+        return Response(MyRatingSerializer(payload).data)
+
+    # ---------- pending ----------
+    @action(detail=False, methods=["get"], url_path="pending")
+    def pending(self, request):
+        """
+        Lists relationships where the current user is eligible to rate but hasn't yet.
+        - workers_to_rate: as an owner/org-admin/pharmacy-admin
+        - pharmacies_to_rate: as a worker
+        """
+        user = request.user
+        today = timezone.localdate()
+
+        # Pharmacies the user controls
+        pharm_control = Pharmacy.objects.filter(
+            Q(owner__user=user)
+            | Q(organization__organization_memberships__user=user, organization__organization_memberships__role="ORG_ADMIN")
+            | Q(memberships__user=user, memberships__role="PHARMACY_ADMIN", memberships__is_active=True)
+        ).distinct()
+
+        # Workers eligible to rate
+        worker_ids = ShiftSlotAssignment.objects.filter(
+            shift__pharmacy__in=pharm_control,
+            slot_date__lt=today,
+        ).values_list("user_id", flat=True).distinct()
+
+        already_rated_worker_ids = Rating.objects.filter(
+            direction=Rating.Direction.OWNER_TO_WORKER,
+            rater_user=user,
+        ).values_list("ratee_user_id", flat=True)
+        workers_to_rate_ids = set(worker_ids) - set(already_rated_worker_ids)
+
+        # Pharmacies eligible to rate by this worker
+        pharm_ids = ShiftSlotAssignment.objects.filter(
+            user=user,
+            slot_date__lt=today,
+        ).values_list("shift__pharmacy_id", flat=True).distinct()
+
+        already_rated_pharm_ids = Rating.objects.filter(
+            direction=Rating.Direction.WORKER_TO_PHARMACY,
+            rater_user=user,
+        ).values_list("ratee_pharmacy_id", flat=True)
+        pharmacies_to_rate_ids = set(pharm_ids) - set(already_rated_pharm_ids)
+
+        return Response(PendingRatingsSerializer({
+            "workers_to_rate": list(workers_to_rate_ids),
+            "pharmacies_to_rate": list(pharmacies_to_rate_ids),
+        }).data)
 
 # -----------------------------------------------------------------------------
 # Explorer 
@@ -3675,81 +3999,290 @@ class ConversationViewSet(mixins.ListModelMixin,
     
     def get_queryset(self):
         user = self.request.user
-        # This is the most reliable way to get all conversations a user is in.
-        conversation_ids = Participant.objects.filter(
-            membership__user=user
-        ).values_list('conversation_id', flat=True)
-        return Conversation.objects.filter(pk__in=conversation_ids).order_by('-updated_at')
+
+        # Get all conversations where the current user is a participant
+        user_conversations = Conversation.objects.filter(
+            participants__membership__user=user
+        )
+
+        # From these, get all DMs and custom groups (not linked to a pharmacy)
+        dms_and_custom_groups = user_conversations.filter(
+            Q(type='DM') | Q(pharmacy__isnull=True)
+        )
+
+        # Hide only "me" ghost custom groups:
+        #   - rooms with no other participants besides me, OR
+        #   - legacy rooms literally titled "me"
+        others_exist = Exists(
+            Participant.objects.filter(
+                conversation_id=OuterRef('pk')
+            ).exclude(
+                membership__user=user
+            )
+        )
+        dms_and_custom_groups = dms_and_custom_groups.exclude(
+            Q(type='GROUP') & Q(pharmacy__isnull=True) & (
+                ~others_exist | Q(title__iexact='me')
+            )
+        )
+
+        # --- Include community chats for pharmacies I belong to ---
+        user_pharmacy_ids = Membership.objects.filter(
+            user=user, is_active=True
+        ).values_list('pharmacy_id', flat=True).distinct()
+
+        community_chats = Conversation.objects.filter(
+            type='GROUP',
+            pharmacy_id__in=user_pharmacy_ids
+        )
+
+        # Combine everything:
+        # - DMs and custom groups
+        # - Community chats
+        return (dms_and_custom_groups | community_chats).distinct().order_by('-updated_at')
 
     def get_serializer_class(self):
-        if self.action in ['create', 'update', 'partial_update']:
+        # All "create DM" actions will serialize the final conversation object
+        if self.action in ['create', 'update', 'partial_update', 'get_or_create_dm', 'get_or_create_dm_by_user', 'toggle_pin']:
             return ConversationCreateSerializer
-        if self.action in ['retrieve', 'get_or_create_dm', 'toggle_pin']:
+        if self.action in ['retrieve']:
             return ConversationDetailSerializer
         return ConversationListSerializer
 
-    def perform_create(self, serializer):
-        # This correctly creates a custom group and adds the creator as a participant.
-        conv = serializer.save(created_by=self.request.user)
-        # Find ANY active membership for the creator to add them to the participant list.
-        creator_membership = Membership.objects.filter(user=self.request.user, is_active=True).first()
-        if creator_membership:
-             # Also add the other participants passed in the request.
-            participant_memberships = set(serializer.validated_data.get('participants', []))
-            participant_memberships.add(creator_membership)
-            Participant.objects.bulk_create([
-                Participant(conversation=conv, membership=m, is_admin=(m == creator_membership)) for m in participant_memberships
-            ])
+    # --- NEW: Centralized DM Creation Logic ---
+    def _get_or_create_dm_conversation(self, user_a, user_b):
+        """
+        Universal helper to create a DM between any two users.
+        Handles creating an implicit 'Contact' membership for users without one.
+        Returns (conversation, created, error_response).
+        """
+        if user_a.id == user_b.id:
+            return None, False, Response({"detail": "Cannot create a DM with yourself."}, status=status.HTTP_400_BAD_REQUEST)
 
-    def perform_destroy(self, instance):
-        if instance.pharmacy_id is not None:
-            raise PermissionDenied("Pharmacy-wide community chats cannot be deleted.")
-        my_participant = instance.participants.filter(membership__user=self.request.user).first()
-        if not my_participant:
-            raise PermissionDenied("You are not a member of this conversation.")
-        if instance.type == 'GROUP' and not my_participant.is_admin:
-            raise PermissionDenied("Only group admins can delete this conversation.")
-        instance.delete()
+        # The sender MUST have an active membership to initiate a chat.
+        membership_a = Membership.objects.filter(user=user_a, is_active=True).first()
+        if not membership_a:
+            return None, False, Response({"detail": "You must have an active role to start a chat."}, status=status.HTTP_403_FORBIDDEN)
 
-    @action(detail=False, methods=['post'], url_path='get-or-create-dm')
-    def get_or_create_dm(self, request):
-        partner_membership_id = request.data.get('partner_membership_id')
-        # This no longer requires pharmacy_id, making it more robust.
-        if not partner_membership_id:
-            return Response({"detail": "partner_membership_id is required."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        my_membership = Membership.objects.filter(user=request.user, is_active=True).first()
-        if not my_membership:
-            return Response({"detail": "You must have at least one active membership to start a DM."}, status=status.HTTP_403_FORBIDDEN)
-        
-        partner_membership = get_object_or_404(Membership, pk=partner_membership_id, is_active=True)
+        # For the receiver, find an active membership OR create a contact one.
+        membership_b = Membership.objects.filter(user=user_b, is_active=True).first()
+        if not membership_b:
+            # If no active membership, create an inactive "Contact" record.
+            # This links them to the SENDER'S pharmacy for context.
+            membership_b, created = Membership.objects.get_or_create(
+                user=user_b,
+                pharmacy=membership_a.pharmacy, # Use sender's pharmacy for context
+                defaults={
+                    'role': 'STUDENT', # Sensible default role
+                    'employment_type': 'CONTACT',
+                    'is_active': False, # This is NOT a real, active membership
+                    'invited_by': user_a,
+                }
+            )
+        # ---- LEGACY DM RESOLUTION (prevents duplicates) ----
+        # There may be an older DM without a dm_key. Find any DM that has *both* users as participants.
+        # If found, backfill dm_key and return it instead of creating a new conversation.
+        legacy_dm = (
+            Conversation.objects
+            .filter(type=Conversation.Type.DM)
+            .filter(participants__membership__user__in=[user_a, user_b])
+            .annotate(
+                user_count=Count('participants__membership__user', distinct=True)
+            )
+            .filter(user_count=2)
+            .order_by('-updated_at')
+            .first()
+        )
+        if legacy_dm:
+            # Backfill dm_key if missing (or empty)
+            if not getattr(legacy_dm, 'dm_key', None):
+                legacy_dm.dm_key = make_dm_key(user_a.id, user_b.id)
+                legacy_dm.save(update_fields=['dm_key'])
+            return legacy_dm, False, None
 
-        if my_membership.id == partner_membership.id:
-            return Response({"detail": "Cannot create a DM with yourself."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        dm_key = make_dm_key(my_membership.id, partner_membership.id)
+        # The DM key is based on user IDs.
+        dm_key = make_dm_key(user_a.id, user_b.id)
 
         with transaction.atomic():
             conversation, created = Conversation.objects.get_or_create(
                 dm_key=dm_key,
-                defaults={ 'type': Conversation.Type.DM, 'created_by': request.user }
+                defaults={'type': Conversation.Type.DM, 'created_by': user_a}
             )
             if created:
                 Participant.objects.bulk_create([
-                    Participant(conversation=conversation, membership=my_membership),
-                    Participant(conversation=conversation, membership=partner_membership)
+                    Participant(conversation=conversation, membership=membership_a),
+                    Participant(conversation=conversation, membership=membership_b)
                 ])
+        
+        return conversation, created, None
+
+    # --- ACTION 1: Create DM by User ID (Primary Method) ---
+    @action(detail=False, methods=['post'], url_path='get-or-create-dm-by-user')
+    def get_or_create_dm_by_user(self, request):
+        """
+        Handles all new DM scenarios (Owner to Candidate, Anyone to Explorer).
+        Takes a `partner_user_id`.
+        """
+        partner_user_id = request.data.get('partner_user_id')
+        if not partner_user_id:
+            return Response({"detail": "partner_user_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            partner_user = User.objects.get(pk=partner_user_id)
+        except User.DoesNotExist:
+            return Response({"detail": "Partner user not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        conversation, created, error = self._get_or_create_dm_conversation(request.user, partner_user)
+        
+        if error:
+            return error
 
         serializer = self.get_serializer(conversation)
         return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
+    # --- ACTION 2: Create DM by Membership ID (Legacy/Internal Method) ---
+    @action(detail=False, methods=['post'], url_path='get-or-create-dm')
+    def get_or_create_dm(self, request):
+        """
+        Handles creating a DM with a user via one of their memberships.
+        Takes a `partner_membership_id`.
+        """
+        partner_membership_id = request.data.get('partner_membership_id')
+        if not partner_membership_id:
+            return Response({"detail": "partner_membership_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # We only need the membership to find the target user.
+            partner_membership = Membership.objects.select_related('user').get(pk=partner_membership_id)
+        except Membership.DoesNotExist:
+            return Response({"detail": "Partner membership not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        conversation, created, error = self._get_or_create_dm_conversation(request.user, partner_membership.user)
+
+        if error:
+            return error
+        
+        serializer = self.get_serializer(conversation)
+        return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    def perform_create(self, serializer):
+        # This method is now only for creating GROUP chats.
+        conv = serializer.save(created_by=self.request.user)
+        creator_membership = Membership.objects.filter(user=self.request.user, is_active=True).first()
+        if creator_membership:
+            # Normalise to a set of membership IDs (handles both Membership instances or IDs)
+            raw = serializer.validated_data.get('participants', []) or []
+            part_ids = set(
+                [m.id if hasattr(m, 'id') else int(m) for m in raw]
+            )
+            part_ids.add(creator_membership.id)
+
+            # Skip any membership already linked (prevents UNIQUE violation)
+            existing_ids = set(
+                Participant.objects.filter(conversation=conv).values_list('membership_id', flat=True)
+            )
+            new_ids = list(part_ids - existing_ids)
+
+            if new_ids:
+                new_memberships = list(Membership.objects.filter(id__in=new_ids))
+                Participant.objects.bulk_create(
+                    [
+                        Participant(
+                            conversation=conv,
+                            membership=m,
+                            is_admin=(m.id == creator_membership.id)
+                        )
+                        for m in new_memberships
+                    ],
+                    ignore_conflicts=True
+                )
+
+
+
+    @action(detail=True, methods=['post'], url_path='toggle-pin')
+    def toggle_pin(self, request, pk=None):
+        """
+        Handles pinning/unpinning EITHER a conversation or a message within it.
+        Payload: { "target": "conversation" }
+        Payload: { "target": "message", "message_id": 123 }
+        """
+        conv = self.get_object()
+        my_part = get_object_or_404(Participant, conversation=conv, membership__user=request.user)
+        
+        target = request.data.get('target')
+        
+        if target == 'conversation':
+            my_part.is_pinned = not my_part.is_pinned
+            my_part.save(update_fields=['is_pinned'])
+            # Return the updated room so frontend state is consistent
+            return Response(ConversationListSerializer(conv, context={'request': request}).data)
+
+        elif target == 'message':
+            message_id = request.data.get('message_id')
+            if not message_id:
+                conv.pinned_message = None
+            else:
+                message_to_pin = get_object_or_404(Message, pk=message_id, conversation=conv)
+                if conv.pinned_message_id == message_to_pin.id:
+                    conv.pinned_message = None
+                else:
+                    conv.pinned_message = message_to_pin
+            
+            conv.save(update_fields=['pinned_message'])
+            return Response(ConversationListSerializer(conv, context={'request': request}).data)
+
+        return Response({'detail': 'Invalid target specified.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    def perform_destroy(self, instance):
+        user = self.request.user
+        my_participant = instance.participants.filter(membership__user=user).first()
+
+        if not my_participant:
+            # Allow the creator to delete even if their participant row is missing (legacy rooms)
+            if instance.created_by_id == user.id and (instance.type == 'GROUP' and not instance.pharmacy):
+                instance.delete()
+                return
+            raise PermissionDenied("You are not a member of this conversation.")
+
+        # Case 1: Community Chat (linked to a pharmacy)
+        if instance.type == 'GROUP' and instance.pharmacy:
+            # Only pharmacy admins can delete the main community chat
+            is_pharm_admin = my_participant.membership.role == 'PHARMACY_ADMIN'
+            if not is_pharm_admin:
+                raise PermissionDenied("Only pharmacy admins can delete this community chat.")
+        
+        # Case 2: Custom Group Chat (not linked to a pharmacy)
+        elif instance.type == 'GROUP' and not instance.pharmacy:
+            # The creator can always delete their custom group
+            if instance.created_by_id == user.id:
+                pass
+            elif not my_participant.is_admin:
+                # Allow deletion when this is a self-only group ("me")
+                if instance.participants.count() == 1 and instance.participants.filter(membership__user=user).exists():
+                    pass  # allow delete
+                else:
+                    raise PermissionDenied("Only group admins can delete this conversation.")
+        
+        # Case 3: Direct Messages (DMs) can always be deleted by participants
+        if instance.type == 'DM':
+            # Delete-for-me ONLY: remove my participant row so the DM disappears for me,
+            # but remains for the other subject.
+            instance.participants.filter(membership__user=user).delete()
+
+            # Optional safety: if no participants remain (edge case), clean up the convo.
+            if not instance.participants.exists():
+                instance.delete()
+            return
+
+        # Default (after passing the GROUP checks above): hard delete conversation
+        instance.delete()
+            
     @action(detail=True, methods=['get', 'post'])
     def messages(self, request, pk=None):
         conv = self.get_object()
-        # This logic is simpler and correctly finds your participation record.
-        my_part = Participant.objects.filter(conversation=conv, membership__user=request.user, membership__is_active=True).first()
+        my_part = Participant.objects.filter(conversation=conv, membership__user=request.user).first()
         if not my_part:
-            return Response({"detail": "Not an active participant of this conversation."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "Not a participant of this conversation."}, status=status.HTTP_403_FORBIDDEN)
         
         if request.method.lower() == 'get':
             qs = conv.messages.select_related('sender__user').order_by('-created_at')
@@ -3757,7 +4290,6 @@ class ConversationViewSet(mixins.ListModelMixin,
             ser = MessageSerializer(page if page is not None else qs, many=True)
             return self.get_paginated_response(ser.data) if page else Response(ser.data)
 
-        # POST logic for sending a message
         data = request.data or {}
         body = (data.get('body') or '').strip()
         attachments = request.FILES.getlist('attachment')
@@ -3765,7 +4297,7 @@ class ConversationViewSet(mixins.ListModelMixin,
             return Response({"detail": "Message body or attachment is required."}, status=status.HTTP_400_BAD_REQUEST)
         
         created_messages = []
-        sender_membership = my_part.membership # Use the correct membership from the participant record.
+        sender_membership = my_part.membership
         if attachments:
             for attachment_file in attachments:
                 msg = Message.objects.create(conversation=conv, sender=sender_membership, body=body if not created_messages else "", attachment=attachment_file, attachment_filename=attachment_file.name)

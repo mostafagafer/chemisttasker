@@ -112,7 +112,8 @@ export const API_ENDPOINTS = {
   getCommunityShiftMemberStatus: (shiftId: string | number) => `/client-profile/community-shifts/${shiftId}/member_status/`,
   rejectCommunityShift: (shiftId: string | number) => `/client-profile/community-shifts/${shiftId}/reject/`,
   getWorkerShiftDetail: (id: string | number) => `/client-profile/shifts/${id}/`,
-  viewAssignedShiftProfile: (shiftId: string | number) => `/client-profile/shifts/confirmed/${shiftId}/view_assigned_profile/`,
+  // viewAssignedShiftProfile: (shiftId: string | number) => `/client-profile/shifts/confirmed/${shiftId}/view_assigned_profile/`,
+  viewAssignedShiftProfile: (type: 'confirmed' | 'history', shiftId: string | number) =>`/client-profile/shifts/${type}/${shiftId}/view_assigned_profile/`,
 
   // Publicshifts
   generateShareLink: (shiftId: string | number) => `/client-profile/shifts/${shiftId}/generate-share-link/`,
@@ -171,6 +172,13 @@ export const API_ENDPOINTS = {
   explorerPostLike:           (id: number) => `/client-profile/explorer-posts/${id}/like/`,
   explorerPostUnlike:         (id: number) => `/client-profile/explorer-posts/${id}/unlike/`,
   explorerPostAttachments:    (id: number) => `/client-profile/explorer-posts/${id}/attachments/`,
+
+
+  // Ratings
+  ratings: '/client-profile/ratings/',
+  ratingsSummary: '/client-profile/ratings/summary/',
+  ratingsMine: '/client-profile/ratings/mine/',
+  ratingsPending: '/client-profile/ratings/pending/',
 
 };
 

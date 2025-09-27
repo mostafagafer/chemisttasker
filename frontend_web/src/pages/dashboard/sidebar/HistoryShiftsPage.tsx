@@ -16,6 +16,8 @@ import {
   DialogActions,
   Rating,
   Skeleton,
+  TextField, // <— ADD
+
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../../utils/apiClient';
@@ -46,6 +48,14 @@ interface Shift {
   }[];
   slots: Slot[];
 }
+interface RatePreference {
+  weekday: string;
+  saturday: string;
+  sunday: string;
+  public_holiday: string;
+  early_morning: string;
+  late_night: string;
+}
 
 interface Profile {
   first_name: string;
@@ -54,6 +64,8 @@ interface Profile {
   phone_number?: string;
   short_bio?: string;
   resume?: string;
+  rate_preference?: RatePreference | null;
+
 }
 
 export default function HistoryShiftsPage() {
@@ -63,6 +75,15 @@ export default function HistoryShiftsPage() {
   const [snackbar, setSnackbar]       = useState<{ open: boolean; msg: string }>({ open: false, msg: '' });
   const [profile, setProfile]         = useState<Profile | null>(null);
   const [dialogOpen, setDialogOpen]   = useState(false);
+
+
+  // Rating modal state (Owner → Worker)
+  const [rateModalOpen, setRateModalOpen] = useState(false);
+  const [selectedWorkerId, setSelectedWorkerId] = useState<number | null>(null);
+  const [currentStars, setCurrentStars] = useState<number>(0);
+  const [currentComment, setCurrentComment] = useState<string>('');
+  const [loadingExistingWorkerRating, setLoadingExistingWorkerRating] = useState(false);
+  const [savingWorkerRating, setSavingWorkerRating] = useState(false);
 
   // Pagination
   const itemsPerPage = 5;
@@ -94,18 +115,45 @@ export default function HistoryShiftsPage() {
   const closeDialog   = () => setDialogOpen(false);
 
   // Reuse the same reveal_profile logic
-  const openProfile = (shiftId: number, slotId: number|null, userId: number) => {
-    const url = `${API_ENDPOINTS.getHistoryShifts}${shiftId}/reveal_profile/`;
-    const payload = slotId == null
-      ? { user_id: userId }
-      : { slot_id: slotId, user_id: userId };
-    apiClient.post(url, payload)
-      .then(res => {
-        setProfile(res.data);
-        setDialogOpen(true);
-      })
-      .catch(() => setSnackbar({ open: true, msg: 'Failed to load profile' }));
-  };
+// View already-assigned profile (no reveal quota consumed)
+const openProfile = (shiftId: number, slotId: number|null, userId: number) => {
+  const url = API_ENDPOINTS.viewAssignedShiftProfile('history', shiftId)
+  const payload = slotId == null
+    ? { user_id: userId }
+    : { slot_id: slotId, user_id: userId };
+  apiClient.post(url, payload)
+    .then(res => {
+      setProfile(res.data);
+      setDialogOpen(true);
+    })
+    .catch(() => setSnackbar({ open: true, msg: 'Failed to load profile' }));
+};
+
+
+// Open "Rate Worker" modal (pre-fills existing rating if any)
+const openRateWorker = async (workerUserId: number) => {
+  setSelectedWorkerId(workerUserId);
+  setRateModalOpen(true);
+  setLoadingExistingWorkerRating(true);
+  try {
+    const res = await apiClient.get(
+      `${API_ENDPOINTS.ratingsMine}?target_type=worker&target_id=${workerUserId}`
+    );
+    if (res.data && res.data.id) {
+      setCurrentStars(res.data.stars || 0);
+      setCurrentComment(res.data.comment || '');
+    } else {
+      setCurrentStars(0);
+      setCurrentComment('');
+    }
+  } catch {
+    setSnackbar({ open: true, msg: 'Failed to load existing rating' });
+    setCurrentStars(0);
+    setCurrentComment('');
+  } finally {
+    setLoadingExistingWorkerRating(false);
+  }
+};
 
   if (loading) {
     return (
@@ -114,14 +162,6 @@ export default function HistoryShiftsPage() {
           <Paper key={index} sx={{ p: 2, mb: 2 }}>
             <Skeleton variant="text" width="70%" height={30} sx={{ mb: 1 }} />
             <Skeleton variant="text" width="50%" height={20} sx={{ mb: 2 }} />
-            <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {[...Array(2)].map((__, slotIndex) => (
-                    <Box key={slotIndex} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Skeleton variant="text" width="40%" />
-                        <Rating readOnly size="small" value={0} /> {/* Placeholder for Rating */}
-                    </Box>
-                ))}
-            </Box>
             <Box sx={{ mt: 2, textAlign: 'right' }}>
               <Skeleton variant="rectangular" width={150} height={36} />
             </Box>
@@ -165,14 +205,15 @@ export default function HistoryShiftsPage() {
                       {slot.date} {slot.start_time}–{slot.end_time}
                     </Typography>
                     {/* Rating placeholder */}
-                    <Rating
+                    {/* <Rating
                       size="small"
                       value={0}
                       onChange={() => {}}
-                    />
+                    /> */}
                   </Box>
 
-                  {assign && (
+                {assign && (
+                  <Box display="flex" gap={1}>
                     <Button
                       size="small"
                       variant="outlined"
@@ -180,7 +221,17 @@ export default function HistoryShiftsPage() {
                     >
                       View Assigned
                     </Button>
-                  )}
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="secondary"
+                      onClick={() => openRateWorker(assign.user_id)}
+                    >
+                      Rate Chemist
+                    </Button>
+                  </Box>
+                )}
+
                 </Box>
               );
             })}
@@ -213,6 +264,66 @@ export default function HistoryShiftsPage() {
         }
       />
 
+            {/* Rate Worker Modal */}
+      <Dialog open={rateModalOpen} onClose={() => setRateModalOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Rate Assigned Worker</DialogTitle>
+        <DialogContent>
+          {loadingExistingWorkerRating ? (
+            <Box display="flex" justifyContent="center" py={3}>
+              <Skeleton variant="rectangular" width="100%" height={100} />
+            </Box>
+          ) : (
+            <Box display="flex" flexDirection="column" gap={2} mt={1}>
+              <Typography>Select a star rating:</Typography>
+              <Rating
+                name="worker-rating"
+                value={currentStars}
+                size="large"
+                onChange={(_, value) => setCurrentStars(value || 0)}
+              />
+              <TextField
+                label="Comment (optional)"
+                multiline
+                minRows={3}
+                value={currentComment}
+                onChange={(e) => setCurrentComment(e.target.value)}
+                fullWidth
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRateModalOpen(false)}>Cancel</Button>
+          <Button
+            onClick={async () => {
+              if (!selectedWorkerId) return;
+              setSavingWorkerRating(true);
+              try {
+                // Upsert rating: OWNER_TO_WORKER
+                await apiClient.post(API_ENDPOINTS.ratings, {
+                  direction: 'OWNER_TO_WORKER',
+                  ratee_user: selectedWorkerId,
+                  stars: currentStars,
+                  comment: currentComment,
+                });
+                setSnackbar({ open: true, msg: 'Worker rating saved successfully!' });
+                setRateModalOpen(false);
+              } catch {
+                setSnackbar({ open: true, msg: 'Failed to save worker rating' });
+              } finally {
+                setSavingWorkerRating(false);
+              }
+            }}
+            variant="contained"
+            color="primary"
+            disabled={savingWorkerRating || currentStars === 0}
+          >
+            {savingWorkerRating ? 'Saving...' : 'Save Rating'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+
       {/* Profile Dialog */}
       <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="sm">
         <DialogTitle>Assigned Profile</DialogTitle>
@@ -229,6 +340,22 @@ export default function HistoryShiftsPage() {
                 <Button href={profile.resume} target="_blank">
                   Download CV
                 </Button>
+              )}
+
+              {profile.rate_preference && (
+                <Box mt={2}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    <strong>Rate Preference</strong>
+                  </Typography>
+                  <ul style={{ margin: 0, paddingLeft: 16 }}>
+                    <li>Weekday: {profile.rate_preference.weekday || "N/A"}</li>
+                    <li>Saturday: {profile.rate_preference.saturday || "N/A"}</li>
+                    <li>Sunday: {profile.rate_preference.sunday || "N/A"}</li>
+                    <li>Public Holiday: {profile.rate_preference.public_holiday || "N/A"}</li>
+                    <li>Early Morning: {profile.rate_preference.early_morning || "N/A"}</li>
+                    <li>Late Night: {profile.rate_preference.late_night || "N/A"}</li>
+                  </ul>
+                </Box>
               )}
             </>
           )}

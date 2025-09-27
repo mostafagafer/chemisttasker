@@ -120,7 +120,7 @@ export default function ConfirmedShiftsPage() {
     setLoadingProfile(true); // Start loading profile data
     setDialogOpen(true); // Open the dialog immediately with a loading state
 
-    const url = API_ENDPOINTS.viewAssignedShiftProfile(shiftId);
+    const url = API_ENDPOINTS.viewAssignedShiftProfile('confirmed', shiftId)
     const payload = slotId == null
       ? { user_id: userId }
       : { slot_id: slotId, user_id: userId };

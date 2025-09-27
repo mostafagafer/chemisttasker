@@ -563,6 +563,8 @@ class Membership(models.Model):
         ("TECHNICIAN", "Dispensary Technician"),
         ("ASSISTANT", "Pharmacy Assistant"),
         ("STUDENT", "Pharmacy Student"),
+        ('CONTACT', 'Contact'), #  <-- ADD THIS LINE
+
     ]
 
     EMPLOYMENT_TYPE_CHOICES = [
@@ -1137,6 +1139,103 @@ class LeaveRequest(models.Model):
         return f"{self.user} requests {self.leave_type} for {self.slot_assignment} ({self.status})"
 
 
+
+# Rating model
+class Rating(models.Model):
+    """
+    Global, relationship-level rating (not per shift/slot).
+    - OWNER_TO_WORKER: owner/org admin/pharmacy admin rates a worker (pharmacist/other staff)
+    - WORKER_TO_PHARMACY: worker rates a pharmacy
+    Exactly one rating per relationship per direction; editable later.
+    """
+
+    class Direction(models.TextChoices):
+        OWNER_TO_WORKER = "OWNER_TO_WORKER", "Owner/Org/PharmacyAdmin → Worker"
+        WORKER_TO_PHARMACY = "WORKER_TO_PHARMACY", "Worker → Pharmacy"
+
+    # Who is submitting the rating
+    rater_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="ratings_given",
+        db_index=True,
+    )
+
+    # Target (exactly one of these will be set depending on direction)
+    ratee_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="ratings_received_as_worker",
+        null=True, blank=True,
+        db_index=True,
+    )
+    ratee_pharmacy = models.ForeignKey(
+        "Pharmacy",
+        on_delete=models.CASCADE,
+        related_name="ratings_received",
+        null=True, blank=True,
+        db_index=True,
+    )
+
+    direction = models.CharField(max_length=32, choices=Direction.choices, db_index=True)
+
+    # The rating itself
+    stars = models.PositiveSmallIntegerField()  # enforce 1..5 in clean()
+    comment = models.TextField(blank=True, null=True, max_length=1000)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # One rating per relationship, per direction
+        constraints = [
+            # OWNER_TO_WORKER uniqueness
+            models.UniqueConstraint(
+                fields=["rater_user", "ratee_user", "direction"],
+                name="uniq_owner_to_worker_per_pair",
+                condition=models.Q(direction="OWNER_TO_WORKER"),
+            ),
+            # WORKER_TO_PHARMACY uniqueness
+            models.UniqueConstraint(
+                fields=["rater_user", "ratee_pharmacy", "direction"],
+                name="uniq_worker_to_pharmacy_per_pair",
+                condition=models.Q(direction="WORKER_TO_PHARMACY"),
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["direction", "rater_user"]),
+            models.Index(fields=["direction", "ratee_user"]),
+            models.Index(fields=["direction", "ratee_pharmacy"]),
+        ]
+
+    def clean(self):
+        # stars must be 1..5
+        if not (1 <= int(self.stars) <= 5):
+            raise ValidationError({"stars": "Stars must be between 1 and 5."})
+
+        if self.direction == self.Direction.OWNER_TO_WORKER:
+            # must target a user; must NOT target a pharmacy
+            if not self.rater_user_id or not self.ratee_user_id:
+                raise ValidationError("OWNER_TO_WORKER requires rater_user and ratee_user.")
+            if self.ratee_pharmacy_id is not None:
+                raise ValidationError("OWNER_TO_WORKER must not set ratee_pharmacy.")
+        elif self.direction == self.Direction.WORKER_TO_PHARMACY:
+            # must target a pharmacy; must NOT target a user
+            if not self.rater_user_id or not self.ratee_pharmacy_id:
+                raise ValidationError("WORKER_TO_PHARMACY requires rater_user and ratee_pharmacy.")
+            if self.ratee_user_id is not None:
+                raise ValidationError("WORKER_TO_PHARMACY must not set ratee_user.")
+        else:
+            raise ValidationError({"direction": "Unknown direction."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        target = self.ratee_user_id or self.ratee_pharmacy_id
+        return f"{self.direction} by {self.rater_user_id} → {target}: {self.stars}★"
+
 ## Invoice model
 class Invoice(models.Model):
     STATUS_CHOICES = [
@@ -1404,6 +1503,13 @@ class Conversation(models.Model):
     dm_key = models.CharField(max_length=63, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    pinned_message = models.ForeignKey(
+        'Message',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+' # No reverse relation needed
+    )
 
     # 👇 THIS IS THE MISSING FIELD TO ADD
     # This links a conversation to a pharmacy, identifying it as a "community" chat.
@@ -1519,10 +1625,11 @@ class MessageReaction(models.Model):
         return f"{self.user} reacted with {self.reaction} to message {self.message.id}"
 
 # --- Helper for DM key -------------------------------------------------------
-def make_dm_key(membership_id_a: int, membership_id_b: int) -> str:
+# --- Helper for DM key -------------------------------------------------------
+def make_dm_key(user_id_a: int, user_id_b: int) -> str:
     """
-    Deterministic pair key so the same two memberships map to the same DM room.
+    Deterministic pair key so the same two users map to the same DM room.
     e.g., make_dm_key(45, 12) -> '12:45'
     """
-    a, b = sorted([int(membership_id_a), int(membership_id_b)])
+    a, b = sorted([int(user_id_a), int(user_id_b)])
     return f"{a}:{b}"

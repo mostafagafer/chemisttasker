@@ -32,6 +32,8 @@ import {
   Tooltip,
   Divider,
   Skeleton,
+  Rating, 
+  Pagination,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -72,6 +74,12 @@ const ActiveShiftsPage: React.FC = () => {
   const [activeTabs, setActiveTabs] = useState<Record<number, number>>({});
   const [tabData, setTabData] = useState<Record<string, TabDataState>>({});
   const [platformInterestDialog, setPlatformInterestDialog] = useState<{ open: boolean; user: UserDetail | null; shiftId: number | null; interest: Interest | null; }>({ open: false, user: null, shiftId: null, interest: null });
+  // Worker ratings shown in the reveal dialog
+  const [workerRatingSummary, setWorkerRatingSummary] = useState<{ average: number; count: number } | null>(null);
+  const [workerRatingComments, setWorkerRatingComments] = useState<Array<{ id: number; stars: number; comment?: string; created_at?: string }>>([]);
+  const [workerCommentsPage, setWorkerCommentsPage] = useState(1);
+  const [workerCommentsPageCount, setWorkerCommentsPageCount] = useState(1);
+  const [loadingWorkerRatings, setLoadingWorkerRatings] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
   const [escalating, setEscalating] = useState<Record<number, boolean>>({});
   const [deleting, setDeleting] = useState<Record<number, boolean>>({});
@@ -151,9 +159,16 @@ useEffect(() => {
     setLoadingShifts(true);
     apiClient.get(API_ENDPOINTS.getActiveShifts) // Expect a paginated object or a plain array
       .then(res => {
-        // FIX: Check if the response contains a 'results' array (paginated).
-        // If so, use it. Otherwise, fall back to using the whole data object.
-        const shiftsData = Array.isArray(res.data.results) ? res.data.results : res.data;
+        const d = res.data;
+        const shiftsData = Array.isArray(d)
+          ? d
+          : Array.isArray(d?.results)
+          ? d.results
+          : Array.isArray(d?.data)
+          ? d.data
+          : Array.isArray(d?.items)
+          ? d.items
+          : [];
         setShifts(shiftsData);
       })
       .catch(() => setSnackbar({ open: true, message: 'Failed to load active shifts' }))
@@ -306,11 +321,16 @@ const handleAssign = (shift: Shift, userId: number, slotId: number | null) => {
   };
   const handleRevealPlatform = (shift: Shift, interest: Interest) => {
     apiClient.post<UserDetail>(`${API_ENDPOINTS.getActiveShifts}${shift.id}/reveal_profile/`, { slot_id: interest.slot_id, user_id: interest.user_id })
-      .then(res => {
+      .then(async res => {
         setPlatformInterestDialog({ open: true, user: res.data, shiftId: shift.id, interest });
+        // Load ratings for this revealed worker
+        try {
+          await loadWorkerRatings(res.data.id, 1);
+        } catch {}
         const publicTabIdx = ESCALATION_LEVELS.findIndex(l => l.key === PUBLIC_LEVEL_KEY);
         loadTabData(shift, publicTabIdx);
       })
+
       .catch((err: any) => setSnackbar({ open: true, message: err.response?.data?.detail || 'Failed to reveal candidate.' }));
   };
 
@@ -323,11 +343,81 @@ const handleAssign = (shift: Shift, userId: number, slotId: number | null) => {
         setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null });
         const publicTabIdx = ESCALATION_LEVELS.findIndex(l => l.key === PUBLIC_LEVEL_KEY);
         loadTabData(shifts.find(s => s.id === shiftId)!, publicTabIdx);
-        apiClient.get<Shift[]>(API_ENDPOINTS.getActiveShifts)
-          .then(res => setShifts(res.data))
+        apiClient.get(API_ENDPOINTS.getActiveShifts)
+          .then(res => {
+            const d = res.data;
+            const shiftsData = Array.isArray(d)
+              ? d
+              : Array.isArray(d?.results)
+              ? d.results
+              : Array.isArray(d?.data)
+              ? d.data
+              : Array.isArray(d?.items)
+              ? d.items
+              : [];
+            setShifts(shiftsData);
+          })
           .catch(() => setSnackbar({ open: true, message: 'Failed to refresh active shifts after assignment' }));
+
       })
       .catch((err: any) => setSnackbar({ open: true, message: err.response?.data?.detail || 'Failed to assign user.' }));
+  };
+
+    // Normalize DRF pagination arrays
+  const unpackArray = (d: any) =>
+    Array.isArray(d) ? d
+    : Array.isArray(d?.results) ? d.results
+    : Array.isArray(d?.data) ? d.data
+    : Array.isArray(d?.items) ? d.items
+    : [];
+
+  // Load worker rating summary + first page (or a specific page)
+  const loadWorkerRatings = async (workerId: number, page: number = 1) => {
+    setLoadingWorkerRatings(true);
+    try {
+      // 1) Summary (OWNER_TO_WORKER aggregate for this worker)
+      const sumRes = await apiClient.get(
+        `${API_ENDPOINTS.ratingsSummary}?target_type=worker&target_id=${workerId}`
+      );
+      setWorkerRatingSummary({
+        average: sumRes.data?.average ?? 0,
+        count: sumRes.data?.count ?? 0,
+      });
+
+      // 2) Paginated comments for this worker
+      const listRes = await apiClient.get(
+        `${API_ENDPOINTS.ratings}?target_type=worker&target_id=${workerId}&page=${page}`
+      );
+      const items = unpackArray(listRes.data);
+      setWorkerRatingComments(items.map((r: any) => ({
+        id: r.id,
+        stars: r.stars,
+        comment: r.comment,
+        created_at: r.created_at,
+      })));
+
+      // Calculate total pages (if DRF paginated)
+      if (listRes.data?.count && listRes.data?.results) {
+        const per = listRes.data.results.length || 1;
+        setWorkerCommentsPageCount(Math.max(1, Math.ceil(listRes.data.count / per)));
+      } else {
+        setWorkerCommentsPageCount(1);
+      }
+      setWorkerCommentsPage(page);
+    } catch {
+      // leave last known state; keep UI resilient
+    } finally {
+      setLoadingWorkerRatings(false);
+    }
+  };
+
+  const handleWorkerCommentsPageChange = async (_: React.ChangeEvent<unknown>, value: number) => {
+    const uid = platformInterestDialog.user?.id;
+    if (!uid) return;
+    await loadWorkerRatings(uid, value);
+    // optional smooth scroll to top of dialog
+    const dlg = document.querySelector('[role="dialog"]');
+    dlg?.scrollTo?.({ top: 0, behavior: 'smooth' });
   };
 
   return (
@@ -494,7 +584,16 @@ const handleAssign = (shift: Shift, userId: number, slotId: number | null) => {
           );
         })
       )}
-      <Dialog open={platformInterestDialog.open} onClose={() => setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null })}>
+        <Dialog
+          open={platformInterestDialog.open}
+          onClose={() => {
+            setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null });
+            setWorkerRatingSummary(null);
+            setWorkerRatingComments([]);
+            setWorkerCommentsPage(1);
+            setWorkerCommentsPageCount(1);
+          }}
+        >
         <DialogTitle>Candidate Details</DialogTitle>
         <DialogContent>
           {platformInterestDialog.user ? (
@@ -519,6 +618,71 @@ const handleAssign = (shift: Shift, userId: number, slotId: number | null) => {
                   </List>
                 </Box>
               )}
+
+                  {/* --- Worker ratings summary + comments --- */}
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="subtitle1" gutterBottom>Ratings</Typography>
+
+                  {/* Summary row */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    {workerRatingSummary ? (
+                      <>
+                        <Rating value={workerRatingSummary.average} precision={0.5} readOnly size="small" />
+                        <Typography variant="body2" color="text.secondary">
+                          ({workerRatingSummary.count})
+                        </Typography>
+                      </>
+                    ) : (
+                      <Skeleton variant="rectangular" width={140} height={24} />
+                    )}
+                  </Box>
+
+                  {/* Comments list (paginated) */}
+                  {loadingWorkerRatings && workerRatingComments.length === 0 ? (
+                    <>
+                      <Skeleton variant="text" width="80%" height={22} />
+                      <Skeleton variant="text" width="70%" height={22} />
+                      <Skeleton variant="text" width="60%" height={22} />
+                    </>
+                  ) : workerRatingComments.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">
+                      No comments yet.
+                    </Typography>
+                  ) : (
+                    <Box sx={{ display: 'grid', gap: 1.5 }}>
+                      {workerRatingComments.map(rc => (
+                        <Box key={rc.id} sx={{ p: 1.2, borderRadius: 1, bgcolor: 'action.hover' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Rating value={rc.stars} readOnly size="small" />
+                            {rc.created_at && (
+                              <Typography variant="caption" color="text.secondary">
+                                {new Date(rc.created_at).toLocaleDateString()}
+                              </Typography>
+                            )}
+                          </Box>
+                          {rc.comment && (
+                            <Typography variant="body2" sx={{ mt: 0.5 }}>
+                              {rc.comment}
+                            </Typography>
+                          )}
+                        </Box>
+                      ))}
+
+                      {/* Pagination */}
+                      {workerCommentsPageCount > 1 && (
+                        <Box display="flex" justifyContent="center" mt={1}>
+                          <Pagination
+                            count={workerCommentsPageCount}
+                            page={workerCommentsPage}
+                            onChange={handleWorkerCommentsPageChange}
+                            color="primary"
+                            size="small"
+                          />
+                        </Box>
+                      )}
+                    </Box>
+                  )}
+
             </Box>
           ) : <CircularProgress />}
         </DialogContent>

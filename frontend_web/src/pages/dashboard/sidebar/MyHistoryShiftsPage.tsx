@@ -7,12 +7,13 @@ import {
   Snackbar,
   IconButton,
   Pagination,
-  // Rating,
+  Rating,
   Button,
-  // Dialog,
-  // DialogTitle,
-  // DialogContent,
-  // DialogActions,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
   Skeleton,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
@@ -38,25 +39,6 @@ interface Shift {
   slots: Slot[];
 }
 
-// interface InvoiceLineItem {
-//   id: number;
-//   description: string;
-//   quantity: string;
-//   unit_price: string;
-//   total: string;
-// }
-
-// interface Invoice {
-//   id: number;
-//   invoice_date: string;
-//   due_date: string;
-//   pharmacy_name_snapshot: string;
-//   subtotal: string;
-//   gst_amount: string;
-//   super_amount: string;
-//   total: string;
-//   line_items: InvoiceLineItem[];
-// }
 
 export default function MyHistoryShiftsPage() {
   const navigate = useNavigate();
@@ -76,9 +58,14 @@ export default function MyHistoryShiftsPage() {
   });
   const [page, setPage] = useState(1);
   const [generatingId, _setGeneratingId] = useState<number | null>(null);
-  // const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
-  // const [modalOpen, setModalOpen] = useState(false);
-  // const [ratings, setRatings] = useState<Record<number, number>>({});
+  // Rating Modal State
+  const [pharmacySummaries, setPharmacySummaries] = useState<Record<number, { average: number; count: number }>>({});
+  const [ratingModalOpen, setRatingModalOpen] = useState(false);
+  const [selectedPharmacy, setSelectedPharmacy] = useState<{ id: number; name: string } | null>(null);
+  const [currentStars, setCurrentStars] = useState<number>(0);
+  const [currentComment, setCurrentComment] = useState<string>('');
+  const [loadingRating, setLoadingRating] = useState(false);
+  const [loadingExistingRating, setLoadingExistingRating] = useState(false);
 
   const itemsPerPage = 5;
   const pageCount = Math.ceil(shifts.length / itemsPerPage);
@@ -96,6 +83,26 @@ export default function MyHistoryShiftsPage() {
           ? raw.results
           : [];
         setShifts(data);
+
+                // Fetch rating summaries for each unique pharmacy
+        const uniquePharmacyIds = Array.from(new Set(data.map((shift) => shift.pharmacy_detail.id)));
+        uniquePharmacyIds.forEach(async (pharmacyId) => {
+          try {
+            const res = await apiClient.get(
+              `${API_ENDPOINTS.ratingsSummary}?target_type=pharmacy&target_id=${pharmacyId}`
+            );
+            setPharmacySummaries((prev) => ({
+              ...prev,
+              [pharmacyId]: {
+                average: res.data.average,
+                count: res.data.count,
+              },
+            }));
+          } catch {
+            console.error('Failed to fetch rating summary for pharmacy', pharmacyId);
+          }
+        });
+
       })
       .catch(() =>
         setSnackbar({ open: true, msg: 'Failed to load history shifts' })
@@ -116,10 +123,51 @@ export default function MyHistoryShiftsPage() {
     );
   };
 
-  // const handleCloseModal = () => {
-  //   setModalOpen(false);
-  //   setSelectedInvoice(null);
-  // };
+  // Re-fetch the pharmacy rating summary (average + count)
+const fetchSummaryForPharmacy = async (pharmacyId: number) => {
+  try {
+    const res = await apiClient.get(
+      `${API_ENDPOINTS.ratingsSummary}?target_type=pharmacy&target_id=${pharmacyId}`
+    );
+    setPharmacySummaries((prev) => ({
+      ...prev,
+      [pharmacyId]: {
+        average: res.data.average,
+        count: res.data.count,
+      },
+    }));
+  } catch {
+    console.error('Failed to refresh pharmacy rating summary');
+  }
+};
+
+  const handleOpenRatingModal = async (pharmacyId: number, pharmacyName: string) => {
+    setSelectedPharmacy({ id: pharmacyId, name: pharmacyName });
+    setLoadingExistingRating(true);
+    setRatingModalOpen(true);
+
+    try {
+      // Fetch existing rating
+      const res = await apiClient.get(
+        `${API_ENDPOINTS.ratingsMine}?target_type=pharmacy&target_id=${pharmacyId}`
+      );
+      if (res.data && res.data.id) {
+        // Pre-fill with existing rating
+        setCurrentStars(res.data.stars || 0);
+        setCurrentComment(res.data.comment || '');
+      } else {
+        // No rating yet
+        setCurrentStars(0);
+        setCurrentComment('');
+      }
+    } catch (err) {
+      setSnackbar({ open: true, msg: 'Failed to load existing rating' });
+      setCurrentStars(0);
+      setCurrentComment('');
+    } finally {
+      setLoadingExistingRating(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -161,7 +209,24 @@ export default function MyHistoryShiftsPage() {
 
       {displayed.map((shift) => (
         <Paper key={shift.id} sx={{ p: 2, mb: 2 }}>
-          <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
+          <Box display="flex" alignItems="center" justifyContent="space-between">
+            <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
+
+            {pharmacySummaries[shift.pharmacy_detail.id] && (
+              <Box display="flex" alignItems="center" gap={1}>
+                <Rating
+                  value={pharmacySummaries[shift.pharmacy_detail.id].average}
+                  precision={0.5}
+                  readOnly
+                  size="small"
+                />
+                <Typography variant="body2" color="textSecondary">
+                  ({pharmacySummaries[shift.pharmacy_detail.id].count})
+                </Typography>
+              </Box>
+            )}
+          </Box>
+
           <Typography>Role: {shift.role_needed}</Typography>
 
           <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -199,6 +264,17 @@ export default function MyHistoryShiftsPage() {
               {generatingId === shift.id ? 'Generating...' : 'Generate Invoice'}
             </Button>
           </Box>
+                    <Box mt={1} textAlign="right">
+            <Button
+              variant="outlined"
+              color="secondary"
+              size="small"
+              onClick={() => handleOpenRatingModal(shift.pharmacy_detail.id, shift.pharmacy_detail.name)}
+            >
+              Rate Pharmacy
+            </Button>
+          </Box>
+
         </Paper>
       ))}
 
@@ -212,47 +288,6 @@ export default function MyHistoryShiftsPage() {
           />
         </Box>
       )}
-{/* 
-      <Dialog open={modalOpen} onClose={handleCloseModal} maxWidth="sm" fullWidth>
-        <DialogTitle>Invoice Summary</DialogTitle>
-        <DialogContent dividers>
-          {selectedInvoice ? (
-            <>
-              <Typography variant="subtitle1">
-                Invoice #{selectedInvoice.id}
-              </Typography>
-              <Typography variant="body2">
-                Pharmacy: {selectedInvoice.pharmacy_name_snapshot}
-              </Typography>
-              <Typography variant="body2">
-                Date: {selectedInvoice.invoice_date}
-              </Typography>
-              <Box mt={2}>
-                {selectedInvoice.line_items.map((item) => (
-                  <Box key={item.id} sx={{ mb: 1 }}>
-                    <Typography variant="body2">
-                      {item.description} — {item.quantity} x ${item.unit_price} = ${item.total}
-                    </Typography>
-                  </Box>
-                ))}
-              </Box>
-              <Box mt={2}>
-                <Typography variant="body2">Subtotal: ${selectedInvoice.subtotal}</Typography>
-                <Typography variant="body2">GST: ${selectedInvoice.gst_amount}</Typography>
-                <Typography variant="body2">Super: ${selectedInvoice.super_amount}</Typography>
-                <Typography variant="subtitle1">Total: ${selectedInvoice.total}</Typography>
-              </Box>
-            </>
-          ) : (
-            <Typography>Loading invoice...</Typography>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button variant="outlined" disabled>Download as PDF</Button>
-          <Button variant="contained" color="primary" disabled>Send Invoice</Button>
-          <Button onClick={handleCloseModal}>Close</Button>
-        </DialogActions>
-      </Dialog> */}
 
       <Snackbar
         open={snackbar.open}
@@ -265,6 +300,76 @@ export default function MyHistoryShiftsPage() {
           </IconButton>
         }
       />
+
+      {/* === Rating Modal === */}
+      <Dialog
+        open={ratingModalOpen}
+        onClose={() => setRatingModalOpen(false)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>
+          {selectedPharmacy ? `Rate ${selectedPharmacy.name}` : 'Rate Pharmacy'}
+        </DialogTitle>
+        <DialogContent>
+          {loadingExistingRating ? (
+            <Box display="flex" justifyContent="center" py={3}>
+              <Skeleton variant="rectangular" width="100%" height={100} />
+            </Box>
+          ) : (
+            <Box display="flex" flexDirection="column" gap={2} mt={1}>
+              <Typography>Select a star rating:</Typography>
+              <Rating
+                name="pharmacy-rating"
+                value={currentStars}
+                size="large"
+                onChange={(_, value) => setCurrentStars(value || 0)}
+              />
+              <TextField
+                label="Comment (optional)"
+                multiline
+                minRows={3}
+                value={currentComment}
+                onChange={(e) => setCurrentComment(e.target.value)}
+                fullWidth
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRatingModalOpen(false)}>Cancel</Button>
+          <Button
+            onClick={async () => {
+              if (!selectedPharmacy) return;
+              setLoadingRating(true);
+              try {
+                await apiClient.post(API_ENDPOINTS.ratings, {
+                  direction: 'WORKER_TO_PHARMACY',
+                  ratee_pharmacy: selectedPharmacy.id,
+                  stars: currentStars,
+                  comment: currentComment,
+                });
+
+                // ✅ refresh the summary stars/count shown on the main page
+                await fetchSummaryForPharmacy(selectedPharmacy.id);
+
+                setSnackbar({ open: true, msg: 'Rating saved successfully!' });
+                setRatingModalOpen(false);
+              } catch {
+                setSnackbar({ open: true, msg: 'Failed to save rating' });
+              } finally {
+                setLoadingRating(false);
+              }
+            }}
+            variant="contained"
+            color="primary"
+            disabled={loadingRating || currentStars === 0}
+          >
+            {loadingRating ? 'Saving...' : 'Save Rating'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
     </Container>
   );
 }

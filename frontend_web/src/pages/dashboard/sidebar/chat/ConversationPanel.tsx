@@ -7,6 +7,8 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import { MessageBubble } from './MessageBubble';
 import type { ChatMessage, ChatRoom, MemberCache, PharmacyRef } from './types';
 import './chat.css';
+import PushPinIcon from '@mui/icons-material/PushPin';
+import CloseIcon from '@mui/icons-material/Close';
 
 type Membership = {
   id: number;
@@ -32,6 +34,7 @@ type Props = {
   onEditMessage: (messageId: number, newBody: string) => void;
   onDeleteMessage: (messageId: number) => void;
   onReact: (messageId: number, reaction: string) => void;
+  onTogglePin: (target: 'conversation' | 'message', messageId?: number) => void;
   isMobile: boolean;
   onBack: () => void;
 };
@@ -56,6 +59,8 @@ export const ConversationPanel: FC<Props> = ({
   onReact,
   isMobile,
   onBack,
+  onTogglePin,
+
 }) => {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -73,23 +78,41 @@ export const ConversationPanel: FC<Props> = ({
         return pharmacy?.name || 'Group Chat';
     }
     // Logic for DM titles
-    if (activeRoom.title && activeRoom.title !== 'Direct Message' && !activeRoom.title.startsWith('DM between')) {
-        return activeRoom.title;
+// DM title logic
+// Never trust a generic "Group Chat" string for DMs
+if (
+  activeRoom.title &&
+  activeRoom.title !== 'Direct Message' &&
+  !activeRoom.title.startsWith('DM between') &&
+  !/^group\s*chat$/i.test(activeRoom.title)
+) {
+  return activeRoom.title;
+}
+
+const myMembershipInRoom = myMemberships.find(myMem => activeRoom.participant_ids?.includes(myMem.id));
+if (!myMembershipInRoom) {
+  return 'Direct Message';
+}
+
+const partnerMembershipId = activeRoom.participant_ids?.find(pId => pId !== myMembershipInRoom.id);
+if (partnerMembershipId) {
+  for (const pharmacyId in memberCache) {
+    if (memberCache[pharmacyId][partnerMembershipId]) {
+      const partnerUser = memberCache[pharmacyId][partnerMembershipId].details;
+      const fullName = `${partnerUser.first_name || ''} ${partnerUser.last_name || ''}`.trim();
+      return fullName || partnerUser.email || 'Direct Message';
     }
-    const myMembershipInRoom = myMemberships.find(myMem => activeRoom.participant_ids?.includes(myMem.id));
-    if (!myMembershipInRoom) { return activeRoom.title || 'Direct Message'; }
-    const partnerMembershipId = activeRoom.participant_ids?.find(pId => pId !== myMembershipInRoom.id);
-    // Find partner in cache across all pharmacies
-    if (partnerMembershipId) {
-        for (const pharmacyId in memberCache) {
-            if (memberCache[pharmacyId][partnerMembershipId]) {
-                const partnerUser = memberCache[pharmacyId][partnerMembershipId].details;
-                const fullName = `${partnerUser.first_name || ''} ${partnerUser.last_name || ''}`.trim();
-                return fullName || partnerUser.email || 'Direct Message';
-            }
-        }
-    }
-    return activeRoom.title || 'Direct Message';
+  }
+}
+
+// Fallback: infer from visible messages (when the partner participant row no longer exists)
+const lastFromPartner = [...messages].reverse().find(m => m.sender?.id !== myMembershipInRoom.id)?.sender?.user_details;
+if (lastFromPartner) {
+  const fullName = `${lastFromPartner.first_name || ''} ${lastFromPartner.last_name || ''}`.trim();
+  return fullName || lastFromPartner.email || 'Direct Message';
+}
+
+return 'Direct Message';
   }, [activeRoom, pharmacies, myMemberships, memberCache]);
 
   const firstUnreadIndex = useMemo(() => {
@@ -176,6 +199,32 @@ export const ConversationPanel: FC<Props> = ({
           ) : null}
         </Box>
       </Box>
+      {activeRoom.pinned_message && (
+        <Box 
+          sx={{ 
+            p: 1.5, 
+            borderBottom: '1px solid', 
+            borderColor: 'divider',
+            bgcolor: 'action.hover',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1
+          }}
+        >
+            <PushPinIcon sx={{ color: 'text.secondary' }} fontSize="small" />
+            <Box sx={{ minWidth: 0 }}>
+                <Typography variant="body2" fontWeight="bold" noWrap>
+                  {memberCache[activeRoom.pinned_message.sender.pharmacy]?.[activeRoom.pinned_message.sender.id]?.details.first_name || 'User'} pinned a message
+                </Typography>
+                <Typography variant="body2" color="text.secondary" noWrap>
+                  {activeRoom.pinned_message.body || 'Attachment'}
+                </Typography>
+            </Box>
+            <IconButton size="small" sx={{ ml: 'auto' }} onClick={() => onTogglePin('message', activeRoom.pinned_message?.id)}>
+              <CloseIcon fontSize="inherit" />
+            </IconButton>
+        </Box>
+      )}
 
       <Box ref={scrollRef} className="conversation-scroll" onScroll={handleScroll}>
         {isLoadingMore && (
@@ -199,6 +248,8 @@ export const ConversationPanel: FC<Props> = ({
               onEdit={onEditMessage}
               onDelete={onDeleteMessage}
               onReact={onReact}
+              onTogglePin={onTogglePin}
+
             />
           </Fragment>
         ))}

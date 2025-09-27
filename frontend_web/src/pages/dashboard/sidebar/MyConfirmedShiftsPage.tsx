@@ -15,6 +15,7 @@ import {
   DialogContent,
   DialogActions,
   Skeleton,
+  Rating,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../../utils/apiClient';
@@ -31,6 +32,7 @@ interface Slot {
 }
 
 interface PharmacyDetail {
+  id?: number;
   name: string;
   address?: string;
   methadone_s8_protocols?: string;
@@ -63,6 +65,12 @@ export default function MyConfirmedShiftsPage() {
   // Dialog state for pharmacy details
   const [dialogOpen, setDialogOpen]     = useState(false);
   const [currentPharm, setCurrentPharm] = useState<PharmacyDetail | null>(null);
+  // Ratings state for dialog (pharmacy)
+  const [ratingSummary, setRatingSummary] = useState<{ average: number; count: number } | null>(null);
+  const [ratingComments, setRatingComments] = useState<Array<{ id: number; stars: number; comment?: string; created_at?: string }>>([]);
+  const [commentsPage, setCommentsPage] = useState(1);
+  const [commentsPageCount, setCommentsPageCount] = useState(1);
+  const [loadingRatings, setLoadingRatings] = useState(false);
 
   const itemsPerPage = 5;
   const pageCount    = Math.ceil(shifts.length / itemsPerPage);
@@ -89,11 +97,99 @@ export default function MyConfirmedShiftsPage() {
   }, []);
 
   const closeSnackbar = () => setSnackbar(s => ({ ...s, open: false }));
-  const openDialog    = (p: PharmacyDetail) => {
+  // Normalize DRF pagination arrays
+  const unpackArray = (d: any) =>
+    Array.isArray(d) ? d
+    : Array.isArray(d?.results) ? d.results
+    : Array.isArray(d?.data) ? d.data
+    : Array.isArray(d?.items) ? d.items
+    : [];
+
+  const openDialog = async (p: PharmacyDetail) => {
     setCurrentPharm(p);
     setDialogOpen(true);
+    setRatingSummary(null);
+    setRatingComments([]);
+    setCommentsPage(1);
+    setCommentsPageCount(1);
+
+    if (!p?.id) return; // no id → skip ratings silently
+
+    setLoadingRatings(true);
+    try {
+      // 1) Summary
+      const sumRes = await apiClient.get(
+        `${API_ENDPOINTS.ratingsSummary}?target_type=pharmacy&target_id=${p.id}`
+      );
+      setRatingSummary({
+        average: sumRes.data?.average ?? 0,
+        count: sumRes.data?.count ?? 0,
+      });
+
+      // 2) First page of comments
+      const listRes = await apiClient.get(
+        `${API_ENDPOINTS.ratings}?target_type=pharmacy&target_id=${p.id}&page=1`
+      );
+      const items = unpackArray(listRes.data);
+      setRatingComments(items.map((r: any) => ({
+        id: r.id,
+        stars: r.stars,
+        comment: r.comment,
+        created_at: r.created_at,
+      })));
+      // compute page count if paginated
+      if (listRes.data?.count && listRes.data?.results) {
+        const per = listRes.data.results.length || 1;
+        setCommentsPageCount(Math.max(1, Math.ceil(listRes.data.count / per)));
+      } else {
+        setCommentsPageCount(1);
+      }
+    } catch {
+      // leave summary/comments empty on error
+    } finally {
+      setLoadingRatings(false);
+    }
   };
-  const closeDialog   = () => setDialogOpen(false);
+
+  const closeDialog = () => {
+    setDialogOpen(false);
+    setCurrentPharm(null);
+    setRatingSummary(null);
+    setRatingComments([]);
+    setCommentsPage(1);
+    setCommentsPageCount(1);
+  };
+
+  const handleCommentsPageChange = async (_: React.ChangeEvent<unknown>, value: number) => {
+    setCommentsPage(value);
+    if (!currentPharm?.id) return;
+    setLoadingRatings(true);
+    try {
+      const listRes = await apiClient.get(
+        `${API_ENDPOINTS.ratings}?target_type=pharmacy&target_id=${currentPharm.id}&page=${value}`
+      );
+      const items = unpackArray(listRes.data);
+      setRatingComments(items.map((r: any) => ({
+        id: r.id,
+        stars: r.stars,
+        comment: r.comment,
+        created_at: r.created_at,
+      })));
+      // keep pageCount stable; compute if missing
+      if (listRes.data?.count && listRes.data?.results) {
+        const per = listRes.data.results.length || 1;
+        setCommentsPageCount(Math.max(1, Math.ceil(listRes.data.count / per)));
+      }
+    } catch {
+      // keep old state
+    } finally {
+      setLoadingRatings(false);
+      // scroll to top of dialog for UX
+      const dlg = document.querySelector('[role="dialog"]');
+      dlg?.scrollTo?.({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   const handlePageChange = (_: React.ChangeEvent<unknown>, value: number) => {
     setPage(value);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -281,6 +377,78 @@ export default function MyConfirmedShiftsPage() {
                   </Button>
                 </Typography>
               )}
+
+              
+              {/* Rating summary */}
+              {currentPharm.id ? (
+                <Box sx={{ mt: 1, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  {ratingSummary ? (
+                    <>
+                      <Rating value={ratingSummary.average} precision={0.5} readOnly size="small" />
+                      <Typography variant="body2" color="text.secondary">
+                        ({ratingSummary.count})
+                      </Typography>
+                    </>
+                  ) : (
+                    <Skeleton variant="rectangular" width={140} height={24} />
+                  )}
+                </Box>
+              ) : null}
+
+              {/* Comments (paginated) */}
+              {currentPharm.id ? (
+                <Box sx={{ mt: 1, mb: 2 }}>
+                  <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                    Reviews
+                  </Typography>
+
+                  {loadingRatings && ratingComments.length === 0 ? (
+                    <>
+                      <Skeleton variant="text" width="80%" height={22} />
+                      <Skeleton variant="text" width="70%" height={22} />
+                      <Skeleton variant="text" width="60%" height={22} />
+                    </>
+                  ) : ratingComments.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">
+                      No comments yet.
+                    </Typography>
+                  ) : (
+                    <Box sx={{ display: 'grid', gap: 1.5 }}>
+                      {ratingComments.map(rc => (
+                        <Box key={rc.id} sx={{ p: 1.2, borderRadius: 1, bgcolor: 'action.hover' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Rating value={rc.stars} readOnly size="small" />
+                            {rc.created_at && (
+                              <Typography variant="caption" color="text.secondary">
+                                {new Date(rc.created_at).toLocaleDateString()}
+                              </Typography>
+                            )}
+                          </Box>
+                          {rc.comment && (
+                            <Typography variant="body2" sx={{ mt: 0.5 }}>
+                              {rc.comment}
+                            </Typography>
+                          )}
+                        </Box>
+                      ))}
+
+                      {/* Pagination for comments */}
+                      {commentsPageCount > 1 && (
+                        <Box display="flex" justifyContent="center" mt={1}>
+                          <Pagination
+                            count={commentsPageCount}
+                            page={commentsPage}
+                            onChange={handleCommentsPageChange}
+                            color="primary"
+                            size="small"
+                          />
+                        </Box>
+                      )}
+                    </Box>
+                  )}
+                </Box>
+              ) : null}
+
             </>
           )}
         </DialogContent>

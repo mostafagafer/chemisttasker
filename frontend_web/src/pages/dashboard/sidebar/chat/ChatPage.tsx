@@ -4,7 +4,7 @@ import ChatIcon from '@mui/icons-material/Chat';
 import apiClient from '../../../../utils/apiClient';
 import { API_ENDPOINTS, API_BASE_URL } from '../../../../constants/api';
 import { useAuth } from '../../../../contexts/AuthContext';
-import { useSearchParams } from 'react-router-dom'; // Add this import
+import { useSearchParams } from 'react-router-dom';
 
 import { ChatRoom, ChatMessage, MemberCache, CachedMember } from './types';
 import { ChatSidebar } from './ChatSidebar';
@@ -51,6 +51,7 @@ const EP = {
   roomMarkRead: (roomId: number) =>
     (EP_ANY?.roomMarkRead?.(roomId)) ?? `/client-profile/rooms/${roomId}/read/`,
   getOrCreateDM: '/client-profile/rooms/get-or-create-dm/',
+  getOrCreateDmByUser: '/client-profile/rooms/get-or-create-dm-by-user/', // Ensure this exists in your constants
   getOrCreateGroup:
     EP_ANY['getOrCreateGroup'] ??
     EP_ANY['getOrCreategroup'] ??
@@ -67,13 +68,17 @@ const ChatPage: FC = () => {
   const [activeRoomId, setActiveRoomId] = useState<number | null>(null);
   const [messagesMap, setMessagesMap] = useState<Record<number, RoomMessagesState>>({});
   const [myMembershipIdInActiveRoom, setMyMembershipIdInActiveRoom] = useState<number | null>(null);
+  
+  // --- FIX: Explicit loading states ---
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   const wsRef = useRef<WebSocket | null>(null);
   const accessToken = useMemo(() => localStorage.getItem('access'), []);
   const isMobile = useIsMobile();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [searchParams, setSearchParams] = useSearchParams(); // Add this hook
-  const [participantCache, setParticipantCache] = useState<Record<number, CachedMember>>({}); // <-- NEW STATE
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [participantCache, setParticipantCache] = useState<Record<number, CachedMember>>({});
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRoom, setEditingRoom] = useState<ChatRoom | null>(null);
@@ -92,26 +97,24 @@ const ChatPage: FC = () => {
         const [membershipsRes, roomsRes, participantsRes] = await Promise.all([
           apiClient.get(EP.myMemberships),
           apiClient.get(EP.rooms),
-          // THIS CALL WILL NOW SUCCEED
           apiClient.get(API_ENDPOINTS.chatParticipants) 
         ]);
 
-        // --- 1. Populate the new Participant Cache (for preserving names) ---
         const allParticipants: any[] = participantsRes.data?.results ?? participantsRes.data ?? [];
-        const pCache = allParticipants.reduce((acc: Record<number, CachedMember>, m: any) => {
+        const pCache = allParticipants.reduce((acc: Record<number, any>, m: any) => {
             if (m.user_details) {
                 acc[m.id] = {
                     details: m.user_details,
                     role: m.role,
                     employment_type: m.employment_type,
                     invited_name: m.invited_name,
+                    is_admin: m.is_admin === true, // <-- keep per-participant admin flag
                 };
             }
             return acc;
         }, {});
         setParticipantCache(pCache);
 
-        // --- 2. Process active memberships for the "New Chat" modal ---
         const allMyMemberships: any[] = membershipsRes.data?.results ?? membershipsRes.data ?? [];
         setMyMemberships(allMyMemberships);
 
@@ -122,7 +125,6 @@ const ChatPage: FC = () => {
         const pharms = Array.from(uniquePharmacies.values());
         setPharmacies(pharms);
 
-        // --- 3. Build the Member Cache (for active members only) ---
         const cachePromises = pharms.map(pharmacy =>
           apiClient
             .get(`${EP.memberships}?pharmacy_id=${pharmacy.id}`)
@@ -145,7 +147,6 @@ const ChatPage: FC = () => {
         const cacheParts = await Promise.all(cachePromises);
         setMemberCache(Object.fromEntries(cacheParts.map(({ pid, map }) => [pid, map])));
         
-        // --- 4. Set up the chat rooms ---
         const initialRooms: ChatRoom[] = roomsRes.data?.results ?? roomsRes.data ?? [];
         initialRooms.sort(
           (a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
@@ -164,17 +165,25 @@ const ChatPage: FC = () => {
 
   useEffect(() => {
     if (!activeRoomId) return;
-    if (messagesMap[activeRoomId]) return;
+
+    if (messagesMap[activeRoomId]) {
+      apiClient.post(EP.roomMarkRead(activeRoomId)).catch(() => {});
+      return;
+    };
+    
     const run = async () => {
+      setIsLoadingMessages(true); // <-- FIX: Set loading ON
       try {
         const res = await apiClient.get(EP.roomMessages(activeRoomId));
         const newMessages: ChatMessage[] = (res.data?.results ?? res.data ?? []).reverse();
+        
         const mappedMessages = newMessages.map(msg => {
             if (msg.attachment_url && msg.attachment_url.startsWith('/')) {
                 return { ...msg, attachment_url: `${BACKEND_MEDIA_URL}${msg.attachment_url}` };
             }
             return msg;
         });
+
         setMessagesMap(prev => ({ 
           ...prev, 
           [activeRoomId]: {
@@ -183,10 +192,15 @@ const ChatPage: FC = () => {
             hasMore: !!res.data?.next,
           }
         }));
-      } catch (e) { console.error('fetch messages error', e); }
+      } catch (e) { 
+        console.error('fetch messages error', e);
+      } finally {
+        setIsLoadingMessages(false); // <-- FIX: Set loading OFF
+      }
     };
+
     run();
-  }, [activeRoomId, messagesMap]);
+  }, [activeRoomId]);
 
   useEffect(() => {
     if (wsRef.current) wsRef.current.close();
@@ -320,12 +334,10 @@ const ChatPage: FC = () => {
     if (startDmWithUser) {
       const partnerUserId = Number(startDmWithUser);
 
-      // Call the new backend endpoint
-      apiClient.post(API_ENDPOINTS.getOrCreateDmByUser, { partner_user_id: partnerUserId })
+      apiClient.post(EP.getOrCreateDmByUser, { partner_user_id: partnerUserId })
         .then(res => {
           const newOrExistingRoom: ChatRoom = res.data;
           
-          // Add the room to our state if it's new
           setRooms(prevRooms => {
             if (prevRooms.some(r => r.id === newOrExistingRoom.id)) {
               return prevRooms;
@@ -333,10 +345,8 @@ const ChatPage: FC = () => {
             return [newOrExistingRoom, ...prevRooms];
           });
           
-          // Set it as the active room
           setActiveRoomId(newOrExistingRoom.id);
           
-          // Clean the URL to prevent this from running again on refresh
           searchParams.delete('startDmWithUser');
           setSearchParams(searchParams);
         })
@@ -344,12 +354,11 @@ const ChatPage: FC = () => {
           console.error("Failed to start DM from URL", err);
           alert(err.response?.data?.detail || "Could not start the chat.");
           
-          // Also clean the URL on failure
           searchParams.delete('startDmWithUser');
           setSearchParams(searchParams);
         });
     }
-  }, [searchParams, setSearchParams]); // Run only when searchParams change
+  }, [searchParams, setSearchParams]);
 
   const handleSendText = async (body: string) => {
     if (!activeRoomId) return;
@@ -408,20 +417,23 @@ const ChatPage: FC = () => {
     }
     const partnerUserId = partnerDetails.id;
 
+      setParticipantCache(prev => {
+    if (prev[partnerMembershipId]) return prev;
+    const entry = memberCache[partnerPharmacyId]?.[partnerMembershipId];
+    if (!entry) return prev;
+    return { ...prev, [partnerMembershipId]: { ...entry } };
+  });
+
     const findExistingDm = (targetUserId: number) => {
         for (const room of rooms) {
             if (room.type === 'DM' && room.participant_ids.length === 2) {
                 const myMem = myMemberships.find(m => room.participant_ids.includes(m.id));
                 const partnerMemId = room.participant_ids.find(id => id !== myMem?.id);
 
-                if (partnerMemId) {
-                    for (const pharmId in memberCache) {
-                        if (memberCache[pharmId][partnerMemId]) {
-                            const partnerInRoom = memberCache[pharmId][partnerMemId].details;
-                            if (partnerInRoom.id === targetUserId) {
-                                return room;
-                            }
-                        }
+                if (partnerMemId && participantCache[partnerMemId]) {
+                    const partnerInRoom = participantCache[partnerMemId].details;
+                    if (partnerInRoom.id === targetUserId) {
+                        return room;
                     }
                 }
             }
@@ -435,20 +447,14 @@ const ChatPage: FC = () => {
         setActiveRoomId(existingRoom.id);
     } else {
     try {
-        // We now send the pharmacy_id in the payload to the backend.
         const res = await apiClient.post(EP.getOrCreateDM, {
-            partner_membership_id: partnerMembershipId,
-            pharmacy_id: partnerPharmacyId,
+            partner_membership_id: partnerMembershipId
         });
-        
-        // The handleSaveRoom function you already have will take care of updating the UI.
         handleSaveRoom(res.data);
-
     } catch (e: any) {
         console.error('Failed to get or create DM', e);
         alert(e.response?.data?.detail || 'Could not start the chat.');
     }
-
     }
   };
   
@@ -493,25 +499,65 @@ const ChatPage: FC = () => {
     }
   };
   
+  const handleTogglePin = async (roomId: number, target: 'conversation' | 'message', messageId?: number) => {
+    try {
+      const payload: { target: string, message_id?: number } = { target };
+      if (messageId) {
+        payload.message_id = messageId;
+      }
+      const res = await apiClient.post(`${EP.rooms}${roomId}/toggle-pin/`, payload);
+
+      // Optimistically update the UI
+      setRooms(prevRooms => {
+        return prevRooms.map(room => {
+          if (room.id === roomId) {
+            if (target === 'conversation') {
+              return { ...room, is_pinned: res.data.is_pinned };
+            }
+            // For message pinning, the response contains the updated room object
+            return res.data;
+          }
+          return room;
+        });
+      });
+    } catch (e) {
+      console.error('Failed to toggle pin', e);
+      alert('Action failed. Please try again.');
+    }
+  };
+
   const handleOpenEditModal = (room: ChatRoom) => {
     setEditingRoom(room);
     setIsModalOpen(true);
   };
 
-  const handleDeleteChat = async (roomId: number, roomName: string) => {
-    if (window.confirm(`Are you sure you want to delete the chat "${roomName}"? This action cannot be undone.`)) {
-      try {
-        await apiClient.delete(`${EP.rooms}${roomId}/`);
-        setRooms(prevRooms => prevRooms.filter(r => r.id !== roomId));
-        if (activeRoomId === roomId) {
-          setActiveRoomId(null);
-        }
-      } catch (e) {
-        console.error('Failed to delete chat', e);
-        alert('Failed to delete chat.');
-      }
+const handleDeleteChat = async (roomId: number, roomName: string) => {
+  const target = rooms.find(r => r.id === roomId);
+  if (!target) return;
+
+  const isDm = target.type === 'DM';
+  const question = isDm
+    ? `Delete this direct message with "${roomName}" for you? The other person will keep the conversation.`
+    : `Are you sure you want to delete the chat "${roomName}" for everyone? This cannot be undone.`;
+
+  if (!window.confirm(question)) return;
+
+  try {
+    // Backend perform_destroy now handles:
+    // - DM: delete-for-me (remove my participant)
+    // - GROUP: hard delete (subject to your permission checks)
+    await apiClient.delete(`${EP.rooms}${roomId}/`);
+
+    setRooms(prevRooms => prevRooms.filter(r => r.id !== roomId));
+    if (activeRoomId === roomId) {
+      setActiveRoomId(null);
     }
-  };
+  } catch (e) {
+    console.error('Failed to delete chat', e);
+    alert('Failed to delete chat.');
+  }
+};
+
 
   const handleSaveRoom = (savedRoom: ChatRoom) => {
     setRooms(prevRooms => {
@@ -547,13 +593,15 @@ const ChatPage: FC = () => {
         myMemberships={myMemberships}
         activeRoomId={activeRoomId}
         onSelectRoom={handleSelectRoom}
-        participantCache={participantCache} // <-- PASS THE NEW PROP HERE
+        participantCache={participantCache}
+        memberCache={memberCache}              
         isCollapsed={isSidebarCollapsed} 
         onToggleCollapse={() => setIsSidebarCollapsed(prev => !prev)}
         onNewChat={() => setIsModalOpen(true)}
         onEdit={handleOpenEditModal}
         onDelete={handleDeleteChat}
         canCreateChat={canCreateChat}
+        currentUserId={user?.id}
         getLatestMessage={(roomId) => {
           const roomState = messagesMap[roomId];
           const arr = roomState?.messages;
@@ -567,14 +615,14 @@ const ChatPage: FC = () => {
             key={activeRoom.id}
             activeRoom={activeRoom}
             pharmacies={pharmacies}
-            messages={activeRoomMessagesState.messages && Object.keys(memberCache).length > 0 ? activeRoomMessagesState.messages : []}
+            messages={activeRoomMessagesState.messages}
             myMemberships={myMemberships}
             myMembershipId={myMembershipIdInActiveRoom ?? undefined}
             currentUserId={user?.id}
             memberCache={memberCache}
             onSendText={handleSendText}
             onSendAttachment={handleSendAttachment}
-            isLoadingMessages={(activeRoom ? !messagesMap[activeRoom.id] : false) || Object.keys(memberCache).length === 0}
+            isLoadingMessages={isLoadingMessages} // <-- FIX: Use explicit loading state
             onStartDm={(partnerMembershipId) => {
                 for (const pharmId in memberCache) {
                     if (memberCache[pharmId][partnerMembershipId]) {
@@ -589,6 +637,7 @@ const ChatPage: FC = () => {
             onEditMessage={handleEditMessage}
             onDeleteMessage={handleDeleteMessage}
             onReact={handleReact}
+            onTogglePin={(target, messageId) => handleTogglePin(activeRoom.id, target, messageId)}
             isMobile={isMobile}
             onBack={() => setActiveRoomId(null)}
           />

@@ -239,7 +239,14 @@ useEffect(() => {
 
   apiClient.get<Shift[]>(API_ENDPOINTS.getMyHistoryShifts)
     .then(res => {
-      setShifts(res.data);
+      const arr = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray((res as any)?.data?.results)
+        ? (res as any).data.results
+        : Array.isArray((res as any)?.results)
+        ? (res as any).results
+        : [];
+      setShifts(arr);
       setShiftError(null);
     })
     .catch(() => {

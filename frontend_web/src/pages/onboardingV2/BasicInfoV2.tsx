@@ -25,6 +25,7 @@ type ApiData = {
   phone_number?: string;
   ahpra_number?: string;
   government_id?: string | null;
+  date_of_birth?: string | null;
 
   // optional address (saved on onboarding model)
   street_address?: string | null;
@@ -159,6 +160,9 @@ export default function BasicInfoV2() {
       // phone/ahpra
       if (data.phone_number != null) fd.append('phone_number', String(data.phone_number));
       if (data.ahpra_number != null) fd.append('ahpra_number', String(data.ahpra_number));
+
+      // date of birth
+      if (data.date_of_birth != null) fd.append('date_of_birth', String(data.date_of_birth));
 
       // address
       (['street_address','suburb','state','postcode','google_place_id','latitude','longitude'] as const)
@@ -310,6 +314,14 @@ const resendMobileOtp = async () => {
 )}
 
       </Box>
+        <TextField
+          label="Date of Birth"
+          type="date"
+          value={data.date_of_birth || ''}
+          onChange={e => setField('date_of_birth', e.target.value)}
+          InputLabelProps={{ shrink: true }}
+          sx={{ flex: '1 1 220px', minWidth: 200, maxWidth: 220 }}
+        />
 
 
       {/* Address section */}

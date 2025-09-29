@@ -103,20 +103,23 @@ class PharmacistOnboarding(models.Model):
         ('VISA', 'Visa'),
         ('AUS_PASSPORT', 'Australian Passport'),
         ('OTHER_PASSPORT', 'Other Passport'),
+        ('AGE_PROOF', 'Age Proof Card'),
     ]
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
 
     government_id = models.FileField(upload_to='gov_ids/', blank=True, null=True)
     government_id_type = models.CharField(max_length=32, choices=ID_DOC_CHOICES, blank=True, null=True)
+    identity_meta = models.JSONField(default=dict, blank=True)  # per-type details: state/country/expiry/visa_type_number/valid_to
+    identity_secondary_file = models.FileField(upload_to='gov_ids_secondary/', blank=True, null=True)  # second doc when required
     ahpra_number = models.CharField(max_length=100, blank=True, null=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True)
+    date_of_birth = models.DateField(blank=True, null=True)
     short_bio = models.TextField(blank=True, null=True)
     resume = models.FileField(upload_to='resumes/', blank=True, null=True)
 
     skills = models.JSONField(default=list, blank=True)
     skill_certificates = models.JSONField(default=dict, blank=True)
-    # software_experience = models.JSONField(default=list, blank=True)
 
     payment_preference = models.CharField(max_length=10, blank=True, null=True)
 
@@ -163,8 +166,6 @@ class PharmacistOnboarding(models.Model):
 
     # Verification Fields
     gov_id_verified = models.BooleanField(default=False, db_index=True)
-    # gst_file_verified = models.BooleanField(default=False, db_index=True)
-    # tfn_declaration_verified = models.BooleanField(default=False, db_index=True)
     abn_verified = models.BooleanField(default=False, db_index=True)
     ahpra_verified = models.BooleanField(default=False, db_index=True)
     ahpra_registration_status = models.CharField(max_length=100, blank=True, null=True)
@@ -174,12 +175,7 @@ class PharmacistOnboarding(models.Model):
     # Verification notes
     ahpra_verification_note = models.TextField(blank=True, null=True)
     gov_id_verification_note = models.TextField(blank=True, null=True)
-    # gst_file_verification_note = models.TextField(blank=True, null=True)
-    # tfn_declaration_verification_note = models.TextField(blank=True, null=True)
     abn_verification_note = models.TextField(blank=True, null=True)
-
-    # Notifications
-    # notifications = GenericRelation(OnboardingNotification)
 
     # Location
     street_address   = models.CharField(max_length=255, blank=True, null=True)

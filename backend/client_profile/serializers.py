@@ -1024,14 +1024,14 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         model = PharmacistOnboarding
         fields = [
             # ---------- BASIC ----------
-            'username','first_name','last_name','phone_number',
+            'username','first_name','last_name','phone_number','date_of_birth',
             'ahpra_number',
             'street_address','suburb','state','postcode','google_place_id','latitude','longitude',
             'ahpra_verified','ahpra_registration_status','ahpra_registration_type','ahpra_expiry_date',
             'ahpra_verification_note',
 
             # -------- IDENTITY (new tab) --------
-            'government_id','government_id_type','gov_id_verified','gov_id_verification_note',
+            'government_id','identity_secondary_file','government_id_type','identity_meta','gov_id_verified','gov_id_verification_note',
 
             # -------- PAYMENT (add tfn here) --------
             'payment_preference',
@@ -1074,11 +1074,14 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
 
             # pharmacist fields optional here
             'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'date_of_birth': {'required': False, 'allow_null': True},
             'ahpra_number': {'required': False, 'allow_blank': True, 'allow_null': True},
             'government_id': {'required': False, 'allow_null': True},
             'government_id_type': {'required': False, 'allow_blank': True, 'allow_null': True},
             'gov_id_verified': {'read_only': True},
             'gov_id_verification_note': {'read_only': True},
+            'identity_secondary_file': {'required': False, 'allow_null': True},
+            'identity_meta': {'required': False},
 
             # address optional
             'street_address':  {'required': False, 'allow_blank': True, 'allow_null': True},
@@ -1332,6 +1335,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         direct_fields = [
         'ahpra_number',
         'street_address', 'suburb', 'state', 'postcode', 'google_place_id',
+        'date_of_birth',
         ]
 
         # Detect changes that affect verification flags
@@ -1438,9 +1442,12 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
     # ---------------- Identity TAB (new) ----------------
     def _identity_tab(self, instance: PharmacistOnboarding, vdata: dict, submit: bool):
         """
-        Handles government_id file and its 'government_id_type' dropdown.
-        On replace/clear: delete the old file safely, reset verification flags.
-        On submit: queue verify_filefield_task if a file exists (or changed / unverified).
+        Handles:
+        - government_id_type (dropdown)
+        - government_id (primary file)
+        - identity_secondary_file (secondary file for paired docs)
+        - identity_meta (JSON with per-type fields)
+        Normalises per document type and validates on submit.
         """
         update_fields = []
 
@@ -1448,13 +1455,38 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         def _fname(f):
             return getattr(f, 'name', None) if f else None
 
-        # type (dropdown) – optional
+        # Track changes to drive verification resets
+        type_changed = False
+        gov_id_changed = False
+        sec_changed = False
+        meta_changed = False
+
+        # --- type (dropdown) – optional
         if 'government_id_type' in vdata:
-            instance.government_id_type = vdata.get('government_id_type')
+            new_type = vdata.get('government_id_type')
+            type_changed = (new_type != getattr(instance, 'government_id_type'))
+            instance.government_id_type = new_type
             update_fields.append('government_id_type')
 
-        # file handling (replace / clear)
-        gov_id_changed = False
+            # If switching to a type that doesn't need a secondary file, clear it
+            if new_type in ('DRIVER_LICENSE', 'AUS_PASSPORT', 'AGE_PROOF'):
+                old_sec = getattr(instance, 'identity_secondary_file', None)
+                if old_sec:
+                    try:
+                        old_sec.delete(save=False)
+                    except Exception:
+                        pass
+                    instance.identity_secondary_file = None
+                    update_fields.append('identity_secondary_file')
+                    sec_changed = True
+
+            # If type changes and no new meta provided, wipe old meta to avoid stale keys
+            if 'identity_meta' not in vdata:
+                instance.identity_meta = {}
+                update_fields.append('identity_meta')
+                meta_changed = True
+
+        # --- primary file handling (replace / clear)
         if 'government_id' in vdata:
             new_file = vdata.get('government_id')
             old_file = getattr(instance, 'government_id', None)
@@ -1477,8 +1509,66 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
                 instance.government_id = new_file
                 update_fields.append('government_id')
 
-        # reset verification flags if file changed or explicitly cleared
-        if gov_id_changed:
+        # --- secondary file handling (replace / clear)
+        if 'identity_secondary_file' in vdata:
+            new_sec = vdata.get('identity_secondary_file')  # may be file or None
+            old_sec = getattr(instance, 'identity_secondary_file', None)
+            sec_changed = (_fname(new_sec) != _fname(old_sec))
+
+            if new_sec is None:
+                if old_sec:
+                    try:
+                        old_sec.delete(save=False)
+                    except Exception:
+                        pass
+                instance.identity_secondary_file = None
+                update_fields.append('identity_secondary_file')
+            else:
+                if old_sec and _fname(old_sec) and _fname(old_sec) != _fname(new_sec):
+                    try:
+                        old_sec.delete(save=False)
+                    except Exception:
+                        pass
+                instance.identity_secondary_file = new_sec
+                update_fields.append('identity_secondary_file')
+
+        # --- identity_meta (JSON) – normalise per document type
+        if 'identity_meta' in vdata:
+            incoming_meta = vdata.get('identity_meta') or {}
+            meta = dict(incoming_meta)  # shallow copy
+            doc_type = getattr(instance, 'government_id_type')
+
+            if doc_type == 'DRIVER_LICENSE':
+                keep = {'state', 'expiry'}
+                meta = {k: v for k, v in meta.items() if k in keep}
+
+            elif doc_type == 'VISA':
+                # Visa + Overseas passport (secondary file)
+                keep = {'visa_type_number', 'valid_to', 'passport_country', 'passport_expiry'}
+                meta = {k: v for k, v in meta.items() if k in keep}
+
+            elif doc_type == 'AUS_PASSPORT':
+                keep = {'expiry'}
+                meta = {k: v for k, v in meta.items() if k in keep}
+                meta['country'] = 'Australia'
+
+            elif doc_type == 'OTHER_PASSPORT':
+                # Overseas passport + Visa (secondary file)
+                keep = {'country', 'expiry', 'visa_type_number', 'valid_to'}
+                meta = {k: v for k, v in meta.items() if k in keep}
+
+            elif doc_type == 'AGE_PROOF':
+                keep = {'state', 'expiry'}
+                meta = {k: v for k, v in meta.items() if k in keep}
+
+            # Detect change
+            if meta != (instance.identity_meta or {}):
+                instance.identity_meta = meta
+                update_fields.append('identity_meta')
+                meta_changed = True
+
+        # --- reset verification flags if any relevant identity input changed
+        if gov_id_changed or sec_changed or type_changed or meta_changed:
             instance.gov_id_verified = False
             instance.gov_id_verification_note = ""
             update_fields += ['gov_id_verified', 'gov_id_verification_note']
@@ -1491,9 +1581,52 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         if update_fields:
             instance.save(update_fields=list(set(update_fields)))
 
-        # On submit: schedule verification task if needed
+        # --- Validate on submit (per type)
         if submit:
-            if instance.government_id and (gov_id_changed or not instance.gov_id_verified):
+            errors = {}
+            doc_type = getattr(instance, 'government_id_type')
+            meta_now = getattr(instance, 'identity_meta') or {}
+
+            if not doc_type:
+                errors['government_id_type'] = ['Select a document type.']
+
+            # Primary file required for all types
+            if not getattr(instance, 'government_id', None):
+                errors['government_id'] = ['This file is required.']
+
+            if doc_type == 'DRIVER_LICENSE':
+                if not meta_now.get('state'):  errors['identity_meta.state'] = ['Required.']
+                if not meta_now.get('expiry'): errors['identity_meta.expiry'] = ['Required.']
+
+            elif doc_type == 'VISA':
+                if not meta_now.get('visa_type_number'):  errors['identity_meta.visa_type_number'] = ['Required.']
+                if not meta_now.get('valid_to'):         errors['identity_meta.valid_to'] = ['Required.']
+                if not getattr(instance, 'identity_secondary_file', None):
+                    errors['identity_secondary_file'] = ['Overseas passport file is required with a Visa.']
+                if not meta_now.get('passport_country'): errors['identity_meta.passport_country'] = ['Required.']
+                if not meta_now.get('passport_expiry'):  errors['identity_meta.passport_expiry'] = ['Required.']
+
+            elif doc_type == 'AUS_PASSPORT':
+                if not meta_now.get('expiry'): errors['identity_meta.expiry'] = ['Required.']
+                # country forced to Australia in normalisation
+
+            elif doc_type == 'OTHER_PASSPORT':
+                if not meta_now.get('country'): errors['identity_meta.country'] = ['Required.']
+                if not meta_now.get('expiry'):  errors['identity_meta.expiry'] = ['Required.']
+                if not getattr(instance, 'identity_secondary_file', None):
+                    errors['identity_secondary_file'] = ['Visa file is required with an Overseas passport.']
+                if not meta_now.get('visa_type_number'): errors['identity_meta.visa_type_number'] = ['Required.']
+                if not meta_now.get('valid_to'):         errors['identity_meta.valid_to'] = ['Required.']
+
+            elif doc_type == 'AGE_PROOF':
+                if not meta_now.get('state'):  errors['identity_meta.state'] = ['Required.']
+                if not meta_now.get('expiry'): errors['identity_meta.expiry'] = ['Required.']
+
+            if errors:
+                raise serializers.ValidationError(errors)
+
+            # On submit: schedule verification task if needed (primary file)
+            if instance.government_id and (gov_id_changed or type_changed or meta_changed or not instance.gov_id_verified):
                 async_task(
                     'client_profile.tasks.verify_filefield_task',
                     instance._meta.model_name, instance.pk,
@@ -1507,7 +1640,6 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
 
         # Recompute final verified gate on every pass
         return instance
-
 
     # ---------------- Payment TAB ----------------
     def _payment_tab(self, instance: PharmacistOnboarding, vdata: dict, submit: bool):

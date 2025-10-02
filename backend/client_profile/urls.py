@@ -58,6 +58,8 @@ urlpatterns = [
 
     # === New Onboarding ===
     path('pharmacist/onboarding-v2/me/', PharmacistOnboardingV2MeView.as_view(), name='pharmacist-onboarding-v2-me'),
+    path('otherstaff/onboarding-v2/me/', OtherStaffOnboardingV2MeView.as_view(), name='otherstaff-onboarding-v2-me'),
+    path('explorer/onboarding-v2/me/', ExplorerOnboardingV2MeView.as_view(), name='explorer-onboarding-v2-me'),
 
     # path('onboarding/referee-confirm/<int:profile_pk>/<int:ref_idx>/', RefereeConfirmView.as_view(), name='referee-confirm'),
     path('onboarding/submit-reference/<str:token>/', RefereeSubmitResponseView.as_view(), name='submit-referee-response'),

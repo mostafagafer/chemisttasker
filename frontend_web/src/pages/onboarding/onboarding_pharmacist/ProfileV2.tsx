@@ -14,8 +14,8 @@ import {
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import DescriptionIcon from '@mui/icons-material/Description';
 
-import apiClient from '../../utils/apiClient';
-import { API_BASE_URL, API_ENDPOINTS } from '../../constants/api';
+import apiClient from '../../../utils/apiClient';
+import { API_BASE_URL, API_ENDPOINTS } from '../../../constants/api';
 
 type ApiData = {
   short_bio?: string | null;

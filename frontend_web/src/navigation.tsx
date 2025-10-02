@@ -158,6 +158,19 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
         />
       ),
     },
+      {
+      segment: 'dashboard/otherstaff/onboarding-v2',
+      title: 'Profile',
+      icon: <ManageAccountsSharpIcon />,
+      action: (
+        <Chip
+          size="small"
+          label={`${progress_percent}%`}
+          color={progress_percent === 100 ? "success" : "default"}
+          sx={{ ml: 0.5, fontWeight: 700 }}
+        />
+      ),
+    },
     { 
       segment: 'dashboard/otherstaff/chat', 
       title: 'Chat', 
@@ -208,8 +221,9 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
   return [
     { kind: 'header' as const, title: 'Profile and Availability' },
     { segment: 'dashboard/pharmacist/overview', title: 'Overview', icon: <DashboardIcon /> },
+    // NEW: V2 onboarding — single sidebar item (tabs live inside the page)
     {
-      segment: 'dashboard/pharmacist/onboarding',
+      segment: 'dashboard/pharmacist/onboarding-v2',
       title: 'Profile',
       icon: <ManageAccountsSharpIcon />,
       action: (
@@ -217,20 +231,6 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
           size="small"
           label={`${progress_percent}%`}
           color={progress_percent === 100 ? "success" : "default"}
-          sx={{ ml: 0.5, fontWeight: 700 }}
-        />
-      ),
-    },
-    // NEW: V2 onboarding — single sidebar item (tabs live inside the page)
-    {
-      segment: 'dashboard/pharmacist/onboarding-v2',
-      title: 'Profile (V2)',
-      icon: <ManageAccountsSharpIcon />,
-      action: (
-        <Chip
-          size="small"
-          label="V2"
-          color="warning"
           sx={{ ml: 0.5, fontWeight: 700 }}
         />
       ),
@@ -279,6 +279,21 @@ export function getExplorerNav(progress_percent: number, hasUnreadMessages: bool
         />
       ),
     },
+
+          {
+      segment: 'dashboard/explorer/onboarding-v2',
+      title: 'Profile',
+      icon: <ManageAccountsSharpIcon />,
+      action: (
+        <Chip
+          size="small"
+          label={`${progress_percent}%`}
+          color={progress_percent === 100 ? "success" : "default"}
+          sx={{ ml: 0.5, fontWeight: 700 }}
+        />
+      ),
+    },
+
     { 
       segment: 'dashboard/explorer/chat', 
       title: 'Chat', 

@@ -81,7 +81,9 @@ import { AuthProvider } from './contexts/AuthContext';
 
 
 // Version2
-import PharmacistOnboardingV2 from './pages/onboardingV2/PharmacistOnboardingV2Layout';
+import PharmacistOnboardingV2Layout from './pages/onboarding/onboarding_pharmacist/PharmacistOnboardingV2Layout';
+import OtherStaffOnboardingV2Layout from './pages/onboarding/onboarding_staff/OtherStaffOnboardingV2Layout';
+import ExplorerOnboardingV2Layout from './pages/onboarding/onboarding_explorer/ExplorerOnboardingV2Layout';
 
 const router = createBrowserRouter([
   {
@@ -102,7 +104,6 @@ const router = createBrowserRouter([
       { path: 'membership/apply/:token', element: <MembershipApplyPage /> },
 
       // PUBLIC referee confirmation page (add here)
-      // { path: 'onboarding/referee-confirm/:pk/:refIndex', element: <RefereeConfirmPage /> },
       { path: 'referee/questionnaire/:token', element: <RefereeQuestionnairePage /> },
       { path: 'onboarding/referee-reject/:pk/:refIndex', element: <RefereeRejectPage /> },
 
@@ -236,11 +237,11 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <OverviewPageStaff /> },
           { path: 'overview', element: <OverviewPageStaff /> },
-          { path: 'onboarding', element: <PharmacistOnboarding /> },
+          // { path: 'onboarding', element: <PharmacistOnboarding /> },
           
             // NEW: V2 onboarding (tab-per-page layout with nested routes)
           // V2 — single page with its own left-buttons + progress bar
-          { path: 'onboarding-v2', element: <PharmacistOnboardingV2 /> },
+          { path: 'onboarding-v2', element: <PharmacistOnboardingV2Layout  /> },
           { path: 'chat', element: <ChatPage /> },
 
  
@@ -284,7 +285,8 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <OverviewPageStaff /> },
           { path: 'overview', element: <OverviewPageStaff /> },
-          { path: 'onboarding', element: <OtherStaffOnboarding /> },
+          // { path: 'onboarding', element: <OtherStaffOnboarding /> },
+          { path: 'onboarding-v2', element: <OtherStaffOnboardingV2Layout   /> },
           { path: 'chat', element: <ChatPage /> },
           {
             path: 'shifts',
@@ -327,6 +329,7 @@ const router = createBrowserRouter([
           { index: true, element: <OverviewPageStaff /> },
           { path: 'overview', element: <OverviewPageStaff /> },
           { path: 'onboarding', element: <ExplorerOnboarding /> },
+          { path: 'onboarding-v2', element: <ExplorerOnboardingV2Layout  /> },
           { path: 'chat', element: <ChatPage /> },
           {
             path: 'shifts',

@@ -112,7 +112,6 @@ export const API_ENDPOINTS = {
   getCommunityShiftMemberStatus: (shiftId: string | number) => `/client-profile/community-shifts/${shiftId}/member_status/`,
   rejectCommunityShift: (shiftId: string | number) => `/client-profile/community-shifts/${shiftId}/reject/`,
   getWorkerShiftDetail: (id: string | number) => `/client-profile/shifts/${id}/`,
-  // viewAssignedShiftProfile: (shiftId: string | number) => `/client-profile/shifts/confirmed/${shiftId}/view_assigned_profile/`,
   viewAssignedShiftProfile: (type: 'confirmed' | 'history', shiftId: string | number) =>`/client-profile/shifts/${type}/${shiftId}/view_assigned_profile/`,
 
   // Publicshifts

@@ -3,17 +3,17 @@ import * as React from 'react';
 import {
   Box, Button, Chip,  TextField, Typography,   Dialog, DialogTitle, DialogContent, DialogActions, 
 
-  InputAdornment, Alert, Snackbar
+  Alert, Snackbar
 } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
 
-import apiClient from '../../utils/apiClient';
-import {  API_ENDPOINTS } from '../../constants/api';
-import { useAuth } from '../../contexts/AuthContext';
-import type { User } from '../../contexts/AuthContext';
+import apiClient from '../../../utils/apiClient';
+import {  API_ENDPOINTS } from '../../../constants/api';
+import { useAuth } from '../../../contexts/AuthContext';
+import type { User } from '../../../contexts/AuthContext';
 
 
 type ApiData = {
@@ -23,7 +23,6 @@ type ApiData = {
   last_name?: string;
 
   phone_number?: string;
-  ahpra_number?: string;
   government_id?: string | null;
   date_of_birth?: string | null;
 
@@ -37,9 +36,7 @@ type ApiData = {
   longitude?: string | number | null;
 
   // verification flags/notes
-  ahpra_verified?: boolean | null;
   gov_id_verified?: boolean | null;
-  ahpra_verification_note?: string | null;
   gov_id_verification_note?: string | null;
 };
 
@@ -52,7 +49,7 @@ export default function BasicInfoV2() {
   const [snack, setSnack] = React.useState<string>('');
   const [error, setError] = React.useState<string>('');
   const [addressDisplay, setAddressDisplay] = React.useState<string>('');
-    const canSubmit = Boolean(data.ahpra_number);
+  const canSubmit = true; // Other staff Basic tab has no AHPRA gating
 
 
 
@@ -77,7 +74,7 @@ export default function BasicInfoV2() {
   });
   const autocompleteRef = React.useRef<google.maps.places.Autocomplete | null>(null);
 
-  const url = API_ENDPOINTS.onboardingV2Detail('pharmacist');
+  const url = API_ENDPOINTS.onboardingV2Detail('otherstaff');
 
   React.useEffect(() => {
     let mounted = true;
@@ -159,7 +156,6 @@ export default function BasicInfoV2() {
 
       // phone/ahpra
       if (data.phone_number != null) fd.append('phone_number', String(data.phone_number));
-      if (data.ahpra_number != null) fd.append('ahpra_number', String(data.ahpra_number));
 
       // date of birth
       if (data.date_of_birth != null) fd.append('date_of_birth', String(data.date_of_birth));
@@ -380,37 +376,7 @@ const resendMobileOtp = async () => {
 
 
 
-      {/* AHPRA row — chip + note stay aligned, wrap nicely on small */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: 2 }}>
-        <TextField
-          label="AHPRA Number"
-          value={data.ahpra_number || ''}
-          onChange={e => setField('ahpra_number', e.target.value)}
-          InputProps={{ startAdornment: <InputAdornment position="start">PHA000</InputAdornment> }}
-          sx={{ flex: '1 1 320px', minWidth: 240, maxWidth: 420 }}
-        />
-        <VerifiedChip ok={data.ahpra_verified} label="AHPRA" />
-        {typeof data.ahpra_verified === 'boolean' && (
-          <Typography
-            variant="body2"
-            title={data.ahpra_verification_note || (data.ahpra_verified ? 'Verified' : 'Pending/Not verified')}
-            sx={{
-              color: data.ahpra_verified
-                ? 'success.main'
-                : (data.ahpra_verification_note ? 'error.main' : 'text.secondary'),
-              flex: '1 1 260px',
-              minWidth: 180,
-              maxWidth: 520,
-              overflow: 'hidden',
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-            }}
-          >
-            {data.ahpra_verification_note || (data.ahpra_verified ? 'AHPRA registration is valid and current.' : 'Pending/Not verified')}
-          </Typography>
-        )}
-      </Box>
+
 
       {/* Actions: Save left, Submit right */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2, flexWrap: 'wrap', gap: 1.5 }}>

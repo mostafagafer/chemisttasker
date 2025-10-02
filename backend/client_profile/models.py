@@ -113,7 +113,7 @@ class PharmacistOnboarding(models.Model):
     identity_meta = models.JSONField(default=dict, blank=True)  # per-type details: state/country/expiry/visa_type_number/valid_to
     identity_secondary_file = models.FileField(upload_to='gov_ids_secondary/', blank=True, null=True)  # second doc when required
     ahpra_number = models.CharField(max_length=100, blank=True, null=True)
-    phone_number = models.CharField(max_length=20, blank=True, null=True)
+    # phone_number = models.CharField(max_length=20, blank=True, null=True)
     date_of_birth = models.DateField(blank=True, null=True)
     short_bio = models.TextField(blank=True, null=True)
     resume = models.FileField(upload_to='resumes/', blank=True, null=True)
@@ -217,28 +217,66 @@ class OtherStaffOnboarding(models.Model):
     ]
 
     REFEREE_REL_CHOICES = [
-    ('manager', 'Manager'),
-    ('supervisor', 'Supervisor'),
-    ('colleague', 'Colleague'),
-    ('owner', 'Owner'),
-    ('other', 'Other'),
+        ('manager', 'Manager'),
+        ('supervisor', 'Supervisor'),
+        ('colleague', 'Colleague'),
+        ('owner', 'Owner'),
+        ('other', 'Other'),
     ]
 
+    # --- Core ---
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+
+    # --- Identity (parity with Pharmacist) ---
     government_id = models.FileField(upload_to='gov_ids/', blank=True, null=True)
+    government_id_type = models.CharField(max_length=32, choices=PharmacistOnboarding.ID_DOC_CHOICES, blank=True, null=True)
+    identity_meta = models.JSONField(default=dict, blank=True)
+    identity_secondary_file = models.FileField(upload_to='gov_ids_secondary/', blank=True, null=True)
+
+    # --- Role selection ---
     role_type = models.CharField(max_length=50, choices=ROLE_CHOICES, blank=True, null=True)
-    phone_number = models.CharField(max_length=20, blank=True, null=True)
 
+    # --- Basic (address + dob; phone comes from User.mobile_number in V2 serializers) ---
+    date_of_birth = models.DateField(blank=True, null=True)
+    street_address = models.CharField(max_length=255, blank=True, null=True)
+    suburb = models.CharField(max_length=100, blank=True, null=True)
+    state = models.CharField(max_length=50, blank=True, null=True)
+    postcode = models.CharField(max_length=10, blank=True, null=True)
+    google_place_id = models.CharField(max_length=255, blank=True, null=True)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+
+    # --- Experience / Skills ---
     skills = models.JSONField(default=list, blank=True)
+    skill_certificates = models.JSONField(default=dict, blank=True)  # per-skill files (parity with Pharmacist)
     years_experience = models.CharField(max_length=20, blank=True, null=True)
-    payment_preference = models.CharField(max_length=10, blank=True, null=True)
 
-    # Granular classification (used in award rate logic)
+    # --- Payments (parity with Pharmacist) ---
+    payment_preference = models.CharField(max_length=10, blank=True, null=True)
+    abn = models.CharField(max_length=20, blank=True, null=True)
+    gst_registered = models.BooleanField(default=False)
+    # ABR-scraped facts
+    abn_entity_name = models.CharField(max_length=255, blank=True, null=True)
+    abn_entity_type = models.CharField(max_length=100, blank=True, null=True)
+    abn_status = models.CharField(max_length=50, blank=True, null=True)
+    abn_gst_registered = models.BooleanField(null=True, blank=True)  # None = unknown
+    abn_gst_from = models.DateField(blank=True, null=True)
+    abn_gst_to = models.DateField(blank=True, null=True)
+    abn_last_checked = models.DateTimeField(blank=True, null=True)
+    abn_entity_confirmed = models.BooleanField(default=False)
+
+    # TFN (stored; masked via serializer)
+    tfn_number = models.CharField(max_length=11, blank=True, null=True)
+    super_fund_name = models.CharField(max_length=255, blank=True, null=True)
+    super_usi = models.CharField(max_length=50, blank=True, null=True)
+    super_member_number = models.CharField(max_length=100, blank=True, null=True)
+
+    # --- Granular classification (award logic) ---
     classification_level = models.CharField(max_length=20, choices=ASSISTANT_LEVEL_CHOICES, blank=True, null=True)
     student_year = models.CharField(max_length=20, choices=STUDENT_YEAR_CHOICES, blank=True, null=True)
     intern_half = models.CharField(max_length=20, choices=INTERN_HALF_CHOICES, blank=True, null=True)
 
-    # Role-specific docs
+    # --- Role-specific docs (kept) ---
     ahpra_proof = models.FileField(upload_to='role_docs/', blank=True, null=True)
     hours_proof = models.FileField(upload_to='role_docs/', blank=True, null=True)
     certificate = models.FileField(upload_to='role_docs/', blank=True, null=True)
@@ -246,19 +284,11 @@ class OtherStaffOnboarding(models.Model):
     cpr_certificate = models.FileField(upload_to='role_docs/', blank=True, null=True)
     s8_certificate = models.FileField(upload_to='role_docs/', blank=True, null=True)
 
-    # Payment details
-    abn = models.CharField(max_length=20, blank=True, null=True)
-    gst_registered = models.BooleanField(default=False)
-    gst_file = models.FileField(upload_to='gst_docs/', blank=True, null=True)
-    tfn_declaration = models.FileField(upload_to='tfn_docs/', blank=True, null=True)
-    super_fund_name = models.CharField(max_length=255, blank=True, null=True)
-    super_usi = models.CharField(max_length=50, blank=True, null=True)
-    super_member_number = models.CharField(max_length=100, blank=True, null=True)
-
-    # References
+    # --- Referees ---
     referee1_name = models.CharField(max_length=150, blank=True, null=True)
     referee1_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
     referee1_email = models.EmailField(blank=True, null=True)
+    referee1_workplace = models.CharField(max_length=150, blank=True, null=True)
     referee1_confirmed = models.BooleanField(default=False)
     referee1_rejected = models.BooleanField(default=False)
     referee1_last_sent = models.DateTimeField(null=True, blank=True)
@@ -266,18 +296,20 @@ class OtherStaffOnboarding(models.Model):
     referee2_name = models.CharField(max_length=150, blank=True, null=True)
     referee2_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
     referee2_email = models.EmailField(blank=True, null=True)
+    referee2_workplace = models.CharField(max_length=150, blank=True, null=True)
     referee2_confirmed = models.BooleanField(default=False)
     referee2_rejected = models.BooleanField(default=False)
     referee2_last_sent = models.DateTimeField(null=True, blank=True)
 
-    # Additional info
+    # --- Profile / Rate ---
     short_bio = models.TextField(blank=True, null=True)
     resume = models.FileField(upload_to='resumes/', blank=True, null=True)
 
+    # --- Status ---
     verified = models.BooleanField(default=False)
     submitted_for_verification = models.BooleanField(default=False)
 
-    # Verification Fields
+    # --- Verification flags / notes ---
     gov_id_verified = models.BooleanField(default=False, db_index=True)
     gov_id_verification_note = models.TextField(blank=True, null=True)
 
@@ -299,17 +331,8 @@ class OtherStaffOnboarding(models.Model):
     s8_certificate_verified = models.BooleanField(default=False, db_index=True)
     s8_certificate_verification_note = models.TextField(blank=True, null=True)
 
-    gst_file_verified = models.BooleanField(default=False, db_index=True)
-    gst_file_verification_note = models.TextField(blank=True, null=True)
-
-    tfn_declaration_verified = models.BooleanField(default=False, db_index=True)
-    tfn_declaration_verification_note = models.TextField(blank=True, null=True)
-
     abn_verified = models.BooleanField(default=False, db_index=True)
     abn_verification_note = models.TextField(blank=True, null=True)
-
-    # Notifications
-    notifications = GenericRelation(OnboardingNotification)
 
     def __str__(self):
         return f"{self.user.get_full_name()} - {self.role_type} Onboarding"
@@ -329,18 +352,25 @@ class ExplorerOnboarding(models.Model):
     ('other', 'Other'),
     ]
 
+    ID_DOC_CHOICES = [
+        ('GOV_ID', 'Government ID'),
+        ('DRIVER_LICENSE', 'Driving license'),
+        ('VISA', 'Visa'),
+        ('AUS_PASSPORT', 'Australian Passport'),
+        ('OTHER_PASSPORT', 'Other Passport'),
+        ('AGE_PROOF', 'Age Proof Card'),
+    ]
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     government_id = models.FileField(upload_to='gov_ids/', blank=True, null=True)
     role_type = models.CharField(max_length=50, choices=ROLE_CHOICES, blank=True, null=True)
-    phone_number = models.CharField(max_length=20, blank=True, null=True)
 
-    interests = models.JSONField(default=list, blank=True, null=True)
-    # e.g. ['Shadowing','Volunteering','Placement','Junior Assistant Role']
+    interests = models.JSONField(default=list, blank=True, null=True)     # e.g. ['Shadowing','Volunteering','Placement','Junior Assistant Role']
 
-    # Referees
+    # --- Referees ---
     referee1_name = models.CharField(max_length=150, blank=True, null=True)
     referee1_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
     referee1_email = models.EmailField(blank=True, null=True)
+    referee1_workplace = models.CharField(max_length=150, blank=True, null=True)
     referee1_confirmed = models.BooleanField(default=False)
     referee1_rejected = models.BooleanField(default=False)
     referee1_last_sent = models.DateTimeField(null=True, blank=True)
@@ -348,6 +378,7 @@ class ExplorerOnboarding(models.Model):
     referee2_name = models.CharField(max_length=150, blank=True, null=True)
     referee2_relation = models.CharField(max_length=30, choices=REFEREE_REL_CHOICES, blank=True, null=True)
     referee2_email = models.EmailField(blank=True, null=True)
+    referee2_workplace = models.CharField(max_length=150, blank=True, null=True)
     referee2_confirmed = models.BooleanField(default=False)
     referee2_rejected = models.BooleanField(default=False)
     referee2_last_sent = models.DateTimeField(null=True, blank=True)
@@ -358,13 +389,25 @@ class ExplorerOnboarding(models.Model):
     verified = models.BooleanField(default=False)
     submitted_for_verification = models.BooleanField(default=False)
 
-    # Verification Fields
+    # --- Address (same shape as Pharmacist) ---
+    street_address   = models.CharField(max_length=255, blank=True, null=True)
+    suburb           = models.CharField(max_length=100, blank=True, null=True)
+    state            = models.CharField(max_length=50,  blank=True, null=True)
+    postcode         = models.CharField(max_length=10,  blank=True, null=True)
+    google_place_id  = models.CharField(max_length=255, blank=True, null=True)
+    latitude         = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+    longitude        = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+
+    # --- Identity  ---
+    government_id = models.FileField(upload_to='gov_ids/', blank=True, null=True)
+    government_id_type = models.CharField(max_length=32, choices=ID_DOC_CHOICES, blank=True, null=True)
+    identity_meta = models.JSONField(default=dict, blank=True)  # per-type details (state, expiry, visa fields…)
+    identity_secondary_file = models.FileField(upload_to='gov_ids_secondary/', blank=True, null=True)
+
+    # Verification flags/notes
     gov_id_verified = models.BooleanField(default=False, db_index=True)
     gov_id_verification_note = models.TextField(blank=True, null=True)
 
-
-    # Notifications
-    notifications = GenericRelation(OnboardingNotification)
 
     def __str__(self):
         return f"{self.user.get_full_name()} - Explorer Onboarding"

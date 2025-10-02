@@ -8,8 +8,8 @@ import UploadFileIcon from '@mui/icons-material/UploadFile';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 
-import apiClient from '../../utils/apiClient';
-import { API_BASE_URL, API_ENDPOINTS } from '../../constants/api';
+import apiClient from '../../../utils/apiClient';
+import { API_BASE_URL, API_ENDPOINTS } from '../../../constants/api';
 
 // ---- Legacy choices (match old codes/labels you used) ----
 // You can extend this with the full set you had historically.

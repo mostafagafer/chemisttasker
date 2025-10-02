@@ -757,7 +757,7 @@ class ExplorerOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFilesMi
         model  = ExplorerOnboarding
         fields = [
             'id', 'username', 'first_name', 'last_name',
-            'government_id', 'role_type', 'phone_number',
+            'government_id', 'role_type', 
             'interests',
             'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
             'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
@@ -774,7 +774,6 @@ class ExplorerOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFilesMi
             'last_name':  {'required': False, 'allow_blank': True},
             'government_id': {'required': False, 'allow_null': True},
             'role_type': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
             'interests': {'required': False, 'allow_null': True},
             'referee1_name': {'required': False, 'allow_blank': True},
             'referee1_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
@@ -895,7 +894,7 @@ class ExplorerOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFilesMi
             obj.user.last_name,
             obj.gov_id_verified,        # Only count as complete if verified!
             obj.role_type,
-            obj.phone_number,
+            # obj.phone_number,
             obj.referee1_confirmed,
             obj.referee2_confirmed,
             obj.resume,
@@ -1986,6 +1985,1430 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
                 update_fields.append('resume')
 
         # Submit does not auto-verify anything here; keep profile unverified until all tabs pass
+        if submit:
+            instance.verified = False
+            update_fields.append('verified')
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+        return instance
+
+
+class OtherStaffOnboardingV2Serializer(serializers.ModelSerializer):
+    """
+    V2 single-endpoint, tab-aware serializer for OtherStaff.
+    Mirrors the Pharmacist V2 procedure but without AHPRA and with a Regulatory tab.
+    """
+
+    # user fields (read/write through User)
+    username     = serializers.CharField(source='user.username',   required=False, allow_blank=True)
+    first_name   = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
+    last_name    = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
+    phone_number = serializers.CharField(source='user.mobile_number', required=False, allow_blank=True, allow_null=True)
+
+    latitude  = serializers.DecimalField(max_digits=18, decimal_places=12, required=False, allow_null=True)
+    longitude = serializers.DecimalField(max_digits=18, decimal_places=12, required=False, allow_null=True)
+
+    # TFN aliasing (store raw; only expose masked)
+    tfn = serializers.CharField(
+        source='tfn_number', write_only=True, required=False, allow_blank=True, allow_null=True
+    )
+    tfn_masked = serializers.SerializerMethodField(read_only=True)
+
+    # Skills
+    skills = serializers.ListField(child=serializers.CharField(), required=False)
+    skill_certificates = serializers.SerializerMethodField(read_only=True)
+
+    # write-only control flags
+    tab = serializers.CharField(write_only=True, required=False)
+    submitted_for_verification = serializers.BooleanField(write_only=True, required=False)
+
+    # computed
+    progress_percent = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OtherStaffOnboarding
+        fields = [
+            # ---------- BASIC ----------
+            'username','first_name','last_name','phone_number','date_of_birth',
+            'street_address','suburb','state','postcode','google_place_id','latitude','longitude',
+
+            # ---------- IDENTITY ----------
+            'government_id','identity_secondary_file','government_id_type','identity_meta',
+            'gov_id_verified','gov_id_verification_note',
+
+            # ---------- REGULATORY DOCS (role + files) ----------
+            'role_type','classification_level','student_year','intern_half',
+            'ahpra_proof','hours_proof','certificate','university_id','cpr_certificate','s8_certificate',
+            'ahpra_proof_verified','ahpra_proof_verification_note',
+            'hours_proof_verified','hours_proof_verification_note',
+            'certificate_verified','certificate_verification_note',
+            'university_id_verified','university_id_verification_note',
+            'cpr_certificate_verified','cpr_certificate_verification_note',
+            's8_certificate_verified','s8_certificate_verification_note',
+
+            # ---------- PAYMENT ----------
+            'payment_preference',
+            'abn','gst_registered',
+            'tfn', 'tfn_masked',
+            'super_fund_name','super_usi','super_member_number',
+            'abn_verified','abn_verification_note',
+            'abn_entity_name','abn_entity_type','abn_status',
+            'abn_gst_registered','abn_gst_from','abn_gst_to','abn_last_checked',
+            'abn_entity_confirmed',
+
+            # ---------- REFEREES ----------
+            'referee1_name','referee1_relation','referee1_email','referee1_workplace',
+            'referee1_confirmed','referee1_rejected','referee1_last_sent',
+            'referee2_name','referee2_relation','referee2_email','referee2_workplace',
+            'referee2_confirmed','referee2_rejected','referee2_last_sent',
+
+            # ---------- SKILLS ----------
+            'skills',
+            'skill_certificates',   # read-only summary
+            'years_experience',  
+
+            # ---------- PROFILE ----------
+            'short_bio','resume',
+
+            'verified','progress_percent',
+            'tab','submitted_for_verification',
+        ]
+        extra_kwargs = {
+            # user names optional
+            'username': {'required': False, 'allow_blank': True},
+            'first_name': {'required': False, 'allow_blank': True},
+            'last_name': {'required': False, 'allow_blank': True},
+
+            # basic optional
+            'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'date_of_birth': {'required': False, 'allow_null': True},
+            'street_address':  {'required': False, 'allow_blank': True, 'allow_null': True},
+            'suburb':          {'required': False, 'allow_blank': True, 'allow_null': True},
+            'state':           {'required': False, 'allow_blank': True, 'allow_null': True},
+            'postcode':        {'required': False, 'allow_blank': True, 'allow_null': True},
+            'google_place_id': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'latitude':        {'required': False, 'allow_null': True},
+            'longitude':       {'required': False, 'allow_null': True},
+
+            # identity optional (tab handles requiredness)
+            'government_id': {'required': False, 'allow_null': True},
+            'government_id_type': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'identity_secondary_file': {'required': False, 'allow_null': True},
+            'identity_meta': {'required': False},
+            'gov_id_verified': {'read_only': True},
+            'gov_id_verification_note': {'read_only': True},
+
+            # regulatory files optional (tab decides requiredness)
+            'role_type': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'classification_level': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'student_year': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'intern_half': {'required': False, 'allow_blank': True, 'allow_null': True},
+
+            'ahpra_proof': {'required': False, 'allow_null': True},
+            'hours_proof': {'required': False, 'allow_null': True},
+            'certificate': {'required': False, 'allow_null': True},
+            'university_id': {'required': False, 'allow_null': True},
+            'cpr_certificate': {'required': False, 'allow_null': True},
+            's8_certificate': {'required': False, 'allow_null': True},
+
+            'ahpra_proof_verified': {'read_only': True},
+            'ahpra_proof_verification_note': {'read_only': True},
+            'hours_proof_verified': {'read_only': True},
+            'hours_proof_verification_note': {'read_only': True},
+            'certificate_verified': {'read_only': True},
+            'certificate_verification_note': {'read_only': True},
+            'university_id_verified': {'read_only': True},
+            'university_id_verification_note': {'read_only': True},
+            'cpr_certificate_verified': {'read_only': True},
+            'cpr_certificate_verification_note': {'read_only': True},
+            's8_certificate_verified': {'read_only': True},
+            's8_certificate_verification_note': {'read_only': True},
+
+            # payment (tab decides requiredness)
+            'payment_preference': {'required': False, 'allow_blank': True},
+            'abn':                {'required': False, 'allow_blank': True},
+            'gst_registered':     {'required': False},
+            'super_fund_name':    {'required': False, 'allow_blank': True},
+            'super_usi':          {'required': False, 'allow_blank': True},
+            'super_member_number':{'required': False, 'allow_blank': True},
+            'abn_entity_confirmed': {'required': False},
+            'tfn_masked': {'read_only': True},
+
+            # ABR outputs read-only
+            'abn_verified': {'read_only': True},
+            'abn_verification_note': {'read_only': True},
+            'abn_entity_name': {'read_only': True},
+            'abn_entity_type': {'read_only': True},
+            'abn_status': {'read_only': True},
+            'abn_gst_registered': {'read_only': True},
+            'abn_gst_from': {'read_only': True},
+            'abn_gst_to': {'read_only': True},
+            'abn_last_checked': {'read_only': True},
+
+            # referees
+            'referee1_name':       {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_relation':   {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_email':      {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_workplace':  {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_name':       {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_relation':   {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_email':      {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_workplace':  {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_confirmed':  {'read_only': True},
+            'referee1_rejected':   {'read_only': True},
+            'referee1_last_sent':  {'read_only': True},
+            'referee2_confirmed':  {'read_only': True},
+            'referee2_rejected':   {'read_only': True},
+            'referee2_last_sent':  {'read_only': True},
+
+            # skills
+            'skills': {'required': False},
+            'skill_certificates': {'read_only': True},
+            'years_experience': {'required': False, 'allow_blank': True, 'allow_null': True},
+
+            # profile
+            'short_bio': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'resume':    {'required': False, 'allow_null': True},
+
+            'verified': {'read_only': True},
+            'progress_percent': {'read_only': True},
+        }
+
+    # ---------------- representation helpers ----------------
+    def get_tfn_masked(self, obj):
+        tfn = getattr(obj, 'tfn_number', '') or ''
+        if not tfn:
+            return ''
+        return f'*** *** {tfn[-3:]}'  # never expose full TFN
+
+    def _files_by_skill(self):
+        req = self.context.get("request")
+        out = {}
+        if not req or not hasattr(req, "FILES"):
+            return out
+        for key, f in req.FILES.items():
+            if key.startswith("skill_files[") and key.endswith("]"):
+                code = key[len("skill_files["):-1]
+                out[code] = f
+            else:
+                out[key] = f
+        return out
+
+    def _save_skill_file(self, user_id: int, code: str, uploaded_file):
+        base, ext = os.path.splitext(uploaded_file.name or "certificate")
+        safe = slugify(base) or "certificate"
+        code_up = (code or "UNKNOWN").upper()
+        ts = timezone.now().strftime("%Y%m%d%H%M%S")
+        rel_path = f"skill_certs/{user_id}/{code_up}/{safe}_{code_up}_{ts}{ext.lower()}"
+        return default_storage.save(rel_path, uploaded_file)
+
+    def _list_existing(self, user_id: int, code: str):
+        folder = f"skill_certs/{user_id}/{(code or 'UNKNOWN').upper()}/"
+        try:
+            _dirs, files = default_storage.listdir(folder)
+        except Exception:
+            return []
+        return sorted(folder + name for name in files)
+
+    # -------- utility: regulatory requirements by role --------
+    def _required_docs_for_role(self, instance):
+        """
+        Returns list of (field_name, verified_flag, note_field) tuples required for the selected role.
+        """
+        role = (instance.role_type or '').upper()
+        mapping = {
+            'INTERN': [
+                ('ahpra_proof', 'ahpra_proof_verified', 'ahpra_proof_verification_note'),
+                ('hours_proof', 'hours_proof_verified', 'hours_proof_verification_note'),
+            ],
+            'TECHNICIAN': [
+                ('certificate', 'certificate_verified', 'certificate_verification_note'),
+            ],
+            'ASSISTANT': [
+                ('certificate', 'certificate_verified', 'certificate_verification_note'),
+            ],
+            'STUDENT': [
+                ('university_id', 'university_id_verified', 'university_id_verification_note'),
+            ],
+        }
+        return mapping.get(role, [])
+
+    # -------- progress --------
+    def get_progress_percent(self, obj):
+        user = getattr(obj, 'user', None)
+
+        def _filled_str(x):
+            return bool(x and str(x).strip())
+
+        checks = [
+            bool(getattr(user, 'username', None)),
+            bool(getattr(user, 'first_name', None)),
+            bool(getattr(user, 'last_name', None)),
+            bool(getattr(user, 'mobile_number', None)),
+            bool(obj.gov_id_verified),
+            bool(getattr(obj, 'referee1_confirmed', False)),
+            bool(getattr(obj, 'referee2_confirmed', False)),
+        ]
+
+        # Address completeness counts as one unit
+        addr_ok = all([
+            _filled_str(getattr(obj, 'street_address', None)),
+            _filled_str(getattr(obj, 'suburb', None)),
+            _filled_str(getattr(obj, 'state', None)),
+            _filled_str(getattr(obj, 'postcode', None)),
+        ])
+        checks.append(addr_ok)
+
+        # Profile tab
+        checks.append(bool(getattr(obj, 'resume', None)))
+        checks.append(_filled_str(getattr(obj, 'short_bio', None)))
+
+        # Payment contribution
+        pref = (obj.payment_preference or '').upper()
+        if pref == 'ABN':
+            checks.append(bool(obj.abn) and bool(obj.abn_verified))
+        elif pref == 'TFN':
+            checks.append(bool(getattr(obj, 'tfn_number', None)))
+
+        # Regulatory docs gate: all required docs for the role must be verified
+        req = self._required_docs_for_role(obj)
+        docs_ok = all(getattr(obj, verified_flag, False) for _, verified_flag, _ in req)
+        checks.append(docs_ok)
+
+        # Final verified flip (role-specific)
+        phone_ok = bool(getattr(user, 'is_mobile_verified', False))
+        gate_ok = (
+            bool(getattr(obj, 'referee1_confirmed', False)) and
+            bool(getattr(obj, 'referee2_confirmed', False)) and
+            bool(getattr(obj, 'gov_id_verified', False))   and
+            docs_ok and
+            phone_ok
+        )
+        if gate_ok and not bool(getattr(obj, 'verified', False)):
+            try:
+                obj.verified = True
+                obj.save(update_fields=['verified'])
+                print("[VERIFY DEBUG] otherstaff progress flip -> verified=True", {"pk": obj.pk}, flush=True)
+            except Exception as e:
+                print("[VERIFY DEBUG] otherstaff progress flip failed", {"pk": obj.pk, "err": str(e)}, flush=True)
+
+        filled = sum(1 for x in checks if x)
+        total = len(checks) or 1
+        return int(100 * filled / total)
+
+    # ---------------- update router ----------------
+    def update(self, instance, validated_data):
+        tab = (self.initial_data.get('tab') or 'basic').strip().lower()
+        submit = bool(self.initial_data.get('submitted_for_verification'))
+
+        # --- Superuser notify: first-time submission gate (BASIC tab only) ---
+        first_submit = submit and (tab == 'basic') and not bool(getattr(instance, 'submitted_for_verification', False))
+        if first_submit:
+            instance.submitted_for_verification = True
+            instance.save(update_fields=['submitted_for_verification'])
+            from .utils import notify_superuser_on_onboarding
+            try:
+                notify_superuser_on_onboarding(instance)
+            except Exception:
+                pass
+
+        if tab == 'basic':
+            return self._basic_tab(instance, validated_data, submit)
+        if tab == 'identity':
+            return self._identity_tab(instance, validated_data, submit)
+        if tab == 'regulatory':
+            return self._regulatory_tab(instance, validated_data, submit)
+        if tab == 'payment':
+            return self._payment_tab(instance, validated_data, submit)
+        if tab == 'referees':
+            return self._referees_tab(instance, validated_data, submit)
+        if tab == 'skills':
+            return self._skills_tab(instance, validated_data, submit)
+        if tab == 'profile':
+            return self._profile_tab(instance, validated_data, submit)
+
+        return super().update(instance, validated_data)
+
+    # ---------------- BASIC TAB ----------------
+    def _basic_tab(self, instance: OtherStaffOnboarding, vdata: dict, submit: bool):
+        # nested user data
+        user_data = vdata.pop('user', {})
+        if user_data:
+            changed_user_fields = []
+            for k in ('username', 'first_name', 'last_name', 'mobile_number'):
+                if k in user_data:
+                    setattr(instance.user, k, user_data[k])
+                    changed_user_fields.append(k)
+            if changed_user_fields:
+                instance.user.save(update_fields=changed_user_fields)
+
+        update_fields = []
+
+        # regular writes for basic fields (address + dob)
+        direct_fields = [
+            'street_address','suburb','state','postcode','google_place_id','date_of_birth',
+            'role_type','classification_level','student_year','intern_half',  # allow role data in Basic if FE sends them early
+        ]
+        for f in direct_fields:
+            if f in vdata:
+                setattr(instance, f, vdata[f])
+                update_fields.append(f)
+
+        # lat/lon rounding to 6 dp
+        if 'latitude' in vdata:
+            instance.latitude = q6(vdata.get('latitude'))
+            update_fields.append('latitude')
+        if 'longitude' in vdata:
+            instance.longitude = q6(vdata.get('longitude'))
+            update_fields.append('longitude')
+
+        if submit:
+            instance.verified = False
+            update_fields.append('verified')
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+        return instance
+
+    # ---------------- Identity TAB ----------------
+    def _identity_tab(self, instance: OtherStaffOnboarding, vdata: dict, submit: bool):
+        update_fields = []
+
+        def _fname(f):
+            return getattr(f, 'name', None) if f else None
+
+        # track changes
+        type_changed = False
+        gov_id_changed = False
+        sec_changed = False
+        meta_changed = False
+
+        # type
+        if 'government_id_type' in vdata:
+            new_type = vdata.get('government_id_type')
+            type_changed = (new_type != getattr(instance, 'government_id_type'))
+            instance.government_id_type = new_type
+            update_fields.append('government_id_type')
+
+            # wipe secondary doc when not needed
+            if new_type in ('DRIVER_LICENSE', 'AUS_PASSPORT', 'AGE_PROOF'):
+                old_sec = getattr(instance, 'identity_secondary_file', None)
+                if old_sec:
+                    try: old_sec.delete(save=False)
+                    except Exception: pass
+                instance.identity_secondary_file = None
+                update_fields.append('identity_secondary_file')
+                sec_changed = True
+
+            # clear stale meta if not provided
+            if 'identity_meta' not in vdata:
+                instance.identity_meta = {}
+                update_fields.append('identity_meta')
+                meta_changed = True
+
+        # primary file
+        if 'government_id' in vdata:
+            new_file = vdata.get('government_id')
+            old_file = getattr(instance, 'government_id', None)
+            gov_id_changed = (_fname(new_file) != _fname(old_file))
+            if new_file is None:
+                if old_file:
+                    try: old_file.delete(save=False)
+                    except Exception: pass
+                instance.government_id = None
+                update_fields.append('government_id')
+            else:
+                if old_file and _fname(old_file) and _fname(old_file) != _fname(new_file):
+                    try: old_file.delete(save=False)
+                    except Exception: pass
+                instance.government_id = new_file
+                update_fields.append('government_id')
+
+        # secondary file
+        if 'identity_secondary_file' in vdata:
+            new_sec = vdata.get('identity_secondary_file')
+            old_sec = getattr(instance, 'identity_secondary_file', None)
+            sec_changed = (_fname(new_sec) != _fname(old_sec)) or sec_changed
+            if new_sec is None:
+                if old_sec:
+                    try: old_sec.delete(save=False)
+                    except Exception: pass
+                instance.identity_secondary_file = None
+                update_fields.append('identity_secondary_file')
+            else:
+                if old_sec and _fname(old_sec) and _fname(old_sec) != _fname(new_sec):
+                    try: old_sec.delete(save=False)
+                    except Exception: pass
+                instance.identity_secondary_file = new_sec
+                update_fields.append('identity_secondary_file')
+
+        # identity_meta normalisation per type
+        if 'identity_meta' in vdata:
+            incoming_meta = vdata.get('identity_meta') or {}
+            meta = dict(incoming_meta)
+            doc_type = getattr(instance, 'government_id_type')
+
+            if doc_type == 'DRIVER_LICENSE':
+                meta = {k: v for k, v in meta.items() if k in {'state','expiry'}}
+
+            elif doc_type == 'VISA':
+                meta = {k: v for k, v in meta.items() if k in {'visa_type_number','valid_to','passport_country','passport_expiry'}}
+
+            elif doc_type == 'AUS_PASSPORT':
+                meta = {k: v for k, v in meta.items() if k in {'expiry'}}
+                meta['country'] = 'Australia'
+
+            elif doc_type == 'OTHER_PASSPORT':
+                meta = {k: v for k, v in meta.items() if k in {'country','expiry','visa_type_number','valid_to'}}
+
+            elif doc_type == 'AGE_PROOF':
+                meta = {k: v for k, v in meta.items() if k in {'state','expiry'}}
+
+            if meta != (instance.identity_meta or {}):
+                instance.identity_meta = meta
+                update_fields.append('identity_meta')
+                meta_changed = True
+
+        # reset verification if any identity input changed
+        if gov_id_changed or sec_changed or type_changed or meta_changed:
+            instance.gov_id_verified = False
+            instance.gov_id_verification_note = ""
+            update_fields += ['gov_id_verified', 'gov_id_verification_note']
+
+        if submit:
+            instance.verified = False
+            update_fields.append('verified')
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+
+        # Validate on submit
+        if submit:
+            errors = {}
+            doc_type = getattr(instance, 'government_id_type')
+            meta_now = getattr(instance, 'identity_meta') or {}
+
+            if not doc_type:
+                errors['government_id_type'] = ['Select a document type.']
+            if not getattr(instance, 'government_id', None):
+                errors['government_id'] = ['This file is required.']
+
+            if doc_type == 'DRIVER_LICENSE':
+                if not meta_now.get('state'):  errors['identity_meta.state'] = ['Required.']
+                if not meta_now.get('expiry'): errors['identity_meta.expiry'] = ['Required.']
+            elif doc_type == 'VISA':
+                if not meta_now.get('visa_type_number'):  errors['identity_meta.visa_type_number'] = ['Required.']
+                if not meta_now.get('valid_to'):         errors['identity_meta.valid_to'] = ['Required.']
+                if not getattr(instance, 'identity_secondary_file', None):
+                    errors['identity_secondary_file'] = ['Overseas passport file is required with a Visa.']
+                if not meta_now.get('passport_country'): errors['identity_meta.passport_country'] = ['Required.']
+                if not meta_now.get('passport_expiry'):  errors['identity_meta.passport_expiry'] = ['Required.']
+            elif doc_type == 'AUS_PASSPORT':
+                if not meta_now.get('expiry'): errors['identity_meta.expiry'] = ['Required.']
+            elif doc_type == 'OTHER_PASSPORT':
+                if not meta_now.get('country'): errors['identity_meta.country'] = ['Required.']
+                if not meta_now.get('expiry'):  errors['identity_meta.expiry'] = ['Required.']
+                if not getattr(instance, 'identity_secondary_file', None):
+                    errors['identity_secondary_file'] = ['Visa file is required with an Overseas passport.']
+                if not meta_now.get('visa_type_number'): errors['identity_meta.visa_type_number'] = ['Required.']
+                if not meta_now.get('valid_to'):         errors['identity_meta.valid_to'] = ['Required.']
+            elif doc_type == 'AGE_PROOF':
+                if not meta_now.get('state'):  errors['identity_meta.state'] = ['Required.']
+                if not meta_now.get('expiry'): errors['identity_meta.expiry'] = ['Required.']
+
+            if errors:
+                raise serializers.ValidationError(errors)
+
+            # schedule verification task if needed
+            if instance.government_id and (gov_id_changed or type_changed or meta_changed or not instance.gov_id_verified):
+                async_task(
+                    'client_profile.tasks.verify_filefield_task',
+                    instance._meta.model_name, instance.pk,
+                    'government_id',
+                    instance.user.first_name or '',
+                    instance.user.last_name or '',
+                    instance.user.email or '',
+                    verification_field='gov_id_verified',
+                    note_field='gov_id_verification_note',
+                )
+        return instance
+
+    # ---------------- Regulatory TAB ----------------
+    def _regulatory_tab(self, instance: OtherStaffOnboarding, vdata: dict, submit: bool):
+        """
+        Keeps your current role/subrole logic and per-role docs,
+        but runs per-field resets and schedules file verifications.
+        """
+        update_fields = []
+        file_fields = [
+            'ahpra_proof','hours_proof','certificate','university_id','cpr_certificate','s8_certificate'
+        ]
+
+        def _fname(f):
+            return getattr(f, 'name', None) if f else None
+
+        # role classification inputs
+        for f in ['role_type','classification_level','student_year','intern_half']:
+            if f in vdata:
+                if getattr(instance, f) != vdata[f]:
+                    setattr(instance, f, vdata[f])
+                    update_fields.append(f)
+
+        # Handle each file: replace/clear safely; reset its verified flag on change
+        def handle_file(field):
+            changed = False
+            if field in vdata:
+                new_file = vdata.get(field)  # may be file or None
+                old_file = getattr(instance, field, None)
+                changed = (_fname(new_file) != _fname(old_file))
+                if new_file is None:
+                    if old_file:
+                        try: old_file.delete(save=False)
+                        except Exception: pass
+                    setattr(instance, field, None)
+                    update_fields.append(field)
+                else:
+                    if old_file and _fname(old_file) and _fname(old_file) != _fname(new_file):
+                        try: old_file.delete(save=False)
+                        except Exception: pass
+                    setattr(instance, field, new_file)
+                    update_fields.append(field)
+
+                # reset verification when changed
+                if changed:
+                    vflag = f"{field}_verified"
+                    vnote = f"{field}_verification_note"
+                    if hasattr(instance, vflag):
+                        setattr(instance, vflag, False)
+                        update_fields.append(vflag)
+                    if hasattr(instance, vnote):
+                        setattr(instance, vnote, "")
+                        update_fields.append(vnote)
+            return changed
+
+        changed_map = {f: handle_file(f) for f in file_fields}
+
+        if submit:
+            instance.verified = False
+            update_fields.append('verified')
+
+            # Validate required per role
+            req = self._required_docs_for_role(instance)
+            errors = {}
+            for field, _, _ in req:
+                if not getattr(instance, field, None):
+                    errors[field] = ['This file is required for the selected role.']
+            if errors:
+                raise serializers.ValidationError(errors)
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+
+        # schedule verification tasks for any provided file that changed or is not verified
+        if submit:
+            for field, changed in changed_map.items():
+                vflag = f"{field}_verified"
+                if getattr(instance, field, None) and (changed or not getattr(instance, vflag, False)):
+                    async_task(
+                        'client_profile.tasks.verify_filefield_task',
+                        instance._meta.model_name, instance.pk,
+                        field,
+                        instance.user.first_name or '',
+                        instance.user.last_name or '',
+                        instance.user.email or '',
+                        verification_field=f"{field}_verified",
+                        note_field=f"{field}_verification_note",
+                    )
+        return instance
+
+    # ---------------- Payment TAB ----------------
+    def _payment_tab(self, instance: OtherStaffOnboarding, vdata: dict, submit: bool):
+        payment_fields = [
+            'payment_preference','abn','gst_registered',
+            'super_fund_name','super_usi','super_member_number',
+            'abn_entity_confirmed',
+        ]
+        update_fields: list[str] = []
+        pref_in = (vdata.get('payment_preference') or instance.payment_preference or '').upper()
+
+        # regular writes
+        for f in payment_fields:
+            if f in vdata:
+                setattr(instance, f, vdata[f])
+                update_fields.append(f)
+
+        # TFN
+        if 'tfn_number' in vdata:
+            instance.tfn_number = (vdata['tfn_number'] or '').strip()
+            update_fields.append('tfn_number')
+
+        # ABN changed -> reset
+        abn_changed = ('abn' in vdata) and (vdata.get('abn') != getattr(instance, 'abn'))
+        if abn_changed:
+            instance.abn_verified = False
+            instance.abn_entity_confirmed = False
+            instance.abn_verification_note = ""
+            update_fields += ['abn_verified','abn_entity_confirmed','abn_verification_note']
+
+        # confirmation gate
+        if 'abn_entity_confirmed' in vdata:
+            confirmed = bool(vdata['abn_entity_confirmed'])
+            if confirmed and instance.abn_entity_name:
+                instance.abn_verified = True
+                if not instance.abn_verification_note:
+                    instance.abn_verification_note = 'User confirmed ABN entity details.'
+                update_fields += ['abn_verified','abn_verification_note']
+            else:
+                if instance.abn_verified:
+                    instance.abn_verified = False
+                    update_fields.append('abn_verified')
+
+        # optional sync gst_registered from ABR
+        if 'gst_registered' not in vdata:
+            if instance.abn_gst_registered is True and not instance.gst_registered:
+                instance.gst_registered = True
+                update_fields.append('gst_registered')
+
+        # TFN path validation on submit
+        if submit and (pref_in or instance.payment_preference):
+            pref_effective = (pref_in or instance.payment_preference or '').upper()
+            if pref_effective == 'TFN':
+                errors = {}
+                if not instance.tfn_number:
+                    errors['tfn'] = ['TFN is required.']
+                if not instance.super_fund_name:
+                    errors['super_fund_name'] = ['Super fund name is required for TFN.']
+                if not instance.super_usi:
+                    errors['super_usi'] = ['USI is required for TFN.']
+                if not instance.super_member_number:
+                    errors['super_member_number'] = ['Member number is required for TFN.']
+                if errors:
+                    raise serializers.ValidationError(errors)
+
+        if submit:
+            instance.verified = False
+            update_fields.append('verified')
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+
+        # run ABN task on submit
+        if submit:
+            pref_effective = (pref_in or instance.payment_preference or '').upper()
+            if pref_effective == 'ABN' and instance.abn:
+                async_task(
+                    'client_profile.tasks.verify_abn_task',
+                    instance._meta.model_name, instance.pk,
+                    instance.abn,
+                    instance.user.first_name or '',
+                    instance.user.last_name or '',
+                    instance.user.email or '',
+                    note_field='abn_verification_note',
+                )
+        return instance
+
+    # ---------------- Referees TAB ----------------
+    def _referees_tab(self, instance: OtherStaffOnboarding, vdata: dict, submit: bool):
+        from .utils import send_referee_emails
+        update_fields = []
+
+        def apply_ref(idx: int):
+            prefix = f"referee{idx}_"
+            locked = bool(getattr(instance, f"{prefix}confirmed", False))
+
+            incoming = {
+                'name': vdata.get(f"{prefix}name", getattr(instance, f"{prefix}name")),
+                'relation': vdata.get(f"{prefix}relation", getattr(instance, f"{prefix}relation")),
+                'email': clean_email(vdata.get(f"{prefix}email", getattr(instance, f"{prefix}email"))),
+                'workplace': vdata.get(f"{prefix}workplace", getattr(instance, f"{prefix}workplace")),
+            }
+            if locked:
+                return
+
+            changed = False
+            for key in ['name','relation','email','workplace']:
+                field = f"{prefix}{key}"
+                if field in vdata and getattr(instance, field) != incoming[key]:
+                    setattr(instance, field, incoming[key])
+                    update_fields.append(field)
+                    changed = True
+
+            if changed:
+                for flag in ['confirmed','rejected']:
+                    f = f"{prefix}{flag}"
+                    if getattr(instance, f, False):
+                        setattr(instance, f, False)
+                        update_fields.append(f)
+                last = f"{prefix}last_sent"
+                if getattr(instance, last, None) is not None:
+                    setattr(instance, last, None)
+                    update_fields.append(last)
+
+        apply_ref(1)
+        apply_ref(2)
+
+        if submit:
+            errors = {}
+            for idx in [1,2]:
+                prefix = f"referee{idx}_"
+                if not getattr(instance, f"{prefix}name"):       errors[prefix+'name'] = ['Required.']
+                if not getattr(instance, f"{prefix}relation"):   errors[prefix+'relation'] = ['Required.']
+                if not getattr(instance, f"{prefix}email"):      errors[prefix+'email'] = ['Required.']
+                if not getattr(instance, f"{prefix}workplace"):  errors[prefix+'workplace'] = ['Required.']
+            if errors:
+                raise serializers.ValidationError(errors)
+            if not instance.verified:
+                instance.verified = False
+                update_fields.append('verified')
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+
+        if submit:
+            send_referee_emails(instance, is_reminder=False)
+        return instance
+
+    # ---------------- Skills TAB ----------------
+    def _skills_tab(self, instance: OtherStaffOnboarding, vdata: dict, submit: bool):
+        """
+        Legacy-aligned Skills tab:
+        - `skills`: list of codes (string or JSON array)
+        - Per-skill certificate upload (must exist if the skill is selected)
+        - `years_experience`: simple string bucket stored on the model
+        """
+        # 1) Parse skills array (accept JSON string or list)
+        raw = self.initial_data.get("skills", vdata.get("skills", []))
+        if isinstance(raw, str):
+            try:
+                skills = json.loads(raw)
+            except Exception:
+                raise serializers.ValidationError({"skills": "Must be a JSON array or list."})
+        else:
+            skills = list(raw or [])
+
+        # 2) Years of experience (optional)
+        yrs = self.initial_data.get("years_experience", vdata.get("years_experience", None))
+        if yrs is not None:
+            # store as plain string; keep legacy buckets (e.g. '', '0-1', '1-2', '2-3', '3-5', '5+')
+            instance.years_experience = (yrs or "").strip()
+
+        uploads = self._files_by_skill()                    # accepts both flat keys and skill_files[CODE]
+        cert_map = dict(instance.skill_certificates or {})  # latest file per skill
+        user_id = instance.user_id
+
+        # 3) If a skill was unchecked, remove its stored certificate (unless keeping history)
+        if not getattr(self, "KEEP_SKILL_HISTORY", False):
+            removed = [code for code in list(cert_map.keys()) if code not in skills]
+            for code in removed:
+                old_path = (cert_map.get(code) or {}).get("path")
+                if old_path:
+                    try:
+                        default_storage.delete(old_path)
+                    except Exception:
+                        pass
+                cert_map.pop(code, None)
+
+        # 4) Save any uploaded files for checked skills
+        for code, f in uploads.items():
+            if code in skills and f:
+                # remember old path (if any)
+                old_path = (cert_map.get(code) or {}).get("path")
+
+                # save new file (keeps historical versions if you change _save_skill_file to do so)
+                saved = self._save_skill_file(user_id, code, f)
+
+                # delete old file unless keeping history
+                if old_path and not getattr(self, "KEEP_SKILL_HISTORY", False):
+                    try:
+                        default_storage.delete(old_path)
+                    except Exception:
+                        pass
+
+                # record new pointer
+                cert_map[code] = {
+                    "path": saved,
+                    "uploaded_at": timezone.now().isoformat(),
+                }
+
+        # 5) Validation: every selected skill must have a certificate (existing or uploaded now)
+        missing = [code for code in skills if code not in cert_map]
+        if missing:
+            raise serializers.ValidationError(
+                {"skills": f"Certificate required for: {', '.join(missing)}"}
+            )
+
+        # 6) Persist changes
+        instance.skills = skills
+        instance.skill_certificates = cert_map
+
+        # Save only the changed fields; include years_experience if we set it above
+        update_fields = ["skills", "skill_certificates"]
+        if yrs is not None:
+            update_fields.append("years_experience")
+
+        instance.save(update_fields=update_fields)
+        return instance
+
+    # ---------------- Profile TAB ----------------
+    def _profile_tab(self, instance: OtherStaffOnboarding, vdata: dict, submit: bool):
+        update_fields = []
+        if 'short_bio' in vdata:
+            instance.short_bio = vdata['short_bio']
+            update_fields.append('short_bio')
+
+        if 'resume' in vdata:
+            new_file = vdata['resume']
+            old_file = getattr(instance, 'resume', None)
+            if new_file is None:
+                if old_file:
+                    old_file.delete(save=False)
+                instance.resume = None
+                update_fields.append('resume')
+            else:
+                if old_file:
+                    try:
+                        if getattr(old_file, 'name', None) != getattr(new_file, 'name', None):
+                            old_file.delete(save=False)
+                    except Exception:
+                        pass
+                instance.resume = new_file
+                update_fields.append('resume')
+
+        if submit:
+            instance.verified = False
+            update_fields.append('verified')
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+        return instance
+
+    # ---------------- read-only summary for UI ----------------
+    def get_skill_certificates(self, obj):
+        data = []
+        for code, meta in (obj.skill_certificates or {}).items():
+            path = (meta or {}).get("path")
+            if not path:
+                continue
+            try:
+                url = default_storage.url(path)
+            except Exception:
+                url = None
+            data.append({"skill_code": code, "path": path, "url": url, "uploaded_at": meta.get("uploaded_at")})
+        return sorted(data, key=lambda r: r["skill_code"])
+
+import json, os
+from django.utils import timezone
+from django.utils.text import slugify
+from django.core.files.storage import default_storage
+from rest_framework import serializers
+from .models import ExplorerOnboarding
+from django.utils.timezone import now
+
+# helpers (reuse from your codebase if they already exist)
+def q6(val):
+    if val in (None, ""):
+        return None
+    try:
+        return round(float(val), 6)
+    except Exception:
+        return None
+
+def clean_email(s):
+    return (s or "").strip().lower()
+
+class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
+    """
+    V2 tab-aware serializer for Explorer.
+    Tabs: basic, identity, interests, referees, profile.
+    """
+
+    # user pass-through
+    username     = serializers.CharField(source='user.username',   required=False, allow_blank=True)
+    first_name   = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
+    last_name    = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
+    phone_number = serializers.CharField(source='user.mobile_number', required=False, allow_blank=True, allow_null=True)
+
+    latitude  = serializers.DecimalField(max_digits=18, decimal_places=12, required=False, allow_null=True)
+    longitude = serializers.DecimalField(max_digits=18, decimal_places=12, required=False, allow_null=True)
+
+    # write-only control flags
+    tab = serializers.CharField(write_only=True, required=False)
+    submitted_for_verification = serializers.BooleanField(write_only=True, required=False)
+
+    # computed
+    progress_percent = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExplorerOnboarding
+        fields = [
+            # ---------- BASIC ----------
+            'username','first_name','last_name','phone_number',
+            'role_type',
+            'street_address','suburb','state','postcode','google_place_id','latitude','longitude',
+
+            # ---------- IDENTITY ----------
+            'government_id','identity_secondary_file','government_id_type','identity_meta',
+            'gov_id_verified','gov_id_verification_note',
+
+            # ---------- INTERESTS ----------
+            'interests',   # JSON (array of codes, e.g. ["SHADOWING","VOLUNTEERING","PLACEMENT","JUNIOR_ASSISTANT"])
+
+            # ---------- REFEREES ----------
+            'referee1_name','referee1_relation','referee1_email','referee1_workplace',
+            'referee1_confirmed','referee1_rejected','referee1_last_sent',
+            'referee2_name','referee2_relation','referee2_email','referee2_workplace',
+            'referee2_confirmed','referee2_rejected','referee2_last_sent',
+
+            # ---------- PROFILE ----------
+            'short_bio','resume',
+
+            'verified','progress_percent',
+            'tab','submitted_for_verification',
+        ]
+        extra_kwargs = {
+            # user names optional
+            'username': {'required': False, 'allow_blank': True},
+            'first_name': {'required': False, 'allow_blank': True},
+            'last_name': {'required': False, 'allow_blank': True},
+            'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+
+            # basic
+            'role_type': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'street_address':  {'required': False, 'allow_blank': True, 'allow_null': True},
+            'suburb':          {'required': False, 'allow_blank': True, 'allow_null': True},
+            'state':           {'required': False, 'allow_blank': True, 'allow_null': True},
+            'postcode':        {'required': False, 'allow_blank': True, 'allow_null': True},
+            'google_place_id': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'latitude':        {'required': False, 'allow_null': True},
+            'longitude':       {'required': False, 'allow_null': True},
+
+            # identity (tab decides requiredness)
+            'government_id': {'required': False, 'allow_null': True},
+            'government_id_type': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'identity_secondary_file': {'required': False, 'allow_null': True},
+            'identity_meta': {'required': False},
+            'gov_id_verified': {'read_only': True},
+            'gov_id_verification_note': {'read_only': True},
+
+            # interests
+            'interests': {'required': False},
+
+            # referees
+            'referee1_name':       {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_relation':   {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_email':      {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_workplace':  {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_name':       {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_relation':   {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_email':      {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee2_workplace':  {'required': False, 'allow_blank': True, 'allow_null': True},
+            'referee1_confirmed':  {'read_only': True},
+            'referee1_rejected':   {'read_only': True},
+            'referee1_last_sent':  {'read_only': True},
+            'referee2_confirmed':  {'read_only': True},
+            'referee2_rejected':   {'read_only': True},
+            'referee2_last_sent':  {'read_only': True},
+
+            # profile
+            'short_bio': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'resume':    {'required': False, 'allow_null': True},
+
+            'verified': {'read_only': True},
+            'progress_percent': {'read_only': True},
+        }
+
+    # ---------------- progress gate ----------------
+    def get_progress_percent(self, obj):
+        user = getattr(obj, 'user', None)
+
+        def _filled_str(x):
+            return bool(x and str(x).strip())
+
+        checks = [
+            bool(getattr(user, 'username', None)),
+            bool(getattr(user, 'first_name', None)),
+            bool(getattr(user, 'last_name', None)),
+            bool(getattr(user, 'mobile_number', None)),
+            bool(obj.gov_id_verified),
+            bool(getattr(obj, 'referee1_confirmed', False)),
+            bool(getattr(obj, 'referee2_confirmed', False)),
+        ]
+
+        # Address as one unit
+        addr_ok = all([
+            _filled_str(getattr(obj, 'street_address', None)),
+            _filled_str(getattr(obj, 'suburb', None)),
+            _filled_str(getattr(obj, 'state', None)),
+            _filled_str(getattr(obj, 'postcode', None)),
+        ])
+        checks.append(addr_ok)
+
+        # Interests present?
+        interests_ok = bool(getattr(obj, 'interests', None))
+        checks.append(interests_ok)
+
+        # Profile
+        checks.append(bool(getattr(obj, 'resume', None)))
+        checks.append(_filled_str(getattr(obj, 'short_bio', None)))
+
+        # Final flip
+        phone_ok = bool(getattr(user, 'is_mobile_verified', False))
+        gate_ok = (
+            bool(getattr(obj, 'referee1_confirmed', False)) and
+            bool(getattr(obj, 'referee2_confirmed', False)) and
+            bool(getattr(obj, 'gov_id_verified', False))    and
+            phone_ok
+        )
+        if gate_ok and not bool(getattr(obj, 'verified', False)):
+            try:
+                obj.verified = True
+                obj.save(update_fields=['verified'])
+            except Exception:
+                pass
+
+        filled = sum(1 for x in checks if x)
+        total = len(checks) or 1
+        return int(100 * filled / total)
+
+    # ---------------- update router ----------------
+    def update(self, instance, validated_data):
+        tab = (self.initial_data.get('tab') or 'basic').strip().lower()
+        submit = bool(self.initial_data.get('submitted_for_verification'))
+
+        # first-time submission notify (Basic only)
+        first_submit = submit and (tab == 'basic') and not bool(getattr(instance, 'submitted_for_verification', False))
+        if first_submit:
+            instance.submitted_for_verification = True
+            instance.save(update_fields=['submitted_for_verification'])
+            from .utils import notify_superuser_on_onboarding
+            try:
+                notify_superuser_on_onboarding(instance)
+            except Exception:
+                pass
+
+        if tab == 'basic':
+            return self._basic_tab(instance, validated_data, submit)
+        if tab == 'identity':
+            return self._identity_tab(instance, validated_data, submit)
+        if tab == 'interests':
+            return self._interests_tab(instance, validated_data, submit)
+        if tab == 'referees':
+            return self._referees_tab(instance, validated_data, submit)
+        if tab == 'profile':
+            return self._profile_tab(instance, validated_data, submit)
+
+        return super().update(instance, validated_data)
+
+    # ---------------- BASIC TAB ----------------
+    def _basic_tab(self, instance: ExplorerOnboarding, vdata: dict, submit: bool):
+        # nested user data
+        user_data = vdata.pop('user', {})
+        if user_data:
+            changed_user_fields = []
+            for k in ('username', 'first_name', 'last_name', 'mobile_number'):
+                if k in user_data:
+                    setattr(instance.user, k, user_data[k])
+                    changed_user_fields.append(k)
+            if changed_user_fields:
+                instance.user.save(update_fields=changed_user_fields)
+
+        update_fields = []
+
+        # role + address
+        direct_fields = [
+            'role_type',
+            'street_address','suburb','state','postcode','google_place_id',
+        ]
+        for f in direct_fields:
+            if f in vdata:
+                setattr(instance, f, vdata[f])
+                update_fields.append(f)
+
+        # lat/lon rounding
+        if 'latitude' in vdata:
+            instance.latitude = q6(vdata.get('latitude'))
+            update_fields.append('latitude')
+        if 'longitude' in vdata:
+            instance.longitude = q6(vdata.get('longitude'))
+            update_fields.append('longitude')
+
+        if submit:
+            instance.verified = False
+            update_fields.append('verified')
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+        return instance
+
+    # ---------------- Identity TAB (identical behavior) ----------------
+    def _identity_tab(self, instance: ExplorerOnboarding, vdata: dict, submit: bool):
+        update_fields = []
+
+        def _fname(f):
+            return getattr(f, 'name', None) if f else None
+
+        type_changed = False
+        gov_id_changed = False
+        sec_changed = False
+        meta_changed = False
+
+        # type
+        if 'government_id_type' in vdata:
+            new_type = vdata.get('government_id_type')
+            type_changed = (new_type != getattr(instance, 'government_id_type'))
+            instance.government_id_type = new_type
+            update_fields.append('government_id_type')
+
+            # clear secondary when not needed
+            if new_type in ('DRIVER_LICENSE', 'AUS_PASSPORT', 'AGE_PROOF'):
+                old_sec = getattr(instance, 'identity_secondary_file', None)
+                if old_sec:
+                    try: old_sec.delete(save=False)
+                    except Exception: pass
+                instance.identity_secondary_file = None
+                update_fields.append('identity_secondary_file')
+                sec_changed = True
+
+            # clear stale meta if not provided
+            if 'identity_meta' not in vdata:
+                instance.identity_meta = {}
+                update_fields.append('identity_meta')
+                meta_changed = True
+
+        # primary file
+        if 'government_id' in vdata:
+            new_file = vdata.get('government_id')
+            old_file = getattr(instance, 'government_id', None)
+            gov_id_changed = (_fname(new_file) != _fname(old_file))
+            if new_file is None:
+                if old_file:
+                    try: old_file.delete(save=False)
+                    except Exception: pass
+                instance.government_id = None
+                update_fields.append('government_id')
+            else:
+                if old_file and _fname(old_file) and _fname(old_file) != _fname(new_file):
+                    try: old_file.delete(save=False)
+                    except Exception: pass
+                instance.government_id = new_file
+                update_fields.append('government_id')
+
+        # secondary file
+        if 'identity_secondary_file' in vdata:
+            new_sec = vdata.get('identity_secondary_file')
+            old_sec = getattr(instance, 'identity_secondary_file', None)
+            sec_changed = (_fname(new_sec) != _fname(old_sec)) or sec_changed
+            if new_sec is None:
+                if old_sec:
+                    try: old_sec.delete(save=False)
+                    except Exception: pass
+                instance.identity_secondary_file = None
+                update_fields.append('identity_secondary_file')
+            else:
+                if old_sec and _fname(old_sec) and _fname(old_sec) != _fname(new_sec):
+                    try: old_sec.delete(save=False)
+                    except Exception: pass
+                instance.identity_secondary_file = new_sec
+                update_fields.append('identity_secondary_file')
+
+        # meta normalization
+        if 'identity_meta' in vdata:
+            incoming = vdata.get('identity_meta') or {}
+            meta = dict(incoming)
+            doc_type = getattr(instance, 'government_id_type')
+
+            if doc_type == 'DRIVER_LICENSE':
+                meta = {k: v for k, v in meta.items() if k in {'state','expiry'}}
+            elif doc_type == 'VISA':
+                meta = {k: v for k, v in meta.items() if k in {'visa_type_number','valid_to','passport_country','passport_expiry'}}
+            elif doc_type == 'AUS_PASSPORT':
+                meta = {k: v for k, v in meta.items() if k in {'expiry'}}
+                meta['country'] = 'Australia'
+            elif doc_type == 'OTHER_PASSPORT':
+                meta = {k: v for k, v in meta.items() if k in {'country','expiry','visa_type_number','valid_to'}}
+            elif doc_type == 'AGE_PROOF':
+                meta = {k: v for k, v in meta.items() if k in {'state','expiry'}}
+
+            if meta != (instance.identity_meta or {}):
+                instance.identity_meta = meta
+                update_fields.append('identity_meta')
+                meta_changed = True
+
+        # reset verification
+        if gov_id_changed or sec_changed or type_changed or meta_changed:
+            instance.gov_id_verified = False
+            instance.gov_id_verification_note = ""
+            update_fields += ['gov_id_verified','gov_id_verification_note']
+
+        if submit:
+            instance.verified = False
+            update_fields.append('verified')
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+
+        # validate + schedule on submit
+        if submit:
+            errors = {}
+            doc_type = getattr(instance, 'government_id_type')
+            meta_now = getattr(instance, 'identity_meta') or {}
+
+            if not doc_type:
+                errors['government_id_type'] = ['Select a document type.']
+            if not getattr(instance, 'government_id', None):
+                errors['government_id'] = ['This file is required.']
+
+            if doc_type == 'DRIVER_LICENSE':
+                if not meta_now.get('state'):  errors['identity_meta.state'] = ['Required.']
+                if not meta_now.get('expiry'): errors['identity_meta.expiry'] = ['Required.']
+            elif doc_type == 'VISA':
+                if not meta_now.get('visa_type_number'):  errors['identity_meta.visa_type_number'] = ['Required.']
+                if not meta_now.get('valid_to'):         errors['identity_meta.valid_to'] = ['Required.']
+                if not getattr(instance, 'identity_secondary_file', None):
+                    errors['identity_secondary_file'] = ['Overseas passport file is required with a Visa.']
+                if not meta_now.get('passport_country'): errors['identity_meta.passport_country'] = ['Required.']
+                if not meta_now.get('passport_expiry'):  errors['identity_meta.passport_expiry'] = ['Required.']
+            elif doc_type == 'AUS_PASSPORT':
+                if not meta_now.get('expiry'): errors['identity_meta.expiry'] = ['Required.']
+            elif doc_type == 'OTHER_PASSPORT':
+                if not meta_now.get('country'): errors['identity_meta.country'] = ['Required.']
+                if not meta_now.get('expiry'):  errors['identity_meta.expiry'] = ['Required.']
+                if not getattr(instance, 'identity_secondary_file', None):
+                    errors['identity_secondary_file'] = ['Visa file is required with an Overseas passport.']
+                if not meta_now.get('visa_type_number'): errors['identity_meta.visa_type_number'] = ['Required.']
+                if not meta_now.get('valid_to'):         errors['identity_meta.valid_to'] = ['Required.']
+            elif doc_type == 'AGE_PROOF':
+                if not meta_now.get('state'):  errors['identity_meta.state'] = ['Required.']
+                if not meta_now.get('expiry'): errors['identity_meta.expiry'] = ['Required.']
+
+            if errors:
+                raise serializers.ValidationError(errors)
+
+            # schedule verification task
+            if instance.government_id and (gov_id_changed or type_changed or meta_changed or not instance.gov_id_verified):
+                from django_q.tasks import async_task
+                async_task(
+                    'client_profile.tasks.verify_filefield_task',
+                    instance._meta.model_name, instance.pk,
+                    'government_id',
+                    instance.user.first_name or '',
+                    instance.user.last_name or '',
+                    instance.user.email or '',
+                    verification_field='gov_id_verified',
+                    note_field='gov_id_verification_note',
+                )
+        return instance
+
+    # ---------------- Interests TAB ----------------
+    def _interests_tab(self, instance: ExplorerOnboarding, vdata: dict, submit: bool):
+        """
+        Accepts list or JSON string.
+        Allowed (suggested) values: SHADOWING, VOLUNTEERING, PLACEMENT, JUNIOR_ASSISTANT
+        """
+        raw = self.initial_data.get('interests', vdata.get('interests'))
+        if raw is None:
+            return instance
+
+        if isinstance(raw, str):
+            try:
+                vals = json.loads(raw)
+            except Exception:
+                raise serializers.ValidationError({"interests": "Must be a JSON array or list."})
+        else:
+            vals = list(raw or [])
+
+        instance.interests = vals
+        if submit:
+            instance.verified = False
+            instance.save(update_fields=['interests','verified'])
+        else:
+            instance.save(update_fields=['interests'])
+        return instance
+
+    # ---------------- Referees TAB ----------------
+    def _referees_tab(self, instance: ExplorerOnboarding, vdata: dict, submit: bool):
+        from .utils import send_referee_emails
+        update_fields = []
+
+        def apply_ref(idx: int):
+            prefix = f"referee{idx}_"
+            locked = bool(getattr(instance, f"{prefix}confirmed", False))
+            incoming = {
+                'name': vdata.get(f"{prefix}name", getattr(instance, f"{prefix}name")),
+                'relation': vdata.get(f"{prefix}relation", getattr(instance, f"{prefix}relation")),
+                'email': clean_email(vdata.get(f"{prefix}email", getattr(instance, f"{prefix}email"))),
+                'workplace': vdata.get(f"{prefix}workplace", getattr(instance, f"{prefix}workplace")),
+            }
+            if locked:
+                return
+            changed = False
+            for key in ['name','relation','email','workplace']:
+                field = f"{prefix}{key}"
+                if field in vdata and getattr(instance, field) != incoming[key]:
+                    setattr(instance, field, incoming[key])
+                    update_fields.append(field)
+                    changed = True
+            if changed:
+                for flag in ['confirmed','rejected']:
+                    f = f"{prefix}{flag}"
+                    if getattr(instance, f, False):
+                        setattr(instance, f, False)
+                        update_fields.append(f)
+                last = f"{prefix}last_sent"
+                if getattr(instance, last, None) is not None:
+                    setattr(instance, last, None)
+                    update_fields.append(last)
+
+        apply_ref(1)
+        apply_ref(2)
+
+        if submit:
+            errors = {}
+            for idx in [1,2]:
+                prefix = f"referee{idx}_"
+                if not getattr(instance, f"{prefix}name"):       errors[prefix+'name'] = ['Required.']
+                if not getattr(instance, f"{prefix}relation"):   errors[prefix+'relation'] = ['Required.']
+                if not getattr(instance, f"{prefix}email"):      errors[prefix+'email'] = ['Required.']
+                if not getattr(instance, f"{prefix}workplace"):  errors[prefix+'workplace'] = ['Required.']
+            if errors:
+                raise serializers.ValidationError(errors)
+            if not instance.verified:
+                instance.verified = False
+                update_fields.append('verified')
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+
+        if submit:
+            send_referee_emails(instance, is_reminder=False)
+        return instance
+
+    # ---------------- Profile TAB ----------------
+    def _profile_tab(self, instance: ExplorerOnboarding, vdata: dict, submit: bool):
+        update_fields = []
+        if 'short_bio' in vdata:
+            instance.short_bio = vdata['short_bio']
+            update_fields.append('short_bio')
+
+        if 'resume' in vdata:
+            new_file = vdata['resume']
+            old_file = getattr(instance, 'resume', None)
+            if new_file is None:
+                if old_file:
+                    old_file.delete(save=False)
+                instance.resume = None
+                update_fields.append('resume')
+            else:
+                if old_file:
+                    try:
+                        if getattr(old_file, 'name', None) != getattr(new_file, 'name', None):
+                            old_file.delete(save=False)
+                    except Exception:
+                        pass
+                instance.resume = new_file
+                update_fields.append('resume')
+
         if submit:
             instance.verified = False
             update_fields.append('verified')

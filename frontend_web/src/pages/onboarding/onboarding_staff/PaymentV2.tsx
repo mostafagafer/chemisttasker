@@ -8,8 +8,8 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 
-import apiClient from '../../utils/apiClient';
-import { API_ENDPOINTS } from '../../constants/api';
+import apiClient from '../../../utils/apiClient';
+import { API_ENDPOINTS } from '../../../constants/api';
 
 type ApiData = {
   // server basics
@@ -57,7 +57,7 @@ const onlyDigits = (s: string) => (s || '').replace(/\D/g, '');
 
 
 export default function PaymentV2() {
-  const url = API_ENDPOINTS.onboardingV2Detail('pharmacist');
+  const url = API_ENDPOINTS.onboardingV2Detail('otherstaff');
 
   const [data, setData] = React.useState<ApiData>({});
   const [loading, setLoading] = React.useState(true);

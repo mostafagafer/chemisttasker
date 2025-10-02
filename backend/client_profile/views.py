@@ -398,6 +398,29 @@ class PharmacistOnboardingV2MeView(generics.RetrieveUpdateAPIView):
         obj, _ = PharmacistOnboarding.objects.get_or_create(user=self.request.user)
         return obj
 
+class OtherStaffOnboardingV2MeView(generics.RetrieveUpdateAPIView):
+    """
+    V2 tabbed flow for OtherStaff.
+    Mirrors PharmacistOnboardingV2MeView but for OTHER_STAFF role.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsOtherstaff, IsOTPVerified]
+    serializer_class = OtherStaffOnboardingV2Serializer
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+
+    def get_object(self):
+        obj, _ = OtherStaffOnboarding.objects.get_or_create(user=self.request.user)
+        return obj
+
+class ExplorerOnboardingV2MeView(generics.RetrieveUpdateAPIView):
+    permission_classes = [permissions.IsAuthenticated, IsExplorer, IsOTPVerified]
+    serializer_class = ExplorerOnboardingV2Serializer
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+
+    def get_object(self):
+        obj, _ = ExplorerOnboarding.objects.get_or_create(user=self.request.user)
+        return obj
+
+
 
 
 # Dashboards
@@ -1732,7 +1755,7 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         except PharmacistOnboarding.DoesNotExist:
             os = OtherStaffOnboarding.objects.get(user=candidate)
             profile_data = {
-                'phone_number': os.phone_number,
+                'phone_number': candidate.mobile_number,
                 'short_bio': os.short_bio,
                 'resume': request.build_absolute_uri(os.resume.url) if os.resume else None,
             }
@@ -2399,7 +2422,7 @@ class ConfirmedShiftViewSet(BaseShiftViewSet):
             try:
                 os = OtherStaffOnboarding.objects.get(user=candidate)
                 profile_data = {
-                    'phone_number': os.phone_number,
+                    'phone_number': candidate.mobile_number,
                     'short_bio': os.short_bio,
                     'resume': request.build_absolute_uri(os.resume.url) if os.resume else None,
                 }
@@ -2504,7 +2527,7 @@ class HistoryShiftViewSet(BaseShiftViewSet):
             try:
                 os = OtherStaffOnboarding.objects.get(user=candidate)
                 profile_data = {
-                    'phone_number': os.phone_number,
+                    'phone_number': candidate.mobile_number,
                     'short_bio': os.short_bio,
                     'resume': request.build_absolute_uri(os.resume.url) if os.resume else None,
                 }

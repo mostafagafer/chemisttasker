@@ -13,8 +13,8 @@ import {
   CircularProgress,
   Stack,
 } from '@mui/material';
-import apiClient from '../../utils/apiClient';
-import { API_ENDPOINTS } from '../../constants/api';
+import apiClient from '../../../utils/apiClient';
+import { API_ENDPOINTS } from '../../../constants/api';
 
 type RatePref = {
   weekday: string;

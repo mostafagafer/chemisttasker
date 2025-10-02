@@ -84,8 +84,6 @@ class OtherStaffOnboardingAdmin(admin.ModelAdmin):
             'university_id_verified',
             'cpr_certificate_verified',
             's8_certificate_verified',
-            'gst_file_verified',
-            'tfn_declaration_verified',
             'abn_verified',
 
     ]

@@ -28,7 +28,7 @@ function useOnboardingProgress(user: any) {
           : role.toLowerCase();
 
       apiClient
-        .get(`/client-profile/${key}/onboarding/me/`)
+        .get(`/client-profile/${key}/onboarding-v2/me/`)
         .then((res) => {
           if (isMounted) setProgress(res.data.progress_percent ?? 0);
         })

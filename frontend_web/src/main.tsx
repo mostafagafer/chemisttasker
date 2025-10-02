@@ -328,7 +328,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <OverviewPageStaff /> },
           { path: 'overview', element: <OverviewPageStaff /> },
-          { path: 'onboarding', element: <ExplorerOnboarding /> },
+          // { path: 'onboarding', element: <ExplorerOnboarding /> },
           { path: 'onboarding-v2', element: <ExplorerOnboardingV2Layout  /> },
           { path: 'chat', element: <ChatPage /> },
           {

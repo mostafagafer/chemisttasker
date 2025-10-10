@@ -145,19 +145,19 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
     // -- Profile Section --
     { kind: 'header' as const, title: 'Profile and Availability' },
     { segment: 'dashboard/otherstaff/overview', title: 'Overview', icon: <DashboardIcon /> },
-    {
-      segment: 'dashboard/otherstaff/onboarding',
-      title: 'Profile',
-      icon: <ManageAccountsSharpIcon />,
-      action: (
-        <Chip
-          size="small"
-          label={`${progress_percent}%`}
-          color={progress_percent === 100 ? "success" : "default"}
-          sx={{ ml: 0.5, fontWeight: 700 }}
-        />
-      ),
-    },
+    // {
+    //   segment: 'dashboard/otherstaff/onboarding',
+    //   title: 'Profile',
+    //   icon: <ManageAccountsSharpIcon />,
+    //   action: (
+    //     <Chip
+    //       size="small"
+    //       label={`${progress_percent}%`}
+    //       color={progress_percent === 100 ? "success" : "default"}
+    //       sx={{ ml: 0.5, fontWeight: 700 }}
+    //     />
+    //   ),
+    // },
       {
       segment: 'dashboard/otherstaff/onboarding-v2',
       title: 'Profile',

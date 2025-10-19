@@ -1,5 +1,4 @@
-# client_profile/serializers.py
-# now mostafagafer made updates
+# This updates by Smsm
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field, OpenApiTypes
 from .models import *

@@ -31,6 +31,7 @@ import { useTheme } from "@mui/material/styles";
 import apiClient from "../../../../utils/apiClient";
 import { API_BASE_URL, API_ENDPOINTS } from "../../../../constants/api";
 import { MembershipDTO, Role, WorkType, coerceRole, coerceWorkType, surface } from "./types";
+import MembershipApplicationsPanel from "./MembershipApplicationsPanel";
 
 const LOCUM_WORK_TYPES = ["LOCUM", "SHIFT_HERO"] as const;
 
@@ -411,7 +412,23 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
         open={Boolean(toast)}
         autoHideDuration={4000}
         onClose={() => setToast(null)}
-        message={toast?.message}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        {toast ? (
+          <Alert severity={toast.severity} onClose={() => setToast(null)} sx={{ width: "100%" }}>
+            {toast.message}
+          </Alert>
+        ) : null}
+      </Snackbar>
+
+      <MembershipApplicationsPanel
+        pharmacyId={pharmacyId}
+        category="LOCUM_CASUAL"
+        title="Pending Favourite Applications"
+        allowedEmploymentTypes={Array.from(LOCUM_WORK_TYPES)}
+        defaultEmploymentType="LOCUM"
+        onApproved={onMembershipsChanged}
+        onNotification={(message, severity) => setToast({ message, severity })}
       />
     </Box>
   );

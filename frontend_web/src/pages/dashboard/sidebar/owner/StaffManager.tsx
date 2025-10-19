@@ -31,6 +31,7 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { useTheme } from "@mui/material/styles";
 import apiClient from "../../../../utils/apiClient";
 import { API_BASE_URL, API_ENDPOINTS } from "../../../../constants/api";
+import MembershipApplicationsPanel from "./MembershipApplicationsPanel";
 
 const EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "CASUAL"] as const;
 
@@ -366,7 +367,23 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
         open={Boolean(toast)}
         autoHideDuration={4000}
         onClose={() => setToast(null)}
-        message={toast?.message}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        {toast ? (
+          <Alert severity={toast.severity} onClose={() => setToast(null)} sx={{ width: "100%" }}>
+            {toast.message}
+          </Alert>
+        ) : null}
+      </Snackbar>
+
+      <MembershipApplicationsPanel
+        pharmacyId={pharmacyId}
+        category="FULL_PART_TIME"
+        title="Pending Staff Applications"
+        allowedEmploymentTypes={Array.from(EMPLOYMENT_TYPES)}
+        defaultEmploymentType="CASUAL"
+        onApproved={onMembershipsChanged}
+        onNotification={(message, severity) => setToast({ message, severity })}
       />
 
       <Dialog open={linkOpen} onClose={() => setLinkOpen(false)} fullWidth maxWidth="sm">

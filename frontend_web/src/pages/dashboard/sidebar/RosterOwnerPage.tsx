@@ -24,8 +24,12 @@ import {
   Checkbox,
   OutlinedInput,
   Paper,
-  Chip
+  Chip,
+  Snackbar,
+  IconButton,
 } from '@mui/material';
+
+import { Close as CloseIcon } from '@mui/icons-material';
 
 // Calendar Imports
 import { Calendar, momentLocalizer } from 'react-big-calendar';
@@ -145,6 +149,14 @@ export default function RosterOwnerPage() {
   const [isLeaveManageDialogOpen, setIsLeaveManageDialogOpen] = useState(false); // New dialog state
   
   const [roleFilters, setRoleFilters] = useState<string[]>([ALL_STAFF]);
+  // --- Snackbar ---
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMsg, setSnackbarMsg] = useState('');
+  const showSnackbar = (msg: string) => {
+    setSnackbarMsg(msg);
+    setSnackbarOpen(true);
+  };
+  const closeSnackbar = () => setSnackbarOpen(false);
 
   // --- DATA LOADING ---
   useEffect(() => {
@@ -225,7 +237,7 @@ export default function RosterOwnerPage() {
 
   const handleCreateShiftAndAssign = async () => {
     if (!selectedPharmacyId || !newShiftRoleNeeded || !dialogShiftDate || !dialogShiftStartTime || !dialogShiftEndTime || !selectedUserForAssignment) {
-      alert("Please ensure all fields are selected."); return;
+      showSnackbar("Please ensure all fields are selected."); return;
     }
     setIsCreatingShift(true);
     try {
@@ -237,11 +249,11 @@ export default function RosterOwnerPage() {
         end_time: dialogShiftEndTime,
         user_id: selectedUserForAssignment,
       });
-      alert("Shift created and assigned successfully!");
+      showSnackbar("Shift created and assigned successfully!");
       setIsAddAssignmentDialogOpen(false);
       reloadAssignments();
     } catch (err: any) { 
-        alert(`Failed to create shift: ${err.response?.data?.detail || err.message}`); 
+        showSnackbar(`Failed to create shift: ${err.response?.data?.detail || err.message}`); 
     } finally {
         setIsCreatingShift(false);
     }
@@ -254,9 +266,9 @@ export default function RosterOwnerPage() {
     try {
       await apiClient.delete(API_ENDPOINTS.rosterDeleteAssignment(selectedAssignment.id));
       setAssignments(prev => prev.filter(a => a.id !== selectedAssignment.id));
-      alert("Assignment removed successfully.");
+      showSnackbar("Assignment removed successfully.");
       setIsOptionsDialogOpen(false);
-    } catch (err: any) { alert(`Error: ${err.response?.data?.detail || err.message}`); }
+    } catch (err: any) { showSnackbar(`Error: ${err.response?.data?.detail || err.message}`); }
     finally { setIsActionLoading(false); }
   };
 
@@ -272,16 +284,16 @@ export default function RosterOwnerPage() {
     }
     try {
       await apiClient.patch(API_ENDPOINTS.rosterManageShift(shiftToEdit.id), payload);
-      alert("Shift updated successfully!");
+      showSnackbar("Shift updated successfully!");
       setIsEditDialogOpen(false);
       reloadAssignments();
-    } catch (err: any) { alert(`Error updating shift: ${err.response?.data?.detail || err.message}`); }
+    } catch (err: any) { showSnackbar(`Error updating shift: ${err.response?.data?.detail || err.message}`); }
     finally { setIsActionLoading(false); }
   };
 
   const handleConfirmEscalation = async () => {
     if (!selectedAssignment || !escalationLevel) {
-        alert("Please select an escalation level.");
+        showSnackbar("Please select an escalation level.");
         return;
     };
     setIsActionLoading(true);
@@ -289,10 +301,10 @@ export default function RosterOwnerPage() {
       await apiClient.patch(API_ENDPOINTS.rosterManageShift(selectedAssignment.shift), {
         visibility: escalationLevel
       });
-      alert(`Shift escalated to ${escalationLevel.replace(/_/g, ' ')} and unassigned.`);
+      showSnackbar(`Shift escalated to ${escalationLevel.replace(/_/g, ' ')} and unassigned.`);
       setIsEscalateDialogOpen(false);
       reloadAssignments(); 
-    } catch (err: any) { alert(`Error escalating shift: ${err.response?.data?.detail || err.message}`); }
+    } catch (err: any) { showSnackbar(`Error escalating shift: ${err.response?.data?.detail || err.message}`); }
     finally { setIsActionLoading(false); }
   };
 
@@ -302,11 +314,11 @@ export default function RosterOwnerPage() {
     setIsActionLoading(true);
     try {
         await apiClient.post(API_ENDPOINTS.approveLeaveRequest(selectedAssignment.leave_request.id));
-        alert("Leave request has been approved.");
+        showSnackbar("Leave request has been approved.");
         setIsLeaveManageDialogOpen(false);
         reloadAssignments();
     } catch (err: any) {
-        alert(`Failed to approve leave: ${err.response?.data?.detail || err.message}`);
+        showSnackbar(`Failed to approve leave: ${err.response?.data?.detail || err.message}`);
     } finally {
         setIsActionLoading(false);
     }
@@ -317,11 +329,11 @@ export default function RosterOwnerPage() {
       setIsActionLoading(true);
       try {
           await apiClient.post(API_ENDPOINTS.rejectLeaveRequest(selectedAssignment.leave_request.id));
-          alert("Leave request has been rejected.");
+          showSnackbar("Leave request has been rejected.");
           setIsLeaveManageDialogOpen(false);
           reloadAssignments();
       } catch (err: any) {
-          alert(`Failed to reject leave: ${err.response?.data?.detail || err.message}`);
+          showSnackbar(`Failed to reject leave: ${err.response?.data?.detail || err.message}`);
       } finally {
           setIsActionLoading(false);
       }
@@ -652,6 +664,20 @@ export default function RosterOwnerPage() {
               </Button>
           </DialogActions>
       </Dialog>
+
+            <Snackbar
+              open={snackbarOpen}
+              onClose={closeSnackbar}
+              message={snackbarMsg}
+              autoHideDuration={4000}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+              action={
+                <IconButton size="small" color="inherit" onClick={closeSnackbar}>
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              }
+            />
+      
     </Container>
   );
 }

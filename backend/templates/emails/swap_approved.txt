@@ -1,0 +1,11 @@
+Hi {{ requested_by }},
+
+Your cover request for {{ pharmacy_name }} on {{ shift_date }} has been APPROVED.
+
+{% if approved_to %}
+The shift has been reassigned to {{ approved_to }}.
+{% endif %}
+
+You can view your roster here: {{ shift_link }}
+
+— The ChemistTasker Team

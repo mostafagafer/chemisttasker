@@ -49,34 +49,26 @@ def build_shift_email_context(shift, user=None, extra=None, role=None, shift_typ
         ctx.update(extra)
     return ctx
 
-def build_roster_email_link(user, pharmacy=None):
-    """
-    Build the correct frontend roster URL for the email button,
-    using org-admin/role logic (matches build_shift_email_context).
-    """
-    frontend_url = getattr(settings, "FRONTEND_BASE_URL", "http://localhost:3000")
-    roster_link = ""
+def build_roster_email_link(user, pharmacy):
+    base = f"{settings.FRONTEND_BASE_URL}/dashboard"
+    if not user or not pharmacy:
+        return base
 
-    if user:
-        # Org admin check via memberships (most specific, matches shift email context)
-        if hasattr(user, 'organization_memberships') and user.organization_memberships.filter(role='ORG_ADMIN').exists():
-            roster_link = f"{frontend_url}/dashboard/organization/manage-pharmacies/roster"
-        elif user.role == 'OWNER':
-            roster_link = f"{frontend_url}/dashboard/owner/manage-pharmacies/roster"
-        elif user.role == 'PHARMACIST':
-            roster_link = f"{frontend_url}/dashboard/pharmacist/shifts/roster"
-        elif user.role == 'OTHER_STAFF':
-            roster_link = f"{frontend_url}/dashboard/otherstaff/shifts/roster"
-        elif user.role == 'EXPLORER':
-            roster_link = f"{frontend_url}/dashboard/explorer/roster"
-        else:
-            frontend_role = getattr(user, 'role', 'owner').lower()
-            roster_link = f"{frontend_url}/dashboard/{frontend_role}/roster"
-    else:
-        roster_link = f"{frontend_url}/dashboard/owner/manage-pharmacies/roster"
+    # fallback: infer role if user is owner of this pharmacy
+    if getattr(pharmacy, "owner", None) and getattr(pharmacy.owner, "user", None) == user:
+        return f"{base}/owner/manage-pharmacies/roster"
 
-    # If you ever want to add a pharmacy param: .../roster?pharmacy={pharmacy.id}
-    return roster_link
+    # role-based routing
+    if user.role == "PHARMACIST":
+        return f"{base}/pharmacist/shifts/roster"
+    if user.role == "OWNER":
+        return f"{base}/owner/manage-pharmacies/roster"
+    if user.role == "ORG_ADMIN":
+        return f"{base}/org-admin/manage-pharmacies/roster"
+    if user.role == "PHARMACY_ADMIN":
+        return f"{base}/owner/manage-pharmacies/roster"
+
+    return f"{base}/explorer/roster"
 
 def clean_email(email):
     """Remove hidden unicode chars and spaces from email."""

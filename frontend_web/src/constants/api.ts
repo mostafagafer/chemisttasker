@@ -130,6 +130,11 @@ export const API_ENDPOINTS = {
   approveLeaveRequest: (leaveId: number) => `/client-profile/leave-requests/${leaveId}/approve/`,
   rejectLeaveRequest: (leaveId: number) => `/client-profile/leave-requests/${leaveId}/reject/`,
 
+  // Swap Requests
+  workerShiftRequests: '/client-profile/worker-shift-requests/',
+  approveWorkerShiftRequest: (id: number) =>`/client-profile/worker-shift-requests/${id}/approve/`,
+  rejectWorkerShiftRequest: (id: number) =>`/client-profile/worker-shift-requests/${id}/reject/`,
+
   // NEW: Endpoints for managing a SHIFT from the roster view
   rosterManageShift: (shiftId: number) => `/client-profile/roster/manage-shifts/${shiftId}/`, // For EDIT (PATCH) and DELETE
   rosterEscalateShift: (shiftId: number) => `/client-profile/roster/manage-shifts/${shiftId}/escalate/`, // For ESCALATE (POST)

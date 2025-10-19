@@ -21,7 +21,22 @@ def send_async_email(subject,
     logger.info("Recipient List: %s", recipient_list)
     logger.info("Template Name: %s", template_name)
     logger.info("Text Template: %s", text_template)
-    logger.info("Context: %s", context)
+
+
+    def _redact_sensitive_values(data):
+        if isinstance(data, dict):
+            redacted = {}
+            for key, value in data.items():
+                if isinstance(key, str) and any(token in key.lower() for token in ["otp", "code", "token", "password"]):
+                    redacted[key] = "[REDACTED]"
+                else:
+                    redacted[key] = _redact_sensitive_values(value)
+            return redacted
+        if isinstance(data, list):
+            return [_redact_sensitive_values(item) for item in data]
+        return data
+
+    logger.debug("Context: %s", _redact_sensitive_values(context))
 
     from_email = from_email or settings.DEFAULT_FROM_EMAIL
 

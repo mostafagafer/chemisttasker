@@ -33,6 +33,7 @@ interface Pharmacy {
   sundays_end: string | null; public_holidays_start: string | null; public_holidays_end: string | null;
   default_rate_type: 'FIXED' | 'FLEXIBLE' | 'PHARMACIST_PROVIDED' | null; default_fixed_rate: string | null;
   about: string;
+  auto_publish_worker_requests?: boolean;
 }
 interface MemberInvite { email: string; invited_name: string; role: string; employment_type: string; pharmacist_award_level: string; otherstaff_classification_level: string; intern_half: string; student_year: string; }
 
@@ -171,6 +172,7 @@ export default function PharmacyPage() {
   const [defaultRateType, setDefaultRateType] = useState<string>('');
   const [defaultFixedRate, setDefaultFixedRate] = useState<string>('');
   const [about, setAbout] = useState('');
+  const [autoPublishWorkerRequests, setAutoPublishWorkerRequests] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackMsg, setSnackMsg] = useState('');
   const [error, setError] = useState('');
@@ -288,12 +290,14 @@ useEffect(() => {
       setSundaysStart(p.sundays_start || ''); setSundaysEnd(p.sundays_end || ''); setPublicHolidaysStart(p.public_holidays_start || '');
       setPublicHolidaysEnd(p.public_holidays_end || ''); setDefaultRateType(p.default_rate_type || ''); setDefaultFixedRate(p.default_fixed_rate || '');
       setAbout(p.about || '');
+      setAutoPublishWorkerRequests(Boolean(p.auto_publish_worker_requests));
     } else {
       setEditing(null); setName(''); setStreetAddress(''); setSuburb(''); setPostcode(''); setGooglePlaceId(''); setLatitude(null);
       setLongitude(null); setAbn(''); setState(''); setExistingApprovalCert(null); setExistingSops(null);
       setExistingInductionGuides(null); setExistingSumpDocs(null); setEmploymentTypes([]); setRolesNeeded([]); setWeekdaysStart('');
       setWeekdaysEnd(''); setSaturdaysStart(''); setSaturdaysEnd(''); setSundaysStart(''); setSundaysEnd(''); setPublicHolidaysStart('');
-      setPublicHolidaysEnd(''); setDefaultRateType(''); setDefaultFixedRate(''); setAbout('');
+      setPublicHolidaysEnd(''); setDefaultRateType(''); setDefaultFixedRate(''); setAbout('');setAutoPublishWorkerRequests(false);
+
     }
     setTabIndex(0); setDialogOpen(true);
   };
@@ -364,6 +368,8 @@ const handlePlaceChanged = () => {
     fd.append('default_rate_type', defaultRateType);
     if (defaultRateType === 'FIXED') fd.append('default_fixed_rate', defaultFixedRate);
     fd.append('about', about);
+    fd.append('auto_publish_worker_requests', String(autoPublishWorkerRequests));
+
 const orgMem = Array.isArray(user?.memberships)
   ? user.memberships.find(
       (m): m is OrgMembership =>
@@ -580,6 +586,16 @@ const rejectApplication = async (appId: number, pharmacyId: string) => {
               )}
 
                 <TextField label="Pharmacy Name" fullWidth margin="normal" value={name} onChange={e => setName(e.target.value)} />
+
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={autoPublishWorkerRequests}
+                      onChange={e => setAutoPublishWorkerRequests(e.target.checked)}
+                    />
+                  }
+                  label="Automatically publish worker shift requests"
+                />
 
             </Box>
           )}

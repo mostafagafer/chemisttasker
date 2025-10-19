@@ -3334,6 +3334,237 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         return Response({'status': 'rejected'})
 
 
+class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
+    """
+    Shift Cover Requests:
+    - Workers submit a cover request for an assigned or empty time slot.
+    - Owners / Org Admins / Pharmacy Admins receive the request email.
+    - Approve/Reject sends a role-aware link to the worker (their dashboard).
+    """
+    queryset = WorkerShiftRequest.objects.all().select_related("pharmacy", "requested_by")
+    serializer_class = WorkerShiftRequestSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    # ---------------------------
+    # VISIBILITY / LISTING
+    # ---------------------------
+    def get_queryset(self):
+        user = self.request.user
+
+        # Workers: only their own requests
+        if getattr(user, "role", None) in ["PHARMACIST", "OTHER_STAFF", "EXPLORER"]:
+            return self.queryset.filter(requested_by=user)
+
+        # Owners / Org Admins / Pharmacy Admins: all requests for pharmacies they control
+        # (mirror your other viewsets)
+        controlled = Pharmacy.objects.none()
+
+        # Owner’s own pharmacies
+        if hasattr(user, "owneronboarding"):
+            controlled |= Pharmacy.objects.filter(owner=user.owneronboarding)
+
+        # Org-admin pharmacies (direct or claimed)
+        org_mem = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').first()
+        if org_mem:
+            controlled |= Pharmacy.objects.filter(
+                Q(organization=org_mem.organization) |
+                Q(owner__organization=org_mem.organization)
+            )
+
+        # Pharmacy Admin pharmacies
+        admin_pharms = Pharmacy.objects.filter(
+            memberships__user=user,
+            memberships__role='PHARMACY_ADMIN',
+            memberships__is_active=True
+        )
+        controlled |= admin_pharms
+
+        return self.queryset.filter(pharmacy__in=controlled).distinct()
+
+    # ---------------------------
+    # CREATE (Worker submits)
+    # ---------------------------
+    def perform_create(self, serializer):
+        """
+        Send emails exactly like your LeaveRequest pattern, but:
+        - personalize each email with the recipient's name (owner_name)
+        - build the shift_link using that recipient (role-aware)
+        """
+        req = serializer.save(requested_by=self.request.user)
+        pharmacy = req.pharmacy
+
+        # Collect recipients (same schema you use elsewhere)
+        recipients = []
+
+        # Pharmacy Admins of this pharmacy
+        pharmacy_admins = Membership.objects.filter(
+            pharmacy=pharmacy,
+            role='PHARMACY_ADMIN',
+            is_active=True
+        ).select_related('user')
+
+        # Org Admins if the owner is org-claimed
+        org_admins = []
+        if hasattr(pharmacy, "owner") and getattr(pharmacy.owner, "organization_claimed", False):
+            org_admins = OrganizationMembership.objects.filter(
+                role='ORG_ADMIN',
+                organization_id=pharmacy.organization_id
+            ).select_related('user')
+
+        # Owner user
+        owner_user = getattr(pharmacy.owner, "user", None) if hasattr(pharmacy, "owner") and pharmacy.owner else None
+
+        # Build unique recipient user list
+        for admin_mem in pharmacy_admins:
+            if admin_mem.user and admin_mem.user.email:
+                recipients.append(admin_mem.user)
+
+        for admin in org_admins:
+            if admin.user and admin.user.email:
+                recipients.append(admin.user)
+
+        if owner_user and owner_user.email:
+            recipients.append(owner_user)
+
+        # Deduplicate by email
+        seen = set()
+        unique_recipients = []
+        for u in recipients:
+            if u.email not in seen:
+                seen.add(u.email)
+                unique_recipients.append(u)
+
+        # Send ONE email per recipient so the greeting and link are correct
+        worker_name = req.requested_by.get_full_name() or req.requested_by.email
+        for recipient in unique_recipients:
+            ctx = {
+                # template expects 'owner_name' in the greeting; we pass the actual recipient's name
+                "owner_name": recipient.get_full_name() or recipient.email,
+                # request details
+                "requested_by": worker_name,                 # templates use this
+                "worker_name": worker_name,                  # keep both keys for safety
+                "worker_email": req.requested_by.email,
+                "note": req.note or "",
+                "shift_date": req.slot_date,
+                "pharmacy_name": pharmacy.name,
+                "shift_link": build_roster_email_link(recipient, pharmacy),
+            }
+
+            async_task(
+                'users.tasks.send_async_email',
+                subject=f"Shift cover request from {worker_name} for {pharmacy.name}",
+                recipient_list=[recipient.email],
+                template_name="emails/swap_requested.html",
+                context=ctx,
+                text_template="emails/swap_requested.txt",
+            )
+
+    # ---------------------------
+    # APPROVE (Admin action)
+    # ---------------------------
+    @action(detail=True, methods=["post"], url_path="approve")
+    def approve(self, request, pk=None):
+        req = self.get_object()
+
+        # Permission: same people who got the request may decide
+        self._assert_decider_permissions(req)
+
+        if req.status != "PENDING":
+            return Response({"detail": f"Already {req.status.lower()}."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Business state only; do NOT create invalid ShiftSlotAssignment here.
+        # The owner/admin will roster or escalate as per your existing flows.
+        req.status = "APPROVED"
+        req.resolved_at = timezone.now()
+        req.resolved_by = request.user
+        req.save(update_fields=["status", "resolved_at", "resolved_by"])
+
+        # Email the worker with their own, role-correct dashboard/roster link
+        ctx = {
+            "worker_name": req.requested_by.get_full_name() or req.requested_by.email,
+            "pharmacy_name": req.pharmacy.name,
+            "shift_date": req.slot_date,
+            "shift_link": build_roster_email_link(req.requested_by, req.pharmacy),
+        }
+        if req.requested_by.email:
+            async_task(
+                'users.tasks.send_async_email',
+                subject=f"Your shift cover request for {ctx['pharmacy_name']} was approved",
+                recipient_list=[req.requested_by.email],
+                template_name="emails/swap_approved.html",
+                context=ctx,
+                text_template="emails/swap_approved.txt",
+            )
+        return Response({'status': 'approved'})
+
+    # ---------------------------
+    # REJECT (Admin action)
+    # ---------------------------
+    @action(detail=True, methods=["post"], url_path="reject")
+    def reject(self, request, pk=None):
+        req = self.get_object()
+
+        # Permission: same people who got the request may decide
+        self._assert_decider_permissions(req)
+
+        if req.status != "PENDING":
+            return Response({"detail": f"Already {req.status.lower()}."}, status=status.HTTP_400_BAD_REQUEST)
+
+        req.status = "REJECTED"
+        req.resolved_at = timezone.now()
+        req.resolved_by = request.user
+        req.save(update_fields=["status", "resolved_at", "resolved_by"])
+
+        # Email the worker with their own, role-correct link
+        ctx = {
+            "worker_name": req.requested_by.get_full_name() or req.requested_by.email,
+            "pharmacy_name": req.pharmacy.name,
+            "shift_date": req.slot_date,
+            "shift_link": build_roster_email_link(req.requested_by, req.pharmacy),
+        }
+        if req.requested_by.email:
+            async_task(
+                'users.tasks.send_async_email',
+                subject=f"Your shift cover request for {ctx['pharmacy_name']} was rejected",
+                recipient_list=[req.requested_by.email],
+                template_name="emails/swap_rejected.html",
+                context=ctx,
+                text_template="emails/swap_rejected.txt",
+            )
+        return Response({'status': 'rejected'})
+
+    # ---------------------------
+    # PERMISSIONS (shared)
+    # ---------------------------
+    def _assert_decider_permissions(self, req):
+        """
+        Only: Owner of pharmacy, Org Admin of that org, or Pharmacy Admin of this pharmacy.
+        Matches your leave request approval permissions.
+        """
+        user = self.request.user
+        pharmacy = req.pharmacy
+
+        is_owner = hasattr(pharmacy, "owner") and pharmacy.owner and getattr(pharmacy.owner, "user", None) == user
+
+        is_claimed_admin = (
+            hasattr(pharmacy.owner, "organization_claimed")
+            and pharmacy.owner.organization_claimed
+            and OrganizationMembership.objects.filter(
+                user=user,
+                role='ORG_ADMIN',
+                organization_id=pharmacy.organization_id
+            ).exists()
+        )
+
+        is_pharm_admin = Membership.objects.filter(
+            user=user,
+            pharmacy=pharmacy,
+            role='PHARMACY_ADMIN',
+            is_active=True
+        ).exists()
+
+        if not (is_owner or is_claimed_admin or is_pharm_admin):
+            raise PermissionDenied("Not authorized to approve/reject this shift cover request.")
 
 # --- Mixin to enforce pharmacist or other_staff only ---
 class IsPharmacistOrOtherStaff(permissions.BasePermission):

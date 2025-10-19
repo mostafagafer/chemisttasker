@@ -554,7 +554,17 @@ class Pharmacy(models.Model):
 
     # verfications
     abn_verified = models.BooleanField(default=False, db_index=True)
-   
+
+
+    auto_publish_worker_requests = models.BooleanField(
+        default=False,
+        help_text=(
+            "If True, worker-initiated swap/cover requests will automatically "
+            "create and publish a new shift. "
+            "If False, the request must be approved by the owner or admin first."
+        ),
+    )
+
     class Meta:
         indexes = [
             models.Index(fields=['owner']),
@@ -963,12 +973,12 @@ class Shift(models.Model):
                 raise ValidationError('Rate fields are only allowed for Pharmacist shifts.')
 
 
-        def save(self, *args, **kwargs):
-            self.full_clean()
-            if not self.pk and self.role_needed == 'PHARMACIST':
-                self.rate_type = self.rate_type or self.pharmacy.default_rate_type
-                self.fixed_rate = self.fixed_rate or self.pharmacy.default_fixed_rate
-            super().save(*args, **kwargs)
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        if not self.pk and self.role_needed == 'PHARMACIST':
+            self.rate_type = self.rate_type or self.pharmacy.default_rate_type
+            self.fixed_rate = self.fixed_rate or self.pharmacy.default_fixed_rate
+        super().save(*args, **kwargs)
    
     class Meta:
         indexes = [
@@ -976,8 +986,6 @@ class Shift(models.Model):
             models.Index(fields=['created_by']),
         ]
 
-        def __str__(self):
-            return f"Shift at {self.pharmacy.name}"
 
 class ShiftSlot(models.Model):
     shift = models.ForeignKey(
@@ -1177,7 +1185,56 @@ class LeaveRequest(models.Model):
     def __str__(self):
         return f"{self.user} requests {self.leave_type} for {self.slot_assignment} ({self.status})"
 
+class WorkerShiftRequest(models.Model):
+    STATUS_CHOICES = [
+        ("PENDING", "Pending"),
+        ("APPROVED", "Approved"),
+        ("REJECTED", "Rejected"),
+        ("AUTO_PUBLISHED", "Auto Published"),
+    ]
 
+    pharmacy = models.ForeignKey(
+        "client_profile.Pharmacy",
+        on_delete=models.CASCADE,
+        related_name="worker_shift_requests",
+    )
+    # Match your codebase convention: use AUTH_USER_MODEL (resolves to users.User in your setup)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="worker_shift_requests",
+    )
+    # Optional link for true “swap” (when requesting on an already-defined/assigned slot)
+    shift = models.ForeignKey(
+        "client_profile.ShiftSlotAssignment",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="swap_requests",
+    )
+
+    role = models.CharField(max_length=100)
+    slot_date = models.DateField()
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    note = models.TextField(blank=True, null=True)
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="PENDING",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.requested_by} → {self.pharmacy} ({self.slot_date})"
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Worker Shift Request"
+        verbose_name_plural = "Worker Shift Requests"
 
 # Rating model
 class Rating(models.Model):

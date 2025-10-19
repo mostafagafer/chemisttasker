@@ -35,6 +35,7 @@ router.register(r'shift-rejections', ShiftRejectionViewSet, basename='shift-reje
 router.register(r'my-confirmed-shifts',MyConfirmedShiftsViewSet,basename='my-confirmed-shifts')
 router.register(r'my-history-shifts',MyHistoryShiftsViewSet,basename='my-history-shifts')
 router.register(r'leave-requests', LeaveRequestViewSet, basename='leaverequest')
+router.register(r"worker-shift-requests",WorkerShiftRequestViewSet,basename="worker-shift-requests")
 router.register(r'ratings', RatingViewSet, basename='rating')
 
 #chat app

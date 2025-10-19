@@ -4056,6 +4056,62 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'user', 'status', 'date_applied', 'date_resolved']
 
+class WorkerShiftRequestSerializer(serializers.ModelSerializer):
+    requested_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    pharmacy_name = serializers.CharField(source="pharmacy.name", read_only=True)
+    requester_name = serializers.CharField(source="requested_by.get_full_name", read_only=True)
+
+    class Meta:
+        model = WorkerShiftRequest
+        fields = [
+            "id",
+            "pharmacy",
+            "pharmacy_name",
+            "requested_by",
+            "requester_name",
+            "shift",
+            "role",
+            "slot_date",
+            "start_time",
+            "end_time",
+            "note",
+            "status",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["status", "created_at", "updated_at"]
+
+    def create(self, validated_data):
+        """
+        Called when a worker submits a swap/cover request.
+
+        Behaviour:
+        - Automatically sets the requester to the logged-in user.
+        - Defaults to status = 'PENDING' unless auto-publish is enabled.
+        - If the pharmacy has auto_publish_worker_requests=True,
+          automatically creates a ShiftSlotAssignment and sets
+          status = 'AUTO_PUBLISHED'.
+        """
+        user = self.context["request"].user
+        pharmacy = validated_data["pharmacy"]
+
+        # Explicitly link requester
+        validated_data["requested_by"] = user
+        validated_data["status"] = "PENDING"
+
+        # --- Handle auto-publish worker requests ---
+        if getattr(pharmacy, "auto_publish_worker_requests", False):
+            from client_profile.models import ShiftSlotAssignment
+
+            ShiftSlotAssignment.objects.create(
+                slot_date=validated_data["slot_date"],
+                assigned_user=None,
+                shift=None,  # adjust if your Shift model requires linking
+            )
+            validated_data["status"] = "AUTO_PUBLISHED"
+
+        return super().create(validated_data)
+
 # === Rosters ===
 class RosterUserDetailSerializer(serializers.ModelSerializer):
     class Meta:

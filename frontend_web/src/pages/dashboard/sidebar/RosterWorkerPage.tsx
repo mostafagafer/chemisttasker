@@ -22,7 +22,9 @@ import {
   Tabs,
   Tab,
   Checkbox,
-  OutlinedInput
+  OutlinedInput,
+  Snackbar,
+  Alert
 } from '@mui/material';
 
 // Calendar Imports
@@ -60,6 +62,8 @@ interface Assignment {
   slot_detail: SlotDetail;
   shift_detail: ShiftDetail;
   leave_request: LeaveRequest | null;
+  isSwapRequest?: boolean;  // added for frontend-only marking
+  status?: "PENDING" | "APPROVED" | "REJECTED"; // added for cover/swaps
 }
 interface PaginatedResponse<T> {
   count: number;
@@ -77,6 +81,7 @@ const ROLE_COLORS: { [key: string]: string } = {
   ASSISTANT: '#4caf50',  // Green
   INTERN: '#ff9800',     // Orange
   TECHNICIAN: '#9c27b0', // Purple
+  SWAP_PENDING: '#ffb74d',  // light orange for swap/cover
   LEAVE_PENDING: '#757575', // Grey for pending leave
   LEAVE_APPROVED: '#f44336', // Red for approved leave (as it's a blocked day)
   DEFAULT: '#757575',
@@ -132,8 +137,29 @@ export default function RosterWorkerPage() {
   const [leaveType, setLeaveType] = useState('');
   const [leaveNote, setLeaveNote] = useState('');
   
+
+  // Action & Swap/Cover dialog state
+  const [isActionDialogOpen, setIsActionDialogOpen] = useState(false);
+  const [isSwapDialogOpen, setIsSwapDialogOpen] = useState(false);
+
+  // Empty-slot (or generic) selection payload
+  const [selectedSlotDate, setSelectedSlotDate] = useState<Date | null>(null);
+  const [selectedStart, setSelectedStart] = useState<Date | null>(null);
+  const [selectedEnd, setSelectedEnd] = useState<Date | null>(null);
+
+  // Swap/Cover form fields
+  const [swapNote, setSwapNote] = useState('');
+  const [swapRole] = useState(user?.role || '');
+
   // --- Filter State ---
   const [roleFilters, setRoleFilters] = useState<string[]>([ALL_STAFF]);
+
+  // Snackbar Notifications
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: "",
+    severity: "success",
+  });
 
   // --- DATA LOADING ---
   useEffect(() => {
@@ -168,48 +194,110 @@ export default function RosterWorkerPage() {
     }
   }, [selectedPharmacyId, calendarDate, calendarView]);
 
-  const reloadAssignments = async () => {
-    if (!selectedPharmacyId) return;
-    setIsAssignmentsLoading(true);
-    const start = moment(calendarDate).startOf(calendarView as moment.unitOfTime.StartOf).format('YYYY-MM-DD');
-    const end = moment(calendarDate).endOf(calendarView as moment.unitOfTime.StartOf).format('YYYY-MM-DD');
-    
-    try {
-      const res = await apiClient.get<PaginatedResponse<Assignment>>(`${API_ENDPOINTS.getRosterWorker}?pharmacy=${selectedPharmacyId}&start_date=${start}&end_date=${end}`);
-      setAllAssignments(res.data.results || []);
-    } catch (err) { 
-      console.error("Failed to load roster assignments", err); 
-    } finally {
-      setIsAssignmentsLoading(false);
-    }
-  };
+const reloadAssignments = async () => {
+  if (!selectedPharmacyId) return;
+  setIsAssignmentsLoading(true);
+
+  const start = moment(calendarDate)
+    .startOf(calendarView as moment.unitOfTime.StartOf)
+    .format("YYYY-MM-DD");
+  const end = moment(calendarDate)
+    .endOf(calendarView as moment.unitOfTime.StartOf)
+    .format("YYYY-MM-DD");
+
+  try {
+    // -------------------------------
+    // 1️⃣ Load regular roster assignments (existing)
+    // -------------------------------
+    const res = await apiClient.get<PaginatedResponse<Assignment>>(
+      `${API_ENDPOINTS.getRosterWorker}?pharmacy=${selectedPharmacyId}&start_date=${start}&end_date=${end}`
+    );
+    const assignments = res.data.results || [];
+
+    // -------------------------------
+    // 2️⃣ Load swap/cover requests (new)
+    // -------------------------------
+    const swapRes = await apiClient.get(
+      `${API_ENDPOINTS.workerShiftRequests}?pharmacy=${selectedPharmacyId}&start_date=${start}&end_date=${end}`
+    );
+    const swapRequests = swapRes.data.results || [];
+
+    // -------------------------------
+    // 3️⃣ Merge both into one list
+    // -------------------------------
+    const allEvents = [
+      ...assignments,
+      ...swapRequests.map((req: any) => ({
+        id: `swap-${req.id}`,
+        slot_date: req.slot_date,
+        user: currentUserId, // show under current user
+        user_detail: {
+          first_name: (user as any)?.first_name || (user as any)?.firstName || '',
+          last_name: (user as any)?.last_name || (user as any)?.lastName || '',
+          email: user?.email,
+        },
+        slot_detail: {
+          start_time: req.start_time,
+          end_time: req.end_time,
+        },
+        shift_detail: {
+          pharmacy_name:
+            pharmacies.find((p) => p.id === selectedPharmacyId)?.name || "—",
+          role_needed: req.role,
+          visibility: "PRIVATE",
+        },
+        leave_request: null,
+        status: req.status,
+        isSwapRequest: true, // custom marker for style
+      })),
+    ];
+
+    // -------------------------------
+    // 4️⃣ Update state
+    // -------------------------------
+    setAllAssignments(allEvents);
+  } catch (err) {
+    console.error("Failed to load roster assignments or cover requests", err);
+  } finally {
+    setIsAssignmentsLoading(false);
+  }
+};
+
 
   // --- UI HANDLERS ---
   const handleSelectEvent = (event: { resource: Assignment }) => {
     const assignment = event.resource;
-    
-    if (assignment.user !== currentUserId) {
-      return; 
-    }
 
+    // Store the clicked assignment
     setSelectedAssignment(assignment);
-    
-    if (assignment.leave_request?.status !== 'APPROVED') {
-        setIsLeaveDialogOpen(true);
-        setLeaveType(assignment.leave_request?.leave_type || '');
-        setLeaveNote(assignment.leave_request?.note || '');
-    } else {
-        alert("A leave request for this shift has already been approved.");
-    }
+
+    // Capture date/time for either Leave or Swap/Cover flows
+    const start = moment(`${assignment.slot_date} ${assignment.slot_detail.start_time}`).toDate();
+    const end   = moment(`${assignment.slot_date} ${assignment.slot_detail.end_time}`).toDate();
+    setSelectedSlotDate(moment(assignment.slot_date).toDate());
+    setSelectedStart(start);
+    setSelectedEnd(end);
+
+    // Pre-fill leave fields (so if the user chooses "Request Leave", the dialog is ready)
+    setLeaveType(assignment.leave_request?.leave_type || '');
+    setLeaveNote(assignment.leave_request?.note || '');
+
+    // Open the ACTION chooser (Leave vs Swap/Cover).
+    // - If it's the worker’s own shift, both options will be available (Leave & Swap/Cover).
+    // - If it's not their shift, the Action dialog will still open, but the Leave button
+    //   will be disabled (enforced in the dialog UI).
+    setIsActionDialogOpen(true);
   };
 
   const handleSubmitLeaveRequest = async () => {
     if (!selectedAssignment || !leaveType) {
-        alert("Please select a leave type.");
+        setSnackbar({ open: true, message: "Please select a leave type.", severity: "warning" });
+
         return;
     }
     if (selectedAssignment.user !== currentUserId) {
-        alert("You can only request leave for your own assigned slots.");
+        setSnackbar({ open: true, message: "You can only request leave for your own assigned slots.", severity: "warning" });
+
         return;
     }
     setIsSubmitting(true);
@@ -219,11 +307,11 @@ export default function RosterWorkerPage() {
             leave_type: leaveType,
             note: leaveNote,
         });
-        alert("Leave request submitted successfully.");
+setSnackbar({ open: true, message: "Leave request submitted successfully.", severity: "success" });
         setIsLeaveDialogOpen(false);
         reloadAssignments();
     } catch (err: any) {
-        alert(`Failed to submit leave request: ${err.response?.data?.detail || err.message}`);
+        setSnackbar({ open: true, message: `Failed to submit leave request: ${err.response?.data?.detail || err.message}`, severity: "error" });
     } finally {
         setIsSubmitting(false);
     }
@@ -270,6 +358,10 @@ export default function RosterWorkerPage() {
   const eventStyleGetter = (event: { resource: Assignment }) => {
     const assignment = event.resource;
     let backgroundColor = ROLE_COLORS[assignment.shift_detail.role_needed] || ROLE_COLORS.DEFAULT;
+
+    if (assignment.isSwapRequest) {
+      backgroundColor = "#FFB347"; // or any light orange tone for "swap pending"
+    }
 
     if (assignment.leave_request) {
         if(assignment.leave_request.status === 'PENDING') {
@@ -333,6 +425,19 @@ export default function RosterWorkerPage() {
 
       <Typography variant="body2" color="text.secondary" sx={{mb: 2}}>This calendar shows all shifts at the selected pharmacy. You can only interact with your own shifts to request leave.</Typography>
 
+
+        {allAssignments.some(a => a.status === "PENDING") && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            You have pending cover requests.
+          </Alert>
+        )}
+
+        {allAssignments.some(a => a.status === "REJECTED") && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            You have rejected cover requests.
+          </Alert>
+        )}
+
       <Box sx={{ position: 'relative', '.rbc-calendar': { height: 'auto', minHeight: '800px' } }}>
         {isAssignmentsLoading && (
             <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255, 255, 255, 0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10 }}>
@@ -340,19 +445,100 @@ export default function RosterWorkerPage() {
             </Box>
         )}
 
-        <Calendar
-          localizer={localizer}
-          events={calendarEvents}
-          defaultView={calendarView as any} // FIX: Cast to any to match Owner page
-          view={calendarView as any}
-          date={calendarDate}
-          onNavigate={setCalendarDate}
-          onView={setCalendarView} // FIX: Pass setter directly
-          selectable={false} // Workers cannot create new shifts from the calendar
-          onSelectEvent={handleSelectEvent}
-          eventPropGetter={eventStyleGetter}
-        />
+<Calendar
+  localizer={localizer}
+  events={calendarEvents}
+  defaultView={calendarView as any}
+  view={calendarView as any}
+  date={calendarDate}
+  onNavigate={setCalendarDate}
+  onView={setCalendarView}
+  selectable={true}
+  onSelectEvent={handleSelectEvent}
+  onSelectSlot={({ start, end }: { start: Date; end: Date }) => {
+    setSelectedAssignment(null);
+    setSelectedSlotDate(start);
+    setSelectedStart(start);
+    setSelectedEnd(end);
+    setIsActionDialogOpen(true);
+  }}
+  eventPropGetter={eventStyleGetter}
+  components={{
+    event: ({ event }: any) => {
+      const assignment = event.resource as Assignment;
+      let statusLabel = "";
+
+      if (assignment?.status === "PENDING") statusLabel = "Pending Cover Request";
+      else if (assignment?.status === "REJECTED") statusLabel = "Rejected Cover Request";
+
+      return (
+        <Box sx={{ px: 0.5, py: 0.3 }}>
+          <Typography
+            variant="caption"
+            sx={{ fontWeight: 600, color: "white", lineHeight: 1 }}
+          >
+            {event.title}
+          </Typography>
+          {statusLabel && (
+            <Typography
+              variant="caption"
+              sx={{
+                display: "block",
+                color: "#fff",
+                fontWeight: 500,
+                fontSize: "0.7rem",
+                mt: 0.3,
+              }}
+            >
+              {statusLabel}
+            </Typography>
+          )}
+        </Box>
+      );
+    },
+  }}
+/>
       </Box>
+
+      {/* NEW: Action Choice Dialog */}
+      <Dialog open={isActionDialogOpen} onClose={() => setIsActionDialogOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Select Action</DialogTitle>
+        <DialogContent dividers>
+          <List dense>
+            <ListItem><ListItemText primary="Pharmacy" secondary={pharmacies.find(p => p.id === selectedPharmacyId)?.name || '—'} /></ListItem>
+            {selectedSlotDate && (
+              <ListItem><ListItemText primary="Date" secondary={moment(selectedSlotDate).format('dddd, MMMM Do YYYY')} /></ListItem>
+            )}
+            {selectedStart && selectedEnd && (
+              <ListItem><ListItemText primary="Time" secondary={`${moment(selectedStart).format("h:mm A")} - ${moment(selectedEnd).format("h:mm A")}`} /></ListItem>
+            )}
+          </List>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              if (!selectedAssignment || selectedAssignment.user !== currentUserId) {
+                setSnackbar({ open: true, message: "You can only request leave for your own assigned slots.", severity: "warning" });
+                return;
+              }
+              setIsActionDialogOpen(false);
+              setIsLeaveDialogOpen(true);
+            }}
+            variant="outlined"
+          >
+            Request Leave
+          </Button>
+          <Button
+            onClick={() => {
+              setIsActionDialogOpen(false);
+              setIsSwapDialogOpen(true);
+            }}
+            variant="contained"
+          >
+            Request Swap / Cover
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Leave Request Dialog */}
       <Dialog open={isLeaveDialogOpen} onClose={() => setIsLeaveDialogOpen(false)} fullWidth maxWidth="sm">
@@ -398,6 +584,88 @@ export default function RosterWorkerPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* NEW: Swap / Cover Request Dialog */}
+      <Dialog open={isSwapDialogOpen} onClose={() => setIsSwapDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Request Swap / Cover</DialogTitle>
+        <DialogContent dividers>
+          <List dense>
+            <ListItem><ListItemText primary="Pharmacy" secondary={pharmacies.find(p => p.id === selectedPharmacyId)?.name || '—'} /></ListItem>
+            {selectedSlotDate && (
+              <ListItem><ListItemText primary="Date" secondary={moment(selectedSlotDate).format('dddd, MMMM Do YYYY')} /></ListItem>
+            )}
+            {selectedStart && selectedEnd && (
+              <ListItem><ListItemText primary="Time" secondary={`${moment(selectedStart).format("h:mm A")} - ${moment(selectedEnd).format("h:mm A")}`} /></ListItem>
+            )}
+          </List>
+
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+            {/* <FormControl fullWidth required>
+              <InputLabel>Role</InputLabel>
+              <Select value={swapRole} onChange={(e: SelectChangeEvent) => setSwapRole(e.target.value)} label="Role">
+                {ROLES.map(r => <MenuItem key={r} value={r}>{r.charAt(0) + r.slice(1).toLowerCase()}</MenuItem>)}
+              </Select>
+            </FormControl> */}
+
+            <TextField
+              label="Note (optional)"
+              multiline
+              rows={3}
+              value={swapNote}
+              onChange={(e) => setSwapNote(e.target.value)}
+              fullWidth
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIsSwapDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={async () => {
+              setIsSubmitting(true);
+              try {
+                await apiClient.post(API_ENDPOINTS.workerShiftRequests, {
+                  pharmacy: selectedPharmacyId,
+                  role: swapRole,
+                  slot_date: moment(selectedSlotDate).format('YYYY-MM-DD'),
+                  start_time: moment(selectedStart).format('HH:mm:ss'),
+                  end_time: moment(selectedEnd).format('HH:mm:ss'),
+                  note: swapNote,
+                });
+                setSnackbar({ open: true, message: "Cover request submitted successfully.", severity: "success" });
+                setIsSwapDialogOpen(false);
+                setSwapNote('');
+                reloadAssignments();  // refresh calendar to show highlighted swap
+
+              } catch (err: any) {
+                setSnackbar({ open: true, message: `Failed to submit cover request: ${err.response?.data?.detail || err.message}`, severity: "error" });
+              } finally {
+                setIsSubmitting(false);
+              }
+            }}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? <CircularProgress size={24} /> : 'Submit Request'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+      >
+        <Alert
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          severity={snackbar.severity as "success" | "error" | "info" | "warning"}
+          variant="filled"
+          sx={{ width: "100%" }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+
     </Container>
   );
 }

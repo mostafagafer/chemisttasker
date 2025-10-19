@@ -1,0 +1,12 @@
+Hi {{ owner_name }},
+
+{{ requested_by }} has requested a swap for their shift at {{ pharmacy_name }} on {{ shift_date }}.
+
+{% if note %}
+Note: {{ note }}
+{% endif %}
+
+Please review and action this request in your ChemistTasker dashboard.
+Go to your roster: {{ shift_link }}
+
+— The ChemistTasker Team

@@ -1,0 +1,9 @@
+Hi {{ requested_by }},
+
+Your cover request for {{ pharmacy_name }} on {{ shift_date }} was REJECTED.
+
+You can view your roster here: {{ shift_link }}
+
+If you have any questions, please contact your pharmacy manager.
+
+— The ChemistTasker Team

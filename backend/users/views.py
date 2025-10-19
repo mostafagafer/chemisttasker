@@ -18,6 +18,7 @@ from users.utils import get_frontend_onboarding_url
 from datetime import timedelta
 from django.utils import timezone
 import random
+import logging
 from .serializers import (
     UserRegistrationSerializer,
     CustomTokenObtainPairSerializer,
@@ -34,8 +35,19 @@ def verify_recaptcha(token):
     secret_key = settings.RECAPTCHA_SECRET_KEY
     url = 'https://www.google.com/recaptcha/api/siteverify'
     data = {'secret': secret_key, 'response': token}
-    response = requests.post(url, data=data)
-    result = response.json()
+
+    try:
+        response = requests.post(url, data=data, timeout=5)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        logging.getLogger(__name__).warning("reCAPTCHA verification failed: %s", exc)
+        return False
+
+    try:
+        result = response.json()
+    except ValueError:
+        logging.getLogger(__name__).warning("reCAPTCHA response was not valid JSON")
+        return False
     return result.get('success', False)
 
 class RegisterView(generics.CreateAPIView):

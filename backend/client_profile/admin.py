@@ -293,6 +293,7 @@ class InvoiceAdmin(admin.ModelAdmin):
 
 admin.site.register(ExplorerPost)
 
+admin.site.register(WorkerShiftRequest)
 
 admin.site.register(RefereeResponse)
 

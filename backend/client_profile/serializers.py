@@ -1,4 +1,4 @@
-# This updates by Smsm
+# This updates by Smsm new
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field, OpenApiTypes
 from .models import *

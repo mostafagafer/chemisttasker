@@ -1,5 +1,5 @@
+# Now my turn mostafagafer to make an update and you need to fetch it 
 # client_profile/serializers.py
-# now mostafagafer made updates
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field, OpenApiTypes
 from .models import *

@@ -1,4 +1,3 @@
-#update made by chemisttasker smsm
 # client_profile/serializers.py
 # now mostafagafer made updates
 from rest_framework import serializers

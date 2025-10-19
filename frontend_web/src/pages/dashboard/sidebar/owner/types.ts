@@ -2,7 +2,7 @@
 import { alpha, Theme } from "@mui/material/styles";
 
 export type Role = "PHARMACIST" | "TECHNICIAN" | "ASSISTANT" | "PHARMACY_ADMIN";
-export type WorkType = "FULL_TIME" | "PART_TIME" | "CASUAL";
+export type WorkType = "FULL_TIME" | "PART_TIME" | "CASUAL" | "LOCUM" | "SHIFT_HERO";
 
 export type PharmacyDTO = {
   id: string;
@@ -35,6 +35,8 @@ export function coerceWorkType(raw?: string): WorkType {
   const r = (raw || "").toUpperCase().replace("-", "_");
   if (r.includes("FULL")) return "FULL_TIME";
   if (r.includes("PART")) return "PART_TIME";
+  if (r.includes("LOCUM")) return "LOCUM";
+  if (r.includes("SHIFT")) return "SHIFT_HERO";
   return "CASUAL";
 }
 

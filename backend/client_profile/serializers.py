@@ -3715,6 +3715,13 @@ class MembershipApplicationSerializer(serializers.ModelSerializer):
 
 # === Shifts ===
 class ShiftSlotSerializer(serializers.ModelSerializer):
+    recurring_days = serializers.ListField(
+        child=serializers.IntegerField(min_value=0, max_value=6),
+        required=False,
+        allow_empty=True
+    )
+    recurring_end_date = serializers.DateField(required=False, allow_null=True)
+
     class Meta:
         model = ShiftSlot
         fields = [
@@ -3822,8 +3829,28 @@ class ShiftSerializer(serializers.ModelSerializer):
             return self._build_allowed_tiers(obj.pharmacy, request.user)
         return []
 
+    def _normalize_slots_payload(self, slots_data):
+        normalized = []
+        for idx, raw_slot in enumerate(slots_data, start=1):
+            slot = dict(raw_slot)
+            recurring_days = slot.get('recurring_days') or []
+            slot['recurring_days'] = sorted({int(day) for day in recurring_days if day is not None})
+
+            if slot.get('is_recurring'):
+                if not slot['recurring_days']:
+                    raise serializers.ValidationError({
+                        'slots': [f"Recurring slot #{idx} must include at least one weekday."]
+                    })
+                slot['recurring_end_date'] = slot.get('recurring_end_date') or slot['date']
+            else:
+                slot['recurring_days'] = []
+                slot['recurring_end_date'] = None
+
+            normalized.append(slot)
+        return normalized
+
     def create(self, validated_data):
-        slots_data = validated_data.pop('slots')
+        slots_data = self._normalize_slots_payload(validated_data.pop('slots'))
         user        = self.context['request'].user
         pharmacy    = validated_data['pharmacy']
 

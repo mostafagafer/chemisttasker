@@ -135,18 +135,17 @@ def get_locked_rate_for_slot(slot, shift, user, override_date=None):
 def expand_shift_slots(shift):
     entries = []
     for slot in shift.slots.all():
-        # ✅ Use slot.recurring_days directly — no remapping
-        mapped_days = slot.recurring_days if slot.is_recurring else []
+        mapped_days = [int(day) for day in (slot.recurring_days or [])]
 
         def get_hours(start, end):
             dt_start = datetime.combine(slot.date, start)
             dt_end = datetime.combine(slot.date, end)
             return Decimal((dt_end - dt_start).total_seconds() / 3600).quantize(Decimal('0.01'))
 
-        if slot.is_recurring:
+        if slot.is_recurring and mapped_days:
             current = slot.date
-            while current <= slot.recurring_end_date:
-                # ✅ Match slot.recurring_days where 0 = Sunday
+            end_date = slot.recurring_end_date or slot.date
+            while current <= end_date:
                 adjusted_weekday = (current.weekday() + 1) % 7
                 if adjusted_weekday in mapped_days:
                     entries.append({

@@ -1,10 +1,11 @@
-import { FC, useState, useMemo, useEffect } from 'react';
+import { FC, useState, useMemo, useEffect, MouseEvent } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, IconButton, TextField, Button,
   Box, ToggleButtonGroup, ToggleButton, Checkbox,
   InputAdornment, List, ListItem, ListItemAvatar, Avatar, ListItemText, CircularProgress,
   ListItemButton, Typography, Accordion, AccordionSummary, AccordionDetails, Chip
 } from '@mui/material';
+import { AlertColor } from '@mui/material/Alert';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -27,6 +28,7 @@ interface NewChatModalProps {
   currentUserId?: number;
   editingRoom?: ChatRoom | null;
   onDmSelect: (partnerMembershipId: number, partnerPharmacyId: number) => void;
+  onNotify: (severity: AlertColor, message: string) => void;
 }
 
 const EP = {
@@ -61,13 +63,14 @@ type FilteredMembers = {
     myStaffByPharmacy: PharmacyStaffGroup;
 };
 
-export const NewChatModal: FC<NewChatModalProps> = ({ open, onClose, onSave, pharmacies, memberCache, currentUserId, editingRoom, onDmSelect }) => {
+export const NewChatModal: FC<NewChatModalProps> = ({ open, onClose, onSave, pharmacies, memberCache, currentUserId, editingRoom, onDmSelect, onNotify }) => {
   const isEditMode = !!editingRoom;
   const [mode, setMode] = useState<'dm' | 'group'>('dm');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState('All Positions');
   const [selectedUsers, setSelectedUsers] = useState<Map<number, number>>(new Map());
   const [groupName, setGroupName] = useState('');
+  const [groupNameTouched, setGroupNameTouched] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -75,6 +78,7 @@ export const NewChatModal: FC<NewChatModalProps> = ({ open, onClose, onSave, pha
       if (isEditMode && editingRoom) {
         setMode('group');
         setGroupName(editingRoom.title);
+        setGroupNameTouched(true);
         const initialSelected = new Map<number, number>();
 
         const allPharmacyIds = Object.keys(memberCache).map(n => Number(n));
@@ -98,6 +102,7 @@ export const NewChatModal: FC<NewChatModalProps> = ({ open, onClose, onSave, pha
         setSelectedRole('All Positions');
         setSelectedUsers(new Map());
         setGroupName('');
+        setGroupNameTouched(false);
       }
       setIsSubmitting(false);
     }
@@ -174,8 +179,24 @@ export const NewChatModal: FC<NewChatModalProps> = ({ open, onClose, onSave, pha
     }).filter((m): m is ExtendedMember => !!m);
   }, [selectedUsers, allMembers]);
 
+  useEffect(() => {
+    if (mode !== 'group' || isEditMode || groupNameTouched) return;
+    if (selectedUserDetails.length === 0) {
+      setGroupName('');
+      return;
+    }
+    const names = selectedUserDetails
+      .slice(0, 3)
+      .map(member => userBestNameMap.get(member.details.id) || member.details.email || 'Member');
+    let suggestion = names.join(', ');
+    if (selectedUserDetails.length > 3) {
+      suggestion += ` +${selectedUserDetails.length - 3}`;
+    }
+    setGroupName(suggestion);
+  }, [mode, selectedUserDetails, userBestNameMap, isEditMode, groupNameTouched]);
 
-  const handleUserSelect = (membershipId: number, pharmacyId: number) => {
+
+const handleUserSelect = (membershipId: number, pharmacyId: number) => {
     if (mode === 'dm') {
       onClose();
       onDmSelect(membershipId, pharmacyId);
@@ -191,7 +212,15 @@ export const NewChatModal: FC<NewChatModalProps> = ({ open, onClose, onSave, pha
       });
     }
   };
-  
+
+  const handleModeChange = (_event: MouseEvent<HTMLElement>, newMode: 'dm' | 'group' | null) => {
+    if (!newMode) return;
+    setMode(newMode);
+    setSelectedUsers(new Map());
+    setGroupName('');
+    setGroupNameTouched(false);
+  };
+
   const handleCreateOrUpdateChat = async () => {
       if (mode !== 'group') return;
       setIsSubmitting(true);
@@ -206,6 +235,7 @@ export const NewChatModal: FC<NewChatModalProps> = ({ open, onClose, onSave, pha
         }
         if (res?.data) {
           onSave(res.data);
+          onNotify('success', isEditMode ? "Group updated successfully" : "Group chat created");
           onClose();
         }
       } catch (error) {
@@ -217,7 +247,7 @@ export const NewChatModal: FC<NewChatModalProps> = ({ open, onClose, onSave, pha
                 alertMessage = "Failed to save group chat. " + data.detail;
             }
         }
-        alert(alertMessage);
+        onNotify('error', alertMessage);
       } finally {
         setIsSubmitting(false);
       }
@@ -282,9 +312,10 @@ export const NewChatModal: FC<NewChatModalProps> = ({ open, onClose, onSave, pha
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <ToggleButtonGroup
             value={mode} exclusive
-            onChange={(_, newMode) => { if (newMode) setMode(newMode); setSelectedUsers(new Map()); }}
+            onChange={handleModeChange}
             fullWidth
             disabled={isEditMode}
+            aria-label="Conversation type"
           >
             <ToggleButton value="dm">Direct Message</ToggleButton>
             <ToggleButton value="group">Group Chat</ToggleButton>
@@ -295,7 +326,10 @@ export const NewChatModal: FC<NewChatModalProps> = ({ open, onClose, onSave, pha
                 <TextField
                     label="Group Name"
                     value={groupName}
-                    onChange={(e) => setGroupName(e.target.value)}
+                    onChange={(e) => {
+                        setGroupName(e.target.value);
+                        setGroupNameTouched(true);
+                    }}
                     fullWidth
                 />
                 {selectedUserDetails.length > 0 && (

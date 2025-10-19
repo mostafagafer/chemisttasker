@@ -29,9 +29,10 @@ type Props = {
   onDelete: (messageId: number) => void;
   onReact: (messageId: number, reaction: string) => void;
   onTogglePin: (target: 'conversation' | 'message', messageId?: number) => void;
+  innerRef?: (node: HTMLDivElement | null) => void;
 };
 
-export const MessageBubble: FC<Props> = ({ msg, prevMsg, isMe, onStartDm, roomType, onEdit, onDelete, onReact, onTogglePin  }) => {
+export const MessageBubble: FC<Props> = ({ msg, prevMsg, isMe, onStartDm, roomType, onEdit, onDelete, onReact, onTogglePin, innerRef  }) => {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -83,16 +84,13 @@ export const MessageBubble: FC<Props> = ({ msg, prevMsg, isMe, onStartDm, roomTy
 
   return (
     <Box 
+      ref={innerRef}
       className={`msg-row ${isMe ? 'me' : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => { setIsHovered(false); setPickerOpen(false); }}
       sx={{ mt: isSameSenderAsPrevious ? 0.5 : 2 }}
     >
-      <Box sx={{ width: 36, display: 'flex', alignItems: 'center' }}>
-        {!isSameSenderAsPrevious && (isMe || roomType === 'GROUP') && (
-          <IconButton sx={{ opacity: (isHovered && !msg.is_deleted) ? 1 : 0 }} size="small" onClick={handleOpenMenu}><MoreHorizIcon /></IconButton>
-        )}
-      </Box>
+      <Box sx={{ width: 36, display: 'flex', alignItems: 'center' }} />
 
       {isSameSenderAsPrevious ? (
         <Box sx={{ width: 36, flexShrink: 0 }} />
@@ -134,11 +132,69 @@ export const MessageBubble: FC<Props> = ({ msg, prevMsg, isMe, onStartDm, roomTy
             </Box>
           )}
 
-          {!isMe && !msg.is_deleted && (
-            <Box sx={{ position: 'absolute', top: -16, right: 0, display: 'flex', alignItems: 'center', opacity: isHovered ? 1 : 0, transition: 'opacity 0.2s' }}>
-              <Tooltip title="Add Reaction">
-                <IconButton size="small" onClick={(e) => { e.stopPropagation(); setPickerOpen(!pickerOpen); }} sx={{ bgcolor: 'background.paper', boxShadow: 1, '&:hover': { bgcolor: 'background.default' } }}>
+          {!msg.is_deleted && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: -16,
+                right: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.5,
+                opacity: isHovered ? 1 : 0,
+                transition: 'opacity 0.2s',
+              }}
+            >
+              <Tooltip title="Add reaction">
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPickerOpen((open) => !open);
+                  }}
+                  sx={{ bgcolor: 'background.paper', boxShadow: 1, '&:hover': { bgcolor: 'background.default' } }}
+                >
                   <AddReactionOutlinedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title={msg.is_pinned ? 'Unpin message' : 'Pin message'}>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTogglePin('message', msg.id);
+                    setPickerOpen(false);
+                  }}
+                  sx={{ bgcolor: 'background.paper', boxShadow: 1, '&:hover': { bgcolor: 'background.default' } }}
+                >
+                  <PushPinIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              {isMe && (
+                <Tooltip title="Edit message">
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsEditing(true);
+                      setPickerOpen(false);
+                    }}
+                    sx={{ bgcolor: 'background.paper', boxShadow: 1, '&:hover': { bgcolor: 'background.default' } }}
+                  >
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              <Tooltip title="More options">
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenMenu(e);
+                  }}
+                  sx={{ bgcolor: 'background.paper', boxShadow: 1, '&:hover': { bgcolor: 'background.default' } }}
+                >
+                  <MoreHorizIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
               {pickerOpen && (

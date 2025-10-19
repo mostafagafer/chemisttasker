@@ -1,5 +1,4 @@
-// src/pages/dashboard/sidebar/owner/OwnerPharmacyDetailPage.tsx
-import React from "react";
+import React, { useRef } from "react";
 import { Box, Button, Typography } from "@mui/material";
 import PeopleIcon from "@mui/icons-material/People";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
@@ -9,9 +8,10 @@ import ListAltIcon from "@mui/icons-material/ListAlt";
 import SettingsIcon from "@mui/icons-material/Settings";
 import { MembershipDTO, PharmacyDTO, surface } from "./types";
 import { useTheme } from "@mui/material/styles";
-import InviteStaffModal from "./InviteStaffModal";
 import StaffManager from "./StaffManager";
+import LocumManager from "./LocumManager";
 import PharmacyAdmins from "./PharmacyAdmins";
+import { useNavigate } from "react-router-dom";
 
 function IconButtonCard({
   title,
@@ -24,24 +24,29 @@ function IconButtonCard({
   icon: React.ReactNode;
   onClick?: () => void;
 }) {
-  const t = useTheme(); const s = surface(t);
+  const theme = useTheme();
+  const tokens = surface(theme);
   return (
     <Box
       onClick={onClick}
       sx={{
         p: 2,
         borderRadius: 2,
-        border: `1px solid ${s.border}`,
-        background: s.bg,
+        border: `1px solid ${tokens.border}`,
+        background: tokens.bg,
         cursor: onClick ? "pointer" : "default",
-        ":hover": { background: s.subtle, boxShadow: onClick ? 3 : undefined },
+        ":hover": { background: tokens.subtle, boxShadow: onClick ? 3 : undefined },
       }}
     >
       <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
-        <Box sx={{ p: 1.2, borderRadius: 2, bgcolor: s.hover }}>{icon}</Box>
+        <Box sx={{ p: 1.2, borderRadius: 2, bgcolor: tokens.hover }}>{icon}</Box>
         <Box>
           <Typography fontWeight={600}>{title}</Typography>
-          {subtitle && <Typography variant="body2" sx={{ mt: 0.5, color: s.textMuted }}>{subtitle}</Typography>}
+          {subtitle && (
+            <Typography variant="body2" sx={{ mt: 0.5, color: tokens.textMuted }}>
+              {subtitle}
+            </Typography>
+          )}
         </Box>
       </Box>
     </Box>
@@ -50,18 +55,35 @@ function IconButtonCard({
 
 export default function OwnerPharmacyDetailPage({
   pharmacy,
-  memberships,
-  onOpenStaff,
-  onOpenAdmins,
-  onOpenLocums,
+  staffMemberships,
+  locumMemberships,
+  adminMemberships,
+  onMembershipsChanged,
 }: {
   pharmacy: PharmacyDTO;
-  memberships: MembershipDTO[];
-  onOpenStaff: () => void;
-  onOpenAdmins: () => void;
-  onOpenLocums: () => void;
+  staffMemberships: MembershipDTO[];
+  locumMemberships: MembershipDTO[];
+  adminMemberships: MembershipDTO[];
+  onMembershipsChanged: () => void;
 }) {
-  const t = useTheme(); const s = surface(t);
+  const theme = useTheme();
+  const tokens = surface(theme);
+  const navigate = useNavigate();
+  const staffSectionRef = useRef<HTMLDivElement>(null);
+  const locumSectionRef = useRef<HTMLDivElement>(null);
+  const adminsSectionRef = useRef<HTMLDivElement>(null);
+
+  const scrollTo = (ref: React.RefObject<HTMLElement>) => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleManageStaff = () => scrollTo(staffSectionRef);
+  const handleManageLocums = () => scrollTo(locumSectionRef);
+  const handleManageAdmins = () => scrollTo(adminsSectionRef);
+  const handleCheckShifts = () => navigate("/dashboard/owner/shifts/active");
+  const handlePostShift = () => navigate("/dashboard/owner/post-shift");
+  const handleFavouriteLocums = () => handleManageLocums();
+  const handleConfigurations = () => navigate("/dashboard/owner/manage-pharmacies/my-pharmacies");
 
   return (
     <Box sx={{ maxWidth: 1200, mx: "auto", p: 3 }}>
@@ -78,13 +100,12 @@ export default function OwnerPharmacyDetailPage({
           <Typography variant="h5" fontWeight={700}>
             {pharmacy.name}
           </Typography>
-          <Typography sx={{ color: s.textMuted }}>
+          <Typography sx={{ color: tokens.textMuted }}>
             {[pharmacy.street_address, pharmacy.suburb, pharmacy.state, pharmacy.postcode].filter(Boolean).join(", ")}
           </Typography>
         </Box>
         <Box sx={{ display: "flex", gap: 1 }}>
-          <Button variant="outlined">Edit</Button>
-          <InviteStaffModal pharmacyId={pharmacy.id} />
+          <Button variant="outlined" onClick={() => navigate("/dashboard/owner/manage-pharmacies/my-pharmacies")}>Edit</Button>
         </Box>
       </Box>
 
@@ -96,25 +117,42 @@ export default function OwnerPharmacyDetailPage({
           gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", md: "repeat(3, 1fr)" },
         }}
       >
-        <IconButtonCard title="Manage Staff" subtitle="Add/remove team" icon={<PeopleIcon />} onClick={onOpenStaff} />
-        <IconButtonCard title="Check Shifts" subtitle="Roster & history" icon={<CalendarMonthIcon />} />
-        <IconButtonCard title="Favourite Locums" subtitle="Quick-pick shortlist" icon={<StarOutlineIcon />} onClick={onOpenLocums} />
-        <IconButtonCard title="Admins" subtitle="Assign scoped admins" icon={<ManageAccountsIcon />} onClick={onOpenAdmins} />
-        <IconButtonCard title="Post Shift" subtitle="Publish an open shift" icon={<ListAltIcon />} />
-        <IconButtonCard title="Configurations" subtitle="Hours, details, rates" icon={<SettingsIcon />} />
+        <IconButtonCard title="Manage Staff" subtitle="Add/remove team" icon={<PeopleIcon />} onClick={handleManageStaff} />
+        <IconButtonCard title="Check Shifts" subtitle="Roster & history" icon={<CalendarMonthIcon />} onClick={handleCheckShifts} />
+        <IconButtonCard title="Favourite Locums" subtitle="Quick-pick shortlist" icon={<StarOutlineIcon />} onClick={handleFavouriteLocums} />
+        <IconButtonCard title="Admins" subtitle="Assign scoped admins" icon={<ManageAccountsIcon />} onClick={handleManageAdmins} />
+        <IconButtonCard title="Post Shift" subtitle="Publish an open shift" icon={<ListAltIcon />} onClick={handlePostShift} />
+        <IconButtonCard title="Configurations" subtitle="Hours, details, rates" icon={<SettingsIcon />} onClick={handleConfigurations} />
       </Box>
 
-      {/* Staff manager uses memberships */}
-      <Box sx={{ mt: 3 }}>
+      <Box sx={{ mt: 3 }} ref={staffSectionRef}>
         <Typography variant="h6" sx={{ mb: 1 }}>
           Staff
         </Typography>
-        <StaffManager memberships={memberships} />
+        <StaffManager
+          pharmacyId={pharmacy.id}
+          memberships={staffMemberships}
+          onMembershipsChanged={onMembershipsChanged}
+        />
       </Box>
 
-      {/* Admins local section */}
-      <Box sx={{ mt: 3 }}>
-        <PharmacyAdmins pharmacy={{ id: pharmacy.id, name: pharmacy.name }} />
+      <Box sx={{ mt: 3 }} ref={locumSectionRef}>
+        <Typography variant="h6" sx={{ mb: 1 }}>
+          Favourite Locums
+        </Typography>
+        <LocumManager
+          pharmacyId={pharmacy.id}
+          memberships={locumMemberships}
+          onMembershipsChanged={onMembershipsChanged}
+        />
+      </Box>
+
+      <Box sx={{ mt: 3 }} ref={adminsSectionRef}>
+        <PharmacyAdmins
+          pharmacyId={pharmacy.id}
+          admins={adminMemberships}
+          onMembershipsChanged={onMembershipsChanged}
+        />
       </Box>
     </Box>
   );

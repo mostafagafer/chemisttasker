@@ -6,6 +6,7 @@ import {
   Card,
   CardContent,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -15,24 +16,23 @@ import {
   InputLabel,
   MenuItem,
   Select,
+  Snackbar,
   Stack,
   TextField,
   Tooltip,
   Typography,
-  Snackbar,
-  CircularProgress,
 } from "@mui/material";
 import FilterListIcon from "@mui/icons-material/FilterList";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
-import { Role, WorkType, MembershipDTO, coerceRole, coerceWorkType, surface } from "./types";
 import LinkIcon from "@mui/icons-material/Link";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useTheme } from "@mui/material/styles";
 import apiClient from "../../../../utils/apiClient";
 import { API_BASE_URL, API_ENDPOINTS } from "../../../../constants/api";
+import { MembershipDTO, Role, WorkType, coerceRole, coerceWorkType, surface } from "./types";
 
-const EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "CASUAL"] as const;
+const LOCUM_WORK_TYPES = ["LOCUM", "SHIFT_HERO"] as const;
 
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "PHARMACIST", label: "Pharmacist" },
@@ -40,7 +40,7 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "ASSISTANT", label: "Assistant" },
 ];
 
-type Staff = {
+type Locum = {
   id: string | number;
   name: string;
   email?: string;
@@ -48,23 +48,23 @@ type Staff = {
   workType: WorkType;
 };
 
-type StaffManagerProps = {
+type LocumManagerProps = {
   pharmacyId: string;
   memberships: MembershipDTO[];
   onMembershipsChanged: () => void;
 };
 
-export default function StaffManager({ pharmacyId, memberships, onMembershipsChanged }: StaffManagerProps) {
+export default function LocumManager({ pharmacyId, memberships, onMembershipsChanged }: LocumManagerProps) {
   const theme = useTheme();
   const tokens = surface(theme);
 
-  const derivedStaff: Staff[] = useMemo(() => {
+  const derivedLocums: Locum[] = useMemo(() => {
     return (memberships || []).map((m) => {
       const fullName =
         m.invited_name ||
         m.name ||
         [m.user_details?.first_name, m.user_details?.last_name].filter(Boolean).join(" ") ||
-        "Team Member";
+        "Favourite";
       const email = m.user_details?.email || m.email;
       return {
         id: m.id,
@@ -76,42 +76,45 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
     });
   }, [memberships]);
 
-  const [list, setList] = useState<Staff[]>(derivedStaff);
-  useEffect(() => setList(derivedStaff), [derivedStaff]);
+  const [items, setItems] = useState<Locum[]>(derivedLocums);
+  useEffect(() => setItems(derivedLocums), [derivedLocums]);
 
-  const [sortBy, setSortBy] = useState<"role" | "workType">("role");
+  const [sortBy, setSortBy] = useState<"name" | "workType">("name");
   const [filterRole, setFilterRole] = useState<Role | "ALL">("ALL");
   const [filterWork, setFilterWork] = useState<WorkType | "ALL">("ALL");
 
-  const data = useMemo(() => {
-    const copy = [...list];
-    copy.sort((a, b) => (a[sortBy] > b[sortBy] ? 1 : -1));
-    return copy.filter(
-      (s) =>
-        (filterRole === "ALL" || s.role === filterRole) &&
-        (filterWork === "ALL" || s.workType === filterWork)
+  const filteredLocums = useMemo(() => {
+    const sorted = [...items].sort((a, b) => (a[sortBy] > b[sortBy] ? 1 : -1));
+    return sorted.filter(
+      (locum) =>
+        (filterRole === "ALL" || locum.role === filterRole) &&
+        (filterWork === "ALL" || locum.workType === filterWork)
     );
-  }, [list, sortBy, filterRole, filterWork]);
+  }, [items, sortBy, filterRole, filterWork]);
 
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteRows, setInviteRows] = useState([
-    { email: "", invited_name: "", role: "PHARMACIST" as Role, employment_type: "FULL_TIME" as (typeof EMPLOYMENT_TYPES)[number] },
-  ]);
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
-  const [toast, setToast] = useState<{ message: string; severity: "success" | "error" } | null>(null);
   const [deleteLoadingId, setDeleteLoadingId] = useState<string | number | null>(null);
+  const [toast, setToast] = useState<{ message: string; severity: "success" | "error" } | null>(null);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkExpiry, setLinkExpiry] = useState("14");
   const [linkValue, setLinkValue] = useState("");
   const [linkSubmitting, setLinkSubmitting] = useState(false);
 
-  const resetInviteForm = () => {
-    setInviteRows([
-      { email: "", invited_name: "", role: "PHARMACIST", employment_type: "FULL_TIME" },
-    ]);
-  };
+  const [inviteRows, setInviteRows] = useState([
+    { email: "", invited_name: "", role: "PHARMACIST" as Role, employment_type: "LOCUM" as (typeof LOCUM_WORK_TYPES)[number] },
+  ]);
 
-  const handleInviteFieldChange = (idx: number, field: "email" | "invited_name" | "role" | "employment_type", value: string) => {
+  const resetInviteRows = () =>
+    setInviteRows([
+      { email: "", invited_name: "", role: "PHARMACIST" as Role, employment_type: "LOCUM" as (typeof LOCUM_WORK_TYPES)[number] },
+    ]);
+
+  const handleInviteFieldChange = (
+    idx: number,
+    field: "email" | "invited_name" | "role" | "employment_type",
+    value: string
+  ) => {
     setInviteRows((prev) => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value } as any;
@@ -119,8 +122,61 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
     });
   };
 
-  const addInviteRow = () => setInviteRows((rows) => [...rows, { email: "", invited_name: "", role: "PHARMACIST", employment_type: "FULL_TIME" }]);
-  const removeInviteRow = (idx: number) => setInviteRows((rows) => rows.filter((_, i) => i !== idx));
+  const addInviteRow = () =>
+    setInviteRows((prev) => [
+      ...prev,
+      { email: "", invited_name: "", role: "PHARMACIST" as Role, employment_type: "LOCUM" as (typeof LOCUM_WORK_TYPES)[number] },
+    ]);
+
+  const removeInviteRow = (idx: number) => setInviteRows((prev) => prev.filter((_, rowIdx) => rowIdx !== idx));
+
+  const openInviteDialog = () => {
+    resetInviteRows();
+    setInviteOpen(true);
+  };
+
+  const handleSendInvites = async () => {
+    const payload = inviteRows
+      .filter((row) => row.email)
+      .map((row) => ({
+        ...row,
+        pharmacy: pharmacyId,
+      }));
+
+    if (!payload.length) {
+      setToast({ message: "Please add at least one invite.", severity: "error" });
+      return;
+    }
+
+    setInviteSubmitting(true);
+    try {
+      await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`, {
+        invitations: payload,
+      });
+      setToast({ message: "Invites sent!", severity: "success" });
+      setInviteOpen(false);
+      resetInviteRows();
+      onMembershipsChanged();
+    } catch (error: any) {
+      setToast({ message: error?.response?.data?.detail || "Failed to send invites.", severity: "error" });
+    } finally {
+      setInviteSubmitting(false);
+    }
+  };
+
+  const handleRemoveMembership = async (id: string | number) => {
+    if (!id) return;
+    setDeleteLoadingId(id);
+    try {
+      await apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.membershipDelete(String(id))}`);
+      setToast({ message: "Favourite removed", severity: "success" });
+      onMembershipsChanged();
+    } catch (error: any) {
+      setToast({ message: error?.response?.data?.detail || "Failed to remove favourite.", severity: "error" });
+    } finally {
+      setDeleteLoadingId(null);
+    }
+  };
 
   const openLinkDialog = () => {
     setLinkExpiry("14");
@@ -134,13 +190,13 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
       const expires = Number(linkExpiry) || 14;
       const res = await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipInviteLinks}`, {
         pharmacy: pharmacyId,
-        category: "FULL_PART_TIME",
+        category: "LOCUM_CASUAL",
         expires_in_days: expires,
       });
       const token = res.data?.token;
       const url = `${window.location.origin}/membership/apply/${token}`;
       setLinkValue(url);
-      setToast({ message: "Invite link generated", severity: "success" });
+      setToast({ message: "Favourite link generated", severity: "success" });
     } catch (error: any) {
       setToast({ message: error?.response?.data?.detail || "Failed to generate link.", severity: "error" });
     } finally {
@@ -153,60 +209,17 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
     try {
       await navigator.clipboard.writeText(linkValue);
       setToast({ message: "Link copied to clipboard", severity: "success" });
+      setLinkOpen(false);
     } catch {
-      setToast({ message: "Unable to copy link", severity: "error" });
-    }
-    setLinkOpen(false);
-  };
-
-  const handleSendInvites = async () => {
-    const payload = inviteRows
-      .filter((row) => row.email)
-      .map((row) => ({
-        ...row,
-        pharmacy: pharmacyId,
-      }));
-
-    if (!payload.length) {
-      setToast({ message: "Please fill out at least one invite.", severity: "error" });
-      return;
-    }
-
-    setInviteSubmitting(true);
-    try {
-      await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`, {
-        invitations: payload,
-      });
-      setToast({ message: "Invitations sent!", severity: "success" });
-      setInviteOpen(false);
-      resetInviteForm();
-      onMembershipsChanged();
-    } catch (error: any) {
-      setToast({ message: error?.response?.data?.detail || "Failed to send invitations.", severity: "error" });
-    } finally {
-      setInviteSubmitting(false);
-    }
-  };
-
-  const handleRemoveMembership = async (id: string | number) => {
-    if (!id) return;
-    setDeleteLoadingId(id);
-    try {
-      await apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.membershipDelete(String(id))}`);
-      setToast({ message: "Staff removed", severity: "success" });
-      onMembershipsChanged();
-    } catch (error: any) {
-      setToast({ message: error?.response?.data?.detail || "Failed to remove", severity: "error" });
-    } finally {
-      setDeleteLoadingId(null);
+      setToast({ message: "Unable to copy link.", severity: "error" });
     }
   };
 
   return (
     <Box>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mb: 2, flexWrap: "wrap" }}>
-        <Button variant="outlined" startIcon={<FilterListIcon />} onClick={() => setSortBy("role")}>
-          Sort: Role
+        <Button variant="outlined" startIcon={<FilterListIcon />} onClick={() => setSortBy("name")}>
+          Sort: Name
         </Button>
         <Button variant="outlined" startIcon={<FilterListIcon />} onClick={() => setSortBy("workType")}>
           Sort: Work Type
@@ -217,7 +230,7 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
             labelId="role-filter"
             label="Filter role"
             value={filterRole}
-            onChange={(e) => setFilterRole(e.target.value as any)}
+            onChange={(e) => setFilterRole(e.target.value as Role | "ALL")}
           >
             <MenuItem value="ALL">All roles</MenuItem>
             {ROLE_OPTIONS.map((opt) => (
@@ -228,62 +241,64 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
           </Select>
         </FormControl>
         <FormControl sx={{ minWidth: 200 }}>
-          <InputLabel id="work-filter">Filter work type</InputLabel>
+          <InputLabel id="work-type-filter">Filter work type</InputLabel>
           <Select
-            labelId="work-filter"
+            labelId="work-type-filter"
             label="Filter work type"
             value={filterWork}
-            onChange={(e) => setFilterWork(e.target.value as any)}
+            onChange={(e) => setFilterWork(e.target.value as WorkType | "ALL")}
           >
-            <MenuItem value="ALL">All work types</MenuItem>
-            {EMPLOYMENT_TYPES.filter((type) => ["FULL_TIME", "PART_TIME", "CASUAL"].includes(type)).map((type) => (
+            <MenuItem value="ALL">All types</MenuItem>
+            {LOCUM_WORK_TYPES.map((type) => (
               <MenuItem key={type} value={type}>
                 {type.replace("_", " ")}
               </MenuItem>
             ))}
           </Select>
         </FormControl>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setInviteOpen(true)}>
-          Invite Staff
+        <Button variant="contained" startIcon={<AddIcon />} onClick={openInviteDialog}>
+          Invite Favourite
         </Button>
         <Button variant="outlined" startIcon={<LinkIcon />} onClick={openLinkDialog}>
           Generate Link
         </Button>
       </Stack>
 
-      {data.length === 0 ? (
-        <Alert severity="info">No staff yet. Use "Invite Staff" to add members.</Alert>
+      {filteredLocums.length === 0 ? (
+        <Alert severity="info">No favourite locums yet. Use “Invite Favourite” to add people.</Alert>
       ) : (
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
-          {data.map((item) => (
+          {filteredLocums.map((locum) => (
             <Card
-              key={item.id}
+              key={locum.id}
               variant="outlined"
-              sx={{ flex: "1 1 420px", maxWidth: 560, backgroundColor: tokens.bg, borderColor: tokens.border }}
+              sx={{ flex: "1 1 420px", maxWidth: 560, borderColor: tokens.border, backgroundColor: tokens.bg }}
             >
               <CardContent sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
-                <Chip
-                  label={item.role}
-                  color={item.role === "PHARMACIST" ? "success" : item.role === "TECHNICIAN" ? "info" : "warning"}
-                />
-                <Chip label={item.workType.replace("_", " ")} variant="outlined" />
+                <Stack direction="row" spacing={1}>
+                  <Chip
+                    label={locum.role}
+                    color={locum.role === "PHARMACIST" ? "success" : locum.role === "TECHNICIAN" ? "info" : "warning"}
+                  />
+                  <Chip label={locum.workType.replace("_", " ")} variant="outlined" />
+                </Stack>
                 <Box sx={{ ml: 1 }}>
-                  <Typography fontWeight={600}>{item.name}</Typography>
-                  {item.email && (
+                  <Typography fontWeight={600}>{locum.name}</Typography>
+                  {locum.email && (
                     <Typography variant="body2" sx={{ color: tokens.textMuted }}>
-                      {item.email}
+                      {locum.email}
                     </Typography>
                   )}
                 </Box>
-                <Box sx={{ ml: "auto", display: "flex", gap: 0.5 }}>
-                  <Tooltip title="Remove">
+                <Box sx={{ ml: "auto" }}>
+                  <Tooltip title="Remove favourite">
                     <span>
                       <IconButton
                         color="error"
-                        onClick={() => handleRemoveMembership(item.id)}
-                        disabled={deleteLoadingId === item.id}
+                        onClick={() => handleRemoveMembership(locum.id)}
+                        disabled={deleteLoadingId === locum.id}
                       >
-                        {deleteLoadingId === item.id ? <CircularProgress size={16} /> : <DeleteOutlineIcon fontSize="small" />}
+                        {deleteLoadingId === locum.id ? <CircularProgress size={16} /> : <DeleteOutlineIcon fontSize="small" />}
                       </IconButton>
                     </span>
                   </Tooltip>
@@ -295,12 +310,15 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
       )}
 
       <Dialog open={inviteOpen} onClose={() => setInviteOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Invite Staff to {pharmacyId}</DialogTitle>
+        <DialogTitle>Invite Favourite Locums</DialogTitle>
         <DialogContent sx={{ display: "grid", gap: 2, pt: 2 }}>
           {inviteRows.map((row, idx) => (
-            <Box key={idx} sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" } }}>
+            <Box
+              key={idx}
+              sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" } }}
+            >
               <TextField
-                label="Full Name"
+                label="Full name"
                 value={row.invited_name}
                 onChange={(e) => handleInviteFieldChange(idx, "invited_name", e.target.value)}
                 fullWidth
@@ -308,10 +326,10 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
               <TextField
                 label="Email"
                 type="email"
-                required
                 value={row.email}
                 onChange={(e) => handleInviteFieldChange(idx, "email", e.target.value)}
                 fullWidth
+                required
               />
               <FormControl fullWidth>
                 <InputLabel id={`role-${idx}`}>Role</InputLabel>
@@ -319,7 +337,7 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
                   labelId={`role-${idx}`}
                   label="Role"
                   value={row.role}
-                  onChange={(e) => handleInviteFieldChange(idx, "role", e.target.value as Role)}
+                  onChange={(e) => handleInviteFieldChange(idx, "role", e.target.value)}
                 >
                   {ROLE_OPTIONS.map((opt) => (
                     <MenuItem key={opt.value} value={opt.value}>
@@ -329,21 +347,21 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
                 </Select>
               </FormControl>
               <FormControl fullWidth>
-                <InputLabel id={`work-${idx}`}>Employment type</InputLabel>
+                <InputLabel id={`work-${idx}`}>Work type</InputLabel>
                 <Select
                   labelId={`work-${idx}`}
-                  label="Employment type"
+                  label="Work type"
                   value={row.employment_type}
                   onChange={(e) => handleInviteFieldChange(idx, "employment_type", e.target.value)}
                 >
-                  {EMPLOYMENT_TYPES.map((type) => (
+                  {LOCUM_WORK_TYPES.map((type) => (
                     <MenuItem key={type} value={type}>
                       {type.replace("_", " ")}
                     </MenuItem>
                   ))}
                 </Select>
               </FormControl>
-              <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 1, gridColumn: "span 2" }}>
+              <Box sx={{ gridColumn: "span 2", display: "flex", justifyContent: "flex-end", gap: 1 }}>
                 {inviteRows.length > 1 && (
                   <Button color="error" onClick={() => removeInviteRow(idx)}>
                     Remove
@@ -356,8 +374,35 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setInviteOpen(false)}>Cancel</Button>
-          <Button onClick={handleSendInvites} variant="contained" disabled={inviteSubmitting}>
-            {inviteSubmitting ? "Sending..." : "Send Invitations"}
+          <Button variant="contained" onClick={handleSendInvites} disabled={inviteSubmitting}>
+            {inviteSubmitting ? "Sending..." : "Send Invites"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={linkOpen} onClose={() => setLinkOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Generate Favourite Link</DialogTitle>
+        <DialogContent sx={{ display: "grid", gap: 2, pt: 2, overflow: "visible" }}>
+          <TextField
+            label="Expiry (days)"
+            type="number"
+            value={linkExpiry}
+            onChange={(e) => setLinkExpiry(e.target.value)}
+            fullWidth
+            InputLabelProps={{ shrink: true }}
+            inputProps={{ min: 1, max: 90 }}
+          />
+          {linkValue && (
+            <TextField label="Shareable link" value={linkValue} fullWidth InputProps={{ readOnly: true }} />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLinkOpen(false)}>Close</Button>
+          <Button onClick={handleGenerateLink} startIcon={<LinkIcon />} disabled={linkSubmitting}>
+            {linkSubmitting ? "Generating..." : linkValue ? "Regenerate" : "Generate"}
+          </Button>
+          <Button onClick={handleCopyLink} startIcon={<ContentCopyIcon />} disabled={!linkValue}>
+            Copy & Close
           </Button>
         </DialogActions>
       </Dialog>
@@ -368,33 +413,6 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
         onClose={() => setToast(null)}
         message={toast?.message}
       />
-
-      <Dialog open={linkOpen} onClose={() => setLinkOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Generate Invite Link</DialogTitle>
-        <DialogContent sx={{ display: "grid", gap: 2, pt: 2, overflow: "visible" }}>
-          <TextField
-            label="Expiry (days)"
-            value={linkExpiry}
-            onChange={(e) => setLinkExpiry(e.target.value)}
-            type="number"
-            fullWidth
-            InputLabelProps={{ shrink: true }}
-            inputProps={{ min: 1, max: 90 }}
-          />
-          {linkValue && (
-            <TextField label="Invite link" value={linkValue} fullWidth InputProps={{ readOnly: true }} />
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setLinkOpen(false)}>Close</Button>
-          <Button onClick={handleGenerateLink} startIcon={<LinkIcon />} disabled={linkSubmitting}>
-            {linkSubmitting ? "Generating..." : "Generate"}
-          </Button>
-          <Button onClick={handleCopyLink} startIcon={<ContentCopyIcon />} disabled={!linkValue}>
-            Copy & Close
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 }

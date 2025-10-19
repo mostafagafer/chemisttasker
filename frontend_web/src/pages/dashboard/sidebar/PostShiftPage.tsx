@@ -1,12 +1,12 @@
-// src/pages/dashboard/sidebar/PostShiftPage.tsx
-
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Container,
   Paper,
-  Tabs,
-  Tab,
+  Stepper,
+  Step,
+  StepLabel,
+  StepConnector,
   TextField,
   FormControlLabel,
   Checkbox,
@@ -18,358 +18,379 @@ import {
   Snackbar,
   IconButton,
   Typography,
+  Stack,
+  Alert,
+  Tooltip,
+  createTheme,
+  ThemeProvider,
+  useMediaQuery,
+  Chip,
 } from '@mui/material';
-import Tooltip from '@mui/material/Tooltip';
-import InfoIcon from '@mui/icons-material/InfoOutlined';
-
-import { Close as CloseIcon } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { styled } from '@mui/material/styles';
+import type { StepIconProps } from '@mui/material/StepIcon';
+import {
+  InfoOutlined as InfoIcon,
+  Delete as DeleteIcon,
+  Add as AddIcon,
+  Work as WorkIcon,
+  Visibility as VisibilityIcon,
+  VerifiedUser as SkillsIcon,
+  AttachMoney as RateIcon,
+  Schedule as ScheduleIcon,
+} from '@mui/icons-material';
+import Grid from '@mui/material/Grid';
+import { stepConnectorClasses } from '@mui/material/StepConnector';
+import { useNavigate, useLocation } from 'react-router-dom';
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
-import { useLocation } from 'react-router-dom';
+import { Calendar, momentLocalizer } from 'react-big-calendar';
+import moment from 'moment';
+import 'react-big-calendar/lib/css/react-big-calendar.css';
+import dayjs from 'dayjs';
 
-interface Pharmacy {
-  id: number;
-  name: string;
-  has_chain: boolean;
-  claimed: boolean;
-}
-
+// --- Interface Definitions ---
+interface Pharmacy { id: number; name: string; has_chain: boolean; claimed: boolean; }
 interface SlotEntry {
-  date: string;
-  startTime: string;
-  endTime: string;
-  isRecurring: boolean;
-  recurringDays: number[];
-  recurringEndDate: string;
+  date: string; startTime: string; endTime: string; isRecurring: boolean;
+  recurringDays: number[]; recurringEndDate: string;
 }
 
-const ESCALATION_LABELS: Record<string, string> = {
-  LOCUM_CASUAL: 'Favourite Staff (Locum/Casual)',
-  OWNER_CHAIN: 'Owner Chain',
-  ORG_CHAIN: 'Organization Chain',
-  PLATFORM: 'Platform',
+interface CalendarEvent {
+  id: string;
+  title: string;
+  start: Date;
+  end: Date;
+  resource?: {
+    slotIndex: number;
+    occurrenceIndex: number;
+  };
+}
+
+const localizer = momentLocalizer(moment);
+
+const WEEK_DAYS = [
+  { v: 1, l: 'M', full: 'Monday' },
+  { v: 2, l: 'T', full: 'Tuesday' },
+  { v: 3, l: 'W', full: 'Wednesday' },
+  { v: 4, l: 'T', full: 'Thursday' },
+  { v: 5, l: 'F', full: 'Friday' },
+  { v: 6, l: 'S', full: 'Saturday' },
+  { v: 0, l: 'S', full: 'Sunday' },
+];
+
+const DAY_LABELS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const toIsoDate = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day);
 };
 
+const applyTimeToDate = (date: Date, time: string) => {
+  const [hour, minute] = time.split(':').map(Number);
+  const next = new Date(date.getTime());
+  next.setHours(hour, minute, 0, 0);
+  return next;
+};
 
+const formatSlotDate = (value: string) => (value ? dayjs(value).format('ddd, MMM D YYYY') : '');
+const formatSlotTime = (value: string) => dayjs(`1970-01-01T${value}`).format('h:mm A');
 
-export default function PostShiftPage() {
+const describeRecurringDays = (days: number[]) => {
+  if (!days?.length) return '';
+  const ordered = [...days].sort((a, b) => ((a === 0 ? 7 : a) - (b === 0 ? 7 : b)));
+  return ordered.map((day) => DAY_LABELS_SHORT[day]).join(' • ');
+};
+
+const PostShiftPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  if (!user) return null;
-
   const location = useLocation();
+
+  if (!user) return null; // FIX: Added null check for user
+
   const params = new URLSearchParams(location.search);
   const editingShiftId = params.get('edit');
 
-  // — Load pharmacies —
+  // --- Form State ---
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
-  useEffect(() => {
-    apiClient
-      .get(API_ENDPOINTS.pharmacies) // We expect a paginated object or an array
-      .then(res => {
-        // FIX: Check if the response is paginated and extract the 'results' array.
-        // If not, assume the data itself is the array.
-        const pharmacyData = Array.isArray(res.data.results) ? res.data.results : res.data;
-        setPharmacies(pharmacyData);
-      })
-      .catch(() => showSnackbar('Failed to load pharmacies'));
-  }, []);
-
-
-  // — Form state —
   const [pharmacyId, setPharmacyId] = useState<number | ''>('');
-  const [allowedVis, setAllowedVis] = useState<string[]>([]);
-  const [visibility, setVisibility] = useState<string>('');
-  const [escalationDates, setEscalationDates] = useState<Record<string, string>>({
-    LOCUM_CASUAL: '',
-    OWNER_CHAIN: '',
-    ORG_CHAIN: '',
-    PLATFORM: '',
-  });
-
-  useEffect(() => {
-     if (pharmacies.length === 1 && !editingShiftId && !pharmacyId) {
-       setPharmacyId(pharmacies[0].id);
-     }
-   }, [pharmacies, editingShiftId, pharmacyId]);
-
-  // compute allowedVis & default visibility only when pharmacyId or user.role changes
-  useEffect(() => {
-    if (!pharmacyId) {
-      setAllowedVis([]);
-      setVisibility('');
-      return;
-    }
-    const p = pharmacies.find(x => x.id === pharmacyId);
-    if (!p) return;
-
-    let allowed: string[];
-    if (user.role === 'ORG_ADMIN') {
-      allowed = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'];
-    } else {
-      if (!p.has_chain && !p.claimed) {
-        allowed = ['PLATFORM'];
-      } else if (p.has_chain && !p.claimed) {
-        allowed = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'PLATFORM'];
-      } else if (!p.has_chain && p.claimed) {
-        allowed = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'ORG_CHAIN', 'PLATFORM'];
-      } else {
-        allowed = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'];
-      }
-    }
-    setAllowedVis(allowed);
-    setVisibility(prev => (allowed.includes(prev) ? prev : allowed[0]));
-    setEscalationDates({
-      LOCUM_CASUAL: '',
-      OWNER_CHAIN: '',
-      ORG_CHAIN: '',
-      PLATFORM: '',
-    });
-  }, [pharmacyId, pharmacies, user.role]);
-
-  // At the top of your component:
-  const [shiftPrefill, setShiftPrefill] = useState<any>(null);
-
-  useEffect(() => {
-    if (!editingShiftId) return;
-    apiClient
-      .get(`${API_ENDPOINTS.getActiveShifts}${editingShiftId}/`)
-      .then(res => setShiftPrefill(res.data))
-      .catch(() => showSnackbar('Failed to load shift for editing'));
-  }, [editingShiftId]);
-
-  useEffect(() => {
-    if (!shiftPrefill || pharmacies.length === 0) return;
-
-    // --- Pre-fill all fields ---
-    setPharmacyId(shiftPrefill.pharmacy); // For your <Select>
-    setRoleNeeded(shiftPrefill.role_needed);
-    setDescription(shiftPrefill.description || ''); 
-    setEmploymentType(shiftPrefill.employment_type);
-    setVisibility(shiftPrefill.visibility);
-
-    setWorkloadTags(shiftPrefill.workload_tags || []);
-    setMustHave(shiftPrefill.must_have || []);
-    setNiceToHave(shiftPrefill.nice_to_have || []);
-    setRateType(shiftPrefill.rate_type || '');
-    setFixedRate(shiftPrefill.fixed_rate || '');
-    setOwnerAdjustedRate(shiftPrefill.owner_adjusted_rate || '');
-    setSingleUserOnly(!!shiftPrefill.single_user_only);
-
-    setEscalationDates({
-      LOCUM_CASUAL: shiftPrefill.escalate_to_locum_casual || '',
-      OWNER_CHAIN:  shiftPrefill.escalate_to_owner_chain || '',
-      ORG_CHAIN:    shiftPrefill.escalate_to_org_chain || '',
-      PLATFORM:     shiftPrefill.escalate_to_platform || '',
-    });
-
-    setSlots(
-      (shiftPrefill.slots || []).map((s: any) => ({
-        date: s.date,
-        startTime: s.start_time,
-        endTime: s.end_time,
-        isRecurring: s.is_recurring,
-        recurringDays: s.recurring_days || [],
-        recurringEndDate: s.recurring_end_date || '',
-      }))
-    );
-
-    // --- Clear buffer to avoid looping ---
-    setShiftPrefill(null);
-  }, [shiftPrefill, pharmacies]);
-
-
-  // — Other form fields —
+  const [employmentType, setEmploymentType] = useState<string>('LOCUM');
   const [roleNeeded, setRoleNeeded] = useState<string>('');
   const [description, setDescription] = useState<string>('');
-  const [employmentType, setEmploymentType] = useState<string>('LOCUM');
-  const workloadOptions = ['Sole Pharmacist', 'High Script Load', 'Webster Packs'];
   const [workloadTags, setWorkloadTags] = useState<string[]>([]);
-  const toggleWorkloadTag = (tag: string) =>
-    setWorkloadTags(w =>
-      w.includes(tag) ? w.filter(x => x !== tag) : [...w, tag]
-    );
-
-  const skillOptions = [
-    'Vaccination', 'Methadone', 'CPR', 'First Aid',
-    'Anaphylaxis', 'Credentialed Badge', 'PDL Insurance',
-  ];
   const [mustHave, setMustHave] = useState<string[]>([]);
   const [niceToHave, setNiceToHave] = useState<string[]>([]);
-  const toggleMustHave = (s: string) =>
-    setMustHave(m => (m.includes(s) ? m.filter(x => x !== s) : [...m, s]));
-  const toggleNiceToHave = (s: string) =>
-    setNiceToHave(n => (n.includes(s) ? n.filter(x => x !== s) : [...n, s]));
-
+  const [visibility, setVisibility] = useState<string>('');
+  const [escalationDates, setEscalationDates] = useState<Record<string, string>>({});
   const [rateType, setRateType] = useState<string>('');
   const [fixedRate, setFixedRate] = useState<string>('');
   const [ownerAdjustedRate, setOwnerAdjustedRate] = useState('');
+  const [singleUserOnly, setSingleUserOnly] = useState(false);
 
+  // --- Timetable State ---
   const [slots, setSlots] = useState<SlotEntry[]>([]);
   const [slotDate, setSlotDate] = useState<string>('');
   const [slotStartTime, setSlotStartTime] = useState<string>('09:00');
   const [slotEndTime, setSlotEndTime] = useState<string>('17:00');
-  const [slotIsRecurring, setSlotIsRecurring] = useState<boolean>(false);
-  const [slotRecurringDays, setSlotRecurringDays] = useState<number[]>([]);
-  const [slotRecurringEndDate, setSlotRecurringEndDate] = useState<string>('');
-  const weekDays = [
-    { value: 0, label: 'Sun' }, { value: 1, label: 'Mon' }, { value: 2, label: 'Tue' },
-    { value: 3, label: 'Wed' }, { value: 4, label: 'Thu' }, { value: 5, label: 'Fri' },
-    { value: 6, label: 'Sat' }
-  ];
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurringDays, setRecurringDays] = useState<number[]>([]);
+  const [recurringEndDate, setRecurringEndDate] = useState('');
 
-  // — Single-user toggle & submitting flag —
+  // --- UI State ---
   const [submitting, setSubmitting] = useState(false);
-  const [singleUserOnly, setSingleUserOnly] = useState(false);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
+  const [activeStep, setActiveStep] = useState(0);
 
-  // — Snackbar —
-  const [snackbarOpen, setSnackbarOpen] = useState(false);
-  const [snackbarMsg, setSnackbarMsg] = useState('');
-  const showSnackbar = (msg: string) => {
-    setSnackbarMsg(msg);
-    setSnackbarOpen(true);
-  };
-  const closeSnackbar = () => setSnackbarOpen(false);
+  // --- Calendar Control State ---
+  const [calendarView, setCalendarView] = useState<'month' | 'week'>('month');
+  const [calendarDate, setCalendarDate] = useState(new Date());
 
-  // — Tabs setup —
-  const tabs = [
-    { key: 'details', label: 'Details' },
-    ...(allowedVis.length > 1 ? [{ key: 'visibility', label: 'Visibility' }] : []),
-    { key: 'required', label: 'Required Skills' },
-    { key: 'nice', label: 'Nice to Have' },
-    { key: 'rate', label: 'Rate' },
-    { key: 'slots', label: 'Slots' },
+  // --- Data Loading ---
+  useEffect(() => {
+    apiClient.get(API_ENDPOINTS.pharmacies)
+      .then(res => setPharmacies(res.data.results || res.data))
+      .catch(() => showSnackbar('Failed to load pharmacies', 'error'));
+
+    if (editingShiftId) {
+      apiClient.get(`${API_ENDPOINTS.getActiveShifts}${editingShiftId}/`)
+        .then(res => {
+          const data = res.data;
+          setPharmacyId(data.pharmacy);
+          setEmploymentType(data.employment_type);
+          setRoleNeeded(data.role_needed);
+          setDescription(data.description || '');
+          setWorkloadTags(data.workload_tags || []);
+          setMustHave(data.must_have || []);
+          setNiceToHave(data.nice_to_have || []);
+          setVisibility(data.visibility);
+          setRateType(data.rate_type || '');
+          setFixedRate(data.fixed_rate || '');
+          setOwnerAdjustedRate(data.owner_adjusted_rate || '');
+          setSingleUserOnly(data.single_user_only || false);
+          setSlots((data.slots || []).map((s: any) => ({
+              date: s.date, startTime: s.start_time, endTime: s.end_time, isRecurring: s.is_recurring,
+              recurringDays: s.recurring_days || [], recurringEndDate: s.recurring_end_date || '',
+          })));
+        })
+        .catch(() => showSnackbar('Failed to load shift for editing', 'error'));
+    }
+  }, [editingShiftId]);
+  const allowedVis = useMemo(() => {
+    const p = pharmacies.find(x => x.id === pharmacyId);
+    if (!p) return [];
+    if (user?.role === 'ORG_ADMIN') return ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'];
+    if (!p.has_chain && !p.claimed) return ['PLATFORM'];
+    if (p.has_chain && !p.claimed) return ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'PLATFORM'];
+    return ['FULL_PART_TIME', 'LOCUM_CASUAL', 'PLATFORM'];
+  }, [pharmacyId, pharmacies, user]);
+
+  useEffect(() => {
+    if (allowedVis.length > 0 && !allowedVis.includes(visibility)) {
+      setVisibility(allowedVis[0]);
+    }
+  }, [allowedVis, visibility]);
+
+  const showSnackbar = (msg: string, severity: 'success' | 'error' = 'success') => setSnackbar({ open: true, message: msg, severity });
+
+  const steps = [
+    { label: 'Shift Details', icon: WorkIcon },
+    { label: 'Skills', icon: SkillsIcon },
+    { label: 'Visibility', icon: VisibilityIcon },
+    { label: 'Pay Rate', icon: RateIcon },
+    { label: 'Timetable', icon: ScheduleIcon },
   ];
-  const [activeTab, setActiveTab] = useState(0);
-  const currentKey = tabs[activeTab].key;
-  const goNext = () => setActiveTab(i => Math.min(i + 1, tabs.length - 1));
-  const goBack = () => setActiveTab(i => Math.max(i - 1, 0));
 
-  // — Add slot —
-  const handleAddSlot = () => {
-    if (!slotDate) return showSnackbar('Please select slot date');
-    if (new Date(`1970-01-01T${slotEndTime}`) <= new Date(`1970-01-01T${slotStartTime}`))
-      return showSnackbar('End must follow start');
-    if (slotIsRecurring && (!slotRecurringEndDate || !slotRecurringDays.length))
-      return showSnackbar('Configure recurrence completely');
+  const StepConnectorStyled = styled(StepConnector)(({ theme }) => ({
+    [`&.${stepConnectorClasses.alternativeLabel}`]: {
+      top: 24,
+    },
+    [`& .${stepConnectorClasses.line}`]: {
+      borderColor: theme.palette.grey[300],
+      borderTopWidth: 2,
+      borderRadius: 1,
+    },
+    [`&.${stepConnectorClasses.active} .${stepConnectorClasses.line}`]: {
+      borderColor: theme.palette.primary.main,
+    },
+    [`&.${stepConnectorClasses.completed} .${stepConnectorClasses.line}`]: {
+      borderColor: theme.palette.primary.main,
+    },
+  }));
 
-    setSlots(s => [
-      ...s,
-      {
-        date: slotDate,
-        startTime: slotStartTime,
-        endTime: slotEndTime,
-        isRecurring: slotIsRecurring,
-        recurringDays: slotIsRecurring ? slotRecurringDays : [],
-        recurringEndDate: slotIsRecurring ? slotRecurringEndDate : '',
-      },
-    ]);
-    setSlotDate(''); setSlotStartTime('09:00'); setSlotEndTime('17:00');
-    setSlotIsRecurring(false); setSlotRecurringDays([]); setSlotRecurringEndDate('');
+  const StepIconRoot = styled('div')<{ ownerState: { active?: boolean; completed?: boolean } }>(
+    ({ theme, ownerState }) => ({
+      zIndex: 1,
+      width: 44,
+      height: 44,
+      borderRadius: '50%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      transition: theme.transitions.create(['background-color', 'box-shadow', 'transform'], {
+        duration: theme.transitions.duration.shorter,
+      }),
+      color: ownerState.active || ownerState.completed
+        ? theme.palette.common.white
+        : theme.palette.text.secondary,
+      background: ownerState.completed || ownerState.active
+        ? 'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)'
+        : theme.palette.grey[200],
+      boxShadow: ownerState.active
+        ? '0 12px 24px rgba(109, 40, 217, 0.25)'
+        : '0 0 0 rgba(0,0,0,0)',
+      transform: ownerState.active ? 'scale(1.05)' : 'scale(1)',
+    })
+  );
+
+  const StepIconComponent = (props: StepIconProps) => {
+    const { active, completed, icon } = props;
+    const stepIndex = Number(icon) - 1;
+    const Icon = steps[stepIndex]?.icon ?? WorkIcon;
+    return (
+      <StepIconRoot ownerState={{ active, completed }}>
+        <Icon fontSize="small" />
+      </StepIconRoot>
+    );
   };
 
-  // — Submit —
-  const handleSubmit = async () => {
-    if (!pharmacyId || !roleNeeded || !employmentType) {
-      return showSnackbar('Fill all required fields');
-    }
-    const startIdx = allowedVis.indexOf(visibility);
-    if (startIdx === -1) return showSnackbar('Select a valid visibility');
-    const nextTiers = allowedVis.slice(startIdx + 1);
+  const calendarEvents = useMemo<CalendarEvent[]>(() => {
+    const events: CalendarEvent[] = [];
 
-    // Validate escalation dates for all next tiers
-    for (const tier of nextTiers) {
-      if (!escalationDates[tier]) {
-        return showSnackbar(`Enter date → ${ESCALATION_LABELS[tier] || tier}`);
+    slots.forEach((slot, slotIndex) => {
+      const addOccurrence = (date: Date, occurrenceIndex: number) => {
+        const start = applyTimeToDate(date, slot.startTime);
+        const end = applyTimeToDate(date, slot.endTime);
+        events.push({
+          id: `${slotIndex}-${occurrenceIndex}-${start.toISOString()}`,
+          title: `${formatSlotTime(slot.startTime)} – ${formatSlotTime(slot.endTime)}`,
+          start,
+          end,
+          resource: { slotIndex, occurrenceIndex },
+        });
+      };
+
+      if (slot.isRecurring && slot.recurringEndDate && slot.recurringDays.length) {
+        let cursor = toIsoDate(slot.date);
+        const endBoundary = toIsoDate(slot.recurringEndDate);
+        let occurrenceIndex = 0;
+        while (cursor <= endBoundary) {
+          if (slot.recurringDays.includes(cursor.getDay())) {
+            addOccurrence(cursor, occurrenceIndex);
+            occurrenceIndex += 1;
+          }
+          cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+        }
+      } else {
+        addOccurrence(toIsoDate(slot.date), 0);
       }
-    }
-    if (
-      roleNeeded === 'PHARMACIST' &&
-      (!rateType || (rateType === 'FIXED' && !fixedRate))
-    ) {
-      return showSnackbar('Select rate type & fixed rate if FIXED');
-    }
-    if (!slots.length) return showSnackbar('Add at least one slot');
+    });
 
+    return events.sort((a, b) => a.start.getTime() - b.start.getTime());
+  }, [slots]);
+
+  useEffect(() => {
+    if (calendarEvents.length > 0 && slots.length > 0) {
+      setCalendarDate(calendarEvents[0].start);
+    }
+  }, [calendarEvents, slots.length]);
+
+const minCalendarDate = useMemo(() => dayjs().startOf('month').toDate(), []);
+const maxCalendarDate = useMemo(() => dayjs().add(4, 'month').endOf('month').toDate(), []);
+
+const eventStyleGetter = useCallback((_event: CalendarEvent, _start: Date, _end: Date, _isSelected: boolean) => {
+    const backgroundColor = '#8B5CF6'; // A slightly lighter purple
+    const style = {
+        backgroundColor,
+        borderRadius: '6px',
+        color: 'white',
+        border: '1px solid #6D28D9',
+        boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+        padding: '2px 5px',
+    };
+    return { style };
+}, []);
+
+const handleAddSlot = () => {
+  if (!slotDate || !slotStartTime || !slotEndTime) return showSnackbar('Please fill in all time details.', 'error');
+  if (new Date(`1970-01-01T${slotEndTime}`) <= new Date(`1970-01-01T${slotStartTime}`)) return showSnackbar('End time must be after start time.', 'error');
+  if (isRecurring && (!recurringEndDate || recurringDays.length === 0)) return showSnackbar('Please complete the recurrence details.', 'error');
+
+    setSlots(s => [...s, { date: slotDate, startTime: slotStartTime, endTime: slotEndTime, isRecurring, recurringDays, recurringEndDate }]);
+    // Reset form
+    setSlotDate(''); setSlotStartTime('09:00'); setSlotEndTime('17:00');
+    setIsRecurring(false); setRecurringDays([]); setRecurringEndDate('');
+  };
+
+  const handleSubmit = async () => {
+    if (!pharmacyId || !roleNeeded || !employmentType) return showSnackbar('Please fill all required fields in Step 1.', 'error');
+    if (slots.length === 0) return showSnackbar('Please add at least one schedule entry.', 'error');
+    
     setSubmitting(true);
-
-    // Prepare the payload as before
     const payload = {
-      pharmacy: pharmacyId,
-      role_needed: roleNeeded,
-      description: description, 
-      employment_type: employmentType,
-      visibility,
+      pharmacy: pharmacyId, role_needed: roleNeeded, description, employment_type: employmentType,
+      workload_tags: workloadTags, must_have: mustHave, nice_to_have: niceToHave, visibility,
       escalate_to_locum_casual: escalationDates['LOCUM_CASUAL'] || null,
-      escalate_to_owner_chain:  escalationDates['OWNER_CHAIN'] || null,
-      escalate_to_org_chain:    escalationDates['ORG_CHAIN'] || null,
-      escalate_to_platform:     escalationDates['PLATFORM'] || null,
-      workload_tags: workloadTags,
-      must_have:     mustHave,
-      nice_to_have:  niceToHave,
-      rate_type:     roleNeeded === 'PHARMACIST' ? rateType : null,
-      fixed_rate:    roleNeeded === 'PHARMACIST' && rateType === 'FIXED' ? fixedRate : null,
-      owner_adjusted_rate: roleNeeded !== 'PHARMACIST' && ownerAdjustedRate ? Number(ownerAdjustedRate) : null,
+      escalate_to_owner_chain: escalationDates['OWNER_CHAIN'] || null,
+      escalate_to_org_chain: escalationDates['ORG_CHAIN'] || null,
+      escalate_to_platform: escalationDates['PLATFORM'] || null,
+      rate_type: roleNeeded === 'PHARMACIST' ? rateType : null,
+      fixed_rate: (roleNeeded === 'PHARMACIST' && rateType === 'FIXED' && fixedRate) ? fixedRate : null,
+      owner_adjusted_rate: (roleNeeded !== 'PHARMACIST' && ownerAdjustedRate) ? Number(ownerAdjustedRate) : null,
       single_user_only: singleUserOnly,
       slots: slots.map(s => ({
-        date: s.date,
-        start_time: s.startTime,
-        end_time: s.endTime,
-        is_recurring: s.isRecurring,
-        recurring_days: s.recurringDays,
+        date: s.date, start_time: s.startTime, end_time: s.endTime,
+        is_recurring: s.isRecurring, recurring_days: s.recurringDays,
         recurring_end_date: s.recurringEndDate || null,
       })),
     };
 
     try {
       if (editingShiftId) {
-        // PATCH (edit) if editingShiftId exists
         await apiClient.patch(`${API_ENDPOINTS.getActiveShifts}${editingShiftId}/`, payload);
-        showSnackbar('Shift updated successfully');
+        showSnackbar('Shift updated successfully!');
       } else {
-        // POST (create)
         await apiClient.post(API_ENDPOINTS.getActiveShifts, payload);
-        showSnackbar('Shift created successfully');
+        showSnackbar('Shift posted successfully!');
       }
-      setTimeout(() => navigate('../shifts/active'), 500);
-    } catch {
-      showSnackbar(editingShiftId ? 'Failed to update shift' : 'Failed to create shift');
+      setTimeout(() => navigate('/dashboard/owner/shifts/active'), 1500);
+    } catch (err: any) {
+      showSnackbar(err.response?.data?.detail || 'An error occurred.', 'error');
     } finally {
       setSubmitting(false);
     }
   };
+  const renderStepContent = (step: number) => {
+    const workloadOptions = ['Sole Pharmacist', 'High Script Load', 'Webster Packs'];
+    const skillOptions = ['Vaccination', 'Methadone', 'CPR', 'First Aid', 'Anaphylaxis', 'Credentialed Badge', 'PDL Insurance'];
+    const ESCALATION_LABELS: Record<string, string> = { FULL_PART_TIME: 'Pharmacy Members', LOCUM_CASUAL: 'Favourite Staff', OWNER_CHAIN: 'Owner Chain', ORG_CHAIN: 'Organization', PLATFORM: 'Platform (Public)' };
+  const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2 } };
 
-
-  return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Paper sx={{ p: 3 }}>
-        <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} centered>
-          {tabs.map(t => <Tab key={t.key} label={t.label} />)}
-        </Tabs>
-
-        <Box sx={{ mt: 2 }}>
-        {currentKey === 'details' && (
-            <Box sx={{ display: 'grid', gap: 2 }}>
-              <FormControl fullWidth>
-                <InputLabel>Pharmacy</InputLabel>
+    switch (step) {
+      case 0: return (
+        <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
+            <Grid size={12}>
+              <FormControl fullWidth size="small" sx={fieldSx}>
+                <InputLabel>Pharmacy *</InputLabel>
                 <Select
                   value={pharmacyId}
-                  label="Pharmacy"
+                  label="Pharmacy *"
                   onChange={e => setPharmacyId(Number(e.target.value))}
                 >
                   {pharmacies.map(p => (
-                    <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+                    <MenuItem key={p.id} value={p.id}>
+                      {p.name}
+                    </MenuItem>
                   ))}
                 </Select>
               </FormControl>
-
-              <FormControl fullWidth>
-                <InputLabel>Employment Type</InputLabel>
+            </Grid>
+            <Grid size={{ xs: 12, md: 6 }}>
+              <FormControl fullWidth size="small" sx={fieldSx}>
+                <InputLabel>Employment Type *</InputLabel>
                 <Select
                   value={employmentType}
-                  label="Employment Type"
+                  label="Employment Type *"
                   onChange={e => setEmploymentType(e.target.value)}
                 >
                   <MenuItem value="LOCUM">Locum</MenuItem>
@@ -377,12 +398,13 @@ export default function PostShiftPage() {
                   <MenuItem value="PART_TIME">Part-Time</MenuItem>
                 </Select>
               </FormControl>
-
-              <FormControl fullWidth>
-                <InputLabel>Role Needed</InputLabel>
+            </Grid>
+            <Grid size={{ xs: 12, md: 6 }}>
+              <FormControl fullWidth size="small" sx={fieldSx}>
+                <InputLabel>Role Needed *</InputLabel>
                 <Select
                   value={roleNeeded}
-                  label="Role Needed"
+                  label="Role Needed *"
                   onChange={e => setRoleNeeded(e.target.value)}
                 >
                   <MenuItem value="PHARMACIST">Pharmacist</MenuItem>
@@ -393,279 +415,588 @@ export default function PostShiftPage() {
                   <MenuItem value="EXPLORER">Explorer</MenuItem>
                 </Select>
               </FormControl>
-
+            </Grid>
+            <Grid size={12}>
               <TextField
                 label="Shift Description"
                 multiline
-                rows={4}
+                minRows={4}
                 value={description}
                 onChange={e => setDescription(e.target.value)}
                 fullWidth
-                placeholder="Provide a plain English description of the shift, including any key responsibilities or context for the worker."
+                placeholder="Provide key responsibilities or context..."
+                size="small"
+                sx={fieldSx}
               />
-
-              <Typography variant="subtitle1">Workload Tags</Typography>
-              <Box sx={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:2 }}>
-                {workloadOptions.map(opt => (
+            </Grid>
+            <Grid size={12}>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Workload Tags
+              </Typography>
+              <Stack direction="row" flexWrap="wrap" gap={1.5}>
+                {workloadOptions.map(tag => {
+                  const selected = workloadTags.includes(tag);
+                  return (
+                    <Chip
+                      key={tag}
+                      label={tag}
+                      onClick={() =>
+                        setWorkloadTags(current =>
+                          selected ? current.filter(x => x !== tag) : [...current, tag]
+                        )
+                      }
+                      variant={selected ? 'filled' : 'outlined'}
+                      color={selected ? 'primary' : 'default'}
+                      clickable
+                      sx={{
+                        borderRadius: '999px',
+                        fontWeight: 600,
+                        px: 1.5,
+                        py: 0.5,
+                      }}
+                    />
+                  );
+                })}
+              </Stack>
+            </Grid>
+        </Grid>
+      );
+      case 1: return (
+        <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
+            <Grid size={12}>
+              <Typography variant="h6" sx={{ mb: 1 }}>
+                Must-Have Skills
+              </Typography>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                  gap: 1.5,
+                }}
+              >
+                {skillOptions.map(s => (
                   <FormControlLabel
-                    key={opt}
-                    control={<Checkbox
-                      checked={workloadTags.includes(opt)}
-                      onChange={() => toggleWorkloadTag(opt)}
-                    />}
-                    label={opt}
+                    key={`must-${s}`}
+                    control={
+                      <Checkbox
+                        checked={mustHave.includes(s)}
+                        onChange={() =>
+                          setMustHave(current =>
+                            current.includes(s)
+                              ? current.filter(x => x !== s)
+                              : [...current, s]
+                          )
+                        }
+                      />
+                    }
+                    label={s}
                   />
                 ))}
               </Box>
-            </Box>
-          )}
-          {currentKey === 'visibility' && (
-            <Box sx={{ display: 'grid', gap: 2 }}>
-              <FormControl fullWidth>
-                <InputLabel>Visibility</InputLabel>
-                <Select
-                  value={visibility}
-                  label="Visibility"
-                  onChange={e => setVisibility(e.target.value)}
-                >
-                  {allowedVis.map(opt => (
-                    <MenuItem key={opt} value={opt}>
-                      { {
-                            FULL_PART_TIME: 'Pharmacy Members (Full/Part Time)',
-                            LOCUM_CASUAL:   'Favourite Staff (Locum/Casual)',
-                            OWNER_CHAIN:    'Owner Chain',
-                            ORG_CHAIN:      'Organization Chain',
-                            PLATFORM:       'Platform (Public)',
-                      }[opt] }
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              {/* Render all escalation pickers after the chosen visibility */}
-              {allowedVis.slice(allowedVis.indexOf(visibility) + 1).map(tier => (
-                <TextField
-                  key={tier}
-                  label={`Escalate → ${ESCALATION_LABELS[tier] ?? tier}`}
-                  type="datetime-local"
-                  value={escalationDates[tier] || ''}
-                  onChange={e => setEscalationDates(d => ({ ...d, [tier]: e.target.value }))}
-                  InputLabelProps={{ shrink: true }}
-                  fullWidth
-                />
-              ))}
-
-
-            </Box>
-          )}
-
-          {currentKey === 'required' && (
-            <Box sx={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:2 }}>
-              {skillOptions.map(s => (
-                <FormControlLabel
-                  key={s}
-                  control={<Checkbox checked={mustHave.includes(s)} onChange={() => toggleMustHave(s)} />}
-                  label={s}
-                />
-              ))}
-            </Box>
-          )}
-
-          {currentKey === 'nice' && (
-            <Box sx={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:2 }}>
-              {skillOptions.map(s => (
-                <FormControlLabel
-                  key={s}
-                  control={<Checkbox checked={niceToHave.includes(s)} onChange={() => toggleNiceToHave(s)} />}
-                  label={s}
-                />
-              ))}
-            </Box>
-          )}
-
-          {currentKey === 'rate' && (
-            <Box sx={{ display:'grid', gap:2 }}>
-              {roleNeeded === 'PHARMACIST' ? (
-                <>
-                  <FormControl fullWidth>
-                    <InputLabel>Rate Type</InputLabel>
+            </Grid>
+            <Grid size={12}>
+              <Typography variant="h6" sx={{ mb: 1 }}>
+                Nice-to-Have Skills
+              </Typography>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                  gap: 1.5,
+                }}
+              >
+                {skillOptions.map(s => (
+                  <FormControlLabel
+                    key={`nice-${s}`}
+                    control={
+                      <Checkbox
+                        checked={niceToHave.includes(s)}
+                        onChange={() =>
+                          setNiceToHave(current =>
+                            current.includes(s)
+                              ? current.filter(x => x !== s)
+                              : [...current, s]
+                          )
+                        }
+                      />
+                    }
+                    label={s}
+                  />
+                ))}
+              </Box>
+            </Grid>
+        </Grid>
+      );
+      case 2:
+        const startIdx = allowedVis.indexOf(visibility);
+        return (
+            <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
+                <Grid size={12}>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                    Define who sees this shift and when it escalates to wider groups.
+                  </Typography>
+                </Grid>
+                <Grid size={12}>
+                  <FormControl fullWidth size="small" sx={fieldSx}>
+                    <InputLabel>Initial Audience</InputLabel>
                     <Select
-                      value={rateType}
-                      label="Rate Type"
-                      onChange={e => setRateType(e.target.value)}
+                      value={visibility}
+                      label="Initial Audience"
+                      onChange={e => setVisibility(e.target.value)}
                     >
-                      <MenuItem value="FIXED">Fixed</MenuItem>
-                      <MenuItem value="FLEXIBLE">Flexible</MenuItem>
-                      <MenuItem value="PHARMACIST_PROVIDED">Pharmacist Provided</MenuItem>
+                      {allowedVis.map(opt => (
+                        <MenuItem key={opt} value={opt}>
+                          {ESCALATION_LABELS[opt]}
+                        </MenuItem>
+                      ))}
                     </Select>
                   </FormControl>
-                  {rateType === 'FIXED' && (
-                    <TextField
-                      label="Fixed Rate"
-                      type="number"
-                      value={fixedRate}
-                      onChange={e => setFixedRate(e.target.value)}
-                      fullWidth
-                    />
-                  )}
-                </>
-              ) : (
-                  <Box>
-                    <Typography align="center" sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}>
-                      Rate set by government award
-                      <Tooltip title="Click to view pay guide PDF from Fair Work Commission" arrow>
-                        <a
-                          href="https://portal.fairwork.gov.au/ArticleDocuments/872/pharmacy-industry-award-ma000012-pay-guide.pdf.aspx"
-                          target="_blank"
-                          rel="noopener noreferrer"
+                </Grid>
+                {startIdx > -1 && allowedVis.slice(startIdx + 1).map(tier => (
+                    <Grid key={tier} size={{ xs: 12, sm: 6 }}>
+                      <TextField
+                        label={`Escalate to ${ESCALATION_LABELS[tier]}`}
+                        type="datetime-local"
+                        value={escalationDates[tier] || ''}
+                        onChange={e => setEscalationDates(d => ({ ...d, [tier]: e.target.value }))}
+                        InputLabelProps={{ shrink: true }}
+                        fullWidth
+                        size="small"
+                        sx={fieldSx}
+                      />
+                    </Grid>
+                ))}
+            </Grid>
+        );
+      case 3: return (
+        <>
+            {roleNeeded === 'PHARMACIST' ? (
+                <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <FormControl fullWidth size="small" sx={fieldSx}>
+                        <InputLabel>Rate Type</InputLabel>
+                        <Select
+                          value={rateType}
+                          label="Rate Type"
+                          onChange={e => setRateType(e.target.value)}
                         >
-                          <InfoIcon fontSize="small" color="action" />
-                        </a>
+                          <MenuItem value="FIXED">Fixed Rate</MenuItem>
+                          <MenuItem value="FLEXIBLE">Flexible Rate</MenuItem>
+                          <MenuItem value="PHARMACIST_PROVIDED">Worker Specifies Rate</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    {rateType === 'FIXED' && (
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField
+                          label="Fixed Rate ($/hr)"
+                          type="number"
+                          value={fixedRate}
+                          onChange={e => setFixedRate(e.target.value)}
+                          fullWidth
+                          size="small"
+                          sx={fieldSx}
+                        />
+                      </Grid>
+                    )}
+                </Grid>
+            ) : (
+                <Stack spacing={3}>
+                    <Typography
+                      variant="body1"
+                      align="center"
+                      sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}
+                    >
+                      Rate is set by government award
+                      <Tooltip title="View pay guide">
+                        <IconButton size="small" href="#" target="_blank">
+                          <InfoIcon fontSize="small" />
+                        </IconButton>
                       </Tooltip>
                     </Typography>
-
                     <TextField
-                      label="Owner Bonus (AUD$/hr, optional)"
+                      label="Owner Bonus ($/hr, optional)"
                       type="number"
                       value={ownerAdjustedRate}
                       onChange={e => setOwnerAdjustedRate(e.target.value)}
                       fullWidth
-                      sx={{ mt: 2 }}
-                      helperText="This bonus will be added to the award rate"
+                      helperText="This bonus is added to the award rate."
+                      size="small"
+                      sx={fieldSx}
                     />
-                  </Box>
-              )}
-            </Box>
-          )}
+                </Stack>
+            )}
+        </>
+      );
+      case 4: {
+        return (
+          <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
+            <Grid size={{ xs: 12, lg: 5 }}>
+              <Stack spacing={2.5}>
+                <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, borderColor: 'grey.200' }}>
+                  <Stack spacing={2}>
+                    <Typography variant="subtitle1" fontWeight={600}>
+                      Add schedule entry
+                    </Typography>
+                    <Grid container rowSpacing={2} columnSpacing={2}>
+                      <Grid size={{ xs: 12 }}>
+                        <TextField
+                          label="Date"
+                          type="date"
+                          value={slotDate}
+                          onChange={e => setSlotDate(e.target.value)}
+                          InputLabelProps={{ shrink: true }}
+                          fullWidth
+                          size="small"
+                          sx={fieldSx}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 6 }}>
+                        <TextField
+                          label="Start"
+                          type="time"
+                          value={slotStartTime}
+                          onChange={e => setSlotStartTime(e.target.value)}
+                          InputLabelProps={{ shrink: true }}
+                          fullWidth
+                          size="small"
+                          sx={fieldSx}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 6 }}>
+                        <TextField
+                          label="End"
+                          type="time"
+                          value={slotEndTime}
+                          onChange={e => setSlotEndTime(e.target.value)}
+                          InputLabelProps={{ shrink: true }}
+                          fullWidth
+                          size="small"
+                          sx={fieldSx}
+                        />
+                      </Grid>
+                      <Grid size={12}>
+                        <Button
+                          variant="contained"
+                          onClick={handleAddSlot}
+                          startIcon={<AddIcon />}
+                          fullWidth
+                          sx={{ height: 44, borderRadius: 2 }}
+                        >
+                          Add slot
+                        </Button>
+                      </Grid>
+                    </Grid>
+                    <FormControlLabel
+                      control={(
+                        <Checkbox
+                          checked={isRecurring}
+                          onChange={e => {
+                            const checked = e.target.checked;
+                            setIsRecurring(checked);
+                            if (!checked) {
+                              setRecurringDays([]);
+                              setRecurringEndDate('');
+                            }
+                          }}
+                        />
+                      )}
+                      label="This is a recurring weekly schedule"
+                    />
+                    {isRecurring && (
+                      <Stack spacing={2}>
+                        <TextField
+                          label="Repeat until"
+                          type="date"
+                          value={recurringEndDate}
+                          onChange={e => setRecurringEndDate(e.target.value)}
+                          InputLabelProps={{ shrink: true }}
+                          fullWidth
+                          size="small"
+                          sx={fieldSx}
+                        />
+                        <Stack direction="row" flexWrap="wrap" justifyContent="center" gap={1}>
+                          {WEEK_DAYS.map((d) => (
+                            <Button
+                              key={d.v}
+                              variant={recurringDays.includes(d.v) ? 'contained' : 'outlined'}
+                              onClick={() =>
+                                setRecurringDays(days => {
+                                  if (days.includes(d.v)) {
+                                    return days.filter(x => x !== d.v);
+                                  }
+                                  const next = [...days, d.v];
+                                  return next.sort((a, b) => ((a === 0 ? 7 : a) - (b === 0 ? 7 : b)));
+                                })
+                              }
+                              sx={{ minWidth: 44, borderRadius: '10px' }}
+                              aria-label={d.full}
+                            >
+                              {d.l}
+                            </Button>
+                          ))}
+                        </Stack>
+                      </Stack>
+                    )}
+                  </Stack>
+                </Paper>
 
-          {currentKey === 'slots' && (
-            <Box sx={{ display:'grid', gap:2 }}>
-              {/* single-user-only toggle */}
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={singleUserOnly}
-                    onChange={e => setSingleUserOnly(e.target.checked)}
-                  />
-                }
-                label="Require single user for entire shift"
-              />
-              <Typography variant="h6">Add a Time Slot</Typography>
-              <TextField
-                label="Date" type="date"
-                value={slotDate}
-                onChange={e => setSlotDate(e.target.value)}
-                InputLabelProps={{ shrink:true }}
-                fullWidth
-              />
-              <Box sx={{ display:'flex', gap:2 }}>
-                <TextField
-                  label="Start Time" type="time"
-                  value={slotStartTime}
-                  onChange={e => setSlotStartTime(e.target.value)}
-                  InputLabelProps={{ shrink:true }}
-                  sx={{ flex:1 }}
-                />
-                <TextField
-                  label="End Time" type="time"
-                  value={slotEndTime}
-                  onChange={e => setSlotEndTime(e.target.value)}
-                  InputLabelProps={{ shrink:true }}
-                  sx={{ flex:1 }}
-                />
-              </Box>
-              <FormControlLabel
-                control={<Checkbox
-                  checked={slotIsRecurring}
-                  onChange={e => {
-                    setSlotIsRecurring(e.target.checked);
-                    if (!e.target.checked) {
-                      setSlotRecurringDays([]);
-                      setSlotRecurringEndDate('');
-                    }
-                  }}
-                />}
-                label="Repeat Weekly"
-              />
-              {slotIsRecurring && (
-                <>
-                  <TextField
-                    label="Repeat Until" type="date"
-                    value={slotRecurringEndDate}
-                    onChange={e => setSlotRecurringEndDate(e.target.value)}
-                    InputLabelProps={{ shrink:true }}
-                    fullWidth
-                  />
-                  <Box sx={{ display:'flex', flexWrap:'wrap', gap:1 }}>
-                    {weekDays.map(d => (
-                      <FormControlLabel
-                        key={d.value}
-                        control={<Checkbox
-                          checked={slotRecurringDays.includes(d.value)}
-                          onChange={() =>
-                            setSlotRecurringDays(days =>
-                              days.includes(d.value)
-                                ? days.filter(x => x !== d.value)
-                                : [...days, d.value]
-                            )
-                          }
-                        />}
-                        label={d.label}
-                      />
-                    ))}
-                  </Box>
-                </>
-              )}
-              <Button variant="outlined" onClick={handleAddSlot}>Add Slot</Button>
-              {slots.map((s, i) => (
-                <Paper key={i} sx={{ p:2, mt:1 }}>
-                  <Typography>
-                    {s.date} — {s.startTime}–{s.endTime}
+                <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, borderColor: 'grey.200' }}>
+                  <Stack spacing={2}>
+                    <FormControlLabel
+                      control={<Checkbox checked={singleUserOnly} onChange={e => setSingleUserOnly(e.target.checked)} />}
+                      label="A single person must work all timetable entries"
+                    />
+                    {slots.length === 0 ? (
+                      <Alert severity="info">No schedule entries added yet.</Alert>
+                    ) : (
+                      <Stack spacing={1.5}>
+                        {slots.map((slot, index) => {
+                          const recurringLabel = describeRecurringDays(slot.recurringDays);
+                          return (
+                            <Box
+                              key={`${slot.date}-${slot.startTime}-${index}`}
+                              sx={{
+                                border: '1px solid',
+                                borderColor: 'grey.200',
+                                borderRadius: 2,
+                                px: 2,
+                                py: 1.5,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 2,
+                              }}
+                            >
+                              <Box>
+                                <Typography variant="subtitle2" fontWeight={600}>
+                                  {formatSlotDate(slot.date)}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                  {`${formatSlotTime(slot.startTime)} – ${formatSlotTime(slot.endTime)}`}
+                                </Typography>
+                                {slot.isRecurring && (
+                                  <Stack direction="row" spacing={1} flexWrap="wrap" mt={1}>
+                                    <Chip size="small" color="primary" label="Recurring" />
+                                    {recurringLabel && (
+                                      <Chip
+                                        size="small"
+                                        variant="outlined"
+                                        label={recurringLabel}
+                                      />
+                                    )}
+                                    {slot.recurringEndDate && (
+                                      <Chip
+                                        size="small"
+                                        variant="outlined"
+                                        label={`Ends ${formatSlotDate(slot.recurringEndDate)}`}
+                                      />
+                                    )}
+                                  </Stack>
+                                )}
+                              </Box>
+                              <IconButton edge="end" onClick={() => setSlots(sc => sc.filter((_, idx) => idx !== index))} color="error">
+                                <DeleteIcon />
+                              </IconButton>
+                            </Box>
+                          );
+                        })}
+                      </Stack>
+                    )}
+                  </Stack>
+                </Paper>
+              </Stack>
+            </Grid>
+
+            <Grid size={{ xs: 12, lg: 7 }}>
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 2,
+                  borderRadius: 3,
+                  borderColor: 'grey.200',
+                  height: { xs: 420, md: 520 },
+                  display: 'flex',
+                  flexDirection: 'column',
+                  '& .rbc-calendar': {
+                    fontFamily: "'Inter', sans-serif",
+                  },
+                  '& .rbc-toolbar-label': {
+                    fontWeight: 600,
+                  },
+                  '& .rbc-event': {
+                    fontSize: '0.75rem',
+                  },
+                }}
+              >
+                <Stack spacing={1.5} sx={{ height: '100%' }}>
+                  <Typography variant="subtitle1" fontWeight={600}>
+                    Timetable preview
                   </Typography>
-                  {s.isRecurring && (
-                    <Typography variant="caption">
-                      Repeats {s.recurringDays.map(d => weekDays.find(w => w.value===d)?.label).join(', ')} until {s.recurringEndDate}
+                  <Calendar
+                    selectable
+                    longPressThrottle={50}
+                    localizer={localizer}
+                    events={calendarEvents}
+                    date={calendarDate}
+                    view={calendarView}
+                    views={['month', 'week']}
+                    style={{ flex: 1 }}
+                    eventPropGetter={eventStyleGetter}
+                    startAccessor="start"
+                    endAccessor="end"
+                    onNavigate={(newDate: Date) => setCalendarDate(newDate)}
+                    onView={(newView: string) => setCalendarView(newView as 'month' | 'week')}
+                    min={minCalendarDate}
+                    max={maxCalendarDate}
+                    popup
+                    onSelectSlot={({ start }: { start: Date }) => {
+                      // When a date is clicked, only update the date field.
+                      // Let the user manually enter the time.
+                      setSlotDate(dayjs(start as Date).format('YYYY-MM-DD'));
+                    }}
+                    onSelectEvent={(event: CalendarEvent) => {
+                      const { resource } = event as typeof event & { resource?: { slotIndex?: number } };
+                      if (resource?.slotIndex !== undefined) {
+                        // This could be used to highlight the selected slot in the list on the left
+                      }
+                    }}
+                    messages={{ next: 'Next', previous: 'Back', today: 'Today', month: 'Month', week: 'Week', day: 'Day' }}
+                  />
+                  {calendarEvents.length === 0 && (
+                    <Typography variant="body2" color="text.secondary" align="center">
+                      Tap a date to set the timetable above. You can add multiple entries and combine recurring schedules.
                     </Typography>
                   )}
-                  <Button color="error" size="small" onClick={() => setSlots(slots.filter((_, idx) => idx!==i))}>
-                    Delete
-                  </Button>
-                </Paper>
-              ))}
-            </Box>
-          )}
+                </Stack>
+              </Paper>
+            </Grid>
+          </Grid>
+        );
+      }
+      default: return null;
+    }
+  };
 
-          {/* Footer */}
-          <Box sx={{ mt: 4, display: 'flex', justifyContent: 'space-between' }}>
-            <Button onClick={goBack} disabled={activeTab === 0}>Back</Button>
-            {activeTab < tabs.length - 1 ? (
-              <Button onClick={goNext}>Next</Button>
-            ) : (
-              <Button
-                variant="contained"
-                onClick={handleSubmit}
-                disabled={submitting || !pharmacyId || !roleNeeded || slots.length === 0}
-              >
-                {submitting ? 'Submitting…' : 'Submit'}
-              </Button>
-            )}
-          </Box>
+  const theme = createTheme({
+    palette: {
+      primary: { main: '#6D28D9', light: '#8B5CF6', dark: '#5B21B6' },
+      secondary: { main: '#10B981', light: '#6EE7B7', dark: '#047857' },
+      background: { default: '#F9FAFB', paper: '#FFFFFF' },
+    },
+    typography: {
+      fontFamily: "'Inter', sans-serif",
+      h4: { fontWeight: 700 },
+      h5: { fontWeight: 600 },
+      h6: { fontWeight: 600 },
+    },
+    shape: { borderRadius: 12 },
+    components: {
+      MuiPaper: {
+        styleOverrides: {
+          root: {
+            boxShadow: '0 8px 32px 0 rgba(0,0,0,0.07)',
+          },
+        },
+      },
+      MuiButton: {
+        styleOverrides: {
+          root: {
+            textTransform: 'none',
+            fontWeight: 600,
+            borderRadius: 8,
+          },
+        },
+      },
+      MuiChip: {
+        styleOverrides: {
+          root: {
+            fontWeight: 500,
+          },
+        },
+      },
+    },
+  });
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+  return (
+    <ThemeProvider theme={theme}>
+    <Container maxWidth="md" sx={{ py: 4, bgcolor: '#F9FAFB', minHeight: '100vh' }}>
+      <Paper sx={{ p: { xs: 2, md: 4 }, borderRadius: 4, boxShadow: '0 8px 32px 0 rgba(0,0,0,0.1)' }}>
+        <Typography variant="h4" gutterBottom align="center" fontWeight={600}>{editingShiftId ? 'Edit Shift' : 'Create a New Shift'}</Typography>
+        <Typography variant="body1" color="text.secondary" align="center" mb={4}>Follow the steps to post a new shift opportunity.</Typography>
+
+        <Stepper
+          activeStep={activeStep}
+          alternativeLabel={!isMobile}
+          orientation={isMobile ? 'vertical' : 'horizontal'}
+          connector={<StepConnectorStyled />}
+          sx={{ mb: 5, px: { xs: 1, sm: 4 } }}
+        >
+          {steps.map((step, index) => (
+            <Step key={step.label}>
+              <StepLabel StepIconComponent={StepIconComponent}>
+                <Typography
+                  variant="body2"
+                  fontWeight={activeStep === index ? 700 : 500}
+                  color={activeStep === index ? 'text.primary' : 'text.secondary'}
+                >
+                  {step.label}
+                </Typography>
+              </StepLabel>
+            </Step>
+          ))}
+        </Stepper>
+
+        <Box sx={{ minHeight: 350, px: { xs: 0, md: 3 } }}>
+          <Typography variant="h5" fontWeight={500} gutterBottom>{steps[activeStep].label}</Typography>
+          {renderStepContent(activeStep)}
         </Box>
+
+        <Stack
+          direction={{ xs: 'column-reverse', sm: 'row' }}
+          spacing={{ xs: 2, sm: 3 }}
+          justifyContent="space-between"
+          alignItems={{ xs: 'stretch', sm: 'center' }}
+          sx={{ mt: 5, pt: 3, borderTop: '1px solid #eee' }}
+        >
+          <Button
+            onClick={() => setActiveStep(p => p - 1)}
+            disabled={activeStep === 0}
+            variant="text"
+            sx={{ minWidth: 120 }}
+          >
+            Back
+          </Button>
+          {activeStep < steps.length - 1 ? (
+            <Button
+              onClick={() => setActiveStep(p => p + 1)}
+              variant="contained"
+              fullWidth={isMobile}
+              sx={{ minWidth: isMobile ? '100%' : 140, borderRadius: 2 }}
+            >
+              Next
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              color="success"
+              onClick={handleSubmit}
+              disabled={submitting}
+              fullWidth={isMobile}
+              sx={{ minWidth: isMobile ? '100%' : 160, borderRadius: 2 }}
+            >
+              {submitting ? 'Submitting...' : (editingShiftId ? 'Update Shift' : 'Post Shift')}
+            </Button>
+          )}
+        </Stack>
       </Paper>
-
-      <Snackbar
-        open={snackbarOpen}
-        onClose={closeSnackbar}
-        message={snackbarMsg}
-        autoHideDuration={4000}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        action={
-          <IconButton size="small" color="inherit" onClick={closeSnackbar}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        }
-      />
-
+      <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar(s => ({ ...s, open: false }))}>
+        <Alert onClose={() => setSnackbar(s => ({ ...s, open: false }))} severity={snackbar.severity} sx={{ width: '100%' }}>{snackbar.message}</Alert>
+      </Snackbar>
     </Container>
+    </ThemeProvider>
   );
-}
+};
+
+export default PostShiftPage;

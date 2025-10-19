@@ -1,81 +1,188 @@
-// src/pages/dashboard/sidebar/owner/PharmacyAdmins.tsx
 import { useState } from "react";
-import { Alert, Box, Card, CardContent, CardHeader, Chip, Divider, IconButton, Tooltip, Typography, Button } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Stack,
+  TextField,
+  Tooltip,
+  Typography,
+  Snackbar,
+  CircularProgress,
+} from "@mui/material";
 import ManageAccountsIcon from "@mui/icons-material/ManageAccounts";
 import SecurityIcon from "@mui/icons-material/Security";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useTheme } from "@mui/material/styles";
-import { surface } from "./types";
+import { MembershipDTO, surface } from "./types";
+import apiClient from "../../../../utils/apiClient";
+import { API_BASE_URL, API_ENDPOINTS } from "../../../../constants/api";
 
-function uid() {
-  return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+interface PharmacyAdminsProps {
+  pharmacyId: string;
+  admins: MembershipDTO[];
+  onMembershipsChanged: () => void;
 }
 
-function AddAdminInline({ pharmacyId, onAdd }: { pharmacyId: string; onAdd: (a: any) => void }) {
-  const add = () => {
-    const name = window.prompt("Admin name?");
-    const email = window.prompt("Admin email?");
-    if (!name || !email) return;
-    onAdd({ id: uid(), name, email, pharmacies: [pharmacyId] });
+export default function PharmacyAdmins({ pharmacyId, admins, onMembershipsChanged }: PharmacyAdminsProps) {
+  const theme = useTheme();
+  const tokens = surface(theme);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [form, setForm] = useState({ invited_name: "", email: "" });
+  const [submitting, setSubmitting] = useState(false);
+  const [loadingId, setLoadingId] = useState<string | number | null>(null);
+  const [toast, setToast] = useState<{ message: string; severity: "success" | "error" } | null>(null);
+
+  const handleInvite = async () => {
+    if (!form.email) {
+      setToast({ message: "Please provide an email", severity: "error" });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`, {
+        invitations: [
+          {
+            pharmacy: pharmacyId,
+            role: "PHARMACY_ADMIN",
+            employment_type: "FULL_TIME",
+            invited_name: form.invited_name,
+            email: form.email,
+          },
+        ],
+      });
+      setToast({ message: "Admin invitation sent", severity: "success" });
+      setInviteOpen(false);
+      setForm({ invited_name: "", email: "" });
+      onMembershipsChanged();
+    } catch (error: any) {
+      setToast({ message: error?.response?.data?.detail || "Failed to send invite", severity: "error" });
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  const handleRemove = async (id: string | number) => {
+    setLoadingId(id);
+    try {
+      await apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.membershipDelete(String(id))}`);
+      setToast({ message: "Admin removed", severity: "success" });
+      onMembershipsChanged();
+    } catch (error: any) {
+      setToast({ message: error?.response?.data?.detail || "Failed to remove", severity: "error" });
+    } finally {
+      setLoadingId(null);
+    }
+  };
+
   return (
-    <Button variant="contained" startIcon={<ManageAccountsIcon />} onClick={add}>
-      Add Admin
-    </Button>
-  );
-}
-
-export default function PharmacyAdmins({ pharmacy }: { pharmacy: { id: string; name: string } }) {
-  const [admins, setAdmins] = useState<any[]>([]);
-  const t = useTheme(); const s = surface(t);
-
-  const addAdmin = (a: any) => setAdmins((curr) => [...curr, a]);
-  const removeAdmin = (id: string) => setAdmins((a) => a.filter((x) => x.id !== id));
-
-  return (
-    <Card variant="outlined" sx={{ background: s.bg, borderColor: s.border }}>
-      <CardHeader title={`Admins for ${pharmacy.name}`} />
+    <Card variant="outlined" sx={{ background: tokens.bg, borderColor: tokens.border }}>
+      <CardHeader
+        title="Admins"
+        action={
+          <Button variant="contained" startIcon={<ManageAccountsIcon />} onClick={() => setInviteOpen(true)}>
+            Invite Admin
+          </Button>
+        }
+      />
       <CardContent>
-        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2, alignItems: "center" }}>
-          <Typography variant="body2" sx={{ color: s.textMuted }}>
-            Scoped admins can manage this pharmacy only.
-          </Typography>
-          <AddAdminInline pharmacyId={pharmacy.id} onAdd={addAdmin} />
-        </Box>
-        <Divider sx={{ mb: 2 }} />
-        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
-          {admins.length === 0 && (
-            <Alert sx={{ flex: "1 1 420px", maxWidth: 560 }} severity="info">
-              No admins yet. Add one with the button above.
-            </Alert>
-          )}
-          {admins.map((a) => (
-            <Card key={a.id} variant="outlined" sx={{ flex: "1 1 420px", maxWidth: 560, background: s.bg, borderColor: s.border }}>
-              <CardContent sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
-                <Chip label="PHARMACY ADMIN" color="secondary" />
-                <Box sx={{ ml: 1 }}>
-                  <Typography fontWeight={600}>{a.name}</Typography>
-                  <Typography variant="body2" sx={{ color: s.textMuted }}>
-                    {a.email}
-                  </Typography>
-                </Box>
-                <Box sx={{ ml: "auto", display: "flex", gap: 0.5 }}>
-                  <Tooltip title="Permissions">
-                    <IconButton>
-                      <SecurityIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="Remove">
-                    <IconButton color="error" onClick={() => removeAdmin(a.id)}>
-                      <DeleteOutlineIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-              </CardContent>
-            </Card>
-          ))}
-        </Box>
+        {admins.length === 0 ? (
+          <Alert severity="info">No admins yet. Use "Invite Admin" to add one.</Alert>
+        ) : (
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
+            {admins.map((admin) => {
+              const name =
+                admin.invited_name ||
+                admin.name ||
+                [admin.user_details?.first_name, admin.user_details?.last_name].filter(Boolean).join(" ") ||
+                "Admin";
+              const email = admin.user_details?.email || admin.email;
+              return (
+                <Card
+                  key={admin.id}
+                  variant="outlined"
+                  sx={{ flex: "1 1 420px", maxWidth: 560, background: tokens.bg, borderColor: tokens.border }}
+                >
+                  <CardContent sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
+                    <Chip label="PHARMACY ADMIN" color="secondary" />
+                    <Box sx={{ ml: 1 }}>
+                      <Typography fontWeight={600}>{name}</Typography>
+                      {email && (
+                        <Typography variant="body2" sx={{ color: tokens.textMuted }}>
+                          {email}
+                        </Typography>
+                      )}
+                    </Box>
+                    <Box sx={{ ml: "auto", display: "flex", gap: 0.5 }}>
+                      <Tooltip title="Permissions">
+                        <IconButton>
+                          <SecurityIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Remove">
+                        <span>
+                          <IconButton
+                            color="error"
+                            onClick={() => handleRemove(admin.id)}
+                            disabled={loadingId === admin.id}
+                          >
+                            {loadingId === admin.id ? <CircularProgress size={16} /> : <DeleteOutlineIcon fontSize="small" />}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Box>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </Box>
+        )}
       </CardContent>
+
+      <Dialog open={inviteOpen} onClose={() => setInviteOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Invite Admin</DialogTitle>
+        <DialogContent sx={{ display: "grid", gap: 2, pt: 2 }}>
+          <TextField
+            label="Full Name"
+            value={form.invited_name}
+            onChange={(e) => setForm((prev) => ({ ...prev, invited_name: e.target.value }))}
+            fullWidth
+          />
+          <TextField
+            label="Email"
+            type="email"
+            required
+            value={form.email}
+            onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
+            fullWidth
+          />
+          <Typography variant="caption" sx={{ color: tokens.textMuted }}>
+            Admins can manage this pharmacy's details and staff.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInviteOpen(false)}>Cancel</Button>
+          <Button onClick={handleInvite} variant="contained" disabled={submitting}>
+            {submitting ? "Sending..." : "Send Invitation"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={Boolean(toast)}
+        autoHideDuration={4000}
+        onClose={() => setToast(null)}
+        message={toast?.message}
+      />
     </Card>
   );
 }

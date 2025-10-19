@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState, FC } from 'react';
-import { Box, CircularProgress, Typography } from '@mui/material';
+import { useEffect, useMemo, useRef, useState, FC, useCallback, SyntheticEvent } from 'react';
+import { Box, CircularProgress, Typography, Snackbar, Button } from '@mui/material';
+import Alert, { AlertColor } from '@mui/material/Alert';
 import ChatIcon from '@mui/icons-material/Chat';
 import apiClient from '../../../../utils/apiClient';
 import { API_ENDPOINTS, API_BASE_URL } from '../../../../constants/api';
@@ -82,6 +83,77 @@ const ChatPage: FC = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRoom, setEditingRoom] = useState<ChatRoom | null>(null);
+  const [toast, setToast] = useState<{ message: string; severity: AlertColor; roomId?: number } | null>(null);
+  const [typingState, setTypingState] = useState<Record<number, string[]>>({});
+
+  const handleToastClose = useCallback(
+    (_event?: SyntheticEvent | Event, reason?: string) => {
+      if (reason === 'clickaway') return;
+      setToast(null);
+    },
+    []
+  );
+
+  const pushToast = useCallback(
+    (message: string, severity: AlertColor, roomId?: number) => {
+      setToast({ message, severity, roomId });
+    },
+    []
+  );
+
+  const resolveRoomName = useCallback(
+    (room?: ChatRoom | null): string => {
+      if (!room) return 'Chat';
+      if (room.type === 'GROUP') {
+        if (room.pharmacy) {
+          const pharmacy = pharmacies.find(p => p.id === room.pharmacy);
+          if (pharmacy?.name) {
+            return pharmacy.name;
+          }
+        }
+        return room.title || 'Group Chat';
+      }
+      const myMembershipInRoom = myMemberships.find(m => room.participant_ids?.includes(m.id));
+      if (!myMembershipInRoom) {
+        return room.title || 'Direct Message';
+      }
+      const partnerMembershipId = room.participant_ids?.find(id => id !== myMembershipInRoom.id);
+      if (partnerMembershipId) {
+        const cachedParticipant = participantCache[partnerMembershipId]?.details;
+        if (cachedParticipant) {
+          const fullName = `${cachedParticipant.first_name || ''} ${cachedParticipant.last_name || ''}`.trim();
+          return fullName || cachedParticipant.email || 'Direct Message';
+        }
+        for (const pharmacyId in memberCache) {
+          const member = memberCache[Number(pharmacyId)]?.[partnerMembershipId];
+          if (member?.details) {
+            const details = member.details;
+            const fullName = `${details.first_name || ''} ${details.last_name || ''}`.trim();
+            return fullName || details.email || 'Direct Message';
+          }
+        }
+      }
+      return room.title || 'Direct Message';
+    },
+    [pharmacies, myMemberships, participantCache, memberCache]
+  );
+
+  const lastTypingSentRef = useRef(false);
+
+  const sendTypingUpdate = useCallback(
+    (isTyping: boolean) => {
+      const socket = wsRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      if (lastTypingSentRef.current === isTyping) return;
+      try {
+        socket.send(JSON.stringify({ type: 'typing', is_typing: isTyping }));
+        lastTypingSentRef.current = isTyping;
+      } catch (error) {
+        console.error('Failed to send typing event', error);
+      }
+    },
+    []
+  );
 
   const canCreateChat = useMemo(() => {
     if (!user) return false;
@@ -164,7 +236,23 @@ const ChatPage: FC = () => {
 
 
   useEffect(() => {
+    return () => {
+      if (lastTypingSentRef.current) {
+        sendTypingUpdate(false);
+        lastTypingSentRef.current = false;
+      }
+    };
+  }, [activeRoomId, sendTypingUpdate]);
+
+  useEffect(() => {
     if (!activeRoomId) return;
+
+    setTypingState(prev => {
+      if (prev[activeRoomId]) {
+        return { ...prev, [activeRoomId]: [] };
+      }
+      return prev;
+    });
 
     if (messagesMap[activeRoomId]) {
       apiClient.post(EP.roomMarkRead(activeRoomId)).catch(() => {});
@@ -241,6 +329,7 @@ const ChatPage: FC = () => {
           if (newMsg.attachment_url && newMsg.attachment_url.startsWith('/')) {
             newMsg.attachment_url = `${BACKEND_MEDIA_URL}${newMsg.attachment_url}`;
           }
+          let toastRoomName: string | null = null;
           setMessagesMap(prevMap => {
             const current = prevMap[newMsg.conversation]?.messages || [];
             if (current.some(m => m.id === newMsg.id)) return prevMap;
@@ -251,6 +340,9 @@ const ChatPage: FC = () => {
             };
           });
           setRooms(prevRooms => {
+            if (!prevRooms.some(r => r.id === newMsg.conversation)) {
+              return prevRooms;
+            }
             const updatedRooms = prevRooms.map(r => {
               if (r.id === newMsg.conversation) {
                 const isUnread = newMsg.conversation !== activeRoomId;
@@ -263,10 +355,18 @@ const ChatPage: FC = () => {
               }
               return r;
             });
-            return [...updatedRooms].sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime());
+            const sorted = [...updatedRooms].sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime());
+            if (newMsg.conversation !== activeRoomId) {
+              const targetRoom = sorted.find(r => r.id === newMsg.conversation);
+              toastRoomName = resolveRoomName(targetRoom);
+            }
+            return sorted;
           });
           if (newMsg.conversation !== activeRoomId) {
             refreshUnreadCount();
+            if (toastRoomName) {
+              pushToast(`New message in ${toastRoomName}`, 'info', newMsg.conversation);
+            }
           }
           return;
         }
@@ -321,11 +421,46 @@ const ChatPage: FC = () => {
           });
           return;
         }
+        if (payload.type === 'typing') {
+          const roomId =
+            payload.conversation_id ??
+            payload.conversation ??
+            payload.room_id ??
+            null;
+          if (typeof roomId === 'number') {
+            if (payload.user_id && user?.id && Number(payload.user_id) === Number(user.id)) {
+              return;
+            }
+            const name = (payload.name || '').trim();
+            setTypingState(prev => {
+              const existing = prev[roomId] ?? [];
+              const nextSet = new Set(existing);
+              if (payload.is_typing) {
+                if (name) nextSet.add(name);
+              } else {
+                if (name) {
+                  nextSet.delete(name);
+                } else {
+                  nextSet.clear();
+                }
+              }
+              const nextNames = Array.from(nextSet);
+              if (nextNames.length === 0) {
+                const { [roomId]: _omit, ...rest } = prev;
+                return rest;
+              }
+              return { ...prev, [roomId]: nextNames };
+            });
+          }
+          return;
+        }
       } catch (e) { console.error('ws onmessage error', e); }
     };
-    ws.onclose = () => {};
+    ws.onclose = () => {
+      lastTypingSentRef.current = false;
+    };
     return () => ws.close();
-  }, [activeRoomId, accessToken, refreshUnreadCount]);
+  }, [activeRoomId, accessToken, refreshUnreadCount, resolveRoomName, pushToast, myMembershipIdInActiveRoom, user?.id]);
 
 
   useEffect(() => {
@@ -352,7 +487,7 @@ const ChatPage: FC = () => {
         })
         .catch(err => {
           console.error("Failed to start DM from URL", err);
-          alert(err.response?.data?.detail || "Could not start the chat.");
+          pushToast(err.response?.data?.detail || "Could not start the chat.", 'error');
           
           searchParams.delete('startDmWithUser');
           setSearchParams(searchParams);
@@ -412,7 +547,7 @@ const ChatPage: FC = () => {
   const handleStartDm = async (partnerMembershipId: number, partnerPharmacyId: number) => {
     const partnerDetails = memberCache[partnerPharmacyId]?.[partnerMembershipId]?.details;
     if (!partnerDetails || !user) {
-        alert('Could not find user details to start chat.');
+        pushToast('Could not find user details to start chat.', 'error');
         return;
     }
     const partnerUserId = partnerDetails.id;
@@ -451,9 +586,10 @@ const ChatPage: FC = () => {
             partner_membership_id: partnerMembershipId
         });
         handleSaveRoom(res.data);
+        pushToast(`Direct message with ${resolveRoomName(res.data)} ready`, 'success', res.data.id);
     } catch (e: any) {
         console.error('Failed to get or create DM', e);
-        alert(e.response?.data?.detail || 'Could not start the chat.');
+        pushToast(e.response?.data?.detail || 'Could not start the chat.', 'error');
     }
     }
   };
@@ -522,7 +658,7 @@ const ChatPage: FC = () => {
       });
     } catch (e) {
       console.error('Failed to toggle pin', e);
-      alert('Action failed. Please try again.');
+      pushToast('Unable to update pin state. Please try again.', 'error');
     }
   };
 
@@ -552,9 +688,10 @@ const handleDeleteChat = async (roomId: number, roomName: string) => {
     if (activeRoomId === roomId) {
       setActiveRoomId(null);
     }
+    pushToast(`${roomName} deleted`, 'success');
   } catch (e) {
     console.error('Failed to delete chat', e);
-    alert('Failed to delete chat.');
+    pushToast('Failed to delete chat.', 'error');
   }
 };
 
@@ -578,6 +715,7 @@ const handleDeleteChat = async (roomId: number, roomName: string) => {
   };
 
   const activeRoom = rooms.find(r => r.id === activeRoomId) || null;
+  const activeTypingMembers = activeRoomId ? typingState[activeRoomId] ?? [] : [];
   const activeRoomMessagesState = activeRoom ? (messagesMap[activeRoom.id] || { messages: [], hasMore: false, nextUrl: null }) : { messages: [], hasMore: false, nextUrl: null };
 
   const showConversation = isMobile ? !!activeRoomId : true;
@@ -640,6 +778,9 @@ const handleDeleteChat = async (roomId: number, roomName: string) => {
             onTogglePin={(target, messageId) => handleTogglePin(activeRoom.id, target, messageId)}
             isMobile={isMobile}
             onBack={() => setActiveRoomId(null)}
+            onTyping={sendTypingUpdate}
+            onNotify={(severity, message) => pushToast(message, severity)}
+            typingMembers={activeTypingMembers}
           />
         ) : (
           !isMobile && (
@@ -663,7 +804,38 @@ const handleDeleteChat = async (roomId: number, roomName: string) => {
         currentUserId={user?.id}
         editingRoom={editingRoom}
         onDmSelect={handleStartDm}
+        onNotify={(severity, message) => pushToast(message, severity)}
       />
+      <Snackbar
+        open={Boolean(toast)}
+        autoHideDuration={4000}
+        onClose={handleToastClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        {toast ? (
+          <Alert
+            onClose={handleToastClose}
+            severity={toast.severity}
+            sx={{ width: '100%' }}
+            action={
+              toast.roomId ? (
+                <Button
+                  color="inherit"
+                  size="small"
+                  onClick={() => {
+                    setActiveRoomId(toast.roomId!);
+                    setToast(null);
+                  }}
+                >
+                  Open
+                </Button>
+              ) : undefined
+            }
+          >
+            {toast.message}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
     </Box>
   );
 };

@@ -6,6 +6,7 @@ import OwnerOverviewHome from "./OwnerOverviewHome";
 import OwnerPharmaciesPage from "./OwnerPharmaciesPage";
 import OwnerPharmacyDetailPage from "./OwnerPharmacyDetailPage";
 import { MembershipDTO, PharmacyDTO } from "./types";
+import { useLocation, useNavigate } from "react-router-dom";
 
 // Your existing utils
 import apiClient from "../../../../utils/apiClient";
@@ -14,10 +15,26 @@ import { API_BASE_URL, API_ENDPOINTS } from "../../../../constants/api";
 type View = "overview" | "pharmacies" | "pharmacy";
 
 export default function OwnerOverviewContainer() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [view, setView] = useState<View>("overview");
   const [pharmacies, setPharmacies] = useState<PharmacyDTO[]>([]);
   const [membershipsByPharmacy, setMembershipsByPharmacy] = useState<Record<string, MembershipDTO[]>>({});
   const [activePharmacyId, setActivePharmacyId] = useState<string | null>(null);
+
+  const fetchMemberships = async (pharmacyId: string) => {
+    const res = await apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${pharmacyId}`);
+    return Array.isArray(res.data?.results) ? res.data.results : res.data || [];
+  };
+
+  const reloadPharmacyMemberships = async (pharmacyId: string) => {
+    try {
+      const data = await fetchMemberships(pharmacyId);
+      setMembershipsByPharmacy(prev => ({ ...prev, [pharmacyId]: data }));
+    } catch (error) {
+      console.error("Failed to reload memberships", error);
+    }
+  };
 
   // Fetch pharmacies + memberships (like your Pharmacy page)
   useEffect(() => {
@@ -34,11 +51,8 @@ export default function OwnerOverviewContainer() {
         // Load memberships for each pharmacy
         const map: Record<string, MembershipDTO[]> = {};
         await Promise.all(
-          // FIX: Use the corrected 'pharmacyData' array here
           (pharmacyData || []).map(async (p) => {
-            const m = await apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${p.id}`);
-            // Also fix the membership response handling, just in case it's paginated too
-            map[p.id] = Array.isArray(m.data.results) ? m.data.results : m.data || [];
+            map[p.id] = await fetchMemberships(p.id);
           })
         );
         if (!mounted) return;
@@ -64,21 +78,50 @@ export default function OwnerOverviewContainer() {
 
   const goHome = () => setView("overview");
   const openPharmacies = () => setView("pharmacies");
+  const goToAdminsOverview = () => {
+    setView("pharmacies");
+  };
   const openPharmacy = (id: string) => {
     setActivePharmacyId(id);
     setView("pharmacy");
+    reloadPharmacyMemberships(id);
   };
   const openAdmins = (id: string) => {
     setActivePharmacyId(id);
     setView("pharmacy"); // Admins panel is inside the detail page in this split
   };
 
+  const goToRoster = () => navigate("/dashboard/owner/manage-pharmacies/roster");
+  const goToShifts = () => navigate("/dashboard/owner/shifts/active");
+  const goToPostShift = () => navigate("/dashboard/owner/post-shift");
+  const goToProfile = () => navigate("/dashboard/owner/onboarding");
+  const goToInterests = () => navigate("/dashboard/owner/interests");
+  const goToSettings = () => navigate("/dashboard/owner/manage-pharmacies/my-pharmacies");
+
+  useEffect(() => {
+    const normalizedPath = location.pathname.replace(/\/+$/, "");
+    if (normalizedPath === "/dashboard/owner" || normalizedPath === "/dashboard/owner/overview") {
+      setView("overview");
+      setActivePharmacyId(null);
+    }
+  }, [location.pathname, location.key]);
+
   return (
     <Box sx={{ flex: 1, minWidth: 0 }}>
       {view === "overview" && (
         <>
           <TopBar breadcrumb={["Overview"]} />
-          <OwnerOverviewHome totalPharmacies={pharmacies.length} onOpenPharmacies={openPharmacies} />
+          <OwnerOverviewHome
+            totalPharmacies={pharmacies.length}
+            onOpenPharmacies={openPharmacies}
+            onOpenAdmins={goToAdminsOverview}
+            onOpenRoster={goToRoster}
+            onOpenShifts={goToShifts}
+            onPostShift={goToPostShift}
+            onOpenProfile={goToProfile}
+            onOpenInterests={goToInterests}
+            onOpenSettings={goToSettings}
+          />
         </>
       )}
 
@@ -99,10 +142,20 @@ export default function OwnerOverviewContainer() {
           <TopBar onBack={openPharmacies} breadcrumb={["My Pharmacies", activePharmacy.name]} />
           <OwnerPharmacyDetailPage
             pharmacy={activePharmacy}
-            memberships={membershipsByPharmacy[activePharmacy.id] || []}
-            onOpenStaff={() => {}}
-            onOpenAdmins={() => {}}
-            onOpenLocums={() => {}}
+            staffMemberships={(membershipsByPharmacy[activePharmacy.id] || []).filter((m) => {
+              const role = (m.role || "").toUpperCase();
+              const work = (m.employment_type || "").toUpperCase();
+              return !role.includes("ADMIN") && !work.includes("LOCUM") && !work.includes("SHIFT");
+            })}
+            locumMemberships={(membershipsByPharmacy[activePharmacy.id] || []).filter((m) => {
+              const role = (m.role || "").toUpperCase();
+              const work = (m.employment_type || "").toUpperCase();
+              return !role.includes("ADMIN") && (work.includes("LOCUM") || work.includes("SHIFT"));
+            })}
+            adminMemberships={(membershipsByPharmacy[activePharmacy.id] || []).filter((m) =>
+              (m.role || "").toUpperCase().includes("ADMIN")
+            )}
+            onMembershipsChanged={() => reloadPharmacyMemberships(activePharmacy.id)}
           />
         </>
       )}

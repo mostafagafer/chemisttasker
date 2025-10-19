@@ -1,8 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Box, Card, CardContent, Typography, Skeleton, Alert, Container, Button
+  Alert,
+  Box,
+  Button,
+  Chip,
+  Divider,
+  Grid,
+  Paper,
+  Skeleton,
+  Stack,
+  Typography,
 } from "@mui/material";
-import { Link } from "react-router-dom";
+import { alpha, useTheme } from "@mui/material/styles";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import { Link as RouterLink } from "react-router-dom";
 import apiClient from "../../../utils/apiClient";
 import { API_ENDPOINTS } from "../../../constants/api";
 import { useAuth } from "../../../contexts/AuthContext";
@@ -22,24 +33,25 @@ type ShiftSummary = {
   date: string;
 };
 
-// Make fields optional so Explorer responses (which are minimal) still fit
 type DashboardData = {
-  user: User;
+  user?: User;
   message?: string;
   upcoming_shifts_count?: number;
   confirmed_shifts_count?: number;
   community_shifts_count?: number;
   shifts?: ShiftSummary[];
-  community_shifts?: ShiftSummary[];
   bills_summary?: Record<string, string>;
 };
 
 export default function OverviewPageStaff() {
+  const theme = useTheme();
   const { user } = useAuth() as { user: User };
+
   const role = (user?.role || "").toLowerCase();
   const isPharmacist = role === "pharmacist";
   const isOtherStaff = role === "otherstaff";
   const isExplorer = role === "explorer";
+  const roleSegment = isExplorer ? "explorer" : isPharmacist ? "pharmacist" : "otherstaff";
 
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,14 +60,13 @@ export default function OverviewPageStaff() {
   useEffect(() => {
     setLoading(true);
 
-    // Pick endpoint per role
     const endpoint = isPharmacist
       ? API_ENDPOINTS.pharmacistDashboard
       : isOtherStaff
       ? API_ENDPOINTS.otherStaffDashboard
       : isExplorer
       ? API_ENDPOINTS.explorerDashboard
-      : API_ENDPOINTS.otherStaffDashboard; // safe fallback
+      : API_ENDPOINTS.otherStaffDashboard;
 
     apiClient
       .get(endpoint)
@@ -64,10 +75,9 @@ export default function OverviewPageStaff() {
         setError(null);
       })
       .catch((err) => {
-        // If you want: try Explorer endpoint automatically when 403 returned from staff endpoints
         if (!isExplorer && err?.response?.status === 403) {
-          return apiClient.get(API_ENDPOINTS.explorerDashboard).then((r2) => {
-            setData(r2.data);
+          return apiClient.get(API_ENDPOINTS.explorerDashboard).then((fallbackResponse) => {
+            setData(fallbackResponse.data);
             setError(null);
           });
         }
@@ -77,219 +87,266 @@ export default function OverviewPageStaff() {
       .finally(() => setLoading(false));
   }, [isPharmacist, isOtherStaff, isExplorer]);
 
+  const shifts = useMemo(() => data?.shifts ?? [], [data?.shifts]);
+
   if (loading) {
     return (
-      <Container maxWidth="md" sx={{ py: 4 }}>
-        {/* skeleton unchanged */}
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
-          <Box>
-            <Skeleton variant="text" width={220} height={40} />
-            <Skeleton variant="text" width={120} />
-          </Box>
-          <Card sx={{ minWidth: 220, height: 100 }}>
-            <CardContent>
-              <Skeleton variant="text" width={120} />
-              <Skeleton variant="text" width={60} />
-            </CardContent>
-          </Card>
-        </Box>
-        <Box display="flex" gap={3} mb={3}>
-          <Card sx={{ flex: 1, minWidth: 120 }}>
-            <CardContent>
-              <Skeleton variant="text" width={100} />
-              <Skeleton variant="rectangular" width={50} height={36} />
-            </CardContent>
-          </Card>
-          <Card sx={{ flex: 1, minWidth: 120 }}>
-            <CardContent>
-              <Skeleton variant="text" width={100} />
-              <Skeleton variant="rectangular" width={50} height={36} />
-            </CardContent>
-          </Card>
-          <Card sx={{ flex: 1, minWidth: 120 }}>
-            <CardContent>
-              <Skeleton variant="text" width={100} />
-              <Skeleton variant="rectangular" width={50} height={36} />
-            </CardContent>
-          </Card>
-        </Box>
-        <Card>
-          <CardContent>
-            <Skeleton variant="text" width={180} />
-            <Skeleton variant="rectangular" height={56} />
-            <Skeleton variant="rectangular" height={56} />
-          </CardContent>
-        </Card>
-      </Container>
+      <Box
+        sx={{
+          maxWidth: 1200,
+          mx: "auto",
+          px: { xs: 2, md: 4 },
+          py: { xs: 2, md: 4 },
+          display: "flex",
+          flexDirection: "column",
+          gap: { xs: 2, md: 3 },
+        }}
+      >
+        <Skeleton variant="rounded" height={220} />
+        <Grid container spacing={2}>
+          {Array.from({ length: 3 }).map((_, idx) => (
+            <Grid size={{ xs: 12, sm: 4 }} key={idx}>
+              <Skeleton variant="rounded" height={120} />
+            </Grid>
+          ))}
+        </Grid>
+        <Skeleton variant="rounded" height={280} />
+      </Box>
     );
   }
 
   if (error) {
     return (
-      <Container maxWidth="md" sx={{ py: 4 }}>
+      <Box sx={{ maxWidth: 900, mx: "auto", px: { xs: 2, md: 4 }, py: { xs: 3, md: 6 } }}>
         <Alert severity="error">{error}</Alert>
-      </Container>
+      </Box>
     );
   }
 
-  // If Explorer: render a very simple overview and bail out early
-  if (isExplorer) {
-    return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
-          Welcome, {data?.user?.first_name || data?.user?.username || "Explorer"}
-        </Typography>
-        <Card>
-          <CardContent>
-            <Typography variant="body1" sx={{ mb: 1 }}>
-              {data?.message || "Your Explorer dashboard is coming soon."}
-            </Typography>
-            {/* Add quick links if you want */}
-            {/* <Button component={Link} to="/onboarding" variant="contained">Complete Onboarding</Button> */}
-          </CardContent>
-        </Card>
-      </Container>
-    );
-  }
+  const displayName =
+    data?.user?.first_name ||
+    data?.user?.username ||
+    user?.first_name ||
+    user?.username ||
+    (isExplorer ? "Explorer" : "there");
 
-  // Staff/Pharmacist view (unchanged)
-  const shifts: ShiftSummary[] = data?.shifts ?? [];
-  const communityShifts: ShiftSummary[] = data?.community_shifts ?? [];
-  const roleForLinks = isPharmacist ? "pharmacist" : "otherstaff";
+  const subtitle = isExplorer
+    ? data?.message || "Discover open roles and finish onboarding to unlock personalised matches."
+    : "Review your upcoming shifts, update availability, and keep an eye on community opportunities.";
+
+  const statCards = [
+    { label: "Upcoming Shifts", value: data?.upcoming_shifts_count ?? 0 },
+    { label: "Confirmed Shifts", value: data?.confirmed_shifts_count ?? 0 },
+    { label: "Community Shifts", value: data?.community_shifts_count ?? 0 },
+  ];
+
+  const heroChips = isExplorer
+    ? [
+        `Community shifts: ${data?.community_shifts_count ?? 0}`,
+        "Complete profile to unlock invites",
+      ]
+    : [
+        `Points: ${data?.bills_summary?.points ?? "--"}`,
+        `Total billed: ${data?.bills_summary?.total_billed ?? "--"}`,
+      ];
+
+  const primaryCta = isExplorer
+    ? {
+        label: "Browse community shifts",
+        to: `/dashboard/${roleSegment}/shifts/community`,
+        variant: "contained" as const,
+      }
+    : {
+        label: "View active shifts",
+        to: `/dashboard/${roleSegment}/shifts/active`,
+        variant: "contained" as const,
+      };
+
+  const secondaryCta = isExplorer
+    ? {
+        label: "Complete profile",
+        to: `/dashboard/${roleSegment}/onboarding-v2`,
+        variant: "outlined" as const,
+      }
+    : {
+        label: "Update availability",
+        to: `/dashboard/${roleSegment}/availability`,
+        variant: "outlined" as const,
+      };
+
+  const heroGradient = `linear-gradient(135deg, ${alpha(
+    theme.palette.primary.main,
+    0.92,
+  )}, ${alpha(theme.palette.secondary.main, 0.65)})`;
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
-            Welcome back, {data?.user?.first_name || data?.user?.username || "Staff"}
-          </Typography>
-        </Box>
-        <Card sx={{ minWidth: 220 }}>
-          <CardContent>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-              💊 Bills / Gamification
-            </Typography>
-            <Typography>
-              Total billed: {data?.bills_summary?.total_billed ?? "—"}
-            </Typography>
-            <Typography>
-              Points: {data?.bills_summary?.points ?? "—"}
-            </Typography>
-          </CardContent>
-        </Card>
-      </Box>
-
-      <Box display="flex" gap={3} mb={3}>
-        <Card sx={{ flex: 1 }}>
-          <CardContent>
-            <Typography variant="subtitle1">Upcoming Shifts</Typography>
-            <Typography variant="h4">{data?.upcoming_shifts_count ?? 0}</Typography>
-          </CardContent>
-        </Card>
-        <Card sx={{ flex: 1 }}>
-          <CardContent>
-            <Typography variant="subtitle1">Confirmed Shifts</Typography>
-            <Typography variant="h4">{data?.confirmed_shifts_count ?? 0}</Typography>
-          </CardContent>
-        </Card>
-        <Card sx={{ flex: 1 }}>
-          <CardContent>
-            <Typography variant="subtitle1">Open Community Shifts</Typography>
-            <Typography variant="h4">{data?.community_shifts_count ?? 0}</Typography>
-          </CardContent>
-        </Card>
-      </Box>
-
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            My Upcoming Shifts
-          </Typography>
+    <Box
+      sx={{
+        width: "100%",
+        maxWidth: 1200,
+        mx: "auto",
+        px: { xs: 2, md: 4 },
+        py: { xs: 2, md: 4 },
+        display: "flex",
+        flexDirection: "column",
+        gap: { xs: 2.5, md: 3 },
+      }}
+    >
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 3, md: 4 },
+          borderRadius: { xs: 3, md: 4 },
+          backgroundImage: heroGradient,
+          color: "#fff",
+        }}
+      >
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={{ xs: 3, md: 4 }}
+          alignItems={{ xs: "flex-start", md: "center" }}
+          justifyContent="space-between"
+        >
           <Box>
-            {shifts.length === 0 && (
-              <Typography color="text.secondary">No upcoming shifts.</Typography>
-            )}
-            {shifts.map((shift) => (
-              <Box
-                key={shift.id}
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  borderRadius: 1,
-                  p: 1,
-                  transition: "background 0.2s",
-                  textDecoration: "none",
-                  color: "inherit",
-                  ":hover": { bgcolor: "#f5f5f5" },
-                }}
-                component={Link}
-                to={`/dashboard/shifts/${shift.id}`}
+            <Typography variant="h4" fontWeight={800} gutterBottom>
+              Welcome back, {displayName}!
+            </Typography>
+            <Typography variant="body1" sx={{ opacity: 0.92, maxWidth: 540, mb: 3 }}>
+              {subtitle}
+            </Typography>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+              <Button
+                variant={primaryCta.variant}
+                color="inherit"
+                component={RouterLink}
+                to={primaryCta.to}
+                sx={primaryCta.variant === "contained" ? { color: theme.palette.primary.main } : undefined}
               >
-                <Box flex={1}>
-                  <Typography fontWeight={600}>{shift.pharmacy_name}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Date: {shift.date || "N/A"}
-                  </Typography>
-                </Box>
-                <Button
-                  variant="text"
-                  component={Link}
-                  to={`/dashboard/${roleForLinks}/shifts/${shift.id}`}
-                  sx={{ ml: 2 }}
-                >
-                  View
-                </Button>
-              </Box>
-            ))}
+                {primaryCta.label}
+              </Button>
+              <Button
+                variant={secondaryCta.variant}
+                color="inherit"
+                component={RouterLink}
+                to={secondaryCta.to}
+                sx={{ borderColor: alpha("#ffffff", 0.45), color: "#fff" }}
+              >
+                {secondaryCta.label}
+              </Button>
+            </Stack>
           </Box>
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Community Shifts (Open)
-          </Typography>
-          <Box>
-            {communityShifts.length === 0 && (
-              <Typography color="text.secondary">No open community shifts.</Typography>
-            )}
-            {communityShifts.map((shift) => (
-              <Box
-                key={shift.id}
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  borderRadius: 1,
-                  p: 1,
-                  transition: "background 0.2s",
-                  textDecoration: "none",
-                  color: "inherit",
-                  ":hover": { bgcolor: "#f5f5f5" },
-                }}
-                component={Link}
-                to={`/dashboard/community-shifts/${shift.id}`}
-              >
-                <Box flex={1}>
-                  <Typography fontWeight={600}>{shift.pharmacy_name}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Date: {shift.date || "N/A"}
-                  </Typography>
-                </Box>
-                <Button
-                  variant="text"
-                  component={Link}
-                  to={`/dashboard/${roleForLinks}/community-shifts/${shift.id}`}
-                  sx={{ ml: 2 }}
-                >
-                  View
-                </Button>
-              </Box>
-            ))}
+          <Stack direction="column" spacing={1} alignItems={{ xs: "flex-start", md: "flex-end" }}>
+            <Typography
+              variant="body2"
+              sx={{ letterSpacing: ".08em", textTransform: "uppercase", opacity: 0.7 }}
+            >
+              Quick stats
+            </Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap">
+              {heroChips.map((chip) => (
+                <Chip
+                  key={chip}
+                  label={chip}
+                  sx={{ bgcolor: alpha("#ffffff", 0.2), color: "#fff" }}
+                />
+              ))}
+            </Stack>
+          </Stack>
+        </Stack>
+      </Paper>
+
+      <Grid container spacing={2.5}>
+        {statCards.map((card) => (
+          <Grid size={{ xs: 12, sm: 4 }} key={card.label}>
+            <Paper
+              sx={{
+                p: 2.5,
+                borderRadius: 3,
+                display: "flex",
+                flexDirection: "column",
+                gap: 1,
+                height: "100%",
+              }}
+            >
+              <Typography variant="subtitle2" color="text.secondary">
+                {card.label}
+              </Typography>
+              <Typography variant="h4" fontWeight={800}>
+                {card.value}
+              </Typography>
+            </Paper>
+          </Grid>
+        ))}
+      </Grid>
+
+      <Paper sx={{ borderRadius: 3, p: { xs: 2, md: 3 } }}>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          alignItems={{ xs: "flex-start", sm: "center" }}
+          spacing={2}
+        >
+          <Box flex={1}>
+            <Typography variant="h6" fontWeight={700}>
+              Upcoming shifts
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Confirm details early and stay ready for handover.
+            </Typography>
           </Box>
-        </CardContent>
-      </Card>
-    </Container>
+          {!isExplorer && (
+            <Button
+              component={RouterLink}
+              to={`/dashboard/${roleSegment}/shifts/confirmed`}
+              endIcon={<ArrowForwardIcon />}
+            >
+              View confirmed shifts
+            </Button>
+          )}
+        </Stack>
+
+        <Divider sx={{ my: 2 }} />
+
+        <Stack spacing={1.5}>
+          {shifts.length === 0 && (
+            <Typography variant="body2" color="text.secondary">
+              No shifts scheduled yet. Check community opportunities to get started.
+            </Typography>
+          )}
+
+          {shifts.map((shift) => (
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              key={shift.id}
+              spacing={1}
+              alignItems={{ xs: "flex-start", sm: "center" }}
+              sx={{
+                p: 1.5,
+                borderRadius: 2,
+                transition: "all 0.2s",
+                bgcolor: alpha(theme.palette.primary.main, 0.04),
+                "&:hover": { bgcolor: alpha(theme.palette.primary.main, 0.08) },
+              }}
+            >
+              <Box flex={1}>
+                <Typography fontWeight={600}>{shift.pharmacy_name}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {shift.date ? new Date(shift.date).toLocaleString() : "No date provided"}
+                </Typography>
+              </Box>
+              <Button
+                size="small"
+                variant="text"
+                component={RouterLink}
+                to={`/dashboard/${roleSegment}/shifts/${shift.id}`}
+                endIcon={<ArrowForwardIcon fontSize="small" />}
+              >
+                View shift
+              </Button>
+            </Stack>
+          ))}
+        </Stack>
+      </Paper>
+    </Box>
   );
 }

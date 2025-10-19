@@ -1,6 +1,14 @@
 # client_profile/consumers.py
-from channels.generic.websocket import AsyncJsonWebsocketConsumer
-from channels.db import database_sync_to_async
+from typing import Any, Callable, TYPE_CHECKING
+
+try:
+    from channels.generic.websocket import AsyncJsonWebsocketConsumer  # type: ignore
+    from channels.db import database_sync_to_async  # type: ignore
+except ImportError:  # pragma: no cover - editor type checking fallback
+    AsyncJsonWebsocketConsumer = object  # type: ignore
+
+    def database_sync_to_async(func: Callable[..., Any]) -> Callable[..., Any]:  # type: ignore
+        return func
 from client_profile.models import Conversation, Participant, Membership, Message
 import logging
 
@@ -50,6 +58,28 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
 
     async def receive_json(self, content, **kwargs):
         print(f"[WS] RECEIVE {content}", flush=True)
+        if content.get("type") == "typing":
+            if not getattr(self, "membership", None):
+                return
+            is_typing = bool(content.get("is_typing"))
+            if not self.channel_layer:
+                return
+            user = getattr(self.membership, "user", None)
+            name = ""
+            if user:
+                name = user.get_full_name() or user.email or ""
+            await self.channel_layer.group_send(
+                self.group_name,
+                {
+                    "type": "typing.update",
+                    "membership_id": self.membership.id,
+                    "user_id": getattr(user, "id", None),
+                    "name": name,
+                    "is_typing": is_typing,
+                    "conversation_id": self.room_id,
+                },
+            )
+            return
         if content.get("type") != "message":
             return
         body = (content.get("body") or "").strip()
@@ -101,6 +131,16 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
             "reactions": event.get("reactions"),
         })
 
+    async def typing_update(self, event):
+        await self.send_json({
+            "type": "typing",
+            "membership": event.get("membership_id"),
+            "user_id": event.get("user_id"),
+            "name": event.get("name"),
+            "is_typing": event.get("is_typing", False),
+            "conversation_id": event.get("conversation_id"),
+        })
+
     # ---- DB helpers ----
     @database_sync_to_async
     def _get_membership(self, conversation_id: int, user_id: int):
@@ -110,7 +150,7 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
                 conversation_id=conversation_id,
                 membership__user_id=user_id,
             )
-            .select_related("membership")
+            .select_related("membership__user")
             .first()
         )
         return participant.membership if participant else None

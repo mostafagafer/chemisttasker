@@ -13,6 +13,8 @@ type Membership = {
   role?: string; 
 };
 
+type SidebarFilter = 'all' | 'group' | 'dm' | 'shift';
+
 interface ChatSidebarProps {
   rooms: ChatRoom[];
   pharmacies: PharmacyRef[];
@@ -49,8 +51,9 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
   canCreateChat,
   currentUserId,          
 }) => {
-  const [filter, setFilter] = useState<'all' | 'group' | 'dm'>('all');
+  const [filter, setFilter] = useState<SidebarFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -63,6 +66,13 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setDebouncedQuery(searchQuery.trim().toLowerCase());
+    }, 200);
+    return () => window.clearTimeout(handle);
+  }, [searchQuery]);
 
     // Only group admins can edit/delete.
   // Custom group (no pharmacy): admin iff my participant row has is_admin === true
@@ -148,47 +158,159 @@ if (last && last.sender?.user_details && last.sender.id !== myMembershipInRoom.i
 // Final fallback
 return 'Direct Message';
   }, [pharmacies, myMemberships, participantCache]);
-    
-  const { pinnedChats, groupChats, dmChats } = useMemo(() => {
-    const sortedRooms = [...rooms].sort((a, b) =>
-      new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
-    );
-    const filteredBySearch = searchQuery
-      ? sortedRooms.filter(room => getDisplayName(room).toLowerCase().includes(searchQuery.toLowerCase()))
-      : sortedRooms;
-    
+
+  const roomCategory = useCallback((room: ChatRoom): SidebarFilter => {
+    if (room.type === 'DM') return 'dm';
+    const rawKind =
+      ((room as any)?.kind as string | undefined) ??
+      ((room as any)?.category as string | undefined) ??
+      ((room as any)?.chat_type as string | undefined);
+    if (rawKind && rawKind.toLowerCase().includes('shift')) return 'shift';
+    if ((room as any)?.shift || (room as any)?.shift_id) return 'shift';
+    const inferredTitle = (room.title || '').toLowerCase();
+    if (!room.pharmacy && inferredTitle.includes('shift')) return 'shift';
+    return 'group';
+  }, []);
+
+  const filteredRooms = useMemo(() => {
+    if (!debouncedQuery) return rooms;
+    return rooms.filter(room => {
+      const name = getDisplayName(room).toLowerCase();
+      if (name.includes(debouncedQuery)) return true;
+      const preview = (getLatestMessage(room.id)?.body || room.last_message?.body || '').toLowerCase();
+      return preview.includes(debouncedQuery);
+    });
+  }, [rooms, debouncedQuery, getDisplayName, getLatestMessage]);
+
+  const sortedRooms = useMemo(
+    () =>
+      [...filteredRooms].sort(
+        (a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
+      ),
+    [filteredRooms]
+  );
+
+  const matchesFilter = useCallback(
+    (room: ChatRoom) => {
+      if (filter === 'all') return true;
+      return roomCategory(room) === filter;
+    },
+    [filter, roomCategory]
+  );
+
+  const { pinnedChats, groupChats, shiftChats, dmChats } = useMemo(() => {
     const finalPinned: ChatRoom[] = [];
     const finalGroupChats: ChatRoom[] = [];
+    const finalShiftChats: ChatRoom[] = [];
     const finalDmChats: ChatRoom[] = [];
-    const seenPharmacyIds = new Set<number>();
-    
-    for (const room of filteredBySearch) {
+
+    for (const room of sortedRooms) {
+      if (!matchesFilter(room)) continue;
+
       if (room.is_pinned) {
         finalPinned.push(room);
         continue;
       }
 
-      if (room.type === 'GROUP') {
-        if (room.pharmacy != null) {
-          if (!seenPharmacyIds.has(room.pharmacy)) {
-            finalGroupChats.push(room);
-            seenPharmacyIds.add(room.pharmacy);
-          }
-        } else {
-          finalGroupChats.push(room);
-        }
-      } else if (room.type === 'DM') {
+      const category = roomCategory(room);
+      if (category === 'group') {
+        finalGroupChats.push(room);
+      } else if (category === 'shift') {
+        finalShiftChats.push(room);
+      } else {
         finalDmChats.push(room);
       }
     }
-    return { pinnedChats: finalPinned, groupChats: finalGroupChats, dmChats: finalDmChats, };
-  }, [rooms, searchQuery, getDisplayName]);
+
+    return { pinnedChats: finalPinned, groupChats: finalGroupChats, shiftChats: finalShiftChats, dmChats: finalDmChats };
+  }, [sortedRooms, matchesFilter, roomCategory]);
+
+  const unreadRooms = useMemo(
+    () => sortedRooms.filter(room => (room.unread_count || 0) > 0),
+    [sortedRooms]
+  );
 
   const chatsToDisplay = useMemo(() => {
-    if (filter === 'group') return { pinnedChats, groupChats, dmChats: [] };
-    if (filter === 'dm') return { pinnedChats, groupChats: [], dmChats };
-    return { pinnedChats, groupChats, dmChats };
-  }, [filter, pinnedChats, groupChats, dmChats]);
+    if (filter === 'group') return { pinnedChats, groupChats, shiftChats: [], dmChats: [] };
+    if (filter === 'dm') return { pinnedChats, groupChats: [], shiftChats: [], dmChats };
+    if (filter === 'shift') return { pinnedChats, groupChats: [], shiftChats, dmChats: [] };
+    return { pinnedChats, groupChats, shiftChats, dmChats };
+  }, [filter, pinnedChats, groupChats, shiftChats, dmChats]);
+
+  const renderUnreadAvatar = useCallback(
+    (room: ChatRoom) => {
+      const preview = getLatestMessage(room.id)?.body || room.last_message?.body || 'No messages yet.';
+      const initials =
+        getDisplayName(room)
+          .split(/\s+/)
+          .map(part => part[0])
+          .join('')
+          .slice(0, 2)
+          .toUpperCase() || '?';
+
+      return (
+        <Tooltip
+          key={`collapsed-unread-${room.id}`}
+          title={
+            <Box sx={{ maxWidth: 260 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                {getDisplayName(room)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {preview}
+              </Typography>
+            </Box>
+          }
+          arrow
+          placement="right"
+        >
+          <IconButton
+            sx={{
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              bgcolor: 'primary.main',
+              color: 'primary.contrastText',
+              position: 'relative',
+              '&:hover': { bgcolor: 'primary.dark' },
+            }}
+            onClick={() =>
+              onSelectRoom({ type: room.type === 'DM' ? 'dm' : 'group', id: room.id })
+            }
+            aria-label={`Open ${getDisplayName(room)}`}
+          >
+            <Typography variant="button" sx={{ fontWeight: 700 }}>
+              {initials}
+            </Typography>
+            {(room.unread_count || 0) > 0 && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: -4,
+                  right: -4,
+                  minWidth: 18,
+                  height: 18,
+                  borderRadius: '50%',
+                  bgcolor: 'error.main',
+                  color: 'common.white',
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  px: 0.5,
+                  border: theme => `2px solid ${theme.palette.background.paper}`,
+                }}
+              >
+                {room.unread_count}
+              </Box>
+            )}
+          </IconButton>
+        </Tooltip>
+      );
+    },
+    [getDisplayName, getLatestMessage, onSelectRoom]
+  );
 
   return (
     <Box className={`chatpage-sidebar ${isCollapsed ? 'collapsed' : ''}`}>
@@ -231,11 +353,34 @@ return 'Direct Message';
             </Box>
         )}
       </Box>
+      {isCollapsed && unreadRooms.length > 0 && (
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 1,
+            py: 2,
+          }}
+          aria-label="Unread conversations"
+        >
+          {unreadRooms.map(renderUnreadAvatar)}
+        </Box>
+      )}
       {!isCollapsed && (
         <Box className="sidebar-filter" sx={{ display: 'flex', gap: 1 }}>
-            <Button size="small" variant={filter === 'all' ? 'contained' : 'outlined'} onClick={() => setFilter('all')}>All</Button>
-            <Button size="small" variant={filter === 'group' ? 'contained' : 'outlined'} onClick={() => setFilter('group')}>Group</Button>
-            <Button size="small" variant={filter === 'dm' ? 'contained' : 'outlined'} onClick={() => setFilter('dm')}>DM</Button>
+            <Button size="small" variant={filter === 'all' ? 'contained' : 'outlined'} onClick={() => setFilter('all')} aria-pressed={filter === 'all'}>
+              All
+            </Button>
+            <Button size="small" variant={filter === 'group' ? 'contained' : 'outlined'} onClick={() => setFilter('group')} aria-pressed={filter === 'group'}>
+              Group
+            </Button>
+            <Button size="small" variant={filter === 'dm' ? 'contained' : 'outlined'} onClick={() => setFilter('dm')} aria-pressed={filter === 'dm'}>
+              DM
+            </Button>
+            <Button size="small" variant={filter === 'shift' ? 'contained' : 'outlined'} onClick={() => setFilter('shift')} aria-pressed={filter === 'shift'}>
+              Shift
+            </Button>
         </Box>
       )}
       <Box className="sidebar-list">
@@ -248,6 +393,26 @@ return 'Direct Message';
                 room={room}
                 isActive={activeRoomId === room.id}
                 onSelect={(roomId) => onSelectRoom({ type: room.type.toLowerCase() as 'group' | 'dm', id: roomId })}
+                previewOverride={getLatestMessage(room.id)?.body}
+                displayName={getDisplayName(room)}
+                isCollapsed={isCollapsed}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                canEditDelete={isRoomAdmin(room)}
+              />
+            ))}
+            {!isCollapsed && <Divider sx={{ my: 1 }} />}
+          </>
+        )}
+        {chatsToDisplay.shiftChats.length > 0 && (
+          <>
+            {!isCollapsed && <Box className="sidebar-section-label">SHIFTS</Box>}
+            {chatsToDisplay.shiftChats.map(room => (
+              <ChatListItem
+                key={`shift-${room.id}`}
+                room={room}
+                isActive={activeRoomId === room.id}
+                onSelect={(roomId) => onSelectRoom({ type: 'group', id: roomId })}
                 previewOverride={getLatestMessage(room.id)?.body}
                 displayName={getDisplayName(room)}
                 isCollapsed={isCollapsed}

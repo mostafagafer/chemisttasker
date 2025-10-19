@@ -1,136 +1,267 @@
-// src/pages/dashboard/sidebar/owner/OwnerOverviewHome.tsx
 import React from "react";
-import { Box, Card, CardContent, Typography } from "@mui/material";
+import {
+  Box,
+  Paper,
+  Typography,
+  Grid,
+  Stack,
+  Button,
+  IconButton,
+  Chip,
+  useTheme,
+} from "@mui/material";
 import StoreIcon from "@mui/icons-material/Store";
 import DomainIcon from "@mui/icons-material/Domain";
-import SecurityIcon from "@mui/icons-material/Security";
+import ManageAccountsIcon from "@mui/icons-material/ManageAccounts";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import ListAltIcon from "@mui/icons-material/ListAlt";
 import WorkOutlineIcon from "@mui/icons-material/WorkOutline";
 import AppsIcon from "@mui/icons-material/Apps";
 import PeopleIcon from "@mui/icons-material/People";
 import SettingsIcon from "@mui/icons-material/Settings";
-import { useTheme } from "@mui/material/styles";
-import { surface } from "./types";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import { alpha } from "@mui/material/styles";
 
-function IconCard({
-  title,
-  subtitle,
-  icon,
-  onClick,
-}: {
+type QuickAction = {
   title: string;
-  subtitle?: string;
+  description: string;
   icon: React.ReactNode;
-  onClick?: () => void;
-}) {
-  const t = useTheme();
-  const s = surface(t);
-  return (
-    <Card
-      onClick={onClick}
-      variant="outlined"
-      sx={{
-        height: "100%",
-        cursor: onClick ? "pointer" : "default",
-        backgroundColor: s.bg,
-        borderColor: s.border,
-        transition: "all .15s",
-        ":hover": { boxShadow: onClick ? 6 : undefined, backgroundColor: s.subtle },
-      }}
-    >
-      <CardContent sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
-        <Box sx={{ p: 1.2, borderRadius: 2, bgcolor: s.hover }}>{icon}</Box>
-        <Box sx={{ flex: 1 }}>
-          <Typography fontWeight={600}>{title}</Typography>
-          {subtitle && (
-            <Typography variant="body2" sx={{ mt: 0.5, color: s.textMuted }}>
-              {subtitle}
-            </Typography>
-          )}
-        </Box>
-      </CardContent>
-    </Card>
-  );
-}
+  onClick: () => void;
+};
 
-function Stat({ label, value }: { label: string; value: string }) {
-  const t = useTheme(); const s = surface(t);
-  return (
-    <Card variant="outlined" sx={{ backgroundColor: s.bg, borderColor: s.border }}>
-      <CardContent>
-        <Typography variant="h4" fontWeight={700}>
-          {value}
-        </Typography>
-        <Typography variant="body2" sx={{ mt: 0.5, color: s.textMuted }}>
-          {label}
-        </Typography>
-      </CardContent>
-    </Card>
-  );
-}
+type StatItem = {
+  label: string;
+  value: string | number;
+};
 
 export default function OwnerOverviewHome({
   totalPharmacies,
   onOpenPharmacies,
+  onOpenAdmins,
+  onOpenRoster,
+  onOpenShifts,
+  onPostShift,
+  onOpenProfile,
+  onOpenInterests,
+  onOpenSettings,
 }: {
   totalPharmacies: number;
   onOpenPharmacies: () => void;
+  onOpenAdmins: () => void;
+  onOpenRoster: () => void;
+  onOpenShifts: () => void;
+  onPostShift: () => void;
+  onOpenProfile: () => void;
+  onOpenInterests: () => void;
+  onOpenSettings: () => void;
 }) {
-  const t = useTheme();
-  const s = surface(t);
+  const theme = useTheme();
+  const primary = theme.palette.primary.main;
+
+  const quickActions: QuickAction[] = [
+    {
+      title: "Manage Pharmacies",
+      description: "Create, edit and configure stores",
+      icon: <StoreIcon />,
+      onClick: onOpenPharmacies,
+    },
+    {
+      title: "My Pharmacies",
+      description: "View your entire network",
+      icon: <DomainIcon />,
+      onClick: onOpenPharmacies,
+    },
+    {
+      title: "Assign Admins",
+      description: "Manage pharmacy-level access",
+      icon: <ManageAccountsIcon />,
+      onClick: onOpenAdmins,
+    },
+    {
+      title: "Internal Roster",
+      description: "Map out internal coverage",
+      icon: <CalendarMonthIcon />,
+      onClick: onOpenRoster,
+    },
+    {
+      title: "Post Shift",
+      description: "Publish an open shift in seconds",
+      icon: <ListAltIcon />,
+      onClick: onPostShift,
+    },
+    {
+      title: "Shift Centre",
+      description: "Upcoming & confirmed shifts",
+      icon: <WorkOutlineIcon />,
+      onClick: onOpenShifts,
+    },
+    {
+      title: "Explore Interests",
+      description: "Training & recommended topics",
+      icon: <AppsIcon />,
+      onClick: onOpenInterests,
+    },
+    {
+      title: "Profile & Verification",
+      description: "Manage your organisation profile",
+      icon: <PeopleIcon />,
+      onClick: onOpenProfile,
+    },
+    {
+      title: "Settings",
+      description: "Hours, rates and configurations",
+      icon: <SettingsIcon />,
+      onClick: onOpenSettings,
+    },
+  ];
+
+  const stats: StatItem[] = [
+    { label: "Total Pharmacies", value: totalPharmacies },
+    { label: "Roster Templates", value: "--" },
+    { label: "Open Shifts", value: "--" },
+    { label: "Favourite Locums", value: "--" },
+  ];
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: "auto", p: 3 }}>
-      <Box sx={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 2, mb: 3 }}>
-        <Box>
-          <Typography variant="h4" fontWeight={700}>
-            Welcome back
-          </Typography>
-          <Typography sx={{ color: s.textMuted }}>
-            Quick access to everything from the cards below.
-          </Typography>
-        </Box>
-        <Card variant="outlined" sx={{ minWidth: 260, background: s.bg, borderColor: s.border }}>
-          <CardContent>
-            <Typography fontWeight={600}>💊 Bills / Gamification</Typography>
-            <Typography>Total billed: —</Typography>
-            <Typography>Points: —</Typography>
-          </CardContent>
-        </Card>
-      </Box>
-
-      <Box
+    <Box
+      sx={{
+        width: "100%",
+        mx: "auto",
+        maxWidth: 1200,
+        px: { xs: 2, md: 4 },
+        py: { xs: 2, md: 4 },
+        display: "flex",
+        flexDirection: "column",
+        gap: { xs: 3, md: 4 },
+      }}
+    >
+      <Paper
         sx={{
-          display: "grid",
-          gap: 1.5,
-          gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", md: "repeat(3, 1fr)" },
+          p: { xs: 3, md: 4 },
+          borderRadius: 4,
+          backgroundImage: `linear-gradient(135deg, ${alpha(primary, 0.95)}, ${alpha(primary, 0.65)})`,
+          color: "#fff",
+          overflow: "hidden",
+          position: "relative",
         }}
       >
-        <IconCard title="Manage Pharmacies" subtitle="Create, edit and configure stores" icon={<StoreIcon />} onClick={onOpenPharmacies} />
-        <IconCard title="My Pharmacies" subtitle="View and open a pharmacy" icon={<DomainIcon />} onClick={onOpenPharmacies} />
-        <IconCard title="Assign Admins" subtitle="Manage pharmacy admins" icon={<SecurityIcon />} onClick={onOpenPharmacies} />
-        <IconCard title="Internal Roster" subtitle="Plan team coverage" icon={<CalendarMonthIcon />} />
-        <IconCard title="Post Shift" subtitle="Publish an open shift" icon={<ListAltIcon />} />
-        <IconCard title="Shifts" subtitle="Upcoming & confirmed" icon={<WorkOutlineIcon />} />
-        <IconCard title="Explore Interests" subtitle="Recommendations" icon={<AppsIcon />} />
-        <IconCard title="Profile" subtitle="Account & verification" icon={<PeopleIcon />} />
-        <IconCard title="Settings" subtitle="Platform preferences" icon={<SettingsIcon />} />
-      </Box>
+        <Box
+          sx={{
+            position: "absolute",
+            inset: 0,
+            backgroundImage: `radial-gradient(circle at top right, ${alpha("#ffffff", 0.25)} 0%, transparent 50%)`,
+            pointerEvents: "none",
+          }}
+        />
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={{ xs: 3, md: 5 }}
+          alignItems={{ xs: "flex-start", md: "center" }}
+          justifyContent="space-between"
+        >
+          <Box sx={{ position: "relative", zIndex: 1 }}>
+            <Typography variant="h4" fontWeight={800} gutterBottom>
+              Welcome back
+            </Typography>
+            <Typography variant="body1" sx={{ opacity: 0.92, maxWidth: 520 }}>
+              Your pharmacies at a glance. Review staffing, shifts and operations in moments, then dive deeper with the quick links below.
+            </Typography>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 3 }}>
+              <Button variant="contained" color="inherit" onClick={onPostShift} sx={{ color: primary }}>
+                Post a shift
+              </Button>
+              <Button
+                variant="outlined"
+                color="inherit"
+                onClick={onOpenPharmacies}
+                sx={{ borderColor: alpha("#ffffff", 0.4), color: "#fff" }}
+              >
+                Manage pharmacies
+              </Button>
+            </Stack>
+          </Box>
+          <Stack direction="column" spacing={1} sx={{ position: "relative", zIndex: 1, minWidth: 200 }}>
+            <Typography variant="body2" sx={{ textTransform: "uppercase", letterSpacing: ".08em", opacity: 0.65 }}>
+              Highlights
+            </Typography>
+            <Stack direction="row" spacing={1}>
+              <Chip label={`${totalPharmacies} pharmacies`} color="default" sx={{ bgcolor: alpha("#ffffff", 0.15), color: "#fff" }} />
+              <Chip label="Usage up 12%" sx={{ bgcolor: alpha("#ffffff", 0.15), color: "#fff" }} />
+            </Stack>
+          </Stack>
+        </Stack>
+      </Paper>
 
-      <Box
-        sx={{
-          mt: 3,
-          display: "grid",
-          gap: 1.5,
-          gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", md: "repeat(4, 1fr)" },
-        }}
-      >
-        <Stat label="Upcoming Shifts" value={"0"} />
-        <Stat label="Confirmed Shifts" value={"2"} />
-        <Stat label="Total Pharmacies" value={String(totalPharmacies)} />
-        <Stat label="Favourites" value={"5"} />
-      </Box>
+      <Grid container spacing={2.5}>
+        {quickActions.map((action) => (
+          <Grid size={{ xs: 12, sm: 6, md: 4 }} key={action.title}>
+            <Paper
+              role="button"
+              onClick={action.onClick}
+              sx={{
+                height: "100%",
+                borderRadius: 3,
+                transition: "all 0.2s ease",
+                cursor: "pointer",
+                p: 2.5,
+                display: "flex",
+                flexDirection: "column",
+                gap: 1.5,
+                "&:hover": {
+                  transform: "translateY(-4px)",
+                  boxShadow: theme.shadows[6],
+                },
+              }}
+            >
+              <Stack direction="row" spacing={1.5} alignItems="center">
+                <IconButton
+                  size="small"
+                  disableRipple
+                  sx={{
+                    bgcolor: alpha(primary, 0.12),
+                    color: primary,
+                  }}
+                >
+                  {action.icon}
+                </IconButton>
+                <Stack spacing={0.5}>
+                  <Typography fontWeight={700}>{action.title}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {action.description}
+                  </Typography>
+                </Stack>
+              </Stack>
+              <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: "auto", color: primary, fontWeight: 600 }}>
+                <Typography variant="body2">Open</Typography>
+                <ArrowForwardIcon fontSize="small" />
+              </Stack>
+            </Paper>
+          </Grid>
+        ))}
+      </Grid>
+
+      <Grid container spacing={2.5}>
+        {stats.map((item) => (
+          <Grid size={{ xs: 12, sm: 6, md: 3 }} key={item.label}>
+            <Paper
+              sx={{
+                p: 2.5,
+                borderRadius: 3,
+                display: "flex",
+                flexDirection: "column",
+                gap: 1,
+              }}
+            >
+              <Typography variant="subtitle2" color="text.secondary">
+                {item.label}
+              </Typography>
+              <Typography variant="h4" fontWeight={800}>
+                {item.value}
+              </Typography>
+            </Paper>
+          </Grid>
+        ))}
+      </Grid>
     </Box>
   );
 }

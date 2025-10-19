@@ -1,31 +1,43 @@
 import { Outlet } from 'react-router-dom';
-import { DashboardLayout, SidebarFooterProps } from '@toolpad/core/DashboardLayout';
-import { PageContainer } from '@toolpad/core/PageContainer';
-import Typography from '@mui/material/Typography';
+import { DashboardLayout } from "@toolpad/core/DashboardLayout";
+import { PageContainer } from "@toolpad/core/PageContainer";
 import CustomAppTitle from "./CustomAppTitle";
 import { useAuth } from "../contexts/AuthContext";
-
-function SidebarFooter({ mini }: SidebarFooterProps) {
-  return (
-    <Typography variant="caption" sx={{ m:1, whiteSpace:'nowrap', overflow:'hidden' }}>
-      {mini ? '© CT' : `© ${new Date().getFullYear()} ChemistTasker`}
-    </Typography>
-  );
-}
+import TopBarActions from "./TopBarActions";
+import { ColorModeProvider } from "../theme/sleekTheme";
+import DashboardShell from "./DashboardShell";
+import DashboardSidebarFooter from "./DashboardSidebarFooter";
 
 export default function OwnerDashboardWrapper() {
   const { user } = useAuth();
 
   return (
-    <DashboardLayout
-      slots={{
-        appTitle: () => <CustomAppTitle userRole={user?.role || "OWNER"} />,
-        sidebarFooter: SidebarFooter,
-      }}
-    >
-      <PageContainer slots={{ header: () => null }}>
-        <Outlet />
-      </PageContainer>
-    </DashboardLayout>
+    <ColorModeProvider>
+      <DashboardShell>
+        <DashboardLayout
+          defaultSidebarCollapsed
+          sidebarExpandedWidth={288}
+          slots={{
+            appTitle: () => <CustomAppTitle userRole={user?.role || "OWNER"} />,
+            toolbarActions: TopBarActions,
+            sidebarFooter: DashboardSidebarFooter,
+          }}
+        >
+          <PageContainer
+            slots={{ header: () => null }}
+            sx={{
+              minHeight: "100%",
+              display: "flex",
+              flexDirection: "column",
+              px: { xs: 2, md: 4 },
+              py: { xs: 2, md: 4 },
+              gap: { xs: 2, md: 3 },
+            }}
+          >
+            <Outlet />
+          </PageContainer>
+        </DashboardLayout>
+      </DashboardShell>
+    </ColorModeProvider>
   );
 }

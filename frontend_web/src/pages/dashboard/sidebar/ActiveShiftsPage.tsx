@@ -1,14 +1,7 @@
-// src/pages/dashboard/owner/shifts/ActiveShiftsPage.tsx
-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Container,
   Typography,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Tabs,
-  Tab,
   Box,
   Button,
   CircularProgress,
@@ -18,68 +11,260 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Table,
-  TableHead,
-  TableBody,
-  TableRow,
-  TableCell,
-  TableContainer,
   Paper,
-  List,
-  ListItem,
-  ListItemText,
   Chip,
   Tooltip,
   Divider,
   Skeleton,
-  Rating, 
+  Rating,
   Pagination,
+  Card,
+  CardContent,
+  CardHeader,
+  Stepper,
+  Step,
+  StepLabel,
+  StepConnector,
+  stepConnectorClasses,
+  styled,
+  createTheme,
+  ThemeProvider,
+  Stack,
+  Avatar,
+  ButtonBase,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import CloseIcon from '@mui/icons-material/Close';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import ChatIcon from '@mui/icons-material/Chat';
-// --- 1. ADD IMPORT ---
-import ShareIcon from '@mui/icons-material/Share';
-import { green, grey } from '@mui/material/colors';
+import {
+  CheckCircle as Check,
+  ExpandMore as ChevronDown,
+  Close as X,
+  Edit,
+  Delete as Trash2,
+  Share as Share2,
+  Business as Building,
+  Info,
+  CalendarToday as CalendarDays,
+  PersonAdd as UserCheck,
+  PersonRemove as UserX,
+  HourglassEmpty as Clock,
+  Star,
+  Favorite,
+  People,
+  Store,
+  CorporateFare,
+  Public,
+} from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 
-// ... All your interfaces remain unchanged ...
-interface Slot { id: number; date: string; start_time: string; end_time: string; is_recurring?: boolean; recurring_days?: number[]; recurring_end_date?: string | null; }
-interface Shift { id: number; single_user_only: boolean; visibility: string; pharmacy_detail: { name: string;     street_address?: string;suburb?: string;postcode?: string;state?: string;}; role_needed: string; slots: Slot[];description?: string; slot_assignments: { slot_id: number; user_id: number }[]; slot_count?: number; assigned_count?: number; escalation_level: number; escalate_to_locum_casual: string | null; escalate_to_owner_chain: string | null; escalate_to_org_chain: string | null; escalate_to_platform: string | null; allowed_escalation_levels: string[]; created_at: string; }
-interface MemberStatus { user_id: number; name: string; employment_type: string; role: string; status: 'no_response' | 'interested' | 'rejected' | 'accepted'; is_member: boolean; membership_id?: number; }
-interface Interest { id: number; user_id: number; slot_id: number | null; slot_time: string; revealed: boolean; user: string; }
-interface RatePreference { weekday: string; saturday: string; sunday: string; public_holiday: string; early_morning: string; late_night: string; }
-interface UserDetail { id: number; first_name: string; last_name: string; email: string; phone_number?: string; short_bio?: string; resume?: string; rate_preference?: RatePreference | null; }
+// Injecting Inter font from Google Fonts
+const fontStyle = document.createElement('style');
+fontStyle.innerHTML = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+`;
+document.head.appendChild(fontStyle);
 
-const ESCALATION_LEVELS = [
-  { level: 0, key: 'FULL_PART_TIME', label: 'My Pharmacy (Full/Part Time)' },
-  { level: 1, key: 'LOCUM_CASUAL', label: 'My Pharmacy (Locum/Casual)' },
-  { level: 2, key: 'OWNER_CHAIN', label: 'Chain' },
-  { level: 3, key: 'ORG_CHAIN', label: 'Organization' },
-  { level: 4, key: 'PLATFORM', label: 'Platform (Public)' },
+const customTheme = createTheme({
+  palette: {
+    primary: { main: '#6D28D9', light: '#8B5CF6', dark: '#5B21B6' },
+    secondary: { main: '#10B981', light: '#6EE7B7', dark: '#047857' },
+    success: { main: '#10B981', light: '#E0F2F1', dark: '#047857' },
+    error: { main: '#EF4444', light: '#FEE2E2', dark: '#B91C1C' },
+    warning: { main: '#F59E0B', light: '#FFFBEB', dark: '#B45309' },
+    info: { main: '#0EA5E9', light: '#E0F2FE', dark: '#0284C7' },
+    background: { default: '#F9FAFB', paper: '#FFFFFF' },
+  },
+  typography: { fontFamily: "'Inter', sans-serif" },
+  components: {
+    MuiButton: {
+      styleOverrides: {
+        root: { borderRadius: '8px', textTransform: 'none', fontWeight: 600, boxShadow: 'none' },
+        containedPrimary: {
+          color: 'white',
+          background: 'linear-gradient(to right, #8B5CF6, #6D28D9)',
+          '&:hover': { background: 'linear-gradient(to right, #A78BFA, #8B5CF6)' },
+        },
+        containedSecondary: { color: 'white' },
+      },
+    },
+    MuiCard: {
+      styleOverrides: { root: { borderRadius: '16px', border: '1px solid #E5E7EB' } },
+    },
+  },
+});
+
+interface Slot {
+  id: number;
+  date: string;
+  start_time: string;
+  end_time: string;
+}
+
+interface Shift {
+  id: number;
+  visibility: string;
+  pharmacy_detail: {
+    name: string;
+    street_address?: string;
+    suburb?: string;
+    postcode?: string;
+    state?: string;
+    organization?: { id?: number; name?: string } | null;
+    owner?: { organization_claimed?: boolean } | null;
+  };
+  role_needed: string;
+  slots: Slot[];
+  description?: string;
+  allowed_escalation_levels: string[];
+  escalation_level: number;
+}
+
+interface MemberStatus {
+  user_id: number;
+  name: string;
+  employment_type: string;
+  status: 'no_response' | 'interested' | 'rejected' | 'accepted';
+  average_rating?: number | null;
+  rating?: number | null;
+}
+
+interface Interest {
+  id: number;
+  user_id: number;
+  slot_id: number | null;
+  revealed: boolean;
+  user: string;
+  average_rating?: number | null;
+  rating?: number | null;
+}
+
+interface UserDetail {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number?: string;
+  short_bio?: string;
+  resume?: string;
+  employment_type?: string;
+}
+
+interface TabDataState {
+  loading: boolean;
+  membersBySlot?: Record<number, MemberStatus[]>;
+  interestsBySlot?: Record<number, Interest[]>;
+  interestsAll?: Interest[];
+  isPastLevel?: boolean;
+}
+
+type EscalationKey = 'FULL_PART_TIME' | 'LOCUM_CASUAL' | 'OWNER_CHAIN' | 'ORG_CHAIN' | 'PLATFORM';
+
+const PUBLIC_LEVEL_KEY: EscalationKey = 'PLATFORM';
+const FAVOURITE_LEVEL_KEY: EscalationKey = 'LOCUM_CASUAL';
+
+const ESCALATION_LEVELS: Array<{
+  key: EscalationKey;
+  label: string;
+  icon: React.ElementType;
+  requiresOrganization?: boolean;
+}> = [
+  { key: 'FULL_PART_TIME', label: 'My Pharmacy', icon: People },
+  { key: FAVOURITE_LEVEL_KEY, label: 'Favourites', icon: Favorite },
+  { key: 'OWNER_CHAIN', label: 'Chain', icon: Store },
+  { key: 'ORG_CHAIN', label: 'Organization', icon: CorporateFare, requiresOrganization: true },
+  { key: PUBLIC_LEVEL_KEY, label: 'Platform', icon: Public },
 ];
-const PUBLIC_LEVEL_KEY = 'PLATFORM';
-interface TabDataState { loading: boolean; membersBySlot?: Record<number, MemberStatus[]>; interestsBySlot?: Record<number, Interest[]>; interestsAll?: Interest[];isPastLevel?: boolean;  }
+
+const STATUS_PRIORITY: Record<MemberStatus['status'], number> = {
+  rejected: 0,
+  no_response: 1,
+  interested: 2,
+  accepted: 3,
+};
+
+const dedupeMembers = (members: MemberStatus[]): MemberStatus[] => {
+  const map = new Map<number, MemberStatus>();
+  members.forEach(member => {
+    const normalizedRating = member.average_rating ?? member.rating ?? null;
+    const normalized: MemberStatus = { ...member, average_rating: normalizedRating };
+    const existing = map.get(member.user_id);
+    if (!existing) {
+      map.set(member.user_id, normalized);
+      return;
+    }
+    if (STATUS_PRIORITY[normalized.status] > STATUS_PRIORITY[existing.status]) {
+      map.set(member.user_id, normalized);
+      return;
+    }
+    if (STATUS_PRIORITY[normalized.status] === STATUS_PRIORITY[existing.status]) {
+      const existingRating = existing.average_rating ?? existing.rating ?? -1;
+      if ((normalized.average_rating ?? normalized.rating ?? -1) > existingRating) {
+        map.set(member.user_id, normalized);
+      }
+    }
+  });
+  return Array.from(map.values());
+};
+
+const ColorStepConnector = styled(StepConnector)(({ theme }) => ({
+  [`&.${stepConnectorClasses.alternativeLabel}`]: {
+    top: 24,
+    left: 'calc(-50% + 30px)',
+    right: 'calc(50% + 30px)',
+  },
+  [`& .${stepConnectorClasses.line}`]: {
+    borderColor: '#E5E7EB',
+    borderTopWidth: 2,
+    borderRadius: 1,
+  },
+  [`&.${stepConnectorClasses.active} .${stepConnectorClasses.line}`]: {
+    borderColor: theme.palette.primary.main,
+  },
+  [`&.${stepConnectorClasses.completed} .${stepConnectorClasses.line}`]: {
+    borderColor: theme.palette.primary.main,
+  },
+}));
+
+const ColorStepIconRoot = styled('div')<{ ownerState: { completed?: boolean; active?: boolean } }>(
+  ({ theme, ownerState }) => ({
+    backgroundColor: '#E5E7EB',
+    zIndex: 1,
+    color: '#6B7280',
+    width: 50,
+    height: 50,
+    display: 'flex',
+    borderRadius: '50%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    transition: 'all 0.3s ease-in-out',
+    ...(ownerState.active && {
+      backgroundColor: theme.palette.primary.main,
+      color: '#fff',
+      boxShadow: '0 6px 15px 0 rgba(109, 40, 217, 0.4)',
+    }),
+    ...(ownerState.completed && {
+      backgroundColor: theme.palette.primary.dark,
+      color: '#fff',
+    }),
+  })
+);
+
+function ColorStepIcon(props: { active?: boolean; completed?: boolean; icon: React.ElementType }) {
+  const { icon: Icon } = props;
+  return (
+    <ColorStepIconRoot ownerState={props}>
+      <Icon sx={{ fontSize: 24 }} />
+    </ColorStepIconRoot>
+  );
+}
 
 const ActiveShiftsPage: React.FC = () => {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loadingShifts, setLoadingShifts] = useState(true);
   const [expandedShift, setExpandedShift] = useState<number | false>(false);
-  const [activeTabs, setActiveTabs] = useState<Record<number, number>>({});
   const [tabData, setTabData] = useState<Record<string, TabDataState>>({});
-  const [platformInterestDialog, setPlatformInterestDialog] = useState<{ open: boolean; user: UserDetail | null; shiftId: number | null; interest: Interest | null; }>({ open: false, user: null, shiftId: null, interest: null });
-  // Worker ratings shown in the reveal dialog
-  const [workerRatingSummary, setWorkerRatingSummary] = useState<{ average: number; count: number } | null>(null);
-  const [workerRatingComments, setWorkerRatingComments] = useState<Array<{ id: number; stars: number; comment?: string; created_at?: string }>>([]);
-  const [workerCommentsPage, setWorkerCommentsPage] = useState(1);
-  const [workerCommentsPageCount, setWorkerCommentsPageCount] = useState(1);
-  const [loadingWorkerRatings, setLoadingWorkerRatings] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
   const [escalating, setEscalating] = useState<Record<number, boolean>>({});
   const [deleting, setDeleting] = useState<Record<number, boolean>>({});
@@ -87,639 +272,1120 @@ const ActiveShiftsPage: React.FC = () => {
   const [shiftToDelete, setShiftToDelete] = useState<number | null>(null);
   const navigate = useNavigate();
   const theme = useTheme();
-  
-  // --- 2. ADD STATE AND HANDLER FUNCTION FOR SHARING ---
+  const { user } = useAuth();
   const [sharingShiftId, setSharingShiftId] = useState<number | null>(null);
+  const [selectedLevelByShift, setSelectedLevelByShift] = useState<Record<number, EscalationKey>>({});
+  const [reviewCandidateDialog, setReviewCandidateDialog] = useState<{
+    open: boolean;
+    candidate: MemberStatus | null;
+    shiftId: number | null;
+  }>({ open: false, candidate: null, shiftId: null });
+  const [platformInterestDialog, setPlatformInterestDialog] = useState<{
+    open: boolean;
+    user: UserDetail | null;
+    shiftId: number | null;
+    interest: Interest | null;
+  }>({ open: false, user: null, shiftId: null, interest: null });
+  const [workerRatingSummary, setWorkerRatingSummary] = useState<{ average: number; count: number } | null>(null);
+  const [workerRatingComments, setWorkerRatingComments] = useState<
+    Array<{ id: number; stars: number; comment?: string; created_at?: string }>
+  >([]);
+  const [workerCommentsPage, setWorkerCommentsPage] = useState(1);
+  const [workerCommentsPageCount, setWorkerCommentsPageCount] = useState(1);
+  const [loadingWorkerRatings, setLoadingWorkerRatings] = useState(false);
 
-const handleShare = async (shift: Shift) => {
-  // 1. Check if visibility is 'PLATFORM' before proceeding
-  if (shift.visibility !== 'PLATFORM') {
-    setSnackbar({
-      open: true,
-      message: 'You have to escalate this shift to platform before sharing.',
-    });
-    return;
-  }
+  const showSnackbar = useCallback((message: string) => {
+    setSnackbar({ open: true, message });
+  }, []);
 
-  // 2. Proceed with sharing logic
-  setSharingShiftId(shift.id);
-  try {
-    const res = await apiClient.post<{ share_token: string }>(
-      API_ENDPOINTS.generateShareLink(shift.id)
-    );
-    const token = res.data.share_token;
-    const publicUrl = `${window.location.origin}/shifts/link?token=${token}`;
+  const closeSnackbar = useCallback(() => {
+    setSnackbar({ open: false, message: '' });
+  }, []);
 
-    await navigator.clipboard.writeText(publicUrl);
-
-    setSnackbar({
-      open: true,
-      message: 'Public share link copied to clipboard!',
-    });
-  } catch (err) {
-    console.error('Share link error:', err);
-    setSnackbar({
-      open: true,
-      message: 'Error: Could not generate share link.',
-    });
-  } finally {
-    setSharingShiftId(null);
-  }
-};
-
-
-  const handleChatWithCandidate = (candidateId: number) => {
-    // Determine the base path based on the current user's role
-    let basePath = '/dashboard/owner/chat'; // Default path for owners
-    if (user && ['ORG_ADMIN', 'ORG_OWNER', 'ORG_STAFF'].includes(user.role)) {
-      basePath = '/dashboard/organization/chat';
-    }
-    
-    // Navigate to the chat page with a query parameter to initiate the DM
-    navigate(`${basePath}?startDmWithUser=${candidateId}`);
+  const resetWorkerRatings = () => {
+    setWorkerRatingSummary(null);
+    setWorkerRatingComments([]);
+    setWorkerCommentsPage(1);
+    setWorkerCommentsPageCount(1);
   };
 
-  // ... All your other functions like getTabKey, useEffect, etc. remain exactly as you provided them ...
-  const getTabKey = useCallback((shiftId: number, levelIdx: number) => `${shiftId}_${levelIdx}`, []);
-  // const findWholeShiftMembers = useCallback((membersBySlot: Record<number, MemberStatus[]>, slotCount: number, status: 'interested' | 'rejected'): MemberStatus[] => {
-  //   const userIdToCounts: Record<number, { member: MemberStatus; count: number }> = {};
-  //   for (const slotIdStr in membersBySlot) {
-  //     const slotMembers = membersBySlot[parseInt(slotIdStr)];
-  //     for (const mem of slotMembers) {
-  //       if (mem.status === status) {
-  //         if (!userIdToCounts[mem.user_id]) userIdToCounts[mem.user_id] = { member: mem, count: 1 };
-  //         else userIdToCounts[mem.user_id].count++;
-  //       }
-  //     }
-  //   }
-  //   return Object.values(userIdToCounts).filter(x => x.count === slotCount).map(x => x.member);
-  // }, []);
+  const getTabKey = useCallback((shiftId: number, levelKey: EscalationKey) => `${shiftId}_${levelKey}`, []);
 
-useEffect(() => {
-    setLoadingShifts(true);
-    apiClient.get(API_ENDPOINTS.getActiveShifts) // Expect a paginated object or a plain array
-      .then(res => {
-        const d = res.data;
-        const shiftsData = Array.isArray(d)
-          ? d
-          : Array.isArray(d?.results)
-          ? d.results
-          : Array.isArray(d?.data)
-          ? d.data
-          : Array.isArray(d?.items)
-          ? d.items
-          : [];
-        setShifts(shiftsData);
-      })
-      .catch(() => setSnackbar({ open: true, message: 'Failed to load active shifts' }))
-      .finally(() => setLoadingShifts(false));
+  const deriveLevelSequence = useCallback((shift: Shift) => {
+    const hasOrganizationAccess =
+      Boolean(shift.pharmacy_detail?.organization?.id) ||
+      Boolean(shift.pharmacy_detail?.owner?.organization_claimed) ||
+      shift.visibility === 'ORG_CHAIN';
+
+    return ESCALATION_LEVELS.filter(level =>
+      level.requiresOrganization ? hasOrganizationAccess : true
+    );
   }, []);
-  
-const loadTabData = useCallback(async (shift: Shift, levelIdx: number) => {
-    const tabKey = getTabKey(shift.id, levelIdx);
-    const escLevel = ESCALATION_LEVELS[levelIdx].key;
 
-    // ✅ FIX 1: Check if the selected tab is for a level that has already passed.
-    const currentShiftLevelIdx = ESCALATION_LEVELS.findIndex(l => l.key === shift.visibility);
-    if (levelIdx < currentShiftLevelIdx) {
-        // If it's a past level, don't make an API call. Just update the UI state.
-        setTabData(td => ({
-            ...td,
-            [tabKey]: {
-                loading: false,
-                isPastLevel: true, // Add a flag to handle this in the render logic.
-            }
-        }));
-        return; // Stop the function here.
-    }
-
-    // Initialize the loading state.
-    setTabData(td => ({ ...td, [tabKey]: { loading: true, isPastLevel: false } }));
-    
+  const loadShifts = useCallback(async () => {
+    setLoadingShifts(true);
     try {
-      if (escLevel === PUBLIC_LEVEL_KEY) {
-        // The API call for the public "Platform" tab.
-        const res = await apiClient.get<any>(API_ENDPOINTS.getShiftInterests, { params: { shift: shift.id } });
-        
-        // ✅ FIX 2: Correctly parse the response whether it's paginated or a plain array.
-        const interests: Interest[] = Array.isArray(res.data.results) ? res.data.results : (Array.isArray(res.data) ? res.data : []);
-        
-        const interestsBySlot: Record<number, Interest[]> = {};
-        const interestsAll: Interest[] = [];
-        
-        interests.forEach(interest => {
-          if (interest.slot_id === null) {
-            interestsAll.push(interest);
-          } else {
-            const sid = Number(interest.slot_id);
-            if (!interestsBySlot[sid]) interestsBySlot[sid] = [];
-            interestsBySlot[sid].push(interest);
+      const res = await apiClient.get(API_ENDPOINTS.getActiveShifts);
+      const data = Array.isArray(res.data) ? res.data : res.data?.results ?? [];
+      setShifts(data);
+    } catch (error) {
+      console.error('Failed to load active shifts', error);
+      showSnackbar('Failed to load active shifts.');
+    } finally {
+      setLoadingShifts(false);
+    }
+  }, [showSnackbar]);
+
+  useEffect(() => {
+    loadShifts();
+  }, [loadShifts]);
+
+  const loadWorkerRatings = useCallback(async (workerId: number, page: number = 1) => {
+    setLoadingWorkerRatings(true);
+    try {
+      const summaryRes = await apiClient.get(
+        `${API_ENDPOINTS.ratingsSummary}?target_type=worker&target_id=${workerId}`
+      );
+      setWorkerRatingSummary({
+        average: summaryRes.data?.average ?? 0,
+        count: summaryRes.data?.count ?? 0,
+      });
+
+      const commentsRes = await apiClient.get(
+        `${API_ENDPOINTS.ratings}?target_type=worker&target_id=${workerId}&page=${page}`
+      );
+      const items = Array.isArray(commentsRes.data)
+        ? commentsRes.data
+        : Array.isArray(commentsRes.data?.results)
+        ? commentsRes.data.results
+        : [];
+      setWorkerRatingComments(
+        items.map((item: any) => ({
+          id: item.id,
+          stars: item.stars,
+          comment: item.comment,
+          created_at: item.created_at,
+        }))
+      );
+      if (commentsRes.data?.count && Array.isArray(commentsRes.data?.results)) {
+        const perPage = commentsRes.data.results.length || 1;
+        setWorkerCommentsPageCount(Math.max(1, Math.ceil(commentsRes.data.count / perPage)));
+      } else {
+        setWorkerCommentsPageCount(1);
+      }
+      setWorkerCommentsPage(page);
+    } catch (error) {
+      console.error('Failed to load worker ratings', error);
+      setWorkerRatingSummary(null);
+      setWorkerRatingComments([]);
+    } finally {
+      setLoadingWorkerRatings(false);
+    }
+  }, []);
+
+  const loadTabData = useCallback(
+    async (shift: Shift, levelKey: EscalationKey) => {
+      const tabKey = getTabKey(shift.id, levelKey);
+      setTabData(prev => ({
+        ...prev,
+        [tabKey]: { ...prev[tabKey], loading: true },
+      }));
+
+      const level = ESCALATION_LEVELS.find(item => item.key === levelKey);
+      if (!level) {
+        setTabData(prev => ({
+          ...prev,
+          [tabKey]: { loading: false },
+        }));
+        return;
+      }
+
+      try {
+        if (level.key === PUBLIC_LEVEL_KEY) {
+          const res = await apiClient.get(API_ENDPOINTS.getShiftInterests, {
+            params: { shift: shift.id },
+          });
+          const interestsRaw = Array.isArray(res.data)
+            ? res.data
+            : Array.isArray(res.data?.results)
+            ? res.data.results
+            : [];
+
+          const interestsBySlot: Record<number, Interest[]> = {};
+          const interestsAll: Interest[] = [];
+
+          interestsRaw.forEach((interest: any) => {
+            const slotId = interest.slot_id === null || interest.slot_id === undefined ? null : Number(interest.slot_id);
+            const normalized: Interest = {
+              id: interest.id,
+              user_id: interest.user_id,
+              slot_id: slotId,
+              revealed: Boolean(interest.revealed),
+              user:
+                interest.user ||
+                `${interest.user_first_name ?? ''} ${interest.user_last_name ?? ''}`.trim() ||
+                'Candidate',
+              average_rating: interest.average_rating ?? interest.rating ?? null,
+              rating: interest.rating ?? interest.average_rating ?? null,
+            };
+
+            if (normalized.slot_id === null) {
+              interestsAll.push(normalized);
+            } else {
+              if (!interestsBySlot[normalized.slot_id]) {
+                interestsBySlot[normalized.slot_id] = [];
+              }
+              interestsBySlot[normalized.slot_id].push(normalized);
+            }
+          });
+
+          setTabData(prev => ({
+            ...prev,
+            [tabKey]: { loading: false, interestsBySlot, interestsAll },
+          }));
+          return;
+        }
+
+        if (!shift.slots?.length) {
+          setTabData(prev => ({
+            ...prev,
+            [tabKey]: { loading: false, membersBySlot: {} },
+          }));
+          return;
+        }
+
+        const membersBySlotEntries = await Promise.all(
+          shift.slots.map(async slot => {
+            try {
+              const res = await apiClient.get(
+                `${API_ENDPOINTS.getActiveShifts}${shift.id}/member_status/`,
+                { params: { slot_id: slot.id, visibility: level.key } }
+              );
+              const membersRaw = Array.isArray(res.data)
+                ? res.data
+                : Array.isArray(res.data?.results)
+                ? res.data.results
+                : [];
+              const members: MemberStatus[] = membersRaw.map((member: any) => ({
+                user_id: member.user_id,
+                name: member.name ?? `${member.first_name ?? ''} ${member.last_name ?? ''}`.trim(),
+                employment_type: member.employment_type ?? member.user_employment_type ?? '',
+                status: member.status,
+                average_rating: member.average_rating ?? member.rating ?? null,
+                rating: member.rating ?? member.average_rating ?? null,
+              }));
+              return [slot.id, members] as const;
+            } catch (error) {
+              console.error(`Failed to load members for shift ${shift.id} slot ${slot.id}`, error);
+              return [slot.id, [] as MemberStatus[]] as const;
+            }
+          })
+        );
+
+        const membersBySlot = membersBySlotEntries.reduce<Record<number, MemberStatus[]>>((acc, [slotId, members]) => {
+          acc[slotId] = members;
+          return acc;
+        }, {});
+
+        setTabData(prev => ({
+          ...prev,
+          [tabKey]: { loading: false, membersBySlot },
+        }));
+      } catch (error) {
+        console.error('Failed to load tab data', error);
+        showSnackbar(`Failed to load data for ${level.label}`);
+        setTabData(prev => ({
+          ...prev,
+          [tabKey]: { loading: false },
+        }));
+      }
+    },
+    [getTabKey, showSnackbar]
+  );
+
+  const handleAccordionChange = useCallback(
+    (shift: Shift) => (_event: React.SyntheticEvent, expanded: boolean) => {
+      const shiftId = shift.id;
+      setExpandedShift(expanded ? shiftId : false);
+
+      if (expanded) {
+        const levels = deriveLevelSequence(shift);
+        const currentIdx = Math.max(0, levels.findIndex(level => level.key === shift.visibility));
+        const currentLevel = levels[currentIdx];
+
+        // Set the initially selected level to the shift's current level
+        setSelectedLevelByShift(prev => ({ ...prev, [shiftId]: currentLevel.key }));
+
+        // Pre-load data for all levels up to the current one
+        const levelsToEnsure = levels.slice(0, currentIdx + 1);
+        levelsToEnsure.forEach(level => {
+          const tabKey = getTabKey(shiftId, level.key);
+          if (!tabData[tabKey]) {
+            loadTabData(shift, level.key);
           }
         });
-        
-        setTabData(td => ({ ...td, [tabKey]: { loading: false, interestsBySlot, interestsAll } }));
-
-      } else {
-        // This block now only runs for *current or future* non-public escalation levels.
-        const membersBySlot: Record<number, MemberStatus[]> = {};
-        for (const slot of shift.slots) {
-          const res = await apiClient.get<MemberStatus[]>(`${API_ENDPOINTS.getActiveShifts}${shift.id}/member_status/`, { params: { slot_id: slot.id, visibility: escLevel } });
-          membersBySlot[slot.id] = res.data;
-        }
-        setTabData(td => ({ ...td, [tabKey]: { loading: false, membersBySlot } }));
       }
-    } catch (err: any) {
-      console.error(`Failed to load tab data for ${escLevel}:`, err.response?.data || err);
-      setSnackbar({ open: true, message: err.response?.data?.detail || `Failed to load data for ${ESCALATION_LEVELS[levelIdx].label}` });
-      setTabData(td => ({ ...td, [tabKey]: { ...td[tabKey], loading: false } }));
-    }
-  }, [getTabKey]); // Dependency array updated for clarity.
-  const handleAccordionChange = useCallback((shift: Shift) => (_: React.SyntheticEvent, expanded: boolean) => {
-    setExpandedShift(expanded ? shift.id : false);
-    if (expanded) {
-      const currentLevelIdx = ESCALATION_LEVELS.findIndex(level => level.key === shift.visibility);
-      setActiveTabs(prevActiveTabs => {
-        const determinedActiveTabIdx = prevActiveTabs[shift.id] ?? currentLevelIdx;
-        if (!tabData[getTabKey(shift.id, determinedActiveTabIdx)]) loadTabData(shift, determinedActiveTabIdx);
-        return { ...prevActiveTabs, [shift.id]: determinedActiveTabIdx };
-      });
-    }
-  }, [getTabKey, loadTabData, tabData]);
+    },
+    [deriveLevelSequence, getTabKey, loadTabData, tabData]
+  );
 
-  const handleTabChange = useCallback((shift: Shift, newTabIndex: number) => {
-    setActiveTabs(prevActiveTabs => ({ ...prevActiveTabs, [shift.id]: newTabIndex }));
-    if (!tabData[getTabKey(shift.id, newTabIndex)]) loadTabData(shift, newTabIndex);
-  }, [getTabKey, loadTabData, tabData]);
+  const handleLevelSelect = (shiftId: number, levelKey: EscalationKey) => {
+    setSelectedLevelByShift(prev => ({ ...prev, [shiftId]: levelKey }));
+  };
 
-  const handleEscalate = async (shift: Shift, targetLevelIdx: number) => {
-    setEscalating(e => ({ ...e, [shift.id]: true }));
-    const nextVisKey = ESCALATION_LEVELS[targetLevelIdx].key;
+  const handleShare = async (shift: Shift) => {
+    if (shift.visibility !== PUBLIC_LEVEL_KEY) {
+      showSnackbar('Escalate to Platform to get a shareable link.');
+      return;
+    }
+    setSharingShiftId(shift.id);
+    try {
+      const res = await apiClient.post(API_ENDPOINTS.generateShareLink(shift.id));
+      const token = res.data?.share_token ?? res.data?.token;
+      if (!token) {
+        throw new Error('Missing share token');
+      }
+      const publicUrl = `${window.location.origin}/shifts/link?token=${token}`;
+      await navigator.clipboard.writeText(publicUrl);
+      showSnackbar('Public share link copied to clipboard!');
+    } catch (error) {
+      console.error('Share Error:', error);
+      showSnackbar('Error: Could not generate share link.');
+    } finally {
+      setSharingShiftId(null);
+    }
+  };
+
+  const handleEscalate = async (shift: Shift, targetLevelKey: EscalationKey) => {
+    const targetLevel = ESCALATION_LEVELS.find(level => level.key === targetLevelKey);
+    const targetLevelIdx = ESCALATION_LEVELS.findIndex(level => level.key === targetLevelKey);
+
+    if (!targetLevel || targetLevelIdx === -1) {
+      showSnackbar('Unable to escalate shift.');
+      return;
+    }
+
+    setEscalating(prev => ({ ...prev, [shift.id]: true }));
     try {
       await apiClient.post(`${API_ENDPOINTS.getActiveShifts}${shift.id}/escalate/`);
-      setSnackbar({ open: true, message: `Shift escalated to ${ESCALATION_LEVELS[targetLevelIdx].label}` });
-      setShifts(prevShifts => prevShifts.map(s => s.id === shift.id ? { ...s, visibility: nextVisKey, escalation_level: targetLevelIdx } : s));
-      setActiveTabs(prevActiveTabs => ({ ...prevActiveTabs, [shift.id]: targetLevelIdx }));
-      loadTabData(shift, targetLevelIdx);
-    } catch (err: any) {
-      setSnackbar({ open: true, message: err.response?.data?.detail || 'Failed to escalate shift' });
+      const updatedShift = { ...shift, visibility: targetLevel.key, escalation_level: targetLevelIdx };
+      setShifts(prev => prev.map(s => (s.id === shift.id ? updatedShift : s)));
+      loadTabData(updatedShift, targetLevel.key);
+      // After escalating, set the selected level to the new level
+      setSelectedLevelByShift(prev => ({ ...prev, [shift.id]: targetLevel.key }));
+      showSnackbar(`Shift escalated to ${targetLevel.label}`);
+    } catch (error) {
+      console.error('Failed to escalate shift', error);
+      showSnackbar('Failed to escalate shift.');
     } finally {
-      setEscalating(e => ({ ...e, [shift.id]: false }));
+      setEscalating(prev => ({ ...prev, [shift.id]: false }));
     }
   };
-  
-  const { user } = useAuth();
-  const handleEdit = (shift: Shift) => {
-    let baseRoute = '/dashboard/owner/post-shift';
-    if (user?.role === 'ORG_ADMIN' || user?.role === 'ORG_OWNER' || user?.role === 'ORG_STAFF') baseRoute = '/dashboard/organization/post-shift';
-    navigate(`${baseRoute}?edit=${shift.id}`);
+
+  const handleEdit = (shiftId: number) => {
+    const baseRoute = user?.role?.startsWith('ORG_') ? '/dashboard/organization/post-shift' : '/dashboard/owner/post-shift';
+    navigate(`${baseRoute}?edit=${shiftId}`);
   };
 
-  const handleDelete = (shift: Shift) => {
-    setShiftToDelete(shift.id);
+  const handleDelete = (shiftId: number) => {
+    setShiftToDelete(shiftId);
     setOpenDeleteConfirm(true);
   };
 
   const confirmDelete = async () => {
     if (shiftToDelete === null) return;
-    setDeleting(d => ({ ...d, [shiftToDelete]: true }));
+    setDeleting(prev => ({ ...prev, [shiftToDelete]: true }));
     try {
       await apiClient.delete(`${API_ENDPOINTS.getActiveShifts}${shiftToDelete}/`);
-      setSnackbar({ open: true, message: 'Shift cancelled/deleted successfully.' });
-      setShifts(shs => shs.filter(s => s.id !== shiftToDelete));
-    } catch (err: any) {
-      setSnackbar({ open: true, message: err.response?.data?.detail || 'Failed to cancel shift.' });
-    } finally {
-      setDeleting(d => ({ ...d, [shiftToDelete]: false }));
+      setShifts(prev => prev.filter(shift => shift.id !== shiftToDelete));
+      setTabData(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(key => {
+          if (key.startsWith(`${shiftToDelete}_`)) {
+            delete updated[key];
+          }
+        });
+        return updated;
+      });
+      setExpandedShift(prev => (prev === shiftToDelete ? false : prev));
+      showSnackbar('Shift cancelled successfully.');
       setOpenDeleteConfirm(false);
       setShiftToDelete(null);
-    }
-  };
-
-  const cancelDelete = () => {
-    setOpenDeleteConfirm(false);
-    setShiftToDelete(null);
-  };
-
-const handleAssign = (shift: Shift, userId: number, slotId: number | null) => {
-    apiClient.post(`${API_ENDPOINTS.getActiveShifts}${shift.id}/accept_user/`, { user_id: userId, slot_id: slotId })
-      .then(() => {
-        setSnackbar({ open: true, message: 'User assigned. Refreshing list...' });
-        
-        // After assigning, reload the entire list of active shifts correctly.
-        // The shift you just filled might disappear from this list if it's now fully booked.
-        setLoadingShifts(true);
-        apiClient.get(API_ENDPOINTS.getActiveShifts)
-          .then(res => {
-            // FIX: Handle the paginated response object correctly
-            const shiftsData = Array.isArray(res.data.results) ? res.data.results : res.data;
-            setShifts(shiftsData);
-          })
-          .catch(() => setSnackbar({ open: true, message: 'Failed to refresh shifts list' }))
-          .finally(() => setLoadingShifts(false));
-      })
-      .catch((err: any) => setSnackbar({ open: true, message: err.response?.data?.detail || 'Failed to assign user.' }));
-  };
-  const handleRevealPlatform = (shift: Shift, interest: Interest) => {
-    apiClient.post<UserDetail>(`${API_ENDPOINTS.getActiveShifts}${shift.id}/reveal_profile/`, { slot_id: interest.slot_id, user_id: interest.user_id })
-      .then(async res => {
-        setPlatformInterestDialog({ open: true, user: res.data, shiftId: shift.id, interest });
-        // Load ratings for this revealed worker
-        try {
-          await loadWorkerRatings(res.data.id, 1);
-        } catch {}
-        const publicTabIdx = ESCALATION_LEVELS.findIndex(l => l.key === PUBLIC_LEVEL_KEY);
-        loadTabData(shift, publicTabIdx);
-      })
-
-      .catch((err: any) => setSnackbar({ open: true, message: err.response?.data?.detail || 'Failed to reveal candidate.' }));
-  };
-
-  const handleAssignPlatform = () => {
-    const { shiftId, user, interest } = platformInterestDialog;
-    if (!shiftId || !user || !interest) return;
-    apiClient.post(`${API_ENDPOINTS.getActiveShifts}${shiftId}/accept_user/`, { user_id: user.id, slot_id: interest.slot_id })
-      .then(() => {
-        setSnackbar({ open: true, message: 'User assigned.' });
-        setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null });
-        const publicTabIdx = ESCALATION_LEVELS.findIndex(l => l.key === PUBLIC_LEVEL_KEY);
-        loadTabData(shifts.find(s => s.id === shiftId)!, publicTabIdx);
-        apiClient.get(API_ENDPOINTS.getActiveShifts)
-          .then(res => {
-            const d = res.data;
-            const shiftsData = Array.isArray(d)
-              ? d
-              : Array.isArray(d?.results)
-              ? d.results
-              : Array.isArray(d?.data)
-              ? d.data
-              : Array.isArray(d?.items)
-              ? d.items
-              : [];
-            setShifts(shiftsData);
-          })
-          .catch(() => setSnackbar({ open: true, message: 'Failed to refresh active shifts after assignment' }));
-
-      })
-      .catch((err: any) => setSnackbar({ open: true, message: err.response?.data?.detail || 'Failed to assign user.' }));
-  };
-
-    // Normalize DRF pagination arrays
-  const unpackArray = (d: any) =>
-    Array.isArray(d) ? d
-    : Array.isArray(d?.results) ? d.results
-    : Array.isArray(d?.data) ? d.data
-    : Array.isArray(d?.items) ? d.items
-    : [];
-
-  // Load worker rating summary + first page (or a specific page)
-  const loadWorkerRatings = async (workerId: number, page: number = 1) => {
-    setLoadingWorkerRatings(true);
-    try {
-      // 1) Summary (OWNER_TO_WORKER aggregate for this worker)
-      const sumRes = await apiClient.get(
-        `${API_ENDPOINTS.ratingsSummary}?target_type=worker&target_id=${workerId}`
-      );
-      setWorkerRatingSummary({
-        average: sumRes.data?.average ?? 0,
-        count: sumRes.data?.count ?? 0,
-      });
-
-      // 2) Paginated comments for this worker
-      const listRes = await apiClient.get(
-        `${API_ENDPOINTS.ratings}?target_type=worker&target_id=${workerId}&page=${page}`
-      );
-      const items = unpackArray(listRes.data);
-      setWorkerRatingComments(items.map((r: any) => ({
-        id: r.id,
-        stars: r.stars,
-        comment: r.comment,
-        created_at: r.created_at,
-      })));
-
-      // Calculate total pages (if DRF paginated)
-      if (listRes.data?.count && listRes.data?.results) {
-        const per = listRes.data.results.length || 1;
-        setWorkerCommentsPageCount(Math.max(1, Math.ceil(listRes.data.count / per)));
-      } else {
-        setWorkerCommentsPageCount(1);
-      }
-      setWorkerCommentsPage(page);
-    } catch {
-      // leave last known state; keep UI resilient
+    } catch (error) {
+      console.error('Failed to delete shift', error);
+      showSnackbar('Failed to delete shift.');
     } finally {
-      setLoadingWorkerRatings(false);
+      setDeleting(prev => ({ ...prev, [shiftToDelete]: false }));
     }
+  };
+
+  const handleAssign = async (shiftId: number, userId: number, slotId: number | null) => {
+    try {
+      await apiClient.post(API_ENDPOINTS.acceptUserToShift(shiftId), { user_id: userId, slot_id: slotId });
+      showSnackbar('User assigned successfully.');
+      setReviewCandidateDialog({ open: false, candidate: null, shiftId: null });
+      setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null });
+      setShifts(prev => prev.filter(shift => shift.id !== shiftId));
+      setExpandedShift(prev => (prev === shiftId ? false : prev));
+      setTabData(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(key => {
+          if (key.startsWith(`${shiftId}_`)) {
+            delete updated[key];
+          }
+        });
+        return updated;
+      });
+    } catch (error) {
+      console.error('Failed to assign user', error);
+      showSnackbar('Failed to assign user.');
+    }
+  };
+
+  const handleReviewCandidate = (candidate: MemberStatus, shiftId: number) => {
+    resetWorkerRatings();
+    setReviewCandidateDialog({ open: true, candidate, shiftId });
+    loadWorkerRatings(candidate.user_id, 1);
+  };
+
+  const handleRevealPlatform = async (shift: Shift, interest: Interest) => {
+    try {
+      resetWorkerRatings();
+      const res = await apiClient.post(API_ENDPOINTS.revealProfile(shift.id), {
+        user_id: interest.user_id,
+        slot_id: interest.slot_id,
+      });
+      const userDetail: UserDetail = res.data;
+      setPlatformInterestDialog({ open: true, user: userDetail, shiftId: shift.id, interest });
+      loadWorkerRatings(userDetail.id, 1);
+
+      const tabKey = getTabKey(shift.id, PUBLIC_LEVEL_KEY);
+      setTabData(prev => {
+        const current = prev[tabKey];
+        if (!current) return prev;
+        const updatedInterestsBySlot = { ...(current.interestsBySlot || {}) };
+        if (interest.slot_id !== null && updatedInterestsBySlot[interest.slot_id]) {
+          updatedInterestsBySlot[interest.slot_id] = updatedInterestsBySlot[interest.slot_id].map(item =>
+            item.id === interest.id ? { ...item, revealed: true } : item
+          );
+        }
+        const updatedInterestsAll = (current.interestsAll || []).map(item =>
+          item.id === interest.id ? { ...item, revealed: true } : item
+        );
+        return {
+          ...prev,
+          [tabKey]: { ...current, interestsBySlot: updatedInterestsBySlot, interestsAll: updatedInterestsAll },
+        };
+      });
+    } catch (error) {
+      console.error('Failed to reveal platform candidate', error);
+      showSnackbar('Failed to reveal candidate.');
+    }
+  };
+
+  const handleAssignPlatform = async () => {
+    const { shiftId, user, interest } = platformInterestDialog;
+    if (!shiftId || !user) return;
+    await handleAssign(shiftId, user.id, interest?.slot_id ?? null);
   };
 
   const handleWorkerCommentsPageChange = async (_: React.ChangeEvent<unknown>, value: number) => {
-    const uid = platformInterestDialog.user?.id;
-    if (!uid) return;
-    await loadWorkerRatings(uid, value);
-    // optional smooth scroll to top of dialog
-    const dlg = document.querySelector('[role="dialog"]');
-    dlg?.scrollTo?.({ top: 0, behavior: 'smooth' });
+    const userId = reviewCandidateDialog.candidate?.user_id ?? platformInterestDialog.user?.id;
+    if (!userId) return;
+    await loadWorkerRatings(userId, value);
+    const dialogRef = document.querySelector('[role="dialog"]');
+    dialogRef?.scrollTo?.({ top: 0, behavior: 'smooth' });
   };
 
-  return (
-    <Container sx={{ py: 4 }}>
-      <Typography variant="h4" gutterBottom>Active Shifts</Typography>
-      {loadingShifts ? (
-        <Box sx={{ py: 2 }}>
-          {[...Array(3)].map((_, index) => (
-            <Accordion key={index} expanded={false} sx={{ mb: 2 }}>
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <Skeleton variant="text" width="60%" height={30} />
-                  <Skeleton variant="text" width="40%" height={20} />
-                  <Skeleton variant="text" width="80%" height={20} />
-                </Box>
-              </AccordionSummary>
-            </Accordion>
-          ))}
-        </Box>
-      ) : shifts.length === 0 ? (
-        <Typography>No active shifts.</Typography>
-      ) : (
-        shifts.map(shift => {
-          const currentLevelIdx = ESCALATION_LEVELS.findIndex(l => l.key === shift.visibility);
-          const activeTabIdx = activeTabs[shift.id] ?? currentLevelIdx;
-          const currentTabData = tabData[getTabKey(shift.id, activeTabIdx)];
-          return (
-            <Accordion key={shift.id} expanded={expandedShift === shift.id} onChange={handleAccordionChange(shift)} sx={{ mb: 3, border: `1px solid ${grey[300]}`, borderRadius: 2, boxShadow: '0 2px 10px 0 rgba(0,0,0,0.07)', '&.Mui-expanded': { margin: 'auto', boxShadow: '0 4px 15px 0 rgba(0,0,0,0.1)' } }}>
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                  <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
-                      <Chip label={shift.role_needed} size="small" color="primary" />
-                      <Typography variant="body2" sx={{ ml: 2 }}>
-                        Current Escalation: <b style={{ color: green[700] }}>{ESCALATION_LEVELS[currentLevelIdx]?.label}</b>
+  const renderStatusCard = (
+    title: string,
+    members: MemberStatus[],
+    icon: React.ReactElement,
+    color: 'success' | 'error' | 'warning' | 'info',
+    shiftId: number
+  ) => (
+    <Card sx={{ background: customTheme.palette.background.default, boxShadow: 'none', border: `1px solid ${customTheme.palette.divider}` }}>
+      <CardHeader
+        avatar={
+          <Avatar sx={{ bgcolor: customTheme.palette[color].light, color: customTheme.palette[color].dark }}>
+            {icon}
+          </Avatar>
+        }
+        title={
+          <Typography variant="h6" sx={{ fontWeight: 'bold', color: customTheme.palette[color].dark }}>
+            {title}
+          </Typography>
+        }
+        action={
+          <Chip
+            label={members.length}
+            size="small"
+            sx={{
+              backgroundColor: customTheme.palette[color].dark,
+              color: 'white',
+              fontWeight: 'bold',
+            }}
+          />
+        }
+      />
+      <CardContent>
+        {members.length > 0 ? (
+          <Stack spacing={2}>
+            {members.map((member) => {
+              const ratingValue = member.average_rating ?? member.rating ?? null;
+              return (
+                <Paper key={member.user_id} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Stack>
+                      <Typography variant="body1" fontWeight="bold">
+                        {member.name}
                       </Typography>
-                                        <Box sx={{ display: 'flex', gap: 1, ml: 'auto' }}>
-                    <Tooltip title="Get Shareable Link">
-                      <IconButton
-                          onClick={(e) => { e.stopPropagation(); handleShare(shift); }}
+                      {member.employment_type && (
+                        <Typography variant="caption" color="text.secondary">
+                          {member.employment_type}
+                        </Typography>
+                      )}
+                    </Stack>
+                    {ratingValue ? (
+                      <Chip
+                        icon={<Star sx={{ fontSize: 16 }} />}
+                        label={ratingValue.toFixed(1)}
+                        size="small"
+                        color="warning"
+                        variant="outlined"
+                      />
+                    ) : null}
+                  </Stack>
+                  {title === 'Interested' && (
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="secondary"
+                      fullWidth
+                      sx={{ mt: 1.5 }}
+                      onClick={() => handleReviewCandidate(member, shiftId)}
+                    >
+                      Review Candidate
+                    </Button>
+                  )}
+                </Paper>
+              );
+            })}
+          </Stack>
+        ) : (
+          <Typography color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
+            No candidates yet.
+          </Typography>
+        )}
+      </CardContent>
+    </Card>
+  );
+
+  return (
+    <ThemeProvider theme={customTheme}>
+      <Container
+        maxWidth={false}
+        sx={{ py: 4, backgroundColor: customTheme.palette.background.default, minHeight: '100vh' }}
+      >
+        <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: '#111827' }}>
+          Active Shifts
+        </Typography>
+        {loadingShifts ? (
+          <Box sx={{ py: 2, display: 'grid', gap: 3 }}>
+            {[...Array(2)].map((_, idx) => (
+              <Skeleton key={idx} variant="rounded" width="100%" height={200} />
+            ))}
+          </Box>
+        ) : shifts.length === 0 ? (
+          <Paper elevation={0} sx={{ textAlign: 'center', p: 4, bgcolor: 'white', borderRadius: 4 }}>
+            <Typography variant="h6">No active shifts found.</Typography>
+            <Typography color="text.secondary">New shifts you post will appear here.</Typography>
+          </Paper>
+        ) : (
+          <Box sx={{ display: 'grid', gap: 3 }}>
+          {shifts.map(shift => {
+            const levelSequence = deriveLevelSequence(shift);
+            const currentLevelIdx = Math.max(
+              0,
+              levelSequence.findIndex(level => level.key === shift.visibility)
+            );
+            const selectedLevelKey = selectedLevelByShift[shift.id] ?? levelSequence[currentLevelIdx]?.key;
+            const isExpanded = expandedShift === shift.id;
+            const cardBorderColor =
+              shift.visibility === PUBLIC_LEVEL_KEY
+                ? customTheme.palette.secondary.light
+                : customTheme.palette.primary.light;
+              const location = [
+                shift.pharmacy_detail.street_address,
+                shift.pharmacy_detail.suburb,
+                shift.pharmacy_detail.state,
+                shift.pharmacy_detail.postcode,
+              ]
+                .filter(Boolean)
+                .join(', ');
+              const shiftSlots = shift.slots
+                ?.map(slot => `${slot.date} (${slot.start_time}–${slot.end_time})`)
+                .join(' | ');
+
+              return (
+                <Card
+                  key={shift.id}
+                  sx={{
+                    boxShadow: '0 4px 12px 0 rgba(0,0,0,0.05)',
+                    borderLeft: `4px solid ${cardBorderColor}`,
+                  }}
+                >
+                  <CardHeader
+                    disableTypography
+                    title={
+                      <Typography variant="h6" component="div" sx={{ fontWeight: 'bold' }}>
+                        {shift.pharmacy_detail.name}
+                      </Typography>
+                    }
+                    subheader={
+                      <Chip
+                        label={shift.role_needed}
+                        size="small"
+                        sx={{ backgroundColor: cardBorderColor, color: 'white', fontWeight: 500, mt: 0.5 }}
+                      />
+                    }
+                    action={
+                      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                        <Tooltip title="Share">
+                          <span>
+                            <IconButton
+                              size="small"
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleShare(shift);
+                              }}
+                              disabled={sharingShiftId === shift.id}
+                            >
+                              <Share2 fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        <Tooltip title="Edit">
+                          <IconButton
+                            size="small"
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleEdit(shift.id);
+                            }}
+                          >
+                            <Edit fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete">
+                          <IconButton
+                            size="small"
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleDelete(shift.id);
+                            }}
+                            disabled={deleting[shift.id]}
+                          >
+                            <Trash2 fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <IconButton
                           size="small"
-                          color="primary"
-                          disabled={sharingShiftId === shift.id}
+                          onClick={e => {
+                            e.stopPropagation();
+                            handleAccordionChange(shift)(e, !isExpanded);
+                          }}
+                        >
+                          <ChevronDown
+                            style={{
+                              transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                              transition: 'transform 0.2s',
+                            }}
+                          />
+                        </IconButton>
+                      </Box>
+                    }
+                    sx={{ pb: isExpanded ? 1 : 2 }}
+                  />
+                  <CardContent sx={{ pt: 0 }}>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+                        gap: 2,
+                        mb: 2,
+                      }}
+                    >
+                      <Typography
+                        variant="body2"
+                        sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+                        color="text.secondary"
                       >
-                          <ShareIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Edit Shift">
-                      <IconButton onClick={(e) => { e.stopPropagation(); handleEdit(shift); }} size="small" color="info">
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Cancel/Delete Shift">
-                      <IconButton onClick={(e) => { e.stopPropagation(); handleDelete(shift); }} size="small" color="error" disabled={deleting[shift.id]}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
+                        <Building sx={{ fontSize: 16 }} />
+                        {location || 'Address not available'}
+                      </Typography>
+                      <Typography
+                        variant="body2"
+                        sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+                        color="text.secondary"
+                      >
+                        <CalendarDays sx={{ fontSize: 16 }} />
+                        {shiftSlots || 'No slots defined'}
+                      </Typography>
                     </Box>
+
+                    {isExpanded && (
+                      <>
+                        {shift.description ? (
+                          <Typography
+                            variant="body2"
+                            color="text.primary"
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: 1,
+                              my: 2,
+                              whiteSpace: 'pre-wrap',
+                              bgcolor: '#F9FAFB',
+                              p: 1.5,
+                              borderRadius: 2,
+                              border: '1px solid #E5E7EB',
+                            }}
+                          >
+                            <Info sx={{ fontSize: 16, color: theme.palette.text.secondary, mt: '4px', flexShrink: 0 }} />
+                            {shift.description}
+                          </Typography>
+                        ) : null}
+                        <Box sx={{ width: '100%', my: 4 }}>
+                          <Stepper alternativeLabel activeStep={currentLevelIdx} connector={<ColorStepConnector />}>
+                            {levelSequence.map((level, index) => (
+                              <Step key={level.key} completed={index < currentLevelIdx}>
+                                <ButtonBase
+                                  onClick={() => handleLevelSelect(shift.id, level.key)}
+                                  disabled={index > currentLevelIdx}
+                                  sx={{ width: '100%', pt: 2, borderRadius: 2, transition: 'background-color 0.3s' }}
+                                >
+                                  <StepLabel
+                                    StepIconComponent={props => <ColorStepIcon {...props} icon={level.icon} />}
+                                    sx={{
+                                      flexDirection: 'column',
+                                      '& .MuiStepLabel-label': {
+                                        mt: 1.5,
+                                        fontWeight: 500,
+                                        color:
+                                          selectedLevelKey === level.key
+                                            ? theme.palette.primary.main
+                                            : theme.palette.text.secondary,
+                                        ...(index > currentLevelIdx && { color: theme.palette.text.disabled }),
+                                      },
+                                    }}
+                                  >
+                                    {level.label}
+                                  </StepLabel>
+                                </ButtonBase>
+                              </Step>
+                            ))}
+                          </Stepper>
+                        </Box>
+
+                        {(() => {
+                          const nextLevel = levelSequence[currentLevelIdx + 1];
+                          if (
+                            nextLevel &&
+                            shift.allowed_escalation_levels.includes(nextLevel.key) &&
+                            !escalating[shift.id]
+                          ) {
+                            return (
+                              <Box
+                                sx={{
+                                  py: 2,
+                                  textAlign: 'center',
+                                  bgcolor: '#F9FAFB',
+                                  borderRadius: 2,
+                                  border: '1px dashed #E5E7EB',
+                                }}
+                              >
+                                <Typography color="text.secondary" sx={{ mb: 1.5 }}>
+                                  Ready to widen your search?
+                                </Typography>
+                                <Button variant="contained" onClick={() => handleEscalate(shift, nextLevel.key)}>
+                                  Escalate to {nextLevel.label}
+                                </Button>
+                              </Box>
+                            );
+                          }
+                          if (escalating[shift.id]) {
+                            return (
+                              <Box
+                                sx={{
+                                  py: 2,
+                                  textAlign: 'center',
+                                  bgcolor: '#F9FAFB',
+                                  borderRadius: 2,
+                                  border: '1px dashed #E5E7EB',
+                                }}
+                              >
+                                <CircularProgress size={20} sx={{ mr: 1 }} />
+                                Escalating...
+                              </Box>
+                            );
+                          }
+                          return null;
+                        })()}
+
+                        <Divider sx={{ my: 3 }}>
+                          <Chip label={`Candidates for ${levelSequence.find(l => l.key === selectedLevelKey)?.label}`} />
+                        </Divider>
+
+                        {(() => {
+                          const tabKey = getTabKey(shift.id, selectedLevelKey);
+                          const currentTabData = tabData[tabKey];
+
+                          if (!currentTabData || currentTabData.loading) {
+                            return (
+                              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                                <CircularProgress />
+                              </Box>
+                            );
+                          }
+
+                          // Special handling for Platform level to show aggregated previous levels + new interests
+                          if (selectedLevelKey === PUBLIC_LEVEL_KEY) {
+                            const previousLevels = levelSequence.slice(0, currentLevelIdx);
+                            const previousLevelEntries = previousLevels.map(level => tabData[getTabKey(shift.id, level.key)]);
+                            const aggregatedMembers = dedupeMembers(
+                              previousLevelEntries.flatMap(entry =>
+                                entry?.membersBySlot ? Object.values(entry.membersBySlot).flat() : []
+                              )
+                            );
+
+                            const interested = aggregatedMembers.filter(m => m.status === 'interested');
+                            const assigned = aggregatedMembers.filter(m => m.status === 'accepted');
+                            const rejected = aggregatedMembers.filter(m => m.status === 'rejected');
+                            const noResponse = aggregatedMembers.filter(m => m.status === 'no_response');
+
+                            const interestsBySlot = currentTabData.interestsBySlot || {};
+                            const interestsAll = currentTabData.interestsAll || [];
+
+                            return (
+                              <>
+                                {aggregatedMembers.length > 0 && (
+                                  <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 2, mt: 2 }}>
+                                    {renderStatusCard('Interested', interested, <UserCheck />, 'success', shift.id)}
+                                    {renderStatusCard('Assigned', assigned, <Check />, 'info', shift.id)}
+                                    {renderStatusCard('Rejected', rejected, <UserX />, 'error', shift.id)}
+                                    {renderStatusCard('No Response', noResponse, <Clock />, 'warning', shift.id)}
+                                  </Box>
+                                )}
+                                <Divider sx={{ my: 3 }}><Chip label="Public Interest" /></Divider>
+                                {Object.keys(interestsBySlot).length === 0 && interestsAll.length === 0 ? (
+                                  <Typography color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
+                                    No public interest yet.
+                                  </Typography>
+                                ) : (
+                                  <Box mt={2}>
+                                    {shift.slots?.map(slot => {
+                                      const slotInterests = interestsBySlot[slot.id] || [];
+                                      if (slotInterests.length === 0) return null;
+                                      return (
+                                        <Paper key={slot.id} variant="outlined" sx={{ p: 2, mb: 2 }}>
+                                          <Typography variant="body1" fontWeight="bold">
+                                            Slot: {slot.date} ({slot.start_time} - {slot.end_time})
+                                          </Typography>
+                                          {slotInterests.map(interest => (
+                                            <Box key={interest.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1, pt: 1, borderTop: '1px solid #eee' }}>
+                                              <Typography variant="body2">{interest.user}</Typography>
+                                              <Button size="small" variant={interest.revealed ? 'outlined' : 'contained'} onClick={() => handleRevealPlatform(shift, interest)}>
+                                                {interest.revealed ? 'Review' : 'Reveal'}
+                                              </Button>
+                                            </Box>
+                                          ))}
+                                        </Paper>
+                                      );
+                                    })}
+                                    {interestsAll.length > 0 && (
+                                      <Paper variant="outlined" sx={{ p: 2 }}>
+                                        <Typography variant="body1" fontWeight="bold">Interest in All Slots</Typography>
+                                        {interestsAll.map(interest => (
+                                          <Box key={interest.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1, pt: 1, borderTop: '1px solid #eee' }}>
+                                            <Typography variant="body2">{interest.user}</Typography>
+                                            <Button size="small" variant={interest.revealed ? 'outlined' : 'contained'} onClick={() => handleRevealPlatform(shift, interest)}>
+                                              {interest.revealed ? 'Review' : 'Reveal'}
+                                            </Button>
+                                          </Box>
+                                        ))}
+                                      </Paper>
+                                    )}
+                                  </Box>
+                                )}
+                              </>
+                            );
+                          }
+
+                          const members = dedupeMembers(Object.values(currentTabData.membersBySlot || {}).flat());
+                          const interested = members.filter(m => m.status === 'interested');
+                          const assigned = members.filter(m => m.status === 'accepted');
+                          const rejected = members.filter(m => m.status === 'rejected');
+                          const noResponse = members.filter(m => m.status === 'no_response');
+
+                          if (members.length === 0) {
+                            return (
+                                <Typography color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
+                                  No candidates found for this level.
+                                </Typography>
+                            )
+                          }
+
+                          return (
+                            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 2, mt: 2 }}>
+                              {renderStatusCard('Interested', interested, <UserCheck />, 'success', shift.id)}
+                              {renderStatusCard('Assigned', assigned, <Check />, 'info', shift.id)}
+                              {renderStatusCard('Rejected', rejected, <UserX />, 'error', shift.id)}
+                              {renderStatusCard('No Response', noResponse, <Clock />, 'warning', shift.id)}
+                            </Box>
+                          );
+                        })()}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </Box>
+        )}
+
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={3500}
+          onClose={closeSnackbar}
+          message={snackbar.message}
+          action={
+            <IconButton size="small" color="inherit" onClick={closeSnackbar}>
+              <X fontSize="small" />
+            </IconButton>
+          }
+        />
+
+        <Dialog
+          open={reviewCandidateDialog.open}
+          onClose={() => {
+            setReviewCandidateDialog({ open: false, candidate: null, shiftId: null });
+            resetWorkerRatings();
+          }}
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle sx={{ fontWeight: 'bold' }}>Review Candidate</DialogTitle>
+          <DialogContent>
+            {reviewCandidateDialog.candidate && !loadingWorkerRatings ? (
+              <Box>
+                <Typography variant="h6">{reviewCandidateDialog.candidate.name}</Typography>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  {reviewCandidateDialog.candidate.employment_type}
+                </Typography>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Ratings & Reviews
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  {workerRatingSummary ? (
+                    <>
+                      <Rating value={workerRatingSummary.average} precision={0.5} readOnly />
+                      <Typography variant="body1" color="text.secondary">
+                        {workerRatingSummary.average.toFixed(1)} ({workerRatingSummary.count} reviews)
+                      </Typography>
+                    </>
+                  ) : (
+                    <Skeleton variant="rectangular" width={200} height={28} />
+                  )}
+                </Box>
+                <Box sx={{ display: 'grid', gap: 1.5, mt: 2 }}>
+                  {workerRatingComments.map(comment => (
+                    <Paper key={comment.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'background.default' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Rating value={comment.stars} readOnly size="small" />
+                        {comment.created_at && (
+                          <Typography variant="caption" color="text.secondary">
+                            {new Date(comment.created_at).toLocaleDateString()}
+                          </Typography>
+                        )}
+                      </Box>
+                      {comment.comment && (
+                        <Typography variant="body2" sx={{ mt: 0.5 }}>
+                          {comment.comment}
+                        </Typography>
+                      )}
+                    </Paper>
+                  ))}
+                  {workerRatingComments.length === 0 && (
                     <Typography variant="body2" color="text.secondary">
-                      {[shift.pharmacy_detail.street_address, shift.pharmacy_detail.suburb, shift.pharmacy_detail.state, shift.pharmacy_detail.postcode]
-                      .filter(Boolean)
-                      .join(', ')}    
-                    </Typography>
-
-                    <Divider sx={{ my: 1 }} />
-
-                    <Typography variant="body1" color="text.secondary">
-                      Slots: {shift.slots?.map(s => `${s.date} ${s.start_time}–${s.end_time}`).join(' | ')}
-                    </Typography>
-
-                    {shift.description && (
-                    <Typography variant="body1" color="text.primary" sx={{ mt: 1,  whiteSpace: 'pre-wrap' }}>
-                      {shift.description}
+                      No reviews yet.
                     </Typography>
                   )}
-
-                  </Box>
-
+                  {workerCommentsPageCount > 1 && (
+                    <Box display="flex" justifyContent="center" mt={1}>
+                      <Pagination
+                        count={workerCommentsPageCount}
+                        page={workerCommentsPage}
+                        onChange={handleWorkerCommentsPageChange}
+                        color="primary"
+                        size="small"
+                      />
+                    </Box>
+                  )}
                 </Box>
-              </AccordionSummary>
-              <AccordionDetails>
-              <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%', borderBottom: 1, borderColor: 'divider' }}>
-                <Tabs
-                  value={activeTabIdx}
-                  onChange={(_, v) => handleTabChange(shift, v)}
-                  sx={{ mb: -0.1 }} // Negative margin to align with the Box's bottom border
-                  variant="scrollable"
-                  scrollButtons="auto"
-                  // ❌ And make sure to remove the `centered` prop from here
-                >
-                  {ESCALATION_LEVELS.filter(level => shift.allowed_escalation_levels.includes(level.key)).map((level) => {
-                    const originalIdx = ESCALATION_LEVELS.findIndex(l => l.key === level.key);
-                    const isDisabled = originalIdx !== currentLevelIdx && !shift.allowed_escalation_levels.includes(level.key);
-                    return (<Tab key={level.key} label={level.label} value={originalIdx} disabled={isDisabled} sx={{ bgcolor: originalIdx === currentLevelIdx ? theme.palette.success.light : undefined, color: originalIdx === currentLevelIdx ? theme.palette.success.contrastText : undefined, fontWeight: originalIdx === currentLevelIdx ? 'bold' : undefined, ...(originalIdx === currentLevelIdx + 1 && !escalating[shift.id] && !isDisabled && { color: theme.palette.success.main, }), }} />);
-                  })}
-                </Tabs>
               </Box>
+            ) : (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            )}
+          </DialogContent>
+          <DialogActions sx={{ p: '16px 24px' }}>
+            <Button
+              onClick={() => {
+                setReviewCandidateDialog({ open: false, candidate: null, shiftId: null });
+                resetWorkerRatings();
+              }}
+            >
+              Close
+            </Button>
+            {reviewCandidateDialog.candidate && reviewCandidateDialog.shiftId && (
+              <Button
+                variant="contained"
+                color="success"
+                onClick={() => handleAssign(reviewCandidateDialog.shiftId!, reviewCandidateDialog.candidate!.user_id, null)}
+              >
+                Assign to Shift
+              </Button>
+            )}
+          </DialogActions>
+        </Dialog>
 
-                {(() => {
-                  if (!currentTabData || currentTabData.loading) return <Box sx={{ py: 4, textAlign: 'center' }}><CircularProgress /></Box>;
-                  if (currentTabData.isPastLevel) {
-                      return (
-                          <Box sx={{ py: 4, textAlign: 'center' }}>
-                              <Typography color="textSecondary">
-                                  This escalation level has passed. The shift is now active at the "{ESCALATION_LEVELS.find(l => l.key === shift.visibility)?.label}" level.
-                              </Typography>
-                          </Box>
-                      );
-                  }
-
-                  const selectedTabKey = ESCALATION_LEVELS[activeTabIdx].key;
-                  const isSelectedTabHigher = activeTabIdx > currentLevelIdx;
-                  const canEscalateToSelectedTab = shift.allowed_escalation_levels.includes(selectedTabKey);
-
-                  if (isSelectedTabHigher && canEscalateToSelectedTab) {
-                    return (<Box sx={{ py: 4, textAlign: 'center' }}><Typography color="textSecondary" sx={{ mb: 2 }}>Shift is currently at "{ESCALATION_LEVELS[currentLevelIdx].label}". Click below to escalate.</Typography><Button variant="contained" color="success" onClick={() => handleEscalate(shift, activeTabIdx)} disabled={escalating[shift.id]}>{escalating[shift.id] ? 'Escalating…' : `Escalate to ${ESCALATION_LEVELS[activeTabIdx].label}`}</Button></Box>);
-                  }
-                  if (selectedTabKey === PUBLIC_LEVEL_KEY) {
-                    const interestsBySlot = currentTabData.interestsBySlot || {};
-                    const interestsAll = currentTabData.interestsAll || [];
-                    const publicCandidateCellSx = { padding: '4px', width: '40%' };
-                    const publicStatusCellSx = { padding: '4px', width: '30%' };
-                    const publicActionCellSx = { padding: '4px', width: '30%' };
-                    return (<>
-                        <Typography variant="subtitle2" sx={{ mb: 1 }}>Interests for each slot:</Typography>
-                        {/* MINIMAL FIX: Use optional chaining here as well to prevent crash */}
-                        {shift.slots?.length === 0 ? <Typography color="textSecondary">No slots available for this shift.</Typography> : shift.slots?.map((slot) => {
-                            const slotInterests = interestsBySlot[Number(slot.id)] || [];
-                            return (<Box key={slot.id} sx={{ mb: 2, p: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}><Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>Slot: {slot.date} {slot.start_time}–{slot.end_time}</Typography>{slotInterests.length === 0 ? <Typography color="textSecondary">No one has shown interest for this slot.</Typography> : <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}><Table size="small" sx={{ tableLayout: 'fixed' }}><TableHead><TableRow><TableCell sx={publicCandidateCellSx}>Candidate</TableCell><TableCell sx={publicStatusCellSx}>Status</TableCell><TableCell sx={publicActionCellSx}>Action</TableCell></TableRow></TableHead><TableBody>{slotInterests.map((interest: Interest) => (<TableRow key={interest.id}><TableCell sx={publicCandidateCellSx}>{interest.user}</TableCell><TableCell sx={publicStatusCellSx}><Chip label="Interested" color="success" size="small" /></TableCell><TableCell sx={publicActionCellSx}><Button size="small" variant={interest.revealed ? "outlined" : "contained"} onClick={() => handleRevealPlatform(shift, interest)}>{interest.revealed ? "Review Candidate" : "Reveal Candidate"}</Button></TableCell></TableRow>))}</TableBody></Table></TableContainer>}</Box>);
-                          })}
-                        <Divider sx={{ my: 2 }} />
-                        <Typography variant="subtitle2" sx={{ mb: 1 }}>Interest in All Slots (Whole Shift):</Typography>
-                        {interestsAll.length === 0 ? <Typography color="textSecondary">No one has shown interest in all slots yet.</Typography> : <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}><Table size="small" sx={{ tableLayout: 'fixed' }}><TableHead><TableRow><TableCell sx={publicCandidateCellSx}>Candidate</TableCell><TableCell sx={publicStatusCellSx}>Status</TableCell><TableCell sx={publicActionCellSx}>Action</TableCell></TableRow></TableHead><TableBody>{interestsAll.map((interest: Interest) => (<TableRow key={interest.id}><TableCell sx={publicCandidateCellSx}>{interest.user}</TableCell><TableCell sx={publicStatusCellSx}><Chip label="Interested" color="success" size="small" /></TableCell><TableCell sx={publicActionCellSx}><Button size="small" variant={interest.revealed ? "outlined" : "contained"} onClick={() => handleRevealPlatform(shift, interest)}>{interest.revealed ? "Review Candidate" : "Reveal Candidate"}</Button></TableCell></TableRow>))}</TableBody></Table></TableContainer>}
-                      </>);
-                  }
-                  const membersBySlot = currentTabData.membersBySlot || {};
-                  const allEligibleMembersMap = new Map<number, MemberStatus>();
-                  for (const slotId in membersBySlot) {
-                    membersBySlot[slotId].forEach(member => {
-                      const existing = allEligibleMembersMap.get(member.user_id);
-                      if (!existing || existing.status !== 'accepted') allEligibleMembersMap.set(member.user_id, member);
-                    });
-                  }
-                  const membersWithConsolidatedStatus = Array.from(allEligibleMembersMap.values());
-                  const interestedMembers = membersWithConsolidatedStatus.filter(m => m.status === 'interested');
-                  const rejectedMembers = membersWithConsolidatedStatus.filter(m => m.status === 'rejected');
-                  const noResponseMembers = membersWithConsolidatedStatus.filter(m => m.status === 'no_response');
-                  const assignedMembers = membersWithConsolidatedStatus.filter(m => m.status === 'accepted');
-                  const nameCellSx = { padding: '4px', width: '35%' };
-                  const empTypeCellSx = { padding: '4px', width: '25%' };
-                  const statusCellSx = { padding: '4px', width: '20%' };
-                  const actionCellSx = { padding: '4px', width: '20%' };
-                  return (<>
-                      {assignedMembers.length > 0 && <Box sx={{ mb: 2, p: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}><Typography variant="body2" sx={{ fontWeight: 500 }}>Assigned:</Typography><TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}><Table size="small" sx={{ tableLayout: 'fixed' }}><TableHead><TableRow><TableCell sx={nameCellSx}>Name</TableCell><TableCell sx={empTypeCellSx}>Emp. Type</TableCell><TableCell sx={statusCellSx}>Status</TableCell><TableCell sx={actionCellSx}></TableCell></TableRow></TableHead><TableBody>{assignedMembers.map(member => (<TableRow key={member.user_id}><TableCell sx={nameCellSx}>{member.name}</TableCell><TableCell sx={empTypeCellSx}>{member.employment_type.replace('_', ' ')}</TableCell><TableCell sx={statusCellSx}><Chip label="Assigned" color="success" variant="filled" sx={{ bgcolor: theme.palette.success.dark, color: theme.palette.success.contrastText }} size="small" /></TableCell><TableCell sx={actionCellSx}></TableCell></TableRow>))}</TableBody></Table></TableContainer></Box>}
-                      <Box sx={{ mb: 2, p: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}><Typography variant="body2" sx={{ fontWeight: 500 }}>Interested in Shift:</Typography>{interestedMembers.length === 0 ? <Typography color="textSecondary" sx={{ mt: 0.5 }}>No members have shown interest in this shift.</Typography> : <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}><Table size="small" sx={{ tableLayout: 'fixed' }}><TableHead><TableRow><TableCell sx={nameCellSx}>Name</TableCell><TableCell sx={empTypeCellSx}>Emp. Type</TableCell><TableCell sx={statusCellSx}>Status</TableCell><TableCell sx={actionCellSx}>Action</TableCell></TableRow></TableHead><TableBody>{interestedMembers.map(member => (<TableRow key={member.user_id}><TableCell sx={nameCellSx}>{member.name}</TableCell><TableCell sx={empTypeCellSx}>{member.employment_type.replace('_', ' ')}</TableCell><TableCell sx={statusCellSx}><Chip label="Interested" color="success" size="small" /></TableCell><TableCell sx={actionCellSx}><Button size="small" variant="contained" color="success" onClick={() => handleAssign(shift, member.user_id, null)}>Assign</Button></TableCell></TableRow>))}</TableBody></Table></TableContainer>}</Box>
-                      <Box sx={{ mb: 2, p: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}><Typography variant="body2" sx={{ fontWeight: 500 }}>Rejected Shift:</Typography>{rejectedMembers.length === 0 ? <Typography color="textSecondary" sx={{ mt: 0.5 }}>No members rejected this shift.</Typography> : <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}><Table size="small" sx={{ tableLayout: 'fixed' }}><TableHead><TableRow><TableCell sx={nameCellSx}>Name</TableCell><TableCell sx={empTypeCellSx}>Emp. Type</TableCell><TableCell sx={statusCellSx}>Status</TableCell><TableCell sx={actionCellSx}></TableCell></TableRow></TableHead><TableBody>{rejectedMembers.map(member => (<TableRow key={member.user_id}><TableCell sx={nameCellSx}>{member.name}</TableCell><TableCell sx={empTypeCellSx}>{member.employment_type.replace('_', ' ')}</TableCell><TableCell sx={statusCellSx}><Chip label="Rejected" color="error" size="small" /></TableCell><TableCell sx={actionCellSx}></TableCell></TableRow>))}</TableBody></Table></TableContainer>}</Box>
-                      <Box sx={{ mb: 2, p: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}><Typography variant="body2" sx={{ fontWeight: 500 }}>No Response:</Typography>{noResponseMembers.length === 0 ? <Typography color="textSecondary" sx={{ mt: 0.5 }}>All relevant members have responded for this shift.</Typography> : <TableContainer component={Paper} sx={{ mt: 1, border: `1px solid ${theme.palette.divider}`, borderRadius: 1, overflowX: 'auto' }}><Table size="small" sx={{ tableLayout: 'fixed' }}><TableHead><TableRow><TableCell sx={nameCellSx}>Name</TableCell><TableCell sx={empTypeCellSx}>Emp. Type</TableCell><TableCell sx={statusCellSx}>Status</TableCell><TableCell sx={actionCellSx}></TableCell></TableRow></TableHead><TableBody>{noResponseMembers.map(member => (<TableRow key={member.user_id}><TableCell sx={nameCellSx}>{member.name}</TableCell><TableCell sx={empTypeCellSx}>{member.employment_type.replace('_', ' ')}</TableCell><TableCell sx={statusCellSx}><Chip label="No Response" variant="outlined" size="small" /></TableCell><TableCell sx={actionCellSx}></TableCell></TableRow>))}</TableBody></Table></TableContainer>}</Box>
-                    </>);
-                })()}
-              </AccordionDetails>
-            </Accordion>
-          );
-        })
-      )}
         <Dialog
           open={platformInterestDialog.open}
           onClose={() => {
             setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null });
-            setWorkerRatingSummary(null);
-            setWorkerRatingComments([]);
-            setWorkerCommentsPage(1);
-            setWorkerCommentsPageCount(1);
+            resetWorkerRatings();
           }}
+          fullWidth
+          maxWidth="sm"
         >
-        <DialogTitle>Candidate Details</DialogTitle>
-        <DialogContent>
-          {platformInterestDialog.user ? (
-            <Box>
-              <Typography variant="body1"><b>Name:</b> {platformInterestDialog.user.first_name} {platformInterestDialog.user.last_name}</Typography>
-              <Typography variant="body2"><b>Email:</b> {platformInterestDialog.user.email}</Typography>
-              {platformInterestDialog.user.phone_number && <Typography variant="body2"><b>Phone:</b> {platformInterestDialog.user.phone_number}</Typography>}
-              {platformInterestDialog.user.short_bio && <Typography variant="body2"><b>Bio:</b> {platformInterestDialog.user.short_bio}</Typography>}
-              {platformInterestDialog.user.resume && (<Button href={platformInterestDialog.user.resume} target="_blank" sx={{ mt: 1 }}>Download CV</Button>)}
-              {platformInterestDialog.user.rate_preference && (
-                <Box mt={2}>
-                  <Typography variant="subtitle2" gutterBottom><strong>Rate Preference</strong></Typography>
-                  <List dense>
-                    {Object.entries(platformInterestDialog.user.rate_preference).map(([key, value]) => (
-                      <ListItem key={key} sx={{ py: 0, px: 0 }}>
-                        <ListItemText 
-                          primary={key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} 
-                          secondary={value || "N/A"} 
-                        />
-                      </ListItem>
-                    ))}
-                  </List>
-                </Box>
-              )}
-
-                  {/* --- Worker ratings summary + comments --- */}
-                  <Divider sx={{ my: 2 }} />
-                  <Typography variant="subtitle1" gutterBottom>Ratings</Typography>
-
-                  {/* Summary row */}
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    {workerRatingSummary ? (
-                      <>
-                        <Rating value={workerRatingSummary.average} precision={0.5} readOnly size="small" />
-                        <Typography variant="body2" color="text.secondary">
-                          ({workerRatingSummary.count})
-                        </Typography>
-                      </>
-                    ) : (
-                      <Skeleton variant="rectangular" width={140} height={24} />
-                    )}
-                  </Box>
-
-                  {/* Comments list (paginated) */}
-                  {loadingWorkerRatings && workerRatingComments.length === 0 ? (
+          <DialogTitle sx={{ fontWeight: 'bold' }}>Review Candidate</DialogTitle>
+          <DialogContent>
+            {platformInterestDialog.user && !loadingWorkerRatings ? (
+              <Box>
+                <Typography variant="h6">
+                  {platformInterestDialog.user.first_name} {platformInterestDialog.user.last_name}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  {platformInterestDialog.user.email}
+                </Typography>
+                {platformInterestDialog.user.phone_number && (
+                  <Typography variant="body2" color="text.secondary">
+                    {platformInterestDialog.user.phone_number}
+                  </Typography>
+                )}
+                {platformInterestDialog.user.short_bio && (
+                  <Typography variant="body2" sx={{ mt: 1 }}>
+                    {platformInterestDialog.user.short_bio}
+                  </Typography>
+                )}
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Ratings & Reviews
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  {workerRatingSummary ? (
                     <>
-                      <Skeleton variant="text" width="80%" height={22} />
-                      <Skeleton variant="text" width="70%" height={22} />
-                      <Skeleton variant="text" width="60%" height={22} />
+                      <Rating value={workerRatingSummary.average} precision={0.5} readOnly />
+                      <Typography variant="body1" color="text.secondary">
+                        {workerRatingSummary.average.toFixed(1)} ({workerRatingSummary.count} reviews)
+                      </Typography>
                     </>
-                  ) : workerRatingComments.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      No comments yet.
-                    </Typography>
                   ) : (
-                    <Box sx={{ display: 'grid', gap: 1.5 }}>
-                      {workerRatingComments.map(rc => (
-                        <Box key={rc.id} sx={{ p: 1.2, borderRadius: 1, bgcolor: 'action.hover' }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Rating value={rc.stars} readOnly size="small" />
-                            {rc.created_at && (
-                              <Typography variant="caption" color="text.secondary">
-                                {new Date(rc.created_at).toLocaleDateString()}
-                              </Typography>
-                            )}
-                          </Box>
-                          {rc.comment && (
-                            <Typography variant="body2" sx={{ mt: 0.5 }}>
-                              {rc.comment}
-                            </Typography>
-                          )}
-                        </Box>
-                      ))}
-
-                      {/* Pagination */}
-                      {workerCommentsPageCount > 1 && (
-                        <Box display="flex" justifyContent="center" mt={1}>
-                          <Pagination
-                            count={workerCommentsPageCount}
-                            page={workerCommentsPage}
-                            onChange={handleWorkerCommentsPageChange}
-                            color="primary"
-                            size="small"
-                          />
-                        </Box>
+                    <Skeleton variant="rectangular" width={200} height={28} />
+                  )}
+                </Box>
+                <Box sx={{ display: 'grid', gap: 1.5, mt: 2 }}>
+                  {workerRatingComments.map(comment => (
+                    <Paper key={comment.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'background.default' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Rating value={comment.stars} readOnly size="small" />
+                        {comment.created_at && (
+                          <Typography variant="caption" color="text.secondary">
+                            {new Date(comment.created_at).toLocaleDateString()}
+                          </Typography>
+                        )}
+                      </Box>
+                      {comment.comment && (
+                        <Typography variant="body2" sx={{ mt: 0.5 }}>
+                          {comment.comment}
+                        </Typography>
                       )}
+                    </Paper>
+                  ))}
+                  {workerRatingComments.length === 0 && (
+                    <Typography variant="body2" color="text.secondary">
+                      No reviews yet.
+                    </Typography>
+                  )}
+                  {workerCommentsPageCount > 1 && (
+                    <Box display="flex" justifyContent="center" mt={1}>
+                      <Pagination
+                        count={workerCommentsPageCount}
+                        page={workerCommentsPage}
+                        onChange={handleWorkerCommentsPageChange}
+                        color="primary"
+                        size="small"
+                      />
                     </Box>
                   )}
-
-            </Box>
-          ) : <CircularProgress />}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null })}>Close</Button>
-          
-          {/* --- THIS IS THE NEW BUTTON --- */}
-          {platformInterestDialog.user && (
+                </Box>
+              </Box>
+            ) : (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            )}
+          </DialogContent>
+          <DialogActions sx={{ p: '16px 24px' }}>
             <Button
-              variant="outlined"
-              color="primary"
-              startIcon={<ChatIcon />}
-              onClick={() => handleChatWithCandidate(platformInterestDialog.user!.id)}
+              onClick={() => {
+                setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null });
+                resetWorkerRatings();
+              }}
             >
-              Chat with Candidate
+              Close
             </Button>
-          )}
+            {platformInterestDialog.user && (
+              <Button variant="contained" color="success" onClick={handleAssignPlatform}>
+                Assign to Shift
+              </Button>
+            )}
+          </DialogActions>
+        </Dialog>
 
-          {platformInterestDialog.user && (
-            <Button 
-              variant="contained" 
-              color="success" 
-              onClick={handleAssignPlatform}
+        <Dialog open={openDeleteConfirm} onClose={() => setOpenDeleteConfirm(false)}>
+          <DialogTitle>Confirm Delete</DialogTitle>
+          <DialogContent>
+            <Typography>Are you sure you want to cancel/delete this shift? This action cannot be undone.</Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setOpenDeleteConfirm(false)}>Cancel</Button>
+            <Button
+              onClick={confirmDelete}
+              color="error"
+              variant="contained"
+              disabled={shiftToDelete !== null && deleting[shiftToDelete]}
             >
-              Assign to Shift
+              {shiftToDelete !== null && deleting[shiftToDelete] ? <CircularProgress size={24} /> : 'Delete'}
             </Button>
-          )}
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={openDeleteConfirm} onClose={cancelDelete} aria-labelledby="delete-confirmation-title" aria-describedby="delete-confirmation-description">
-        <DialogTitle id="delete-confirmation-title">Confirm Delete</DialogTitle><DialogContent><Typography id="delete-confirmation-description">Are you sure you want to cancel/delete this shift? This action cannot be undone.</Typography></DialogContent>
-        <DialogActions><Button onClick={cancelDelete} color="primary" variant="outlined">Cancel</Button><Button onClick={confirmDelete} color="error" variant="contained" disabled={deleting[shiftToDelete || 0]}>{deleting[shiftToDelete || 0] ? <CircularProgress size={24} /> : 'Delete'}</Button></DialogActions>
-      </Dialog>
-      <Snackbar open={snackbar.open} autoHideDuration={3500} onClose={() => setSnackbar({ open: false, message: '' })} message={snackbar.message} action={<IconButton size="small" color="inherit" onClick={() => setSnackbar({ open: false, message: '' })}><CloseIcon fontSize="small" /></IconButton>} />
-    </Container>
+          </DialogActions>
+        </Dialog>
+      </Container>
+    </ThemeProvider>
   );
 };
 
 export default ActiveShiftsPage;
+

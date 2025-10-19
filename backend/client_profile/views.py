@@ -2556,7 +2556,9 @@ class ShiftInterestViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        qs = ShiftInterest.objects.select_related('shift', 'slot', 'user')
+        qs = ShiftInterest.objects.select_related('shift', 'slot', 'user').annotate(
+            average_rating=Avg('user__ratings_received_as_worker__stars')
+        )
 
         shift_id = self.request.query_params.get('shift')
         if shift_id is not None:

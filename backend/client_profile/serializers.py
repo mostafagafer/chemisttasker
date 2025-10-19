@@ -1,5 +1,3 @@
-# Now my turn mostafagafer to make an update and you need to fetch it 
-# This new update by mostafa
 # client_profile/serializers.py
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field, OpenApiTypes
@@ -22,7 +20,6 @@ import os
 import json
 from django.utils.text import slugify
 from django.core.files.storage import default_storage
-
 
 
 # === Onboardings ===

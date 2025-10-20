@@ -1,4 +1,6 @@
 # client_profile/serializers.py
+
+# This is smsm update
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field, OpenApiTypes
 from .models import *

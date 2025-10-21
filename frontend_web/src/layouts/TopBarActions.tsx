@@ -7,6 +7,13 @@ import Typography from "@mui/material/Typography";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
+import Popover from "@mui/material/Popover";
+import List from "@mui/material/List";
+import ListItem from "@mui/material/ListItem";
+import ListItemButton from "@mui/material/ListItemButton";
+import ListItemText from "@mui/material/ListItemText";
+import Divider from "@mui/material/Divider";
+import CircularProgress from "@mui/material/CircularProgress";
 import Autocomplete, { createFilterOptions } from "@mui/material/Autocomplete";
 import TextField from "@mui/material/TextField";
 import InputAdornment from "@mui/material/InputAdornment";
@@ -14,6 +21,7 @@ import Box from "@mui/material/Box";
 import { alpha, useTheme } from "@mui/material/styles";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import NotificationsNoneOutlinedIcon from "@mui/icons-material/NotificationsNoneOutlined";
+import ChatBubbleOutlineOutlinedIcon from "@mui/icons-material/ChatBubbleOutlineOutlined";
 import SearchIcon from "@mui/icons-material/Search";
 import CloseIcon from "@mui/icons-material/Close";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
@@ -21,6 +29,9 @@ import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import { useNavigate } from "react-router-dom";
 import { useColorMode } from "../theme/sleekTheme";
 import { useAuth } from "../contexts/AuthContext";
+import { fetchNotifications, markNotificationsRead, NotificationItem } from "../api/notifications";
+import { API_BASE_URL, API_ENDPOINTS } from "../constants/api";
+import apiClient from "../utils/apiClient";
 
 type SearchOption = {
   label: string;
@@ -387,14 +398,42 @@ const ROLE_SEARCH_OPTIONS: Record<string, SearchOption[]> = {
   DEFAULT: defaultOptions,
 };
 
+const CHAT_ROUTES: Record<string, string> = {
+  OWNER: "/dashboard/owner/chat",
+  PHARMACY_ADMIN: "/dashboard/owner/chat",
+  ORG_ADMIN: "/dashboard/organization/chat",
+  ORG_OWNER: "/dashboard/organization/chat",
+  ORG_STAFF: "/dashboard/organization/chat",
+  ORGANIZATION: "/dashboard/organization/chat",
+  PHARMACIST: "/dashboard/pharmacist/chat",
+  OTHER_STAFF: "/dashboard/otherstaff/chat",
+  EXPLORER: "/dashboard/explorer/chat",
+};
+
+type MessageSummary = {
+  conversation_id: number;
+  conversation_title: string;
+  sender_name: string;
+  body_preview: string;
+  unread: number;
+};
+
 export default function TopBarActions() {
   const theme = useTheme();
   const { mode, toggleColorMode } = useColorMode();
-  const { user } = useAuth();
+  const { user, token, refreshUnreadCount } = useAuth();
   const navigate = useNavigate();
   const downSm = useMediaQuery(theme.breakpoints.down("sm"));
   const [query, setQuery] = React.useState("");
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  const [notifications, setNotifications] = React.useState<NotificationItem[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = React.useState(false);
+  const [notificationAnchor, setNotificationAnchor] = React.useState<HTMLElement | null>(null);
+  const [unreadNotifications, setUnreadNotifications] = React.useState(0);
+  const [messageAnchor, setMessageAnchor] = React.useState<HTMLElement | null>(null);
+  const [messageSummaries, setMessageSummaries] = React.useState<Record<number, MessageSummary>>({});
+  const [unreadMessages, setUnreadMessages] = React.useState(0);
+  const wsRef = React.useRef<WebSocket | null>(null);
 
   const filterOptions = React.useMemo(
     () =>
@@ -468,6 +507,341 @@ export default function TopBarActions() {
       }
     },
     [filterOptions, options, query, handleNavigate]
+  );
+
+  const chatRoute = React.useMemo(() => {
+    const roleKey = (user?.role || "OWNER").toUpperCase();
+    return CHAT_ROUTES[roleKey] ?? "/dashboard/owner/chat";
+  }, [user?.role]);
+
+  const unreadMessageEntries = React.useMemo(
+    () => Object.values(messageSummaries).filter((entry) => entry.unread > 0),
+    [messageSummaries]
+  );
+
+  const anyUnreadNotifications = React.useMemo(
+    () => notifications.some((item) => !item.read_at),
+    [notifications]
+  );
+
+  React.useEffect(() => {
+    const total = Object.values(messageSummaries).reduce(
+      (sum, item) => sum + (item.unread || 0),
+      0
+    );
+    setUnreadMessages(total);
+  }, [messageSummaries]);
+
+  React.useEffect(() => {
+    if (!token) {
+      setNotifications([]);
+      setUnreadNotifications(0);
+      setNotificationsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setNotificationsLoading(true);
+    fetchNotifications()
+      .then((data) => {
+        if (cancelled) return;
+        const response: any = data;
+        const list: NotificationItem[] = Array.isArray(response?.results)
+          ? response.results
+          : Array.isArray(response)
+          ? response
+          : [];
+        setNotifications(list);
+        const unreadCount =
+          typeof response?.unread === "number"
+            ? response.unread
+            : typeof response?.count_unread === "number"
+            ? response.count_unread
+            : list.filter((item) => !item.read_at).length;
+        setUnreadNotifications(unreadCount);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("Failed to load notifications", error);
+        setNotifications([]);
+        setUnreadNotifications(0);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setNotificationsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  React.useEffect(() => {
+    if (!token) {
+      setMessageSummaries({});
+      return;
+    }
+    let cancelled = false;
+
+    apiClient
+      .get(API_ENDPOINTS.rooms)
+      .then((res) => {
+        if (cancelled) return;
+        const payload = res?.data;
+        const rawRooms: any[] = Array.isArray(payload?.results)
+          ? payload.results
+          : Array.isArray(payload)
+          ? payload
+          : [];
+        const next: Record<number, MessageSummary> = {};
+        rawRooms.forEach((room) => {
+          if (!room || typeof room.id !== "number") {
+            return;
+          }
+          const unread = room.unread_count || 0;
+          if (!unread) {
+            return;
+          }
+          const lastMessage =
+            room.last_message ||
+            room.latest_message ||
+            room.most_recent_message ||
+            room.recent_message ||
+            {};
+          const senderName =
+            lastMessage?.sender_name ||
+            lastMessage?.sender?.name ||
+            lastMessage?.sender?.user?.full_name ||
+            lastMessage?.sender?.user?.email ||
+            lastMessage?.sender?.user_details?.full_name ||
+            lastMessage?.sender?.user_details?.email ||
+            "";
+          const body =
+            (lastMessage?.body || lastMessage?.text || lastMessage?.preview || "").toString();
+          next[room.id] = {
+            conversation_id: room.id,
+            conversation_title:
+              room.title || room.name || room.display_name || room.conversation_title || "",
+            sender_name: senderName,
+            body_preview: body,
+            unread,
+          };
+        });
+        setMessageSummaries(next);
+        refreshUnreadCount();
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("Failed to load chat rooms", error);
+        setMessageSummaries({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token, refreshUnreadCount]);
+
+  const wsUrl = React.useMemo(() => {
+    if (!token) return null;
+    try {
+      const apiBase = (API_BASE_URL as string | undefined) ?? window.location.origin;
+      const resolved = new URL(apiBase, window.location.origin);
+      const wsProtocol = resolved.protocol === "https:" ? "wss:" : "ws:";
+      return `${wsProtocol}//${resolved.host}/ws/notifications/?token=${encodeURIComponent(token)}`;
+    } catch {
+      const { protocol, host } = window.location;
+      const wsProtocol = protocol === "https:" ? "wss:" : "ws:";
+      return `${wsProtocol}//${host}/ws/notifications/?token=${encodeURIComponent(token)}`;
+    }
+  }, [token]);
+
+  React.useEffect(() => {
+    if (!wsUrl) {
+      return;
+    }
+    const socket = new WebSocket(wsUrl);
+    wsRef.current = socket;
+
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        switch (payload.type) {
+          case "notification.counter":
+            if (typeof payload.unread === "number") {
+              setUnreadNotifications(payload.unread);
+            }
+            break;
+          case "notification.created":
+            if (payload.notification) {
+              setNotifications((prev) => {
+                const next = [
+                  payload.notification as NotificationItem,
+                  ...prev.filter((item) => item.id !== payload.notification.id),
+                ].slice(0, 25);
+                setUnreadNotifications(next.filter((item) => !item.read_at).length);
+                return next;
+              });
+            }
+            break;
+          case "notification.updated":
+            if (payload.notification) {
+              setNotifications((prev) => {
+                const next = prev.map((item) =>
+                  item.id === payload.notification.id
+                    ? (payload.notification as NotificationItem)
+                    : item
+                );
+                setUnreadNotifications(next.filter((item) => !item.read_at).length);
+                return next;
+              });
+            }
+            break;
+          case "message.badge":
+            if (payload.conversation_id) {
+              setMessageSummaries((prev) => {
+                const next = { ...prev };
+                const existing = next[payload.conversation_id] || {
+                  conversation_id: payload.conversation_id,
+                  conversation_title: "",
+                  sender_name: "",
+                  body_preview: "",
+                  unread: 0,
+                };
+                next[payload.conversation_id] = {
+                  ...existing,
+                  conversation_title:
+                    payload.conversation_title ?? existing.conversation_title,
+                  sender_name: payload.sender_name ?? existing.sender_name,
+                  body_preview: payload.body_preview ?? existing.body_preview,
+                  unread: typeof payload.unread === "number" ? payload.unread : existing.unread,
+                };
+                return next;
+              });
+              refreshUnreadCount();
+            }
+            break;
+          case "message.read":
+            if (payload.conversation_id) {
+              setMessageSummaries((prev) => {
+                const next = { ...prev };
+                if (next[payload.conversation_id]) {
+                  next[payload.conversation_id] = {
+                    ...next[payload.conversation_id],
+                    unread: 0,
+                  };
+                }
+                return next;
+              });
+              refreshUnreadCount();
+            }
+            break;
+          default:
+            break;
+        }
+      } catch (error) {
+        console.error("Failed to process websocket message", error);
+      }
+    };
+
+    socket.onerror = (error) => {
+      console.error("Notifications websocket error", error);
+    };
+
+    socket.onclose = () => {
+      if (wsRef.current === socket) {
+        wsRef.current = null;
+      }
+    };
+
+    return () => {
+      socket.close();
+    };
+  }, [wsUrl, refreshUnreadCount]);
+
+  const handleOpenNotifications = (event: React.MouseEvent<HTMLElement>) => {
+    setNotificationAnchor(event.currentTarget);
+  };
+
+  const markAllNotifications = React.useCallback(async () => {
+    const unreadIds = notifications.filter((item) => !item.read_at).map((item) => item.id);
+    if (!unreadIds.length) {
+      return;
+    }
+    try {
+      const res = await markNotificationsRead(unreadIds);
+      const nowIso = new Date().toISOString();
+      setUnreadNotifications(res.unread ?? 0);
+      setNotifications((prev) =>
+        prev.map((item) => (item.read_at ? item : { ...item, read_at: nowIso }))
+      );
+    } catch (error) {
+      console.error("Failed to mark notifications read", error);
+    }
+  }, [notifications]);
+
+  const handleCloseNotifications = React.useCallback(() => {
+    setNotificationAnchor(null);
+    if (anyUnreadNotifications) {
+      void markAllNotifications();
+    }
+  }, [anyUnreadNotifications, markAllNotifications]);
+
+  const handleOpenMessages = (event: React.MouseEvent<HTMLElement>) => {
+    setMessageAnchor(event.currentTarget);
+  };
+
+  const handleCloseMessages = React.useCallback(() => {
+    setMessageAnchor(null);
+  }, []);
+
+  const handleNotificationNavigate = React.useCallback(
+    (item: NotificationItem) => {
+      if (!item.action_url) {
+        handleCloseNotifications();
+        return;
+      }
+      try {
+        const target = new URL(item.action_url, window.location.origin);
+        if (target.origin === window.location.origin) {
+          navigate(`${target.pathname}${target.search}${target.hash}`);
+        } else {
+          window.location.href = target.toString();
+        }
+      } catch {
+        const normalized = item.action_url.startsWith('/')
+          ? item.action_url
+          : `/${item.action_url}`;
+        navigate(normalized);
+      }
+      const nowIso = new Date().toISOString();
+      setNotifications((prev) =>
+        prev.map((existing) =>
+          existing.id === item.id ? { ...existing, read_at: existing.read_at ?? nowIso } : existing
+        )
+      );
+      if (!item.read_at) {
+        setUnreadNotifications((prev) => Math.max(0, prev - 1));
+      }
+      void markNotificationsRead([item.id]).catch((error) =>
+        console.error('Failed to mark notification read', error)
+      );
+      handleCloseNotifications();
+    },
+    [handleCloseNotifications, navigate]
+  );
+  const handleMessageNavigate = React.useCallback(
+    (summary: MessageSummary) => {
+      handleCloseMessages();
+      setMessageSummaries((prev) => {
+        const next = { ...prev };
+        if (next[summary.conversation_id]) {
+          next[summary.conversation_id] = { ...next[summary.conversation_id], unread: 0 };
+        }
+        return next;
+      });
+      refreshUnreadCount();
+      navigate(chatRoute, { state: { conversationId: summary.conversation_id } });
+    },
+    [chatRoute, handleCloseMessages, navigate, refreshUnreadCount]
   );
 
   const renderSearchField = React.useCallback(
@@ -555,12 +929,135 @@ export default function TopBarActions() {
       )}
 
       <Tooltip title="Notifications">
-        <IconButton color="inherit" size="small" aria-label="notifications">
-          <Badge color="error" variant="dot" overlap="circular">
+        <IconButton
+          color="inherit"
+          size="small"
+          aria-label="notifications"
+          onClick={handleOpenNotifications}
+        >
+          <Badge
+            color="error"
+            overlap="circular"
+            badgeContent={unreadNotifications}
+          >
             <NotificationsNoneOutlinedIcon fontSize="small" />
           </Badge>
         </IconButton>
       </Tooltip>
+
+      <Tooltip title="Messages">
+        <IconButton
+          color="inherit"
+          size="small"
+          aria-label="messages"
+          onClick={handleOpenMessages}
+        >
+          <Badge color="error" overlap="circular" badgeContent={unreadMessages}>
+            <ChatBubbleOutlineOutlinedIcon fontSize="small" />
+          </Badge>
+        </IconButton>
+      </Tooltip>
+
+      <Popover
+        open={Boolean(notificationAnchor)}
+        anchorEl={notificationAnchor}
+        onClose={handleCloseNotifications}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        PaperProps={{ sx: { width: 360, maxHeight: 420, p: 0.5 } }}
+      >
+        {notificationsLoading ? (
+          <Box sx={{ p: 2, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <CircularProgress size={20} />
+          </Box>
+        ) : notifications.length === 0 ? (
+          <Box sx={{ p: 2, textAlign: "center" }}>
+            <Typography variant="body2" color="text.secondary">
+              No notifications
+            </Typography>
+          </Box>
+        ) : (
+          <List dense disablePadding>
+            {notifications.map((item, index) => (
+              <React.Fragment key={item.id}>
+                <ListItem disablePadding alignItems="flex-start">
+                  <ListItemButton
+                    onClick={() => handleNotificationNavigate(item)}
+                    sx={{
+                      alignItems: "flex-start",
+                      bgcolor: item.read_at ? "transparent" : alpha(theme.palette.primary.main, 0.08),
+                    }}
+                  >
+                    <ListItemText
+                      primary={item.title}
+                      secondary={item.body || new Date(item.created_at).toLocaleString()}
+                      primaryTypographyProps={{ fontWeight: item.read_at ? 500 : 700 }}
+                      secondaryTypographyProps={{ color: "text.secondary" }}
+                    />
+                  </ListItemButton>
+                </ListItem>
+                {index < notifications.length - 1 && <Divider component="li" />}
+              </React.Fragment>
+            ))}
+            {anyUnreadNotifications && (
+              <>
+                <Divider component="li" />
+                <ListItem disablePadding>
+                  <ListItemButton onClick={() => void markAllNotifications()}>
+                    <ListItemText
+                      primary="Mark all as read"
+                      primaryTypographyProps={{ align: "center", fontWeight: 600 }}
+                    />
+                  </ListItemButton>
+                </ListItem>
+              </>
+            )}
+          </List>
+        )}
+      </Popover>
+
+      <Popover
+        open={Boolean(messageAnchor)}
+        anchorEl={messageAnchor}
+        onClose={handleCloseMessages}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        PaperProps={{ sx: { width: 360, maxHeight: 420, p: 0.5 } }}
+      >
+        {unreadMessageEntries.length === 0 ? (
+          <Box sx={{ p: 2, textAlign: "center" }}>
+            <Typography variant="body2" color="text.secondary">
+              No new messages
+            </Typography>
+          </Box>
+        ) : (
+          <List dense disablePadding>
+            {unreadMessageEntries.map((msg, index) => {
+              const title = msg.sender_name
+                ? `${msg.sender_name} messaged you`
+                : msg.conversation_title
+                ? `New messages in ${msg.conversation_title}`
+                : "New messages";
+              const preview = msg.body_preview || "Open chat to read";
+              return (
+                <React.Fragment key={msg.conversation_id}>
+                  <ListItem disablePadding alignItems="flex-start">
+                    <ListItemButton onClick={() => handleMessageNavigate(msg)}>
+                      <ListItemText
+                        primary={title}
+                        secondary={preview}
+                        primaryTypographyProps={{ fontWeight: 600 }}
+                      />
+                      <Badge color="error" badgeContent={msg.unread} />
+                    </ListItemButton>
+                  </ListItem>
+                  {index < unreadMessageEntries.length - 1 && <Divider component="li" />}
+                </React.Fragment>
+              );
+            })}
+          </List>
+        )}
+      </Popover>
 
       <Tooltip title={mode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
         <IconButton color="inherit" size="small" onClick={toggleColorMode} aria-label="toggle theme">
@@ -570,3 +1067,4 @@ export default function TopBarActions() {
     </Stack>
   );
 }
+

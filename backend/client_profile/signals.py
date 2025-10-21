@@ -8,6 +8,8 @@ from client_profile.models import Message
 from django.utils.text import slugify
 import logging
 from client_profile.serializers import MessageSerializer
+from client_profile.notifications import broadcast_message_badge
+
 from .models import Membership, Conversation, Participant
 
 log = logging.getLogger("client_profile.signals")
@@ -62,6 +64,10 @@ def broadcast_new_message(sender, instance, created, **kwargs):
                     "message": payload,          # keep nested "message" as before
                 },
             )
+            for participant in Participant.objects.select_related("membership__user", "conversation").filter(conversation_id=msg.conversation_id):
+                if participant.membership_id == msg.sender_id:
+                    continue
+                broadcast_message_badge(participant)
         except Exception:
             log.exception("Error while broadcasting message.created")
 
@@ -83,3 +89,4 @@ def sync_membership_to_community_chat(sender, instance, created, **kwargs):
             conversation=community_chat,
             membership=instance
         )
+

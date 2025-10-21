@@ -72,6 +72,18 @@ interface Interest {
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+const curvedCardSx = {
+  borderRadius: 3,
+  boxShadow: '0 20px 45px rgba(109, 40, 217, 0.08)',
+};
+
+const gradientButtonSx = {
+  borderRadius: 2,
+  background: 'linear-gradient(90deg, #8B5CF6 0%, #6D28D9 100%)',
+  color: '#fff',
+  '&:hover': { background: 'linear-gradient(90deg, #A78BFA 0%, #8B5CF6 100%)' },
+};
+
 export default function PublicShiftsPage() {
   const auth = useAuth();
   if (!auth?.user) return null;
@@ -256,7 +268,7 @@ export default function PublicShiftsPage() {
     return (
       <Container sx={{ textAlign: 'center', py: 4 }}>
         {[...Array(3)].map((_, index) => ( // Render 3 skeleton cards
-          <Card key={index} sx={{ mb: 3 }}>
+          <Card key={index} sx={{ mb: 3, ...curvedCardSx }}>
             <CardContent>
               <Skeleton variant="text" width="60%" height={30} sx={{ mb: 1 }} />
               <Skeleton variant="text" width="80%" height={20} sx={{ mb: 2 }} />
@@ -299,7 +311,7 @@ export default function PublicShiftsPage() {
             rateLabel = 'Pharmacist Provided';
           }
           return (
-            <Card key={shift.id} sx={{ mb: 3 }}>
+            <Card key={shift.id} sx={{ mb: 3, ...curvedCardSx }}>
               <CardContent>
                 {/* Pharmacy name + rating summary */}
                 <Box display="flex" alignItems="center" justifyContent="space-between">
@@ -406,6 +418,7 @@ export default function PublicShiftsPage() {
                             variant="contained"
                             disabled={slotDisabled}
                             onClick={() => handleExpressInterest(shift.id, slot.id)}
+                            sx={gradientButtonSx}
                           >
                             {slotDisabled ? 'Requested' : 'Express Interest'}
                           </Button>
@@ -419,9 +432,10 @@ export default function PublicShiftsPage() {
                     <Box display="flex" justifyContent="flex-end" sx={{ mt: 2 }}>
                       <Button
                         size="small"
-                        variant="outlined"
+                        variant="contained"
                         disabled={disabledShifts.includes(shift.id)}
                         onClick={() => handleExpressInterest(shift.id, null)}
+                        sx={gradientButtonSx}
                       >
                         {disabledShifts.includes(shift.id)
                           ? 'Requested All'
@@ -438,6 +452,7 @@ export default function PublicShiftsPage() {
                         variant="contained"
                         disabled={disabledShifts.includes(shift.id)}
                         onClick={() => handleExpressInterest(shift.id, null)}
+                        sx={gradientButtonSx}
                       >
                         {disabledShifts.includes(shift.id)
                           ? 'Requested'

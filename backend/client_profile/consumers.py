@@ -15,6 +15,7 @@ import logging
 log = logging.getLogger("client_profile.ws")
 
 ROOM_GROUP_FMT = "room.{room_id}"
+USER_GROUP_FMT = "user.{user_id}"
 
 class RoomConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
@@ -164,5 +165,54 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
         )
         Conversation.objects.filter(pk=conversation_id).update(updated_at=msg.created_at)
         return msg
+
+
+class NotificationConsumer(AsyncJsonWebsocketConsumer):
+    async def connect(self):
+        user = self.scope.get("user")
+        if not user or user.is_anonymous:
+            await self.close(code=4401)
+            return
+        self.user_id = user.id
+        self.group_name = USER_GROUP_FMT.format(user_id=self.user_id)
+        if self.channel_layer:
+            await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+        await self.send_json({"type": "ready"})
+
+    async def disconnect(self, code):
+        if self.channel_layer and hasattr(self, "group_name"):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def notification_created(self, event):
+        await self.send_json({
+            "type": "notification.created",
+            "notification": event.get("notification"),
+        })
+
+    async def notification_updated(self, event):
+        await self.send_json({
+            "type": "notification.updated",
+            "notification": event.get("notification"),
+        })
+
+    async def notification_counter(self, event):
+        await self.send_json({
+            "type": "notification.counter",
+            "unread": event.get("unread", 0),
+        })
+
+    async def message_badge(self, event):
+        await self.send_json({
+            "type": "message.badge",
+            "conversation_id": event.get("conversation_id"),
+            "unread": event.get("unread", 0),
+        })
+
+    async def message_read(self, event):
+        await self.send_json({
+            "type": "message.read",
+            "conversation_id": event.get("conversation_id"),
+        })
 
 

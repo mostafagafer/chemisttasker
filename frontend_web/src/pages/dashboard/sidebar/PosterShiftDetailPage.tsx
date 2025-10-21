@@ -186,6 +186,8 @@ const PosterShiftDetailPage: React.FC = () => {
   const [deleting, setDeleting] = useState<Record<number, boolean>>({});
   const [openDeleteConfirm, setOpenDeleteConfirm] = useState<boolean>(false);
   const [shiftToDelete, setShiftToDelete] = useState<number | null>(null);
+  const [revealingInterestId, setRevealingInterestId] = useState<number | null>(null);
+  const [assigning, setAssigning] = useState(false);
 
   // @ts-ignore: `shiftId` and `levelIdx` are parameters of the callback dependency array, not unused variables.
   const getTabKey = useCallback((shiftId: number, levelIdx: number) => `${shiftId}_${levelIdx}`, []);
@@ -365,6 +367,7 @@ const PosterShiftDetailPage: React.FC = () => {
   };
 
   const handleAssign = async (currentShift: Shift, userId: number, slotId: number | null) => {
+    setAssigning(true);
     try {
       await apiClient.post(`${API_ENDPOINTS.getActiveShifts}${currentShift.id}/accept_user/`, { user_id: userId, slot_id: slotId });
       showSnackbar('User assigned.');
@@ -379,10 +382,13 @@ const PosterShiftDetailPage: React.FC = () => {
       }
     } catch (err: any) {
       showSnackbar(err.response?.data?.detail || 'Failed to assign user.');
+    } finally {
+      setAssigning(false);
     }
   };
 
   const handleRevealPlatform = async (currentShift: Shift, interest: Interest) => {
+    setRevealingInterestId(interest.id);
     try {
       const res = await apiClient.post<UserDetail>(`${API_ENDPOINTS.getActiveShifts}${currentShift.id}/reveal_profile/`, { slot_id: interest.slot_id, user_id: interest.user_id });
       setPlatformInterestDialog({ open: true, user: res.data, shiftId: currentShift.id, interest });
@@ -390,6 +396,8 @@ const PosterShiftDetailPage: React.FC = () => {
       loadTabData(currentShift, publicTabIdx);
     } catch (err: any) {
       showSnackbar(err.response?.data?.detail || 'Failed to reveal candidate.');
+    } finally {
+      setRevealingInterestId(null);
     }
   };
 
@@ -397,6 +405,7 @@ const PosterShiftDetailPage: React.FC = () => {
     const { shiftId, user: candidateUser, interest } = platformInterestDialog;
     if (!shiftId || !candidateUser || !interest || !shift) return;
 
+    setAssigning(true);
     try {
       await apiClient.post(`${API_ENDPOINTS.getActiveShifts}${shiftId}/accept_user/`, { user_id: candidateUser.id, slot_id: interest.slot_id });
       showSnackbar('User assigned.');
@@ -410,6 +419,8 @@ const PosterShiftDetailPage: React.FC = () => {
       loadTabData(shift, publicTabIdx); // Reload public tab data
     } catch (err: any) {
       showSnackbar(err.response?.data?.detail || 'Failed to assign user.');
+    } finally {
+      setAssigning(false);
     }
   };
 
@@ -656,6 +667,12 @@ const PosterShiftDetailPage: React.FC = () => {
                                           size="small"
                                           variant={interest.revealed ? "outlined" : "contained"}
                                           onClick={() => handleRevealPlatform(currentShift, interest)}
+                                          disabled={revealingInterestId === interest.id || assigning}
+                                          startIcon={
+                                            revealingInterestId === interest.id ? (
+                                              <CircularProgress size={16} color="inherit" />
+                                            ) : undefined
+                                          }
                                         >
                                           {interest.revealed ? "Review Candidate" : "Reveal Candidate"}
                                         </Button>
@@ -698,6 +715,12 @@ const PosterShiftDetailPage: React.FC = () => {
                                   size="small"
                                   variant={interest.revealed ? "outlined" : "contained"}
                                   onClick={() => handleRevealPlatform(currentShift, interest)}
+                                  disabled={revealingInterestId === interest.id || assigning}
+                                  startIcon={
+                                    revealingInterestId === interest.id ? (
+                                      <CircularProgress size={16} color="inherit" />
+                                    ) : undefined
+                                  }
                                 >
                                   {interest.revealed ? "Review Candidate" : "Reveal Candidate"}
                                 </Button>
@@ -797,6 +820,8 @@ const PosterShiftDetailPage: React.FC = () => {
                                   variant="contained"
                                   color="success"
                                   onClick={() => handleAssign(currentShift, member.user_id, null)}
+                                  disabled={assigning}
+                                  startIcon={assigning ? <CircularProgress size={16} color="inherit" /> : undefined}
                                 >
                                   Assign
                                 </Button>
@@ -914,9 +939,17 @@ const PosterShiftDetailPage: React.FC = () => {
           <Button onClick={() => setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null })}>
             Close
           </Button>
-          {platformInterestDialog.user && (
-            <Button variant="contained" color="success" onClick={handleAssignPlatform}>Assign to Shift</Button>
-          )}
+            {platformInterestDialog.user && (
+            <Button
+              variant="contained"
+              color="success"
+              onClick={handleAssignPlatform}
+              disabled={assigning}
+              startIcon={assigning ? <CircularProgress size={16} color="inherit" /> : undefined}
+            >
+              Assign to Shift
+            </Button>
+            )}
         </DialogActions>
       </Dialog>
 

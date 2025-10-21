@@ -39,6 +39,18 @@ interface Shift {
   slots: Slot[];
 }
 
+const curvedPaperSx = {
+  borderRadius: 3,
+  boxShadow: '0 20px 45px rgba(109, 40, 217, 0.08)',
+};
+
+const gradientButtonSx = {
+  borderRadius: 2,
+  background: 'linear-gradient(90deg, #8B5CF6 0%, #6D28D9 100%)',
+  color: '#fff',
+  '&:hover': { background: 'linear-gradient(90deg, #A78BFA 0%, #8B5CF6 100%)' },
+};
+
 
 export default function MyHistoryShiftsPage() {
   const navigate = useNavigate();
@@ -173,7 +185,7 @@ const fetchSummaryForPharmacy = async (pharmacyId: number) => {
     return (
       <Container sx={{ textAlign: 'center', py: 4 }}>
         {[...Array(3)].map((_, index) => ( // Render 3 skeleton papers
-          <Paper key={index} sx={{ p: 2, mb: 2 }}>
+          <Paper key={index} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
             <Skeleton variant="text" width="70%" height={30} sx={{ mb: 1 }} />
             <Skeleton variant="text" width="50%" height={20} sx={{ mb: 2 }} />
             <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -208,7 +220,7 @@ const fetchSummaryForPharmacy = async (pharmacyId: number) => {
       </Typography>
 
       {displayed.map((shift) => (
-        <Paper key={shift.id} sx={{ p: 2, mb: 2 }}>
+        <Paper key={shift.id} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
           <Box display="flex" alignItems="center" justifyContent="space-between">
             <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
 
@@ -260,6 +272,7 @@ const fetchSummaryForPharmacy = async (pharmacyId: number) => {
               size="small"
               onClick={() => handleGenerateInvoice(shift)}
               disabled={generatingId === shift.id}
+              sx={gradientButtonSx}
             >
               {generatingId === shift.id ? 'Generating...' : 'Generate Invoice'}
             </Button>
@@ -364,6 +377,7 @@ const fetchSummaryForPharmacy = async (pharmacyId: number) => {
             variant="contained"
             color="primary"
             disabled={loadingRating || currentStars === 0}
+            sx={gradientButtonSx}
           >
             {loadingRating ? 'Saving...' : 'Save Rating'}
           </Button>

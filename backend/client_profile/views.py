@@ -20,6 +20,7 @@ from django.db.models import Q, Count, F, Avg, Exists, OuterRef
 from django.utils import timezone
 from client_profile.services import get_locked_rate_for_slot, expand_shift_slots, generate_invoice_from_shifts, render_invoice_to_pdf, generate_preview_invoice_lines
 from client_profile.utils import build_shift_email_context, clean_email, build_roster_email_link, get_frontend_dashboard_url
+from client_profile.notifications import mark_notifications_read, broadcast_message_read
 from django.utils.crypto import get_random_string
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode
@@ -291,17 +292,31 @@ class RefereeSubmitResponseView(generics.CreateAPIView):
 
                 if changed_to_rejected:
                     # send AFTER COMMIT
-                    transaction.on_commit(lambda: async_task(
-                        'users.tasks.send_async_email',
-                        subject="One of your referees declined",
-                        recipient_list=[onboarding.user.email],
-                        template_name="emails/referee_declined_candidate.html",
-                        text_template="emails/referee_declined_candidate.txt",
-                        context={
-                            "candidate_first_name": onboarding.user.first_name or onboarding.user.username,
+                    context_payload = {
+                        "candidate_first_name": onboarding.user.first_name or onboarding.user.username,
+                        "referee_index": referee_index,
+                        "dashboard_url": get_frontend_dashboard_url(onboarding.user),
+                    }
+                    notification_payload = {
+                        "title": "Referee declined",
+                        "body": f"Referee {referee_index} declined your application.",
+                        "payload": {
                             "referee_index": referee_index,
-                            "dashboard_url": get_frontend_dashboard_url(onboarding.user),
+                            "onboarding_id": onboarding.pk,
                         },
+                        "action_url": context_payload["dashboard_url"],
+                    }
+                    email_kwargs = {
+                        "subject": "One of your referees declined",
+                        "recipient_list": [onboarding.user.email],
+                        "template_name": "emails/referee_declined_candidate.html",
+                        "text_template": "emails/referee_declined_candidate.txt",
+                        "context": context_payload,
+                        "notification": notification_payload,
+                    }
+                    transaction.on_commit(lambda kwargs=email_kwargs: async_task(
+                        'users.tasks.send_async_email',
+                        **kwargs,
                     ))
             else:
                 changed_to_confirmed = not was_confirmed
@@ -373,17 +388,28 @@ class RefereeRejectView(APIView):
                 pass
 
             # Notify candidate exactly once (first transition only), after the DB commit
-            transaction.on_commit(lambda: async_task(
+            context_payload = {
+                "candidate_first_name": row.user.first_name or row.user.username,
+                "referee_index": idx,
+                "dashboard_url": get_frontend_dashboard_url(row.user),
+            }
+            notification_payload = {
+                "title": "Referee declined",
+                "body": f"Referee {idx} declined your application.",
+                "payload": {"referee_index": idx, "onboarding_id": row.pk},
+                "action_url": context_payload["dashboard_url"],
+            }
+            email_kwargs = {
+                "subject": "One of your referees declined",
+                "recipient_list": [row.user.email],
+                "template_name": "emails/referee_declined_candidate.html",
+                "text_template": "emails/referee_declined_candidate.txt",
+                "context": context_payload,
+                "notification": notification_payload,
+            }
+            transaction.on_commit(lambda kwargs=email_kwargs: async_task(
                 'users.tasks.send_async_email',
-                subject="One of your referees declined",
-                recipient_list=[row.user.email],
-                template_name="emails/referee_declined_candidate.html",
-                text_template="emails/referee_declined_candidate.txt",
-                context={
-                    "candidate_first_name": row.user.first_name or row.user.username,
-                    "referee_index": idx,
-                    "dashboard_url": get_frontend_dashboard_url(row.user),
-                },
+                **kwargs,
             ))
 
         return Response({'success': True, 'message': 'Referee rejected.'}, status=200)
@@ -1668,14 +1694,31 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 user=shift.created_by,
                 role=shift.created_by.role.lower(),      
             )
-            async_task(
-                'users.tasks.send_async_email',
+            applicant_name = user.get_full_name() or user.email
+            notification_payload = None
+            if shift.created_by_id:
+                notification_payload = {
+                    "title": "New shift interest",
+                    "body": f"{applicant_name} expressed interest in your shift at {shift.pharmacy.name}.",
+                    "payload": {
+                        "shift_id": shift.id,
+                        "interest_id": interest.id,
+                    },
+                }
+                action_url = ctx.get("shift_link")
+                if action_url:
+                    notification_payload["action_url"] = action_url
+
+            email_kwargs = dict(
                 subject=f"New interest in your shift at {shift.pharmacy.name}",
                 recipient_list=[shift.created_by.email],
                 template_name="emails/shift_interest.html",
                 context=ctx,
-                text_template="emails/shift_interest.txt"
+                text_template="emails/shift_interest.txt",
             )
+            if notification_payload:
+                email_kwargs["notification"] = notification_payload
+            async_task('users.tasks.send_async_email', **email_kwargs)
 
 
         # 3) Serialize and return
@@ -1735,13 +1778,24 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
         # Send email and return profile data...
         ctx = build_shift_email_context(shift, user=candidate, role=candidate.role.lower())
+        notification_payload = {
+            "title": f"Profile revealed: {shift.pharmacy.name}",
+            "body": f"Your profile was shared with {shift.pharmacy.name} for an upcoming shift.",
+            "payload": {
+                "shift_id": shift.id,
+            },
+        }
+        if ctx.get("shift_link"):
+            notification_payload["action_url"] = ctx["shift_link"]
+
         async_task(
             'users.tasks.send_async_email',
             subject=f"Your profile was revealed for a shift at {shift.pharmacy.name}",
             recipient_list=[candidate.email],
             template_name="emails/shift_reveal.html",
             context=ctx,
-            text_template="emails/shift_reveal.txt"
+            text_template="emails/shift_reveal.txt",
+            notification=notification_payload
         )
 
         try:
@@ -1818,13 +1872,21 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             
             # (Optional) You can customize the email for rostered staff here if needed
             ctx = build_shift_email_context(shift, user=candidate, role=candidate.role.lower())
+            notification_payload = {
+                "title": f"Rostered: {shift.pharmacy.name}",
+                "body": f"You have been rostered for an upcoming shift at {shift.pharmacy.name}.",
+                "payload": {"shift_id": shift.id},
+            }
+            if ctx.get("shift_link"):
+                notification_payload["action_url"] = ctx["shift_link"]
             async_task(
                 'users.tasks.send_async_email',
                 subject=f"You’ve been rostered for a shift at {shift.pharmacy.name}",
                 recipient_list=[candidate.email],
                 template_name="emails/shift_accept.html", # Can reuse or create a new template
                 context=ctx,
-                text_template="emails/shift_accept.txt"
+                text_template="emails/shift_accept.txt",
+                notification=notification_payload
             )
 
             return Response({
@@ -1874,13 +1936,21 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                         assignment_ids.append(a.id)
 
             ctx = build_shift_email_context(shift, user=candidate, role=candidate.role.lower())
+            notification_payload = {
+                "title": f"Shift confirmed: {shift.pharmacy.name}",
+                "body": f"You have been accepted for a shift at {shift.pharmacy.name}.",
+                "payload": {"shift_id": shift.id},
+            }
+            if ctx.get("shift_link"):
+                notification_payload["action_url"] = ctx["shift_link"]
             async_task(
                 'users.tasks.send_async_email',
                 subject=f"You’ve been accepted for a shift at {shift.pharmacy.name}",
                 recipient_list=[candidate.email],
                 template_name="emails/shift_accept.html",
                 context=ctx,
-                text_template="emails/shift_accept.txt"
+                text_template="emails/shift_accept.txt",
+                notification=notification_payload
             )
             
             return Response({
@@ -1936,13 +2006,25 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 "making it visible to the entire ChemistTasker community. This can help you find the right fit, faster."
             )
 
+            notification_payload = {
+                "title": f"Shift declined: {shift.pharmacy.name}",
+                "body": f"{user.get_full_name() or user.email} declined this shift.",
+                "payload": {
+                    "shift_id": shift.id,
+                    "rejection_id": rejection.id,
+                },
+            }
+            if ctx.get("shift_link"):
+                notification_payload["action_url"] = ctx["shift_link"]
+
             async_task(
                 'users.tasks.send_async_email',
                 subject=f"Shift Update: {user.get_full_name() or user.email} has declined your shift",
                 recipient_list=[shift.created_by.email],
                 template_name="emails/shift_rejected.html",
                 context=ctx,
-                text_template="emails/shift_rejected.txt"
+                text_template="emails/shift_rejected.txt",
+                notification=notification_payload
             )
 
         return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
@@ -3188,6 +3270,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
 
         # Email recipients
         notification_emails = []
+        notification_users = []
         owner_user = getattr(pharmacy.owner, "user", None) if hasattr(pharmacy, "owner") and pharmacy.owner else None
         org_admins = []
         if hasattr(pharmacy.owner, "organization_claimed") and pharmacy.owner.organization_claimed:
@@ -3205,14 +3288,20 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         ).select_related('user')
 
         for admin_mem in pharmacy_admins:
-            if admin_mem.user and admin_mem.user.email and admin_mem.user.email not in notification_emails:
-                notification_emails.append(admin_mem.user.email)
+            if admin_mem.user and admin_mem.user.email:
+                if admin_mem.user.email not in notification_emails:
+                    notification_emails.append(admin_mem.user.email)
+                notification_users.append(admin_mem.user)
 
         for admin in org_admins:
-            if admin.user and admin.user.email and admin.user.email not in notification_emails:
-                notification_emails.append(admin.user.email)
-        if owner_user and owner_user.email and owner_user.email not in notification_emails:
-            notification_emails.append(owner_user.email)
+            if admin.user and admin.user.email:
+                if admin.user.email not in notification_emails:
+                    notification_emails.append(admin.user.email)
+                notification_users.append(admin.user)
+        if owner_user and owner_user.email:
+            if owner_user.email not in notification_emails:
+                notification_emails.append(owner_user.email)
+            notification_users.append(owner_user)
 
         # Who should the roster link be for? (Prefer first org_admin, fallback to owner)
         if pharmacy_admins:
@@ -3223,6 +3312,8 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             roster_link_user = owner_user
         else:
             roster_link_user = None
+
+        notification_user_ids = sorted({u.id for u in notification_users if getattr(u, "id", None)})
 
         ctx = {
             "worker_name": self.request.user.get_full_name() or self.request.user.email,
@@ -3235,13 +3326,26 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             "shift_link": build_roster_email_link(roster_link_user, pharmacy)
         }
         if notification_emails:
+            notification_payload = {
+                "title": f"Leave request: {pharmacy.name}",
+                "body": f"{ctx['worker_name']} requested leave on {ctx['shift_date']}.",
+                "action_url": ctx["shift_link"],
+                "payload": {
+                    "leave_request_id": leave.id,
+                    "pharmacy_id": pharmacy.id,
+                },
+            }
+            if notification_user_ids:
+                notification_payload["user_ids"] = notification_user_ids
+
             async_task(
                 'users.tasks.send_async_email',
                 subject=f"Leave request from {ctx['worker_name']} for {pharmacy.name}",
                 recipient_list=notification_emails,
                 template_name="emails/leave_request.html",
                 context=ctx,
-                text_template="emails/leave_request.txt"
+                text_template="emails/leave_request.txt",
+                notification=notification_payload
             )
 
     def is_owner_or_claimed_admin(self, user):
@@ -3452,6 +3556,15 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
                 "shift_link": build_roster_email_link(recipient, pharmacy),
             }
 
+            notification_payload = {
+                "title": f"Shift cover request: {pharmacy.name}",
+                "body": f"{worker_name} requested cover for {req.slot_date}.",
+                "action_url": ctx["shift_link"],
+                "payload": {"worker_shift_request_id": req.id},
+            }
+            if getattr(recipient, "id", None):
+                notification_payload["user_ids"] = [recipient.id]
+
             async_task(
                 'users.tasks.send_async_email',
                 subject=f"Shift cover request from {worker_name} for {pharmacy.name}",
@@ -3459,6 +3572,7 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
                 template_name="emails/swap_requested.html",
                 context=ctx,
                 text_template="emails/swap_requested.txt",
+                notification=notification_payload,
             )
 
     # ---------------------------
@@ -3489,6 +3603,14 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
             "shift_link": build_roster_email_link(req.requested_by, req.pharmacy),
         }
         if req.requested_by.email:
+            notification_payload = {
+                "title": f"Shift cover approved: {ctx['pharmacy_name']}",
+                "body": f"Your cover request for {ctx['shift_date']} was approved.",
+                "action_url": ctx["shift_link"],
+                "payload": {"worker_shift_request_id": req.id},
+            }
+            if getattr(req.requested_by, "id", None):
+                notification_payload["user_ids"] = [req.requested_by.id]
             async_task(
                 'users.tasks.send_async_email',
                 subject=f"Your shift cover request for {ctx['pharmacy_name']} was approved",
@@ -3496,6 +3618,7 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
                 template_name="emails/swap_approved.html",
                 context=ctx,
                 text_template="emails/swap_approved.txt",
+                notification=notification_payload,
             )
         return Response({'status': 'approved'})
 
@@ -3525,6 +3648,14 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
             "shift_link": build_roster_email_link(req.requested_by, req.pharmacy),
         }
         if req.requested_by.email:
+            notification_payload = {
+                "title": f"Shift cover rejected: {ctx['pharmacy_name']}",
+                "body": f"Your cover request for {ctx['shift_date']} was rejected.",
+                "action_url": ctx["shift_link"],
+                "payload": {"worker_shift_request_id": req.id},
+            }
+            if getattr(req.requested_by, "id", None):
+                notification_payload["user_ids"] = [req.requested_by.id]
             async_task(
                 'users.tasks.send_async_email',
                 subject=f"Your shift cover request for {ctx['pharmacy_name']} was rejected",
@@ -3532,6 +3663,7 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
                 template_name="emails/swap_rejected.html",
                 context=ctx,
                 text_template="emails/swap_rejected.txt",
+                notification=notification_payload,
             )
         return Response({'status': 'rejected'})
 
@@ -4239,6 +4371,29 @@ def send_invoice_email(request, invoice_id):
 # -----------------------------------------------------------------------------
 # Chat API
 # -----------------------------------------------------------------------------
+class NotificationPagination(PageNumberPagination):
+    page_size = 20
+    max_page_size = 100
+
+
+class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = NotificationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = NotificationPagination
+
+    def get_queryset(self):
+        return Notification.objects.filter(user=self.request.user).order_by('-created_at')
+
+    @action(detail=False, methods=['post'], url_path='mark-read')
+    def mark_read(self, request):
+        ids = request.data.get('ids')
+        if ids is not None and not isinstance(ids, list):
+            raise ValidationError({"ids": "Provide a list of notification IDs."})
+        marked = mark_notifications_read(request.user, notification_ids=ids or None)
+        unread = Notification.objects.filter(user=request.user, read_at__isnull=True).count()
+        return Response({"marked": marked, "unread": unread})
+
+
 class ChatMessagePagination(PageNumberPagination):
     page_size = 50
     page_size_query_param = 'page_size'
@@ -4576,6 +4731,7 @@ class ConversationViewSet(mixins.ListModelMixin,
             return Response({"detail": "Not a participant."}, status=status.HTTP_404_NOT_FOUND)
         part.last_read_at = timezone.now()
         part.save(update_fields=['last_read_at'])
+        broadcast_message_read(part)
         return Response({"detail": "Read position updated.", "last_read_at": part.last_read_at})
 
 class MyMembershipsViewSet(viewsets.ReadOnlyModelViewSet):

@@ -53,6 +53,18 @@ interface Shift {
 
 }
 
+const curvedPaperSx = {
+  borderRadius: 3,
+  boxShadow: '0 20px 45px rgba(109, 40, 217, 0.08)',
+};
+
+const gradientButtonSx = {
+  borderRadius: 2,
+  background: 'linear-gradient(90deg, #8B5CF6 0%, #6D28D9 100%)',
+  color: '#fff',
+  '&:hover': { background: 'linear-gradient(90deg, #A78BFA 0%, #8B5CF6 100%)' },
+};
+
 export default function MyConfirmedShiftsPage() {
   const [shifts, setShifts]     = useState<Shift[]>([]);
   const [loading, setLoading]   = useState(true); // Set to true initially for skeleton loading
@@ -199,7 +211,7 @@ export default function MyConfirmedShiftsPage() {
     return (
       <Container sx={{ textAlign: 'center', py: 4 }}>
         {[...Array(3)].map((_, index) => ( // Render 3 skeleton papers
-          <Paper key={index} sx={{ p: 2, mb: 2 }}>
+          <Paper key={index} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Skeleton variant="text" width="60%" height={30} />
               <Skeleton variant="rectangular" width={120} height={36} />
@@ -252,7 +264,7 @@ export default function MyConfirmedShiftsPage() {
   }
 
   return (
-    <Paper key={shift.id} sx={{ p: 2, mb: 2 }}>
+    <Paper key={shift.id} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
       <Box
         sx={{
           display: 'flex',
@@ -265,8 +277,9 @@ export default function MyConfirmedShiftsPage() {
         </Typography>
         <Button
           size="small"
-          variant="outlined"
+          variant="contained"
           onClick={() => openDialog(shift.pharmacy_detail)}
+          sx={gradientButtonSx}
         >
           Pharmacy Details
         </Button>

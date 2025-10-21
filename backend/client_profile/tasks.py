@@ -33,6 +33,8 @@ from users.models import OrganizationMembership
 logger = logging.getLogger(__name__)
 from environ import Env
 
+User = get_user_model()
+
 # ==== ENV SETUP ====
 BASE_DIR = Path(getattr(settings, "BASE_DIR", Path(__file__).resolve().parent.parent))
 ENV_PATH = BASE_DIR / "core" / ".env"
@@ -1111,12 +1113,22 @@ def email_membership_application_submitted(app_id: int):
     for email, r_role in recipients_by_role.items():
         manage_url = f"{base}{_manage_path_for_role(r_role)}"
         ctx = {**ctx_common, "manage_url": manage_url}
+        notification_payload = {
+            "title": f"New membership application: {pharmacy.name}",
+            "body": f"{ctx_common['applicant_full_name']} applied for {app.role}.",
+            "action_url": manage_url,
+            "payload": {"application_id": app.id},
+        }
+        user_id = User.objects.filter(email=email).values_list('id', flat=True).first()
+        if user_id:
+            notification_payload['user_ids'] = [user_id]
         send_async_email(
             subject=f"New membership application — {pharmacy.name}",
             recipient_list=[email],
             template_name="emails/membership_application_submitted.html",
             text_template="emails/membership_application_submitted.txt",
             context=ctx,
+            notification=notification_payload,
         )
 
 
@@ -1154,10 +1166,26 @@ def email_membership_application_approved(app_id: int):
         "login_url": f"{base}/login",
     }
 
+    notification_payload = {
+        "title": f"Application approved: {pharmacy.name}",
+        "body": f"Your application with {pharmacy.name} has been approved.",
+        "action_url": ctx["login_url"],
+        "payload": {"application_id": app.id},
+    }
+    user_ids = []
+    if getattr(app, "submitted_by_id", None):
+        user_ids.append(app.submitted_by_id)
+    else:
+        existing_id = User.objects.filter(email=app.email).values_list('id', flat=True).first()
+        if existing_id:
+            user_ids.append(existing_id)
+    if user_ids:
+        notification_payload['user_ids'] = user_ids
     send_async_email(
         subject=f"Your application to {pharmacy.name} was approved",
         recipient_list=[app.email],
         template_name="emails/membership_application_approved.html",
         text_template="emails/membership_application_approved.txt",
         context=ctx,
+        notification=notification_payload,
     )

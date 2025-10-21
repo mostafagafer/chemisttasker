@@ -73,6 +73,18 @@ interface Rejection {
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+const curvedCardSx = {
+  borderRadius: 3,
+  boxShadow: '0 20px 45px rgba(109, 40, 217, 0.08)',
+};
+
+const gradientButtonSx = {
+  borderRadius: 2,
+  background: 'linear-gradient(90deg, #8B5CF6 0%, #6D28D9 100%)',
+  color: '#fff',
+  '&:hover': { background: 'linear-gradient(90deg, #A78BFA 0%, #8B5CF6 100%)' },
+};
+
 const WorkerShiftDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -229,7 +241,7 @@ const WorkerShiftDetailPage: React.FC = () => {
     return (
       <Container sx={{ py: 4 }}>
         <Skeleton variant="text" width="40%" height={40} />
-        <Card sx={{ mt: 2 }}>
+        <Card sx={{ mt: 2, ...curvedCardSx }}>
           <CardContent>
             <Skeleton variant="text" width="60%" height={30} sx={{ mb: 1 }} />
             <Skeleton variant="text" width="80%" height={20} sx={{ mb: 2 }} />
@@ -248,7 +260,7 @@ const WorkerShiftDetailPage: React.FC = () => {
     return (
       <Container sx={{ textAlign: 'center', py: 4 }}>
         <Typography variant="h6" color="error">{error || 'Shift not found.'}</Typography>
-        <Button variant="contained" sx={{ mt: 2 }} onClick={() => navigate(-1)}>Go Back</Button>
+        <Button variant="contained" sx={[gradientButtonSx, { mt: 2 }]} onClick={() => navigate(-1)}>Go Back</Button>
       </Container>
     );
   }
@@ -262,7 +274,7 @@ const WorkerShiftDetailPage: React.FC = () => {
         Shift Details
       </Typography>
 
-      <Card>
+      <Card sx={curvedCardSx}>
         <CardContent>
           {/* Flexbox Header - Replaces Grid */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
@@ -318,7 +330,7 @@ const WorkerShiftDetailPage: React.FC = () => {
                             <Box>
                                 {slotStatus === 'None' ? (
                                     <>
-                                        <Button size="small" variant="contained" onClick={() => handleExpressInterest(shift.id, slot.id)}>Accept</Button>
+                                        <Button size="small" variant="contained" sx={gradientButtonSx} onClick={() => handleExpressInterest(shift.id, slot.id)}>Accept</Button>
                                         <Button size="small" variant="outlined" color="error" sx={{ml: 1}} onClick={() => handleReject(shift.id, slot.id)}>Decline</Button>
                                     </>
                                 ) : <Chip label={slotStatus} color={slotStatus === 'Requested' ? 'success' : slotStatus === 'Rejected' ? 'error' : 'default'} size="small"/>}
@@ -332,7 +344,7 @@ const WorkerShiftDetailPage: React.FC = () => {
                 <Box sx={{ mt: 2, textAlign: 'right' }}>
                     {shiftStatus === 'None' ? (
                         <>
-                            <Button variant="contained" onClick={() => handleExpressInterest(shift.id, null)}>Express Interest in Shift</Button>
+                            <Button variant="contained" sx={gradientButtonSx} onClick={() => handleExpressInterest(shift.id, null)}>Express Interest in Shift</Button>
                             <Button variant="outlined" color="error" sx={{ml: 1}} onClick={() => handleReject(shift.id, null)}>Reject Shift</Button>
                         </>
                     ) : <Chip label={shiftStatus} color={shiftStatus === 'Requested' ? 'success' : 'error'} />}

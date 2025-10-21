@@ -293,6 +293,9 @@ const ActiveShiftsPage: React.FC = () => {
   const [workerCommentsPage, setWorkerCommentsPage] = useState(1);
   const [workerCommentsPageCount, setWorkerCommentsPageCount] = useState(1);
   const [loadingWorkerRatings, setLoadingWorkerRatings] = useState(false);
+  const [revealingInterestId, setRevealingInterestId] = useState<number | null>(null);
+  const [assigning, setAssigning] = useState(false);
+  const [reviewLoadingId, setReviewLoadingId] = useState<number | null>(null);
 
   const showSnackbar = useCallback((message: string) => {
     setSnackbar({ open: true, message });
@@ -620,6 +623,7 @@ const ActiveShiftsPage: React.FC = () => {
   };
 
   const handleAssign = async (shiftId: number, userId: number, slotId: number | null) => {
+    setAssigning(true);
     try {
       await apiClient.post(API_ENDPOINTS.acceptUserToShift(shiftId), { user_id: userId, slot_id: slotId });
       showSnackbar('User assigned successfully.');
@@ -639,16 +643,24 @@ const ActiveShiftsPage: React.FC = () => {
     } catch (error) {
       console.error('Failed to assign user', error);
       showSnackbar('Failed to assign user.');
+    } finally {
+      setAssigning(false);
     }
   };
 
-  const handleReviewCandidate = (candidate: MemberStatus, shiftId: number) => {
+  const handleReviewCandidate = async (candidate: MemberStatus, shiftId: number) => {
     resetWorkerRatings();
     setReviewCandidateDialog({ open: true, candidate, shiftId });
-    loadWorkerRatings(candidate.user_id, 1);
+    setReviewLoadingId(candidate.user_id);
+    try {
+      await loadWorkerRatings(candidate.user_id, 1);
+    } finally {
+      setReviewLoadingId(null);
+    }
   };
 
   const handleRevealPlatform = async (shift: Shift, interest: Interest) => {
+    setRevealingInterestId(interest.id);
     try {
       resetWorkerRatings();
       const res = await apiClient.post(API_ENDPOINTS.revealProfile(shift.id), {
@@ -657,7 +669,9 @@ const ActiveShiftsPage: React.FC = () => {
       });
       const userDetail: UserDetail = res.data;
       setPlatformInterestDialog({ open: true, user: userDetail, shiftId: shift.id, interest });
-      loadWorkerRatings(userDetail.id, 1);
+      setReviewLoadingId(userDetail.id);
+      await loadWorkerRatings(userDetail.id, 1);
+      setReviewLoadingId(null);
 
       const tabKey = getTabKey(shift.id, PUBLIC_LEVEL_KEY);
       setTabData(prev => {
@@ -680,6 +694,9 @@ const ActiveShiftsPage: React.FC = () => {
     } catch (error) {
       console.error('Failed to reveal platform candidate', error);
       showSnackbar('Failed to reveal candidate.');
+      setReviewLoadingId(null);
+    } finally {
+      setRevealingInterestId(null);
     }
   };
 
@@ -764,6 +781,10 @@ const ActiveShiftsPage: React.FC = () => {
                       fullWidth
                       sx={{ mt: 1.5 }}
                       onClick={() => handleReviewCandidate(member, shiftId)}
+                      disabled={reviewLoadingId === member.user_id}
+                      startIcon={
+                        reviewLoadingId === member.user_id ? <CircularProgress size={16} color="inherit" /> : undefined
+                      }
                     >
                       Review Candidate
                     </Button>
@@ -1094,7 +1115,17 @@ const ActiveShiftsPage: React.FC = () => {
                                           {slotInterests.map(interest => (
                                             <Box key={interest.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1, pt: 1, borderTop: '1px solid #eee' }}>
                                               <Typography variant="body2">{interest.user}</Typography>
-                                              <Button size="small" variant={interest.revealed ? 'outlined' : 'contained'} onClick={() => handleRevealPlatform(shift, interest)}>
+                                              <Button
+                                                size="small"
+                                                variant={interest.revealed ? 'outlined' : 'contained'}
+                                                onClick={() => handleRevealPlatform(shift, interest)}
+                                                disabled={revealingInterestId === interest.id || assigning}
+                                                startIcon={
+                                                  revealingInterestId === interest.id ? (
+                                                    <CircularProgress size={16} color="inherit" />
+                                                  ) : undefined
+                                                }
+                                              >
                                                 {interest.revealed ? 'Review' : 'Reveal'}
                                               </Button>
                                             </Box>
@@ -1108,7 +1139,17 @@ const ActiveShiftsPage: React.FC = () => {
                                         {interestsAll.map(interest => (
                                           <Box key={interest.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1, pt: 1, borderTop: '1px solid #eee' }}>
                                             <Typography variant="body2">{interest.user}</Typography>
-                                            <Button size="small" variant={interest.revealed ? 'outlined' : 'contained'} onClick={() => handleRevealPlatform(shift, interest)}>
+                                            <Button
+                                              size="small"
+                                              variant={interest.revealed ? 'outlined' : 'contained'}
+                                              onClick={() => handleRevealPlatform(shift, interest)}
+                                              disabled={revealingInterestId === interest.id || assigning}
+                                              startIcon={
+                                                revealingInterestId === interest.id ? (
+                                                  <CircularProgress size={16} color="inherit" />
+                                                ) : undefined
+                                              }
+                                            >
                                               {interest.revealed ? 'Review' : 'Reveal'}
                                             </Button>
                                           </Box>
@@ -1254,6 +1295,8 @@ const ActiveShiftsPage: React.FC = () => {
                 variant="contained"
                 color="success"
                 onClick={() => handleAssign(reviewCandidateDialog.shiftId!, reviewCandidateDialog.candidate!.user_id, null)}
+                disabled={assigning}
+                startIcon={assigning ? <CircularProgress size={16} color="inherit" /> : undefined}
               >
                 Assign to Shift
               </Button>
@@ -1358,7 +1401,13 @@ const ActiveShiftsPage: React.FC = () => {
               Close
             </Button>
             {platformInterestDialog.user && (
-              <Button variant="contained" color="success" onClick={handleAssignPlatform}>
+              <Button
+                variant="contained"
+                color="success"
+                onClick={handleAssignPlatform}
+                disabled={assigning}
+                startIcon={assigning ? <CircularProgress size={16} color="inherit" /> : undefined}
+              >
                 Assign to Shift
               </Button>
             )}

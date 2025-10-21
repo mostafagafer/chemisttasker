@@ -42,6 +42,8 @@ router.register(r'ratings', RatingViewSet, basename='rating')
 router.register(r'rooms', ConversationViewSet, basename='conversation')
 router.register(r'my-memberships', MyMembershipsViewSet, basename='my-memberships')
 router.register(r'messages', MessageViewSet, basename='message')
+router.register(r'notifications', NotificationViewSet, basename='notification')
+
 
 # explorer post
 router.register(r'explorer-posts', ExplorerPostViewSet, basename='explorer-post')

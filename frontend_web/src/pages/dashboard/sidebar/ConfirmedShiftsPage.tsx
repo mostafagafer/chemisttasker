@@ -60,6 +60,18 @@ interface Profile {
   rate_preference?: RatePreference | null;
 }
 
+const curvedPaperSx = {
+  borderRadius: 3,
+  boxShadow: '0 20px 45px rgba(109, 40, 217, 0.08)',
+};
+
+const gradientButtonSx = {
+  borderRadius: 2,
+  background: 'linear-gradient(90deg, #8B5CF6 0%, #6D28D9 100%)',
+  color: '#fff',
+  '&:hover': { background: 'linear-gradient(90deg, #A78BFA 0%, #8B5CF6 100%)' },
+};
+
 export default function ConfirmedShiftsPage() {
   // 1) State
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -146,7 +158,7 @@ export default function ConfirmedShiftsPage() {
       return (
         <Box sx={{ textAlign: 'center', py: 4 }}>
           {[...Array(3)].map((_, index) => (
-            <Paper key={index} sx={{ p: 2, mb: 2 }}>
+          <Paper key={index} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
               <Skeleton variant="text" width="70%" height={30} sx={{ mb: 1 }} />
               <Skeleton variant="text" width="50%" height={20} sx={{ mb: 2 }} />
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -170,7 +182,7 @@ export default function ConfirmedShiftsPage() {
     return (
       <>
         {displayedShifts.map((shift: Shift) => ( // Explicitly type 'shift'
-          <Paper key={shift.id} sx={{ p: 2, mb: 2 }}>
+          <Paper key={shift.id} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
             <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
             <Typography>Role: {shift.role_needed}</Typography>
 
@@ -186,7 +198,8 @@ export default function ConfirmedShiftsPage() {
                     <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                       <Button
                         size="small"
-                        variant="outlined"
+                        variant="contained"
+                        sx={gradientButtonSx}
                         onClick={() =>
                           openProfile(shift.id, null, shift.slot_assignments[0].user_id)
                         }
@@ -215,7 +228,8 @@ export default function ConfirmedShiftsPage() {
                       </Typography>
                       <Button
                         size="small"
-                        variant="outlined"
+                        variant="contained"
+                        sx={gradientButtonSx}
                         onClick={() =>
                           openProfile(shift.id, slot.id, assign.user_id)
                         }

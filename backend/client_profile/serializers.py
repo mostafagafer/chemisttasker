@@ -4729,3 +4729,19 @@ class ChatParticipantSerializer(serializers.ModelSerializer):
             "employment_type",
             "invited_name",
         ]
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = [
+            "id",
+            "type",
+            "title",
+            "body",
+            "payload",
+            "action_url",
+            "created_at",
+            "read_at",
+        ]
+        read_only_fields = fields

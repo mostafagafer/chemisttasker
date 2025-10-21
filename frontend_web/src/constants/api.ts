@@ -160,6 +160,8 @@ export const API_ENDPOINTS = {
   roomDetail: (id:number) => `/client-profile/rooms/${id}/`,
   roomMessages: (id:number) => `/client-profile/rooms/${id}/messages/`,
   roomMarkRead: (id:number) => `/client-profile/rooms/${id}/read/`,
+  notifications: '/client-profile/notifications/',
+  notificationsMarkRead: '/client-profile/notifications/mark-read/',
   startDm: '/client-profile/rooms/start-dm/',
   myMemberships: '/client-profile/my-memberships/',
   memberships: '/client-profile/memberships/',

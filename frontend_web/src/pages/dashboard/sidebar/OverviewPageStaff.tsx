@@ -89,31 +89,65 @@ export default function OverviewPageStaff() {
 
   const shifts = useMemo(() => data?.shifts ?? [], [data?.shifts]);
 
-  if (loading) {
-    return (
-      <Box
+if (loading) {
+  return (
+    <Box
+      sx={{
+        width: "100%",
+        maxWidth: "1200px",
+        mx: "auto",
+        px: { xs: 2, md: 4 },
+        py: { xs: 4, md: 6 },
+        display: "flex",
+        flexDirection: "column",
+        gap: { xs: 3, md: 4 },
+        minHeight: "calc(100vh - 80px)", // ✅ Make it fill screen height
+      }}
+    >
+      {/* Hero card skeleton */}
+      <Skeleton
+        variant="rounded"
+        height={220}
         sx={{
-          maxWidth: 1200,
-          mx: "auto",
-          px: { xs: 2, md: 4 },
-          py: { xs: 2, md: 4 },
-          display: "flex",
-          flexDirection: "column",
-          gap: { xs: 2, md: 3 },
+          width: "100%",
+          borderRadius: 3,
         }}
+      />
+
+      {/* 3 stats skeletons */}
+      <Grid
+        container
+        spacing={2.5}
+        sx={{ width: "100%" }}
       >
-        <Skeleton variant="rounded" height={220} />
-        <Grid container spacing={2}>
-          {Array.from({ length: 3 }).map((_, idx) => (
-            <Grid size={{ xs: 12, sm: 4 }} key={idx}>
-              <Skeleton variant="rounded" height={120} />
-            </Grid>
-          ))}
-        </Grid>
-        <Skeleton variant="rounded" height={280} />
-      </Box>
-    );
-  }
+        {Array.from({ length: 3 }).map((_, idx) => (
+          <Grid size={{ xs: 12, sm: 4 }} key={idx}>
+            <Skeleton
+              variant="rounded"
+              height={120}
+              sx={{
+                width: "100%",
+                borderRadius: 3,
+              }}
+            />
+          </Grid>
+        ))}
+      </Grid>
+
+      {/* Bottom card skeleton */}
+      <Skeleton
+        variant="rounded"
+        height={280}
+        sx={{
+          width: "100%",
+          borderRadius: 3,
+        }}
+      />
+    </Box>
+  );
+}
+
+
 
   if (error) {
     return (
@@ -182,14 +216,16 @@ export default function OverviewPageStaff() {
   return (
     <Box
       sx={{
-        width: "100%",
         maxWidth: 1200,
+        width: "100%",       // ✅ Ensures full width
+        minHeight: "100vh",  // ✅ Prevents shrinking to top-left corner
         mx: "auto",
-        px: { xs: 2, md: 4 },
-        py: { xs: 2, md: 4 },
         display: "flex",
         flexDirection: "column",
-        gap: { xs: 2.5, md: 3 },
+        justifyContent: "flex-start",
+        gap: { xs: 2, md: 3 },
+        px: { xs: 2, md: 4 },
+        py: { xs: 2, md: 4 },
       }}
     >
       <Paper

@@ -3,6 +3,11 @@ import traceback
 import logging
 logger = logging.getLogger(__name__)
 
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+
 def send_async_email(subject, 
                      recipient_list, 
                      template_name, 
@@ -10,7 +15,8 @@ def send_async_email(subject,
                      from_email=None, 
                      text_template=None,     
                      cc=None,                    
-                     attachments=None           
+                     attachments=None,
+                     notification=None
                      ):
     from django.core.mail import EmailMultiAlternatives
     from django.template.loader import render_to_string
@@ -40,6 +46,36 @@ def send_async_email(subject,
 
     from_email = from_email or settings.DEFAULT_FROM_EMAIL
 
+    def _dispatch_notification(notification_payload, recipients):
+        if not notification_payload:
+            return
+        if not isinstance(notification_payload, dict):
+            logger.warning("notification payload must be a dict, got %s", type(notification_payload))
+            return
+        try:
+            from client_profile.notifications import notify_users
+            user_ids = notification_payload.get("user_ids") or []
+            user_emails = notification_payload.get("user_emails")
+            if not user_ids:
+                lookup_emails = user_emails or recipients
+                if lookup_emails:
+                    qs = User.objects.filter(email__in=lookup_emails).values_list("id", flat=True)
+                    user_ids = list(qs)
+            user_ids = [uid for uid in {uid for uid in user_ids if uid}]
+            if not user_ids:
+                logger.info("No platform user ids resolved for notification payload; skipping in-app notification.")
+                return
+            notify_users(
+                user_ids,
+                title=notification_payload.get("title") or subject,
+                body=notification_payload.get("body") or "",
+                notification_type=notification_payload.get("type") or "task",
+                action_url=notification_payload.get("action_url"),
+                payload=notification_payload.get("payload") or {},
+            )
+        except Exception:
+            logger.exception("Failed to dispatch in-app notification for email.")
+
     # Defensive clean for email addresses
     safe_recipient_list = [e.strip().replace('\u200f','').replace('\u200e','') for e in recipient_list]
     logger.info("Safe Recipient List: %s", safe_recipient_list)
@@ -66,6 +102,8 @@ def send_async_email(subject,
         msg.send()
 
         logger.info("Email sent successfully.")
+        if notification:
+            _dispatch_notification(notification, safe_recipient_list)
     except Exception as e:
         logger.error("Failed to send email: %s", str(e))
         traceback.print_exc()

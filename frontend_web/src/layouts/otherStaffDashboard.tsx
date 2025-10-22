@@ -15,7 +15,6 @@ export default function OtherstaffDashboardWrapper() {
     <ColorModeProvider>
       <DashboardShell>
         <DashboardLayout
-          defaultSidebarCollapsed
           sidebarExpandedWidth={288}
           slots={{
             appTitle: () => <CustomAppTitle userRole={user?.role || "OTHER_STAFF"} />,

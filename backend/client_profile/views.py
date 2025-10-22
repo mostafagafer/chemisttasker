@@ -45,6 +45,7 @@ from django.contrib.auth import get_user_model   # used in ChainViewSet.add_user
 from users.models import User                    # referenced throughout (accept_user, etc.)
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+import mimetypes
 
 
 # Onboardings
@@ -883,6 +884,7 @@ class MembershipViewSet(viewsets.ModelViewSet):
         # 3. Apply the optional query filters from the request.
         pharmacy_id = self.request.query_params.get('pharmacy_id')
         chain_id = self.request.query_params.get('chain_id')
+        organization_id = self.request.query_params.get('organization')
         
         if pharmacy_id:
             qs = qs.filter(pharmacy_id=pharmacy_id)
@@ -891,6 +893,8 @@ class MembershipViewSet(viewsets.ModelViewSet):
             # Correctly filter by pharmacies belonging to a chain using the proper relationship
             qs = qs.filter(pharmacy__chains__id=chain_id)
             # ---------------------
+        elif organization_id:
+            qs = qs.filter(pharmacy__organization_id=organization_id)
 
         return qs.distinct()
 
@@ -4897,3 +4901,1058 @@ class ChatParticipantView(generics.ListAPIView):
             chat_participations__conversation__in=user_conversations
         ).distinct()
         return participant_memberships
+
+
+# -----------------------------------------------------------------------------
+# Pharmacy Hub API
+# -----------------------------------------------------------------------------
+
+
+class PharmacyHubAccessMixin:
+    pharmacy_lookup_url_kwarg = "pharmacy_pk"
+    org_roles_with_access = ("ORG_ADMIN", "REGION_ADMIN", "SHIFT_MANAGER")
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        pharmacy_id = self.kwargs.get(self.pharmacy_lookup_url_kwarg)
+        self.pharmacy = get_object_or_404(Pharmacy, pk=pharmacy_id)
+
+        user = request.user
+        membership = (
+            Membership.objects.filter(
+                user=user,
+                pharmacy=self.pharmacy,
+                is_active=True,
+            )
+            .select_related("user")
+            .first()
+        )
+
+        is_owner = bool(
+            getattr(self.pharmacy, "owner", None)
+            and self.pharmacy.owner.user_id == user.id
+        )
+        org_admin = False
+        if self.pharmacy.organization_id:
+            org_admin = OrganizationMembership.objects.filter(
+                user=user,
+                organization_id=self.pharmacy.organization_id,
+                role__in=self.org_roles_with_access,
+            ).exists()
+
+        if not any([membership, is_owner, org_admin]):
+            raise PermissionDenied("You do not have access to this pharmacy hub.")
+
+        self.request_membership = membership
+        self.is_owner = is_owner
+        self.is_org_admin = org_admin
+        self.has_admin_permissions = bool(
+            org_admin
+            or is_owner
+            or (membership and membership.is_pharmacy_admin)
+        )
+
+    def _ensure_author_membership(self):
+        if self.request_membership:
+            return self.request_membership
+
+        if getattr(self.pharmacy, "owner", None) and self.pharmacy.owner.user_id == self.request.user.id:
+            membership, _created = Membership.objects.get_or_create(
+                user=self.request.user,
+                pharmacy=self.pharmacy,
+                defaults={
+                    "role": "PHARMACY_ADMIN",
+                    "employment_type": "FULL_TIME",
+                    "is_active": True,
+                },
+            )
+            if not membership.is_active:
+                membership.is_active = True
+                membership.save(update_fields=["is_active"])
+            self.request_membership = membership
+            return membership
+
+        if getattr(self, "is_org_admin", False):
+            membership, _created = Membership.objects.get_or_create(
+                user=self.request.user,
+                pharmacy=self.pharmacy,
+                defaults={
+                    "role": "PHARMACY_ADMIN",
+                    "employment_type": "FULL_TIME",
+                    "is_active": True,
+                },
+            )
+            if not membership.is_active:
+                membership.is_active = True
+                membership.save(update_fields=["is_active"])
+            self.request_membership = membership
+            return membership
+
+        raise PermissionDenied("Join this pharmacy before posting.")
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context.update(
+            {
+                "pharmacy": getattr(self, "pharmacy", None),
+                "request_membership": getattr(self, "request_membership", None),
+                "has_admin_permissions": getattr(self, "has_admin_permissions", False),
+            }
+        )
+        return context
+
+
+class PharmacyCommunityGroupAccessMixin(PharmacyHubAccessMixin):
+    group_lookup_url_kwarg = "group_pk"
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        group_id = self.kwargs.get(self.group_lookup_url_kwarg)
+        self.community_group = get_object_or_404(
+            PharmacyCommunityGroup.objects.prefetch_related(
+                "memberships__membership__user"
+            ),
+            pk=group_id,
+            pharmacy=self.pharmacy,
+        )
+        membership_link = (
+            self.community_group.memberships.select_related("membership__user")
+            .filter(membership__user=request.user)
+            .first()
+        )
+        self.group_membership_link = membership_link
+        self.has_group_admin_permissions = bool(
+            self.has_admin_permissions
+            or (membership_link and membership_link.is_admin)
+        )
+        if not (self.has_admin_permissions or membership_link):
+            raise PermissionDenied("You are not a member of this community group.")
+        if membership_link:
+            self.request_membership = membership_link.membership
+
+    def _ensure_author_membership(self):
+        link = self._get_or_create_group_membership()
+        if link:
+            return link.membership
+        return super()._ensure_author_membership()
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context.update(
+            {
+                "community_group": getattr(self, "community_group", None),
+                "has_group_admin_permissions": getattr(
+                    self, "has_group_admin_permissions", False
+                ),
+            }
+        )
+        return context
+
+    def _get_or_create_group_membership(self, force_admin: bool = False):
+        membership_link = getattr(self, "group_membership_link", None)
+        if membership_link:
+            if (
+                force_admin
+                and self.has_admin_permissions
+                and not membership_link.is_admin
+            ):
+                membership_link.is_admin = True
+                membership_link.save(update_fields=["is_admin"])
+            return membership_link
+
+        if not self.has_admin_permissions:
+            return None
+
+        base_membership = super(PharmacyCommunityGroupAccessMixin, self)._ensure_author_membership()
+        link, created = PharmacyCommunityGroupMembership.objects.get_or_create(
+            group=self.community_group,
+            membership=base_membership,
+            defaults={"is_admin": True},
+        )
+        if force_admin and not link.is_admin:
+            link.is_admin = True
+            link.save(update_fields=["is_admin"])
+
+        self.group_membership_link = link
+        self.request_membership = base_membership
+        self.has_group_admin_permissions = True
+        return link
+
+
+class HubAttachmentMixin:
+    def _attachment_kind(self, uploaded):
+        content_type = getattr(uploaded, "content_type", None)
+        if not content_type:
+            content_type, _ = mimetypes.guess_type(uploaded.name)
+        if content_type:
+            if content_type == "image/gif":
+                return PharmacyHubAttachment.Kind.GIF
+            if content_type.startswith("image/"):
+                return PharmacyHubAttachment.Kind.IMAGE
+        return PharmacyHubAttachment.Kind.FILE
+
+    def _add_attachments(self, post, files):
+        for uploaded in files or []:
+            if not uploaded:
+                continue
+            PharmacyHubAttachment.objects.create(
+                post=post,
+                file=uploaded,
+                kind=self._attachment_kind(uploaded),
+            )
+
+    def _remove_attachments(self, post, request):
+        raw_ids = request.data.get("remove_attachment_ids", [])
+        ids = []
+        if isinstance(raw_ids, list):
+            ids = raw_ids
+        elif raw_ids:
+            if isinstance(raw_ids, str):
+                try:
+                    parsed = json.loads(raw_ids)
+                    if isinstance(parsed, list):
+                        ids = parsed
+                    else:
+                        ids = [parsed]
+                except json.JSONDecodeError:
+                    ids = [pk for pk in raw_ids.split(",") if pk.strip()]
+        if ids:
+            post.attachments.filter(id__in=ids).delete()
+
+
+class PharmacyCommunityGroupViewSet(
+    PharmacyHubAccessMixin,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PharmacyCommunityGroupSerializer
+
+    def get_queryset(self):
+        queryset = (
+            PharmacyCommunityGroup.objects.filter(pharmacy=self.pharmacy)
+            .prefetch_related("memberships__membership__user")
+            .order_by("name")
+        )
+        if self.has_admin_permissions:
+            return queryset
+        return (
+            queryset.filter(memberships__membership__user=self.request.user)
+            .distinct()
+        )
+
+    def perform_create(self, serializer):
+        if not self.has_admin_permissions:
+            raise PermissionDenied("Only pharmacy admins can create community groups.")
+        self._ensure_author_membership()
+        serializer.save(
+            pharmacy=self.pharmacy,
+            created_by=self.request.user,
+        )
+
+    def perform_update(self, serializer):
+        group = self.get_object()
+        if not self._user_can_manage(group):
+            raise PermissionDenied("You cannot update this community group.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if not self._user_can_manage(instance):
+            raise PermissionDenied("You cannot delete this community group.")
+        instance.delete()
+
+    def _user_can_manage(self, group: PharmacyCommunityGroup) -> bool:
+        if self.has_admin_permissions:
+            return True
+        membership_link = group.memberships.filter(
+            membership__user=self.request.user
+        ).first()
+        return bool(membership_link and membership_link.is_admin)
+
+
+class CommunityGroupPostViewSet(
+    HubAttachmentMixin,
+    PharmacyCommunityGroupAccessMixin,
+    viewsets.ModelViewSet,
+):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PharmacyHubPostSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_queryset(self):
+        return (
+            PharmacyHubPost.objects.filter(community_group=self.community_group)
+            .select_related(
+                "author_membership__user", "pharmacy", "community_group"
+            )
+            .prefetch_related(
+                "comments__author_membership__user",
+                "reactions",
+                "attachments",
+            )
+            .order_by("-is_pinned", "-pinned_at", "-created_at")
+        )
+
+    def perform_create(self, serializer):
+        membership_link = self._get_or_create_group_membership(force_admin=True)
+        if not membership_link:
+            raise PermissionDenied("Only group members can create posts.")
+        post = serializer.save(
+            pharmacy=self.pharmacy,
+            community_group=self.community_group,
+            author_membership=membership_link.membership,
+            original_body=serializer.validated_data.get("body", ""),
+            is_edited=False,
+            last_edited_at=None,
+            last_edited_by=None,
+        )
+        self._add_attachments(post, self.request.FILES.getlist("attachments"))
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        if not self.has_group_admin_permissions and instance.author_membership_id != getattr(
+            self.request_membership, "id", None
+        ):
+            raise PermissionDenied("You cannot edit this post.")
+        if instance.deleted_at:
+            raise PermissionDenied("You cannot edit a deleted post.")
+        extra = {}
+        new_body = serializer.validated_data.get("body")
+        if new_body is not None and new_body != instance.body:
+            extra["is_edited"] = True
+            if not instance.original_body:
+                extra["original_body"] = instance.body
+            extra["last_edited_at"] = timezone.now()
+            extra["last_edited_by"] = self.request.user
+        post = serializer.save(**extra)
+        self._remove_attachments(post, self.request)
+        self._add_attachments(post, self.request.FILES.getlist("attachments"))
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not self.has_group_admin_permissions and instance.author_membership_id != getattr(
+            self.request_membership, "id", None
+        ):
+            raise PermissionDenied("You cannot delete this post.")
+        if instance.deleted_at:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        instance.soft_delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="pin")
+    def pin(self, request, *args, **kwargs):
+        if not self.has_group_admin_permissions:
+            raise PermissionDenied("Only group admins can pin posts.")
+        post = self.get_object()
+        if post.deleted_at:
+            raise PermissionDenied("Cannot pin a deleted post.")
+        if not post.is_pinned:
+            post.is_pinned = True
+            post.pinned_at = timezone.now()
+            post.pinned_by = request.user
+            post.save(update_fields=["is_pinned", "pinned_at", "pinned_by"])
+        return Response(self.get_serializer(post).data)
+
+    @action(detail=True, methods=["post"], url_path="unpin")
+    def unpin(self, request, *args, **kwargs):
+        if not self.has_group_admin_permissions:
+            raise PermissionDenied("Only group admins can unpin posts.")
+        post = self.get_object()
+        if post.is_pinned:
+            post.is_pinned = False
+            post.pinned_at = None
+            post.pinned_by = None
+            post.save(update_fields=["is_pinned", "pinned_at", "pinned_by"])
+        return Response(self.get_serializer(post).data)
+
+
+class CommunityGroupCommentViewSet(
+    PharmacyCommunityGroupAccessMixin,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PharmacyHubCommentSerializer
+
+    def get_queryset(self):
+        post = self._get_post()
+        return (
+            post.comments.select_related("author_membership__user").order_by("created_at")
+        )
+
+    def _get_post(self):
+        post_id = self.kwargs.get("post_pk")
+        return get_object_or_404(
+            PharmacyHubPost,
+            pk=post_id,
+            community_group=self.community_group,
+            deleted_at__isnull=True,
+        )
+
+    def perform_create(self, serializer):
+        post = self._get_post()
+        if not post.allow_comments:
+            raise PermissionDenied("Comments are disabled for this post.")
+
+        parent = serializer.validated_data.get("parent_comment")
+        if parent and parent.post_id != post.id:
+            serializer.validated_data["parent_comment"] = None
+
+        comment = serializer.save(
+            post=post,
+            author_membership=self._ensure_author_membership(),
+            original_body=serializer.validated_data.get("body", ""),
+        )
+        post.recompute_comment_count()
+        self.request_membership = comment.author_membership
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        if not self.has_group_admin_permissions and instance.author_membership_id != getattr(
+            self.request_membership, "id", None
+        ):
+            raise PermissionDenied("You cannot edit this comment.")
+        if instance.deleted_at:
+            raise PermissionDenied("You cannot edit a deleted comment.")
+        extra = {}
+        new_body = serializer.validated_data.get("body")
+        if new_body is not None and new_body != instance.body:
+            extra["is_edited"] = True
+            if not instance.original_body:
+                extra["original_body"] = instance.body
+            extra["last_edited_at"] = timezone.now()
+            extra["last_edited_by"] = self.request.user
+        serializer.save(**extra)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not self.has_group_admin_permissions and instance.author_membership_id != getattr(
+            self.request_membership, "id", None
+        ):
+            raise PermissionDenied("You cannot delete this comment.")
+        if not instance.deleted_at:
+            instance.soft_delete()
+        instance.post.recompute_comment_count()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CommunityGroupReactionView(PharmacyCommunityGroupAccessMixin, APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def put(self, request, pharmacy_pk: int, group_pk: int, post_pk: int):
+        post = get_object_or_404(
+            PharmacyHubPost,
+            pk=post_pk,
+            community_group=self.community_group,
+            deleted_at__isnull=True,
+        )
+        serializer = PharmacyHubReactionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        membership = self._ensure_author_membership()
+        reaction_type = serializer.validated_data["reaction_type"]
+        PharmacyHubReaction.objects.update_or_create(
+            post=post,
+            member=membership,
+            defaults={
+                "reaction_type": reaction_type,
+                "updated_at": timezone.now(),
+            },
+        )
+        post.recompute_reaction_summary()
+        response = PharmacyHubPostSerializer(
+            post,
+            context={
+                "request": request,
+                "pharmacy": self.pharmacy,
+                "community_group": self.community_group,
+                "request_membership": membership,
+                "has_admin_permissions": self.has_admin_permissions,
+                "has_group_admin_permissions": self.has_group_admin_permissions,
+            },
+        )
+        return Response(response.data)
+
+    def delete(self, request, pharmacy_pk: int, group_pk: int, post_pk: int):
+        post = get_object_or_404(
+            PharmacyHubPost,
+            pk=post_pk,
+            community_group=self.community_group,
+            deleted_at__isnull=True,
+        )
+        membership = self._ensure_author_membership()
+        if membership:
+            PharmacyHubReaction.objects.filter(
+                post=post,
+                member=membership,
+            ).delete()
+            post.recompute_reaction_summary()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PharmacyHubPostViewSet(
+    HubAttachmentMixin,
+    PharmacyHubAccessMixin,
+    viewsets.ModelViewSet,
+):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PharmacyHubPostSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_queryset(self):
+        return (
+            PharmacyHubPost.objects.filter(pharmacy=self.pharmacy)
+            .select_related("author_membership__user", "pharmacy", "organization")
+            .prefetch_related(
+                "comments__author_membership__user",
+                "reactions",
+                "attachments",
+            )
+            .order_by("-is_pinned", "-pinned_at", "-created_at")
+        )
+
+    def perform_create(self, serializer):
+        post = serializer.save(
+            pharmacy=self.pharmacy,
+            author_membership=self._ensure_author_membership(),
+            original_body=serializer.validated_data.get("body", ""),
+            is_edited=False,
+            last_edited_at=None,
+            last_edited_by=None,
+        )
+        self._add_attachments(post, self.request.FILES.getlist("attachments"))
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        if not self.has_admin_permissions and instance.author_membership_id != getattr(
+            self.request_membership, "id", None
+        ):
+            raise PermissionDenied("You cannot edit this post.")
+        if instance.deleted_at:
+            raise PermissionDenied("You cannot edit a deleted post.")
+        extra = {}
+        new_body = serializer.validated_data.get("body")
+        if new_body is not None and new_body != instance.body:
+            extra["is_edited"] = True
+            if not instance.original_body:
+                extra["original_body"] = instance.body
+            extra["last_edited_at"] = timezone.now()
+            extra["last_edited_by"] = self.request.user
+        post = serializer.save(**extra)
+        self._remove_attachments(post, self.request)
+        self._add_attachments(post, self.request.FILES.getlist("attachments"))
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not self.has_admin_permissions and instance.author_membership_id != getattr(
+            self.request_membership, "id", None
+        ):
+            raise PermissionDenied("You cannot delete this post.")
+        if instance.deleted_at:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        instance.soft_delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="pin")
+    def pin(self, request, organization_pk: int, pk: int = None):
+        if not self.has_admin_permissions:
+            raise PermissionDenied("Only organization admins can pin posts.")
+        post = self.get_object()
+        if post.deleted_at:
+            raise PermissionDenied("Cannot pin a deleted post.")
+        if not post.is_pinned:
+            post.is_pinned = True
+            post.pinned_at = timezone.now()
+            post.pinned_by = request.user
+            post.save(update_fields=["is_pinned", "pinned_at", "pinned_by"])
+        serializer = self.get_serializer(
+            post,
+            context={
+                "request": request,
+                "organization": self.organization,
+                "request_membership": getattr(self, "request_membership", None),
+                "has_admin_permissions": self.has_admin_permissions,
+            },
+        )
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="unpin")
+    def unpin(self, request, organization_pk: int, pk: int = None):
+        if not self.has_admin_permissions:
+            raise PermissionDenied("Only organization admins can unpin posts.")
+        post = self.get_object()
+        if post.is_pinned:
+            post.is_pinned = False
+            post.pinned_at = None
+            post.pinned_by = None
+            post.save(update_fields=["is_pinned", "pinned_at", "pinned_by"])
+        serializer = self.get_serializer(
+            post,
+            context={
+                "request": request,
+                "organization": self.organization,
+                "request_membership": getattr(self, "request_membership", None),
+                "has_admin_permissions": self.has_admin_permissions,
+            },
+        )
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="pin")
+    def pin(self, request, pharmacy_pk: int, pk: int = None):
+        if not self.has_admin_permissions:
+            raise PermissionDenied("Only pharmacy admins can pin posts.")
+        post = self.get_object()
+        if post.deleted_at:
+            raise PermissionDenied("Cannot pin a deleted post.")
+        if not post.is_pinned:
+            post.is_pinned = True
+            post.pinned_at = timezone.now()
+            post.pinned_by = request.user
+            post.save(update_fields=["is_pinned", "pinned_at", "pinned_by"])
+        serializer = self.get_serializer(
+            post,
+            context={
+                "request": request,
+                "pharmacy": self.pharmacy,
+                "request_membership": getattr(self, "request_membership", None),
+                "has_admin_permissions": self.has_admin_permissions,
+            },
+        )
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="unpin")
+    def unpin(self, request, pharmacy_pk: int, pk: int = None):
+        if not self.has_admin_permissions:
+            raise PermissionDenied("Only pharmacy admins can unpin posts.")
+        post = self.get_object()
+        if post.is_pinned:
+            post.is_pinned = False
+            post.pinned_at = None
+            post.pinned_by = None
+            post.save(update_fields=["is_pinned", "pinned_at", "pinned_by"])
+        serializer = self.get_serializer(
+            post,
+            context={
+                "request": request,
+                "pharmacy": self.pharmacy,
+                "request_membership": getattr(self, "request_membership", None),
+                "has_admin_permissions": self.has_admin_permissions,
+            },
+        )
+        return Response(serializer.data)
+
+
+class OrganizationHubAccessMixin:
+    organization_lookup_url_kwarg = "organization_pk"
+    org_roles_with_access = ("ORG_ADMIN", "REGION_ADMIN", "SHIFT_MANAGER")
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        organization_id = self.kwargs.get(self.organization_lookup_url_kwarg)
+        self.organization = get_object_or_404(Organization, pk=organization_id)
+
+        user = request.user
+        memberships = (
+            Membership.objects.filter(
+                user=user,
+                is_active=True,
+                pharmacy__organization_id=self.organization.id,
+            )
+            .select_related("pharmacy", "user")
+            .order_by("id")
+        )
+        membership = memberships.first()
+
+        is_owner = Pharmacy.objects.filter(
+            organization=self.organization,
+            owner__user_id=user.id,
+        ).exists()
+        org_admin = OrganizationMembership.objects.filter(
+            user=user,
+            organization=self.organization,
+            role__in=self.org_roles_with_access,
+        ).exists()
+
+        if not any([membership, is_owner, org_admin]):
+            raise PermissionDenied("You do not have access to this organization hub.")
+
+        self.organization_memberships = memberships
+        self.request_membership = membership
+        self.is_owner = is_owner
+        self.is_org_admin = org_admin
+        self.has_admin_permissions = bool(
+            org_admin
+            or is_owner
+            or (membership and membership.is_pharmacy_admin)
+        )
+
+    def _ensure_author_membership(self):
+        if self.request_membership:
+            return self.request_membership
+
+        membership = (
+            Membership.objects.filter(
+                user=self.request.user,
+                is_active=True,
+                pharmacy__organization_id=self.organization.id,
+            )
+            .select_related("pharmacy")
+            .first()
+        )
+        if membership:
+            self.request_membership = membership
+            return membership
+
+        primary_pharmacy = (
+            self.organization.pharmacies.order_by("id").first()
+        )
+        if not primary_pharmacy:
+            raise PermissionDenied("This organization has no pharmacies configured.")
+
+        membership, _created = Membership.objects.get_or_create(
+            user=self.request.user,
+            pharmacy=primary_pharmacy,
+            defaults={
+                "role": "PHARMACY_ADMIN",
+                "employment_type": "FULL_TIME",
+                "is_active": True,
+            },
+        )
+        if not membership.is_active:
+            membership.is_active = True
+            membership.save(update_fields=["is_active"])
+        self.request_membership = membership
+        return membership
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context.update(
+            {
+                "organization": getattr(self, "organization", None),
+                "request_membership": getattr(self, "request_membership", None),
+                "has_admin_permissions": getattr(self, "has_admin_permissions", False),
+            }
+        )
+        return context
+
+
+class OrganizationHubPostViewSet(
+    HubAttachmentMixin,
+    OrganizationHubAccessMixin,
+    viewsets.ModelViewSet,
+):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PharmacyHubPostSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_queryset(self):
+        return (
+            PharmacyHubPost.objects.filter(organization=self.organization)
+            .select_related("author_membership__user", "organization", "pharmacy")
+            .prefetch_related(
+                "comments__author_membership__user",
+                "reactions",
+                "attachments",
+            )
+        )
+
+    def perform_create(self, serializer):
+        post = serializer.save(
+            organization=self.organization,
+            pharmacy=None,
+            author_membership=self._ensure_author_membership(),
+            original_body=serializer.validated_data.get("body", ""),
+            is_edited=False,
+            last_edited_at=None,
+            last_edited_by=None,
+        )
+        self._add_attachments(post, self.request.FILES.getlist("attachments"))
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        if not self.has_admin_permissions and instance.author_membership_id != getattr(
+            self.request_membership, "id", None
+        ):
+            raise PermissionDenied("You cannot edit this post.")
+        if instance.deleted_at:
+            raise PermissionDenied("You cannot edit a deleted post.")
+        extra = {}
+        new_body = serializer.validated_data.get("body")
+        if new_body is not None and new_body != instance.body:
+            extra["is_edited"] = True
+            if not instance.original_body:
+                extra["original_body"] = instance.body
+            extra["last_edited_at"] = timezone.now()
+            extra["last_edited_by"] = self.request.user
+        post = serializer.save(**extra)
+        self._remove_attachments(post, self.request)
+        self._add_attachments(post, self.request.FILES.getlist("attachments"))
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not self.has_admin_permissions and instance.author_membership_id != getattr(
+            self.request_membership, "id", None
+        ):
+            raise PermissionDenied("You cannot delete this post.")
+        if instance.deleted_at:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        instance.soft_delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PharmacyHubCommentViewSet(
+    PharmacyHubAccessMixin,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PharmacyHubCommentSerializer
+
+    def get_queryset(self):
+        post = self._get_post()
+        return (
+            post.comments.select_related("author_membership__user").order_by("created_at")
+        )
+
+    def _get_post(self):
+        post_id = self.kwargs.get("post_pk")
+        return get_object_or_404(
+            PharmacyHubPost,
+            pk=post_id,
+            pharmacy=self.pharmacy,
+            deleted_at__isnull=True,
+        )
+
+    def perform_create(self, serializer):
+        post = self._get_post()
+        if not post.allow_comments:
+            raise PermissionDenied("Comments are disabled for this post.")
+
+        parent = serializer.validated_data.get("parent_comment")
+        if parent and parent.post_id != post.id:
+            serializer.validated_data["parent_comment"] = None
+
+        comment = serializer.save(
+            post=post,
+            author_membership=self._ensure_author_membership(),
+            original_body=serializer.validated_data.get("body", ""),
+        )
+        post.recompute_comment_count()
+        self.request_membership = comment.author_membership
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        if not self.has_admin_permissions and instance.author_membership_id != getattr(
+            self.request_membership, "id", None
+        ):
+            raise PermissionDenied("You cannot edit this comment.")
+        if instance.deleted_at:
+            raise PermissionDenied("You cannot edit a deleted comment.")
+        extra = {}
+        new_body = serializer.validated_data.get("body")
+        if new_body is not None and new_body != instance.body:
+            extra["is_edited"] = True
+            if not instance.original_body:
+                extra["original_body"] = instance.body
+            extra["last_edited_at"] = timezone.now()
+            extra["last_edited_by"] = self.request.user
+        serializer.save(**extra)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not self.has_admin_permissions and instance.author_membership_id != getattr(
+            self.request_membership, "id", None
+        ):
+            raise PermissionDenied("You cannot delete this comment.")
+        if not instance.deleted_at:
+            instance.soft_delete()
+        instance.post.recompute_comment_count()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class OrganizationHubCommentViewSet(
+    OrganizationHubAccessMixin,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PharmacyHubCommentSerializer
+
+    def get_queryset(self):
+        post = self._get_post()
+        return (
+            post.comments.select_related("author_membership__user").order_by("created_at")
+        )
+
+    def _get_post(self):
+        post_id = self.kwargs.get("post_pk")
+        return get_object_or_404(
+            PharmacyHubPost,
+            pk=post_id,
+            organization=self.organization,
+            deleted_at__isnull=True,
+        )
+
+    def perform_create(self, serializer):
+        post = self._get_post()
+        if not post.allow_comments:
+            raise PermissionDenied("Comments are disabled for this post.")
+
+        parent = serializer.validated_data.get("parent_comment")
+        if parent and parent.post_id != post.id:
+            serializer.validated_data["parent_comment"] = None
+
+        comment = serializer.save(
+            post=post,
+            author_membership=self._ensure_author_membership(),
+            original_body=serializer.validated_data.get("body", ""),
+        )
+        post.recompute_comment_count()
+        self.request_membership = comment.author_membership
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        if not self.has_admin_permissions and instance.author_membership_id != getattr(
+            self.request_membership, "id", None
+        ):
+            raise PermissionDenied("You cannot edit this comment.")
+        if instance.deleted_at:
+            raise PermissionDenied("You cannot edit a deleted comment.")
+        extra = {}
+        new_body = serializer.validated_data.get("body")
+        if new_body is not None and new_body != instance.body:
+            extra["is_edited"] = True
+            if not instance.original_body:
+                extra["original_body"] = instance.body
+            extra["last_edited_at"] = timezone.now()
+            extra["last_edited_by"] = self.request.user
+        serializer.save(**extra)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not self.has_admin_permissions and instance.author_membership_id != getattr(
+            self.request_membership, "id", None
+        ):
+            raise PermissionDenied("You cannot delete this comment.")
+        if not instance.deleted_at:
+            instance.soft_delete()
+            instance.post.recompute_comment_count()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PharmacyHubReactionView(PharmacyHubAccessMixin, APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def put(self, request, pharmacy_pk: int, post_pk: int):
+        post = get_object_or_404(
+            PharmacyHubPost,
+            pk=post_pk,
+            pharmacy=self.pharmacy,
+            deleted_at__isnull=True,
+        )
+        serializer = PharmacyHubReactionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        membership = self._ensure_author_membership()
+        reaction_type = serializer.validated_data["reaction_type"]
+        PharmacyHubReaction.objects.update_or_create(
+            post=post,
+            member=membership,
+            defaults={
+                "reaction_type": reaction_type,
+                "updated_at": timezone.now(),
+            },
+        )
+        post.recompute_reaction_summary()
+        response = PharmacyHubPostSerializer(
+            post,
+            context={
+                "request": request,
+                "pharmacy": self.pharmacy,
+                "request_membership": membership,
+                "has_admin_permissions": self.has_admin_permissions,
+            },
+        )
+        return Response(response.data)
+
+    def delete(self, request, pharmacy_pk: int, post_pk: int):
+        post = get_object_or_404(
+            PharmacyHubPost,
+            pk=post_pk,
+            pharmacy=self.pharmacy,
+            deleted_at__isnull=True,
+        )
+        membership = self._ensure_author_membership()
+        if membership:
+            PharmacyHubReaction.objects.filter(
+                post=post,
+                member=membership,
+            ).delete()
+            post.recompute_reaction_summary()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class OrganizationHubReactionView(OrganizationHubAccessMixin, APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def put(self, request, organization_pk: int, post_pk: int):
+        post = get_object_or_404(
+            PharmacyHubPost,
+            pk=post_pk,
+            organization=self.organization,
+            deleted_at__isnull=True,
+        )
+        serializer = PharmacyHubReactionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        membership = self._ensure_author_membership()
+        reaction_type = serializer.validated_data["reaction_type"]
+        PharmacyHubReaction.objects.update_or_create(
+            post=post,
+            member=membership,
+            defaults={
+                "reaction_type": reaction_type,
+                "updated_at": timezone.now(),
+            },
+        )
+        post.recompute_reaction_summary()
+        response = PharmacyHubPostSerializer(
+            post,
+            context={
+                "request": request,
+                "organization": self.organization,
+                "request_membership": membership,
+                "has_admin_permissions": self.has_admin_permissions,
+            },
+        )
+        return Response(response.data)
+
+    def delete(self, request, organization_pk: int, post_pk: int):
+        post = get_object_or_404(
+            PharmacyHubPost,
+            pk=post_pk,
+            organization=self.organization,
+            deleted_at__isnull=True,
+        )
+        membership = self._ensure_author_membership()
+        if membership:
+            PharmacyHubReaction.objects.filter(
+                post=post,
+                member=membership,
+            ).delete()
+            post.recompute_reaction_summary()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+

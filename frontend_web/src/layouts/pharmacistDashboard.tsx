@@ -16,7 +16,6 @@ export default function PharmacistDashboardWrapper() {
     <ColorModeProvider>
       <DashboardShell>
         <DashboardLayout
-          defaultSidebarCollapsed
           sidebarExpandedWidth={288}
           slots={{
             appTitle: () => <CustomAppTitle userRole={user?.role || "PHARMACIST"} />,

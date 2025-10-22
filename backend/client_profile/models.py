@@ -1,5 +1,6 @@
 # client_profile/models.py
 from django.db import models
+from django.db.models import Q
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from datetime import date
@@ -1773,3 +1774,327 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"Notification #{self.pk} to user {self.user_id} ({self.type})"
+
+
+# PharmacyHub
+class PharmacyCommunityGroup(models.Model):
+    pharmacy = models.ForeignKey(
+        "client_profile.Pharmacy",
+        on_delete=models.CASCADE,
+        related_name="community_groups",
+    )
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_community_groups",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["pharmacy", "name"],
+                name="uniq_group_name_per_pharmacy",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["pharmacy", "name"]),
+            models.Index(fields=["pharmacy", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"CommunityGroup#{self.pk} pharmacy={self.pharmacy_id} name={self.name}"
+
+
+class PharmacyCommunityGroupMembership(models.Model):
+    group = models.ForeignKey(
+        PharmacyCommunityGroup,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    membership = models.ForeignKey(
+        "client_profile.Membership",
+        on_delete=models.CASCADE,
+        related_name="community_group_memberships",
+    )
+    is_admin = models.BooleanField(default=False)
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("group", "membership")
+        indexes = [
+            models.Index(fields=["group"]),
+            models.Index(fields=["membership"]),
+        ]
+
+    def clean(self):
+        super().clean()
+        if (
+            self.membership
+            and self.membership.pharmacy_id
+            and self.group
+            and self.group.pharmacy_id
+            and self.membership.pharmacy_id != self.group.pharmacy_id
+        ):
+            raise ValidationError(
+                "Membership must belong to the same pharmacy as the community group."
+            )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"CommunityGroupMembership#{self.pk} group={self.group_id} membership={self.membership_id}"
+
+
+class PharmacyHubPost(models.Model):
+    class Visibility(models.TextChoices):
+        NORMAL = "NORMAL", "Normal"
+        ANNOUNCEMENT = "ANNOUNCEMENT", "Announcement"
+
+    pharmacy = models.ForeignKey(
+        "client_profile.Pharmacy",
+        on_delete=models.CASCADE,
+        related_name="hub_posts",
+    )
+    author_membership = models.ForeignKey(
+        "client_profile.Membership",
+        on_delete=models.PROTECT,
+        related_name="hub_posts",
+    )
+    body = models.TextField()
+    visibility = models.CharField(
+        max_length=16,
+        choices=Visibility.choices,
+        default=Visibility.NORMAL,
+    )
+    allow_comments = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    organization = models.ForeignKey(
+        "client_profile.Organization",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="hub_posts",
+    )
+    is_pinned = models.BooleanField(default=False)
+    pinned_at = models.DateTimeField(null=True, blank=True)
+    pinned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pinned_pharmacy_hub_posts",
+    )
+    community_group = models.ForeignKey(
+        PharmacyCommunityGroup,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="posts",
+    )
+
+    comment_count = models.PositiveIntegerField(default=0)
+    reaction_summary = models.JSONField(default=dict, blank=True)
+    original_body = models.TextField(blank=True, default="")
+    is_edited = models.BooleanField(default=False)
+    last_edited_at = models.DateTimeField(null=True, blank=True)
+    last_edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="edited_pharmacy_hub_posts",
+    )
+
+    class Meta:
+        ordering = ["-is_pinned", "-pinned_at", "-created_at"]
+        indexes = [
+            models.Index(fields=["pharmacy", "created_at"]),
+            models.Index(fields=["author_membership"]),
+            models.Index(fields=["is_pinned", "pinned_at"]),
+            models.Index(fields=["organization", "created_at"]),
+            models.Index(fields=["community_group", "created_at"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(pharmacy__isnull=False, organization__isnull=True)
+                | Q(pharmacy__isnull=True, organization__isnull=False),
+                name="pharmacy_hub_post_scope_check",
+            )
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.community_group_id:
+            group_pharmacy_id = self.community_group.pharmacy_id
+            if not group_pharmacy_id:
+                raise ValidationError("Community group must be linked to a pharmacy.")
+            self.pharmacy_id = group_pharmacy_id
+            self.organization_id = None
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                fields = set(update_fields)
+                fields.update({"pharmacy", "organization"})
+                kwargs["update_fields"] = list(fields)
+        super().save(*args, **kwargs)
+
+    def recompute_comment_count(self):
+        from django.db.models import Count
+
+        count = (
+            self.comments.filter(deleted_at__isnull=True)
+            .aggregate(total=Count("id"))
+            .get("total", 0)
+        )
+        if count != self.comment_count:
+            self.comment_count = count
+            self.save(update_fields=["comment_count"])
+
+    def recompute_reaction_summary(self):
+        from django.db.models import Count
+
+        summary = {
+            row["reaction_type"]: row["total"]
+            for row in self.reactions.values("reaction_type")
+            .order_by()
+            .annotate(total=Count("id"))
+        }
+        if summary != self.reaction_summary:
+            self.reaction_summary = summary
+            self.save(update_fields=["reaction_summary"])
+
+    def soft_delete(self):
+        if not self.deleted_at:
+            self.deleted_at = timezone.now()
+            self.is_pinned = False
+            self.pinned_at = None
+            self.pinned_by = None
+            self.save(update_fields=["deleted_at", "is_pinned", "pinned_at", "pinned_by"])
+
+    def __str__(self):
+        target = (
+            f"group={self.community_group_id}"
+            if self.community_group_id
+            else f"pharmacy={self.pharmacy_id}"
+        )
+        return f"HubPost#{self.pk} {target}"
+
+
+class PharmacyHubComment(models.Model):
+    post = models.ForeignKey(
+        PharmacyHubPost,
+        on_delete=models.CASCADE,
+        related_name="comments",
+    )
+    author_membership = models.ForeignKey(
+        "client_profile.Membership",
+        on_delete=models.PROTECT,
+        related_name="hub_comments",
+    )
+    body = models.TextField()
+    parent_comment = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="replies",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    original_body = models.TextField(blank=True, default="")
+    is_edited = models.BooleanField(default=False)
+    last_edited_at = models.DateTimeField(null=True, blank=True)
+    last_edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="edited_pharmacy_hub_comments",
+    )
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["post", "created_at"]),
+            models.Index(fields=["author_membership"]),
+        ]
+
+    def soft_delete(self):
+        if not self.deleted_at:
+            self.deleted_at = timezone.now()
+            self.save(update_fields=["deleted_at"])
+
+    def __str__(self):
+        return f"HubComment#{self.pk} post={self.post_id}"
+
+
+class PharmacyHubReaction(models.Model):
+    class ReactionType(models.TextChoices):
+        LIKE = "LIKE", "Like"
+        CELEBRATE = "CELEBRATE", "Celebrate"
+        SUPPORT = "SUPPORT", "Support"
+        INSIGHTFUL = "INSIGHTFUL", "Insightful"
+        LOVE = "LOVE", "Love"
+
+    post = models.ForeignKey(
+        PharmacyHubPost,
+        on_delete=models.CASCADE,
+        related_name="reactions",
+    )
+    member = models.ForeignKey(
+        "client_profile.Membership",
+        on_delete=models.CASCADE,
+        related_name="hub_reactions",
+    )
+    reaction_type = models.CharField(
+        max_length=16,
+        choices=ReactionType.choices,
+        default=ReactionType.LIKE,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("post", "member")
+        indexes = [
+            models.Index(fields=["post"]),
+            models.Index(fields=["member"]),
+        ]
+
+    def __str__(self):
+        return f"HubReaction#{self.pk} post={self.post_id} member={self.member_id}"
+
+
+class PharmacyHubAttachment(models.Model):
+    class Kind(models.TextChoices):
+        IMAGE = "IMAGE", "Image"
+        GIF = "GIF", "GIF"
+        FILE = "FILE", "File"
+
+    post = models.ForeignKey(
+        PharmacyHubPost,
+        on_delete=models.CASCADE,
+        related_name="attachments",
+    )
+    file = models.FileField(upload_to="pharmacy_hub/attachments/")
+    kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.FILE)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["post"]),
+            models.Index(fields=["kind"]),
+        ]
+
+    def __str__(self):
+        return f"Attachment#{self.pk} for post={self.post_id}"

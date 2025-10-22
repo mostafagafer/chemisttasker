@@ -67,6 +67,18 @@ interface CalendarEvent {
   };
 }
 
+type CalendarViewOption = 'month' | 'week' | 'day';
+const CALENDAR_VIEWS: CalendarViewOption[] = ['month', 'week', 'day'];
+
+interface CalendarSlotSelection {
+  start: Date;
+  end: Date;
+  slots: Date[];
+  action?: 'select' | 'click' | 'doubleClick';
+  bounds?: DOMRect | ClientRect;
+  box?: DOMRect | ClientRect;
+}
+
 const localizer = momentLocalizer(moment);
 
 const WEEK_DAYS = [
@@ -136,6 +148,8 @@ const PostShiftPage: React.FC = () => {
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringDays, setRecurringDays] = useState<number[]>([]);
   const [recurringEndDate, setRecurringEndDate] = useState('');
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  const [calendarView, setCalendarView] = useState<CalendarViewOption>('month');
 
   // --- UI State ---
   const [submitting, setSubmitting] = useState(false);
@@ -143,8 +157,11 @@ const PostShiftPage: React.FC = () => {
   const [activeStep, setActiveStep] = useState(0);
 
   // --- Calendar Control State ---
-  const [calendarView, setCalendarView] = useState<'month' | 'week'>('month');
-  const [calendarDate, setCalendarDate] = useState(new Date());
+  const todayStart = useMemo(() => dayjs().startOf('day'), []);
+  const [calendarDate, setCalendarDate] = useState(todayStart.toDate());
+  const minCalendarDate = useMemo(() => todayStart.toDate(), [todayStart]);
+  const maxCalendarDate = useMemo(() => todayStart.add(4, 'month').endOf('month').toDate(), [todayStart]);
+  const minDateInputValue = useMemo(() => todayStart.format('YYYY-MM-DD'), [todayStart]);
 
   // --- Data Loading ---
   useEffect(() => {
@@ -295,9 +312,6 @@ const PostShiftPage: React.FC = () => {
     }
   }, [calendarEvents, slots.length]);
 
-const minCalendarDate = useMemo(() => dayjs().startOf('month').toDate(), []);
-const maxCalendarDate = useMemo(() => dayjs().add(4, 'month').endOf('month').toDate(), []);
-
 const eventStyleGetter = useCallback((_event: CalendarEvent, _start: Date, _end: Date, _isSelected: boolean) => {
     const backgroundColor = '#8B5CF6'; // A slightly lighter purple
     const style = {
@@ -312,15 +326,56 @@ const eventStyleGetter = useCallback((_event: CalendarEvent, _start: Date, _end:
 }, []);
 
 const handleAddSlot = () => {
-  if (!slotDate || !slotStartTime || !slotEndTime) return showSnackbar('Please fill in all time details.', 'error');
+  if (!slotStartTime || !slotEndTime) return showSnackbar('Please select a start and end time.', 'error');
   if (new Date(`1970-01-01T${slotEndTime}`) <= new Date(`1970-01-01T${slotStartTime}`)) return showSnackbar('End time must be after start time.', 'error');
-  if (isRecurring && (!recurringEndDate || recurringDays.length === 0)) return showSnackbar('Please complete the recurrence details.', 'error');
 
-    setSlots(s => [...s, { date: slotDate, startTime: slotStartTime, endTime: slotEndTime, isRecurring, recurringDays, recurringEndDate }]);
-    // Reset form
-    setSlotDate(''); setSlotStartTime('09:00'); setSlotEndTime('17:00');
-    setIsRecurring(false); setRecurringDays([]); setRecurringEndDate('');
-  };
+  const baseDates = selectedDates.length ? selectedDates : slotDate ? [slotDate] : [];
+  if (!baseDates.length) return showSnackbar('Select at least one date from the calendar.', 'error');
+
+  if (isRecurring && (!recurringEndDate || recurringDays.length === 0)) {
+    return showSnackbar('Please complete the recurrence details.', 'error');
+  }
+
+  if (isRecurring && baseDates.length > 1) {
+    return showSnackbar('Recurring schedules can only start from a single date selection.', 'error');
+  }
+
+  const validDates = baseDates.filter((date) => !dayjs(date).isBefore(todayStart, 'day'));
+  if (!validDates.length) {
+    showSnackbar('Cannot schedule entries in the past.', 'error');
+    return;
+  }
+  if (validDates.length < baseDates.length) {
+    showSnackbar('Past dates were ignored.', 'error');
+  }
+
+  const newEntries = validDates.map((date) => ({
+    date,
+    startTime: slotStartTime,
+    endTime: slotEndTime,
+    isRecurring: isRecurring && validDates.length === 1,
+    recurringDays: isRecurring ? recurringDays : [],
+    recurringEndDate: isRecurring ? recurringEndDate : '',
+  }));
+
+  const existingKeys = new Set(slots.map((s) => `${s.date}-${s.startTime}-${s.endTime}-${s.isRecurring}-${s.recurringDays.join(',')}`));
+  const filtered = newEntries.filter(
+    (entry) => !existingKeys.has(`${entry.date}-${entry.startTime}-${entry.endTime}-${entry.isRecurring}-${entry.recurringDays.join(',')}`)
+  );
+
+  if (!filtered.length) {
+    showSnackbar('Those timetable entries already exist.', 'error');
+    return;
+  }
+
+  setSlots((prev) => [...prev, ...filtered]);
+  showSnackbar(`${filtered.length} timetable entr${filtered.length > 1 ? 'ies' : 'y'} added.`);
+
+  setSelectedDates([]);
+  setIsRecurring(false);
+  setRecurringDays([]);
+  setRecurringEndDate('');
+};
 
   const handleSubmit = async () => {
     if (!pharmacyId || !roleNeeded || !employmentType) return showSnackbar('Please fill all required fields in Step 1.', 'error');
@@ -631,7 +686,7 @@ const handleAddSlot = () => {
       case 4: {
         return (
           <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
-            <Grid size={{ xs: 12, lg: 5 }}>
+            <Grid size={{ xs: 12, lg: 5 }} sx={{ order: { xs: 1, lg: 0 } }}>
               <Stack spacing={2.5}>
                 <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, borderColor: 'grey.200' }}>
                   <Stack spacing={2}>
@@ -645,6 +700,7 @@ const handleAddSlot = () => {
                           type="date"
                           value={slotDate}
                           onChange={e => setSlotDate(e.target.value)}
+                          inputProps={{ min: minDateInputValue }}
                           InputLabelProps={{ shrink: true }}
                           fullWidth
                           size="small"
@@ -741,6 +797,36 @@ const handleAddSlot = () => {
                   </Stack>
                 </Paper>
 
+                {selectedDates.length > 0 && (
+                  <Paper
+                    variant="outlined"
+                    sx={{ p: 2, borderRadius: 3, borderColor: 'grey.200' }}
+                  >
+                    <Stack spacing={1.5}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography variant="subtitle2" fontWeight={600}>
+                          Selected calendar days
+                        </Typography>
+                        <Button size="small" onClick={() => setSelectedDates([])}>
+                          Clear
+                        </Button>
+                      </Stack>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                        {selectedDates.map((date) => (
+                          <Chip
+                            key={date}
+                            label={formatSlotDate(date)}
+                            onDelete={() => setSelectedDates((prev) => prev.filter((d) => d !== date))}
+                          />
+                        ))}
+                      </Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Adjust start and end times above, then press “Add slot” to add entries for every selected day.
+                      </Typography>
+                    </Stack>
+                  </Paper>
+                )}
+
                 <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, borderColor: 'grey.200' }}>
                   <Stack spacing={2}>
                     <FormControlLabel
@@ -808,7 +894,7 @@ const handleAddSlot = () => {
               </Stack>
             </Grid>
 
-            <Grid size={{ xs: 12, lg: 7 }}>
+            <Grid size={{ xs: 12, lg: 7 }} sx={{ order: { xs: 0, lg: 1 } }}>
               <Paper
                 variant="outlined"
                 sx={{
@@ -840,25 +926,91 @@ const handleAddSlot = () => {
                     events={calendarEvents}
                     date={calendarDate}
                     view={calendarView}
-                    views={['month', 'week']}
+                    views={CALENDAR_VIEWS}
+                    step={calendarView === 'week' || calendarView === 'day' ? 15 : 30}
+                    timeslots={calendarView === 'week' || calendarView === 'day' ? 4 : 2}
                     style={{ flex: 1 }}
                     eventPropGetter={eventStyleGetter}
                     startAccessor="start"
                     endAccessor="end"
-                    onNavigate={(newDate: Date) => setCalendarDate(newDate)}
-                    onView={(newView: string) => setCalendarView(newView as 'month' | 'week')}
-                    min={minCalendarDate}
-                    max={maxCalendarDate}
                     popup
-                    onSelectSlot={({ start }: { start: Date }) => {
-                      // When a date is clicked, only update the date field.
-                      // Let the user manually enter the time.
-                      setSlotDate(dayjs(start as Date).format('YYYY-MM-DD'));
+                    onNavigate={(newDate: Date) => {
+                      const next = dayjs(newDate);
+                      if (next.isBefore(todayStart, 'day')) {
+                        setCalendarDate(minCalendarDate);
+                      } else if (next.isAfter(dayjs(maxCalendarDate), 'day')) {
+                        setCalendarDate(maxCalendarDate);
+                      } else {
+                        setCalendarDate(next.toDate());
+                      }
+                    }}
+                    onView={(newView: string) => {
+                      const nextView = CALENDAR_VIEWS.includes(newView as CalendarViewOption)
+                        ? (newView as CalendarViewOption)
+                        : 'month';
+                      setCalendarView(nextView);
+                    }}
+                    min={dayjs(calendarDate).startOf('day').subtract(2, 'hour').toDate()}
+                    max={dayjs(calendarDate).startOf('day').add(1, 'day').add(2, 'hour').toDate()}
+                    onSelectSlot={({ start, end, slots }: CalendarSlotSelection) => {
+                      const startMoment = dayjs(start as Date);
+                      const endMoment = dayjs(end as Date);
+
+                      if (startMoment.isBefore(todayStart, 'minute')) {
+                        showSnackbar('Cannot select time in the past.', 'error');
+                        return;
+                      }
+
+                      if (calendarView === 'week' || calendarView === 'day') {
+                        setSelectedDates([startMoment.format('YYYY-MM-DD')]);
+                        setSlotDate(startMoment.format('YYYY-MM-DD'));
+                        setSlotStartTime(startMoment.format('HH:mm'));
+                        let endCandidate = endMoment;
+                        if (!endMoment.isAfter(startMoment)) {
+                          endCandidate = startMoment.add(1, 'hour');
+                        }
+                        setSlotEndTime(endCandidate.format('HH:mm'));
+                        setIsRecurring(false);
+                        setRecurringDays([]);
+                        setRecurringEndDate('');
+                        return;
+                      }
+
+                      const slotValues: Array<Date | string> = slots && slots.length ? (slots as Array<Date | string>) : [start as Date];
+                      const slotDates = slotValues.map((slotValue) =>
+                        dayjs(slotValue).format('YYYY-MM-DD')
+                      );
+                      const uniqueDates = Array.from(new Set<string>(slotDates)).filter(
+                        (date) => !dayjs(date).isBefore(todayStart, 'day')
+                      );
+
+                      if (!uniqueDates.length) {
+                        showSnackbar('Cannot select past dates.', 'error');
+                        return;
+                      }
+
+                      const sortedDates = [...uniqueDates].sort();
+                      setSelectedDates(sortedDates);
+                      if (sortedDates.length) {
+                        setSlotDate(sortedDates[0]);
+                      }
+                      setIsRecurring(false);
+                      setRecurringDays([]);
+                      setRecurringEndDate('');
                     }}
                     onSelectEvent={(event: CalendarEvent) => {
-                      const { resource } = event as typeof event & { resource?: { slotIndex?: number } };
+                      const resource = event.resource;
                       if (resource?.slotIndex !== undefined) {
-                        // This could be used to highlight the selected slot in the list on the left
+                        const slot = slots[resource.slotIndex];
+                        if (slot) {
+                          setSlotDate(slot.date);
+                          setSlotStartTime(slot.startTime);
+                          setSlotEndTime(slot.endTime);
+                          setIsRecurring(slot.isRecurring);
+                          setRecurringDays(slot.recurringDays || []);
+                          setRecurringEndDate(slot.recurringEndDate || '');
+                          setSelectedDates([slot.date]);
+                        }
                       }
                     }}
                     messages={{ next: 'Next', previous: 'Back', today: 'Today', month: 'Month', week: 'Week', day: 'Day' }}

@@ -15,7 +15,6 @@ export default function ExplorerDashboardWrapper() {
     <ColorModeProvider>
       <DashboardShell>
         <DashboardLayout
-          defaultSidebarCollapsed
           sidebarExpandedWidth={288}
           slots={{
             appTitle: () => <CustomAppTitle userRole={user?.role || "EXPLORER"} />,

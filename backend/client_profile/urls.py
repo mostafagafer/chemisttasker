@@ -102,6 +102,126 @@ urlpatterns = [
     path('messages/<int:message_id>/react/', MessageReactionView.as_view(), name='message-react'),
     path('chat-participants/', ChatParticipantView.as_view(), name='chat-participants-list'),
 
+
+
+
+    path(
+        'pharmacies/<int:pharmacy_pk>/community-groups/',
+        PharmacyCommunityGroupViewSet.as_view({'get': 'list', 'post': 'create'}),
+        name='pharmacy-community-group-list',
+    ),
+    path(
+        'pharmacies/<int:pharmacy_pk>/community-groups/<int:pk>/',
+        PharmacyCommunityGroupViewSet.as_view({'get': 'retrieve', 'patch': 'partial_update', 'delete': 'destroy'}),
+        name='pharmacy-community-group-detail',
+    ),
+    path(
+        'pharmacies/<int:pharmacy_pk>/community-groups/<int:group_pk>/posts/',
+        CommunityGroupPostViewSet.as_view({'get': 'list', 'post': 'create'}),
+        name='community-group-post-list',
+    ),
+    path(
+        'pharmacies/<int:pharmacy_pk>/community-groups/<int:group_pk>/posts/<int:pk>/',
+        CommunityGroupPostViewSet.as_view({'get': 'retrieve', 'patch': 'partial_update', 'delete': 'destroy'}),
+        name='community-group-post-detail',
+    ),
+    path(
+        'pharmacies/<int:pharmacy_pk>/community-groups/<int:group_pk>/posts/<int:pk>/pin/',
+        CommunityGroupPostViewSet.as_view({'post': 'pin'}),
+        name='community-group-post-pin',
+    ),
+    path(
+        'pharmacies/<int:pharmacy_pk>/community-groups/<int:group_pk>/posts/<int:pk>/unpin/',
+        CommunityGroupPostViewSet.as_view({'post': 'unpin'}),
+        name='community-group-post-unpin',
+    ),
+    path(
+        'pharmacies/<int:pharmacy_pk>/community-groups/<int:group_pk>/posts/<int:post_pk>/comments/',
+        CommunityGroupCommentViewSet.as_view({'get': 'list', 'post': 'create'}),
+        name='community-group-comment-list',
+    ),
+    path(
+        'pharmacies/<int:pharmacy_pk>/community-groups/<int:group_pk>/posts/<int:post_pk>/comments/<int:pk>/',
+        CommunityGroupCommentViewSet.as_view({'patch': 'partial_update', 'delete': 'destroy'}),
+        name='community-group-comment-detail',
+    ),
+    path(
+        'pharmacies/<int:pharmacy_pk>/community-groups/<int:group_pk>/posts/<int:post_pk>/reactions/',
+        CommunityGroupReactionView.as_view(),
+        name='community-group-reaction',
+    ),
+
+    path(
+        'pharmacies/<int:pharmacy_pk>/hub/posts/',
+        PharmacyHubPostViewSet.as_view({'get': 'list', 'post': 'create'}),
+        name='pharmacy-hub-post-list',
+    ),
+    path(
+        'pharmacies/<int:pharmacy_pk>/hub/posts/<int:pk>/',
+        PharmacyHubPostViewSet.as_view({'get': 'retrieve', 'patch': 'partial_update', 'delete': 'destroy'}),
+        name='pharmacy-hub-post-detail',
+    ),
+    path(
+        'pharmacies/<int:pharmacy_pk>/hub/posts/<int:pk>/pin/',
+        PharmacyHubPostViewSet.as_view({'post': 'pin'}),
+        name='pharmacy-hub-post-pin',
+    ),
+    path(
+        'pharmacies/<int:pharmacy_pk>/hub/posts/<int:pk>/unpin/',
+        PharmacyHubPostViewSet.as_view({'post': 'unpin'}),
+        name='pharmacy-hub-post-unpin',
+    ),
+    path(
+        'pharmacies/<int:pharmacy_pk>/hub/posts/<int:post_pk>/comments/',
+        PharmacyHubCommentViewSet.as_view({'get': 'list', 'post': 'create'}),
+        name='pharmacy-hub-comment-list',
+    ),
+    path(
+        'pharmacies/<int:pharmacy_pk>/hub/posts/<int:post_pk>/comments/<int:pk>/',
+        PharmacyHubCommentViewSet.as_view({'patch': 'partial_update', 'delete': 'destroy'}),
+        name='pharmacy-hub-comment-detail',
+    ),
+    path(
+        'pharmacies/<int:pharmacy_pk>/hub/posts/<int:post_pk>/reactions/',
+        PharmacyHubReactionView.as_view(),
+        name='pharmacy-hub-reaction',
+    ),
+    path(
+        'organizations/<int:organization_pk>/hub/posts/',
+        OrganizationHubPostViewSet.as_view({'get': 'list', 'post': 'create'}),
+        name='organization-hub-post-list',
+    ),
+    path(
+        'organizations/<int:organization_pk>/hub/posts/<int:pk>/',
+        OrganizationHubPostViewSet.as_view({'get': 'retrieve', 'patch': 'partial_update', 'delete': 'destroy'}),
+        name='organization-hub-post-detail',
+    ),
+    path(
+        'organizations/<int:organization_pk>/hub/posts/<int:pk>/pin/',
+        OrganizationHubPostViewSet.as_view({'post': 'pin'}),
+        name='organization-hub-post-pin',
+    ),
+    path(
+        'organizations/<int:organization_pk>/hub/posts/<int:pk>/unpin/',
+        OrganizationHubPostViewSet.as_view({'post': 'unpin'}),
+        name='organization-hub-post-unpin',
+    ),
+    path(
+        'organizations/<int:organization_pk>/hub/posts/<int:post_pk>/comments/',
+        OrganizationHubCommentViewSet.as_view({'get': 'list', 'post': 'create'}),
+        name='organization-hub-comment-list',
+    ),
+    path(
+        'organizations/<int:organization_pk>/hub/posts/<int:post_pk>/comments/<int:pk>/',
+        OrganizationHubCommentViewSet.as_view({'patch': 'partial_update', 'delete': 'destroy'}),
+        name='organization-hub-comment-detail',
+    ),
+    path(
+        'organizations/<int:organization_pk>/hub/posts/<int:post_pk>/reactions/',
+        OrganizationHubReactionView.as_view(),
+        name='organization-hub-reaction',
+    ),
+
     # Include the API routes for CRUD operations
     path('', include(router.urls)),
 ]

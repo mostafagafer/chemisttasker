@@ -13,6 +13,7 @@ import ManageAccountsSharpIcon from '@mui/icons-material/ManageAccountsSharp'
 import StoreIcon               from '@mui/icons-material/Store'
 import PublicIcon              from '@mui/icons-material/Public'
 import GroupsIcon              from '@mui/icons-material/Groups'
+import ForumIcon               from '@mui/icons-material/Forum'
 import PlayArrowIcon    from '@mui/icons-material/PlayArrow';
 import CheckCircleIcon  from '@mui/icons-material/CheckCircle';
 import HistoryIcon      from '@mui/icons-material/History';
@@ -41,6 +42,8 @@ export function getOrganizationNav(hasUnreadMessages: boolean): Navigation {
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
+    { segment: 'dashboard/organization/community-groups', title: 'Community Groups', icon: <GroupsIcon /> },
+    { segment: 'dashboard/organization/organization-hub', title: 'Organization Hub', icon: <ForumIcon /> },
     { kind: 'divider' as const },
     { kind: 'header' as const, title: 'Manage Pharmacies and Shifts' },
     { segment: 'dashboard/organization/manage-pharmacies',
@@ -94,6 +97,8 @@ export function getOwnerNav(progress_percent: number, hasUnreadMessages: boolean
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
+    { segment: 'dashboard/owner/community-groups', title: 'Community Groups', icon: <GroupsIcon /> },
+    { segment: 'dashboard/owner/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
     { kind: 'divider' as const },
     { kind: 'header' as const, title: 'Manage Pharmacies and Shifts' },
     { segment: 'dashboard/owner/manage-pharmacies',
@@ -177,6 +182,8 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
+    { segment: 'dashboard/otherstaff/community-groups', title: 'Community Groups', icon: <GroupsIcon /> },
+    { segment: 'dashboard/otherstaff/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
     { segment: 'dashboard/otherstaff/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
 
     // -- Divider & Shifts Section --
@@ -241,6 +248,12 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
+    ...(workspace === 'internal'
+      ? [
+          { segment: 'dashboard/pharmacist/community-groups', title: 'Community Groups', icon: <GroupsIcon /> },
+          { segment: 'dashboard/pharmacist/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
+        ]
+      : []),
 
     { segment: 'dashboard/pharmacist/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
     { kind: 'divider' as const },

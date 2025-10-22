@@ -11,7 +11,6 @@ export default function OrganizationDashboardWrapper() {
     <ColorModeProvider>
       <DashboardShell>
         <DashboardLayout
-          defaultSidebarCollapsed
           sidebarExpandedWidth={288}
           slots={{
             toolbarActions: TopBarActions,

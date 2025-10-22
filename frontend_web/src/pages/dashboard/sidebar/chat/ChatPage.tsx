@@ -59,7 +59,11 @@ const EP = {
     '/client-profile/rooms/get-or-create-group/',
 };
 
-const ChatPage: FC = () => {
+type ChatPageProps = {
+  initialFilter?: 'all' | 'group' | 'dm' | 'shift';
+};
+
+const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
   const { user, refreshUnreadCount } = useAuth(); 
   const [isLoading, setIsLoading] = useState(true);
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
@@ -740,6 +744,7 @@ const handleDeleteChat = async (roomId: number, roomName: string) => {
         onDelete={handleDeleteChat}
         canCreateChat={canCreateChat}
         currentUserId={user?.id}
+        initialFilter={initialFilter}
         getLatestMessage={(roomId) => {
           const roomState = messagesMap[roomId];
           const arr = roomState?.messages;

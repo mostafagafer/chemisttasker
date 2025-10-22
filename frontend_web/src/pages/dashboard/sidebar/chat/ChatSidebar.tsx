@@ -30,7 +30,8 @@ interface ChatSidebarProps {
   onEdit: (room: ChatRoom) => void;
   onDelete: (roomId: number, roomName: string) => void;
   canCreateChat: boolean;
-  currentUserId?: number;   // ← add this
+  currentUserId?: number;   // current user id for admin checks
+  initialFilter?: SidebarFilter;
 
 }
 
@@ -49,12 +50,20 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
   onEdit,
   onDelete,
   canCreateChat,
-  currentUserId,          
+  currentUserId,
+  initialFilter,
 }) => {
-  const [filter, setFilter] = useState<SidebarFilter>('all');
+  const [filter, setFilter] = useState<SidebarFilter>(initialFilter ?? 'all');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+
+  useEffect(() => {
+    if (initialFilter) {
+      setFilter(initialFilter);
+    }
+  }, [initialFilter]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

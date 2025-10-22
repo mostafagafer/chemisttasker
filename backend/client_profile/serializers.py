@@ -2898,14 +2898,6 @@ class OtherStaffOnboardingV2Serializer(serializers.ModelSerializer):
             data.append({"skill_code": code, "path": path, "url": url, "uploaded_at": meta.get("uploaded_at")})
         return sorted(data, key=lambda r: r["skill_code"])
 
-import json, os
-from django.utils import timezone
-from django.utils.text import slugify
-from django.core.files.storage import default_storage
-from rest_framework import serializers
-from .models import ExplorerOnboarding
-from django.utils.timezone import now
-
 # helpers (reuse from your codebase if they already exist)
 def q6(val):
     if val in (None, ""):
@@ -4730,7 +4722,6 @@ class ChatParticipantSerializer(serializers.ModelSerializer):
             "invited_name",
         ]
 
-
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
@@ -4745,3 +4736,483 @@ class NotificationSerializer(serializers.ModelSerializer):
             "read_at",
         ]
         read_only_fields = fields
+
+
+# --- PharmacyHub Serializers --------------------------------------------------------
+
+class HubMembershipSerializer(serializers.ModelSerializer):
+    user_details = ChatMemberSerializer(source="user", read_only=True)
+
+    class Meta:
+        model = Membership
+        fields = ["id", "role", "employment_type", "user_details"]
+        read_only_fields = fields
+
+
+class PharmacyCommunityGroupMemberSerializer(serializers.ModelSerializer):
+    membership_id = serializers.IntegerField(source="membership_id", read_only=True)
+    member = HubMembershipSerializer(source="membership", read_only=True)
+
+    class Meta:
+        model = PharmacyCommunityGroupMembership
+        fields = ["membership_id", "member", "is_admin", "joined_at"]
+        read_only_fields = ["membership_id", "member", "joined_at"]
+
+
+class PharmacyCommunityGroupSerializer(serializers.ModelSerializer):
+    members = PharmacyCommunityGroupMemberSerializer(
+        source="memberships", many=True, read_only=True
+    )
+    member_ids = serializers.ListField(
+        child=serializers.IntegerField(), write_only=True, required=False
+    )
+    member_count = serializers.SerializerMethodField()
+    created_by_user = ChatMemberSerializer(source="created_by", read_only=True)
+    is_admin = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PharmacyCommunityGroup
+        fields = [
+            "id",
+            "pharmacy",
+            "name",
+            "description",
+            "created_at",
+            "updated_at",
+            "created_by_user",
+            "members",
+            "member_ids",
+            "member_count",
+            "is_admin",
+        ]
+        read_only_fields = [
+            "id",
+            "pharmacy",
+            "created_at",
+            "updated_at",
+            "created_by_user",
+            "members",
+            "member_count",
+            "is_admin",
+        ]
+
+    def _resolve_memberships(self, pharmacy, member_ids):
+        if not member_ids:
+            return []
+        memberships = list(
+            Membership.objects.filter(
+                pharmacy=pharmacy,
+                id__in=member_ids,
+                is_active=True,
+            )
+        )
+        found_ids = {m.id for m in memberships}
+        missing = sorted(set(member_ids) - found_ids)
+        if missing:
+            raise serializers.ValidationError(
+                {"member_ids": f"Invalid membership IDs for this pharmacy: {missing}"}
+            )
+        return memberships
+
+    def _ensure_creator_membership(self, pharmacy):
+        request_membership = self.context.get("request_membership")
+        if request_membership and request_membership.pharmacy_id == pharmacy.id:
+            return request_membership
+        user = self.context["request"].user if "request" in self.context else None
+        if not user:
+            return None
+        return (
+            Membership.objects.filter(
+                user=user,
+                pharmacy=pharmacy,
+                is_active=True,
+            )
+            .order_by("id")
+            .first()
+        )
+
+    def create(self, validated_data):
+        member_ids = set(validated_data.pop("member_ids", []) or [])
+        pharmacy = validated_data["pharmacy"]
+        creator_membership = self._ensure_creator_membership(pharmacy)
+        if creator_membership:
+            member_ids.add(creator_membership.id)
+        memberships = self._resolve_memberships(pharmacy, member_ids)
+        with transaction.atomic():
+            group = PharmacyCommunityGroup.objects.create(**validated_data)
+            links = []
+            seen = set()
+            for membership in memberships:
+                if membership.id in seen:
+                    continue
+                seen.add(membership.id)
+                links.append(
+                    PharmacyCommunityGroupMembership(
+                        group=group,
+                        membership=membership,
+                        is_admin=bool(
+                            creator_membership
+                            and membership.id == creator_membership.id
+                        ),
+                    )
+                )
+            if creator_membership and creator_membership.id not in seen:
+                links.append(
+                    PharmacyCommunityGroupMembership(
+                        group=group,
+                        membership=creator_membership,
+                        is_admin=True,
+                    )
+                )
+            if links:
+                PharmacyCommunityGroupMembership.objects.bulk_create(
+                    links, ignore_conflicts=True
+                )
+        return group
+
+    def update(self, instance, validated_data):
+        member_ids = validated_data.pop("member_ids", None)
+        instance = super().update(instance, validated_data)
+        if member_ids is None:
+            return instance
+
+        member_ids = set(member_ids)
+        pharmacy = instance.pharmacy
+        creator_membership = self._ensure_creator_membership(pharmacy)
+        if creator_membership:
+            member_ids.add(creator_membership.id)
+        memberships = self._resolve_memberships(pharmacy, member_ids)
+        memberships_by_id = {m.id: m for m in memberships}
+
+        existing_links = {
+            link.membership_id: link
+            for link in instance.memberships.all()
+        }
+
+        new_admin_ids = set()
+        if creator_membership:
+            new_admin_ids.add(creator_membership.id)
+
+        with transaction.atomic():
+            # Add or update memberships
+            for membership_id, membership in memberships_by_id.items():
+                link = existing_links.get(membership_id)
+                if link:
+                    should_be_admin = membership_id in new_admin_ids or link.is_admin
+                    if creator_membership and membership_id == creator_membership.id:
+                        should_be_admin = True
+                    if should_be_admin != link.is_admin:
+                        link.is_admin = should_be_admin
+                        link.save(update_fields=["is_admin"])
+                else:
+                    PharmacyCommunityGroupMembership.objects.create(
+                        group=instance,
+                        membership=membership,
+                        is_admin=membership_id in new_admin_ids,
+                    )
+
+            # Remove memberships not in list (except creator/admins that must persist)
+            protected_ids = set(new_admin_ids)
+            for membership_id in list(existing_links.keys()):
+                if (
+                    membership_id not in memberships_by_id
+                    and membership_id not in protected_ids
+                ):
+                    PharmacyCommunityGroupMembership.objects.filter(
+                        group=instance,
+                        membership_id=membership_id,
+                    ).delete()
+
+        return instance
+
+    def get_member_count(self, obj):
+        return obj.memberships.count()
+
+    def get_is_admin(self, obj):
+        if self.context.get("has_admin_permissions"):
+            return True
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        membership_link = obj.memberships.filter(
+            membership__user=request.user
+        ).first()
+        return bool(membership_link and membership_link.is_admin)
+
+
+class PharmacyHubCommentSerializer(serializers.ModelSerializer):
+    author = HubMembershipSerializer(source="author_membership", read_only=True)
+    can_edit = serializers.SerializerMethodField()
+    is_edited = serializers.BooleanField(read_only=True)
+    original_body = serializers.CharField(read_only=True)
+    edited_at = serializers.DateTimeField(source="last_edited_at", read_only=True)
+    edited_by = serializers.SerializerMethodField()
+    is_deleted = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PharmacyHubComment
+        fields = [
+            "id",
+            "post",
+            "author",
+            "body",
+            "parent_comment",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+            "can_edit",
+            "is_edited",
+            "original_body",
+            "edited_at",
+            "edited_by",
+            "is_deleted",
+        ]
+        read_only_fields = [
+            "id",
+            "post",
+            "author",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+            "can_edit",
+            "is_edited",
+            "original_body",
+            "edited_at",
+            "edited_by",
+            "is_deleted",
+        ]
+
+    def get_can_edit(self, obj):
+        membership = self.context.get("request_membership")
+        if membership and membership == obj.author_membership:
+            return True
+        return self.context.get("has_admin_permissions", False)
+
+    def get_edited_by(self, obj):
+        user = getattr(obj, "last_edited_by", None)
+        if not user:
+            return None
+        return {
+            "id": user.id,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email,
+        }
+
+    def get_is_deleted(self, obj):
+        return obj.deleted_at is not None
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if data.get("is_deleted"):
+            data["body"] = "This comment has been deleted."
+        return data
+
+
+class PharmacyHubAttachmentSerializer(serializers.ModelSerializer):
+    url = serializers.SerializerMethodField()
+    filename = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PharmacyHubAttachment
+        fields = ["id", "kind", "url", "filename", "uploaded_at"]
+        read_only_fields = fields
+
+    def get_url(self, obj):
+        try:
+            if not obj.file:
+                return None
+            url = obj.file.url
+            request = self.context.get("request")
+            if request:
+                try:
+                    url = request.build_absolute_uri(url)
+                except Exception:
+                    pass
+            return url
+        except Exception:
+            return None
+
+    def get_filename(self, obj):
+        if obj.file and hasattr(obj.file, "name"):
+            import os
+
+            return os.path.basename(obj.file.name)
+        return None
+
+
+class PharmacyHubPostSerializer(serializers.ModelSerializer):
+    author = HubMembershipSerializer(source="author_membership", read_only=True)
+    viewer_reaction = serializers.SerializerMethodField()
+    recent_comments = serializers.SerializerMethodField()
+    can_manage = serializers.SerializerMethodField()
+    attachments = PharmacyHubAttachmentSerializer(many=True, read_only=True)
+    is_edited = serializers.BooleanField(read_only=True)
+    original_body = serializers.CharField(read_only=True)
+    edited_at = serializers.DateTimeField(source="last_edited_at", read_only=True)
+    edited_by = serializers.SerializerMethodField()
+    is_deleted = serializers.SerializerMethodField()
+    is_pinned = serializers.BooleanField(read_only=True)
+    pinned_at = serializers.DateTimeField(read_only=True)
+    pinned_by = serializers.SerializerMethodField()
+    viewer_is_admin = serializers.SerializerMethodField()
+    organization = serializers.IntegerField(source="organization_id", read_only=True)
+    organization_name = serializers.SerializerMethodField()
+    pharmacy_name = serializers.SerializerMethodField()
+    community_group = serializers.IntegerField(
+        source="community_group_id", read_only=True
+    )
+    community_group_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PharmacyHubPost
+        fields = [
+            "id",
+            "pharmacy",
+            "pharmacy_name",
+            "community_group",
+            "community_group_name",
+            "organization",
+            "organization_name",
+            "author",
+            "body",
+            "visibility",
+            "allow_comments",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+            "comment_count",
+            "reaction_summary",
+            "viewer_reaction",
+            "recent_comments",
+            "can_manage",
+            "attachments",
+            "is_edited",
+            "is_pinned",
+            "pinned_at",
+            "pinned_by",
+            "original_body",
+            "edited_at",
+            "edited_by",
+            "viewer_is_admin",
+            "is_deleted",
+        ]
+        read_only_fields = [
+            "id",
+            "pharmacy",
+            "pharmacy_name",
+            "community_group",
+            "community_group_name",
+            "organization",
+            "organization_name",
+            "author",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+            "comment_count",
+            "reaction_summary",
+            "viewer_reaction",
+            "recent_comments",
+            "can_manage",
+            "attachments",
+            "is_edited",
+            "is_pinned",
+            "pinned_at",
+            "pinned_by",
+            "original_body",
+            "edited_at",
+            "edited_by",
+            "viewer_is_admin",
+            "is_deleted",
+        ]
+
+    def get_viewer_reaction(self, obj):
+        membership = self.context.get("request_membership")
+        if not membership:
+            return None
+        return (
+            obj.reactions.filter(member=membership)
+            .values_list("reaction_type", flat=True)
+            .first()
+        )
+
+    def get_recent_comments(self, obj):
+        comments_qs = (
+            obj.comments.filter(deleted_at__isnull=True)
+            .select_related("author_membership__user")
+            .order_by("-created_at")[:2]
+        )
+        serializer = PharmacyHubCommentSerializer(
+            comments_qs,
+            many=True,
+            context=self.context,
+        )
+        return list(reversed(serializer.data))
+
+    def get_can_manage(self, obj):
+        membership = self.context.get("request_membership")
+        if membership and membership == obj.author_membership:
+            return True
+        if self.context.get("has_admin_permissions", False):
+            return True
+        return self.context.get("has_group_admin_permissions", False)
+
+    def get_edited_by(self, obj):
+        user = getattr(obj, "last_edited_by", None)
+        if not user:
+            return None
+        return {
+            "id": user.id,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email,
+        }
+
+    def get_is_deleted(self, obj):
+        return obj.deleted_at is not None
+
+    def get_pinned_by(self, obj):
+        user = getattr(obj, "pinned_by", None)
+        if not user:
+            return None
+        return {
+            "id": user.id,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email,
+        }
+
+    def get_viewer_is_admin(self, obj):
+        if self.context.get("has_admin_permissions"):
+            return True
+        return bool(self.context.get("has_group_admin_permissions", False))
+
+    def get_organization_name(self, obj):
+        organization = getattr(obj, "organization", None)
+        if not organization:
+            return None
+        return organization.name
+
+    def get_pharmacy_name(self, obj):
+        pharmacy = getattr(obj, "pharmacy", None)
+        if not pharmacy:
+            return None
+        return pharmacy.name
+
+    def get_community_group_name(self, obj):
+        group = getattr(obj, "community_group", None)
+        if not group:
+            return None
+        return group.name
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if data.get("is_deleted"):
+            data["body"] = "This post has been deleted."
+        return data
+
+
+class PharmacyHubReactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PharmacyHubReaction
+        fields = ["reaction_type"]

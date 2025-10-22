@@ -70,6 +70,9 @@ import MyHistoryShiftsPage   from './pages/dashboard/sidebar/MyHistoryShiftsPage
 import PosterShiftDetailPage from './pages/dashboard/sidebar/PosterShiftDetailPage';
 import WorkerShiftDetailPage from './pages/dashboard/sidebar/WorkerShiftDetailPage';
 import ChatPage from './pages/dashboard/sidebar/chat/ChatPage';
+import PharmacyHubPage from './pages/dashboard/sidebar/pharmacyHub/PharmacyHubPage';
+import OrganizationHubPage from './pages/dashboard/sidebar/pharmacyHub/OrganizationHubPage';
+import CommunityGroupsPage from './pages/dashboard/sidebar/chat/CommunityGroupsPage';
 
 
 // Invoice
@@ -124,6 +127,8 @@ const router = createBrowserRouter([
           { path: 'invite',   element: <InviteStaffPage /> },
           { path: 'claim',    element: <ClaimPharmaciesPage /> },
           { path: 'chat', element: <ChatPage /> },
+          { path: 'community-groups', element: <CommunityGroupsPage /> },
+          { path: 'organization-hub', element: <OrganizationHubPage /> },
           {
             path: 'manage-pharmacies',
             children: [
@@ -198,6 +203,8 @@ const router = createBrowserRouter([
           { path: 'overview', element: <OwnerOverviewContainer /> },
           { path: 'onboarding', element: <OwnerOnboarding /> },
           { path: 'chat', element: <ChatPage /> },
+          { path: 'community-groups', element: <CommunityGroupsPage /> },
+          { path: 'pharmacy-hub', element: <PharmacyHubPage /> },
           {
             path: 'manage-pharmacies',
             children: [
@@ -243,6 +250,8 @@ const router = createBrowserRouter([
           // V2 — single page with its own left-buttons + progress bar
           { path: 'onboarding-v2', element: <PharmacistOnboardingV2Layout  /> },
           { path: 'chat', element: <ChatPage /> },
+          { path: 'community-groups', element: <CommunityGroupsPage /> },
+          { path: 'pharmacy-hub', element: <PharmacyHubPage /> },
 
  
           {
@@ -288,6 +297,8 @@ const router = createBrowserRouter([
           // { path: 'onboarding', element: <OtherStaffOnboarding /> },
           { path: 'onboarding-v2', element: <OtherStaffOnboardingV2Layout   /> },
           { path: 'chat', element: <ChatPage /> },
+          { path: 'community-groups', element: <CommunityGroupsPage /> },
+          { path: 'pharmacy-hub', element: <PharmacyHubPage /> },
           {
             path: 'shifts',
             children: [

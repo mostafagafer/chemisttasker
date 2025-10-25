@@ -153,6 +153,10 @@ const router = createBrowserRouter([
 
                 ],
           },
+          { path: 'interests',    element: <ExplorerInterestsPage /> },
+          { path: 'learning',     element: <LearningMaterialsPage /> },
+          { path: 'logout',       element: <LogoutPage /> },
+
         ],
       },
 

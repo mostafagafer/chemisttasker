@@ -85,17 +85,6 @@ const getMemberClassification = (member: any) => {
 };
 
 
-// const STATE_BOUNDS: Record<string, google.maps.LatLngBoundsLiteral> = {
-//   NSW: { south: -38.5, west: 140.9, north: -28.0, east: 153.7 },
-//   QLD: { south: -29.5, west: 138.0, north: -9.0,  east: 153.6 },
-//   VIC: { south: -39.2, west: 140.9, north: -33.9, east: 150.1 },
-//   SA:  { south: -38.1, west: 129.0, north: -25.9, east: 141.0 },
-//   WA:  { south: -35.2, west: 112.9, north: -13.7, east: 129.0 },
-//   TAS: { south: -43.8, west: 144.3, north: -39.0, east: 148.7 },
-//   ACT: { south: -35.8, west: 148.7, north: -35.1, east: 149.4 },
-//   NT:  { south: -25.9, west: 129.0, north: -10.9, east: 138.0 },
-// };
-
 // --- Component ---
 export default function PharmacyPage() {
   const navigate = useNavigate();
@@ -257,26 +246,6 @@ useEffect(() => {
 }, [user]);
 
 
-//   useEffect(() => {
-//   if (!isLoaded || !autocompleteRef.current) return;
-//   const bounds = STATE_BOUNDS[state];
-//   if (!bounds) {
-//     // No state selected: allow AU-wide bias only
-//     autocompleteRef.current.setOptions({
-//       componentRestrictions: { country: 'au' },
-//       strictBounds: false,
-//       bounds: undefined,
-//     });
-//     return;
-//   }
-
-//   autocompleteRef.current.setOptions({
-//     componentRestrictions: { country: 'au' },
-//     bounds,               // rectangular restriction for the state
-//     strictBounds: true,   // hard limit to the bounds
-//     fields: ['address_components', 'geometry', 'place_id', 'name'],
-//   });
-// }, [state, isLoaded]);
 
   const openDialog = (p?: Pharmacy) => {
     setApprovalCertFile(null); setSopsFile(null); setInductionGuidesFile(null); setSumpDocsFile(null);

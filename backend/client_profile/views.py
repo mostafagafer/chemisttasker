@@ -46,6 +46,16 @@ from users.models import User                    # referenced throughout (accept
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import mimetypes
+# import logging
+# logger = logging.getLogger("roster.debug")
+
+# # Flip to False when done debugging
+# DEBUG_VERBOSE = True
+
+# def _dbg(msg: str):
+#     # Prints to console and logger; safe to remove later
+#     print(f"[CLAIM_DBG] {msg}")
+#     logger.info(f"[CLAIM_DBG] {msg}")
 
 
 # Onboardings
@@ -469,15 +479,17 @@ class OrganizationDashboardView(APIView):
         claimed_qs = OwnerOnboarding.objects.filter(
             organization=org,
             organization_claimed=True
-        ).annotate(
+        ).select_related('user').annotate( # Add select_related('user') for efficiency
             pharmacies_count=Count('pharmacies')   # ← use your actual related_name here
         )
 
         claimed_data = [
             {
                 'id':               o.id,
-                'username':         o.username,
-                'phone_number':     o.phone_number,
+                'username':         o.user.username, # Access username through the related user object
+                'first_name':       o.user.first_name, # Add first_name for better display
+                'last_name':        o.user.last_name,  # Add last_name for better display
+                'phone_number':     o.user.mobile_number, # Access mobile_number through the related user object
                 'pharmacies_count': o.pharmacies_count,
             }
             for o in claimed_qs
@@ -1494,12 +1506,9 @@ class ChainViewSet(viewsets.ModelViewSet):
         GET /chains/{id}/pharmacies/
         Returns only pharmacies assigned to this chain.
         """
+        self.pagination_class = None # Disable pagination for this action
         chain = self.get_object()
         qs = chain.pharmacies.all()
-        page = self.paginate_queryset(qs)
-        if page is not None:
-            data = PharmacySerializer(page, many=True).data
-            return self.get_paginated_response(data)
         return Response(PharmacySerializer(qs, many=True).data)
 
     @action(detail=True, methods=['post'])
@@ -1585,7 +1594,7 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
     def check_permissions(self, request):
         super().check_permissions(request)
-        if request.method in SAFE_METHODS or self.action in ['express_interest', 'reject']:
+        if request.method in SAFE_METHODS or self.action in ['express_interest', 'reject', 'claim_shift']:
             return
 
         user = request.user
@@ -2106,11 +2115,17 @@ class CommunityShiftViewSet(BaseShiftViewSet):
     """Community‐level shifts, only for users who are active members of that pharmacy."""
     def get_queryset(self):
         user = self.request.user
+        # _dbg(f"get_queryset: user_id={getattr(user,'id',None)} email={getattr(user,'email',None)} top_role={getattr(user,'role',None)}")
 
         qs = super().get_queryset().filter(
             visibility__in=COMMUNITY_LEVELS,
             slots__date__gte=date.today()
         )
+
+        # NEW: Filter by 'unassigned' query parameter
+        unassigned_param = self.request.query_params.get('unassigned')
+        if unassigned_param and unassigned_param.lower() == 'true':
+            qs = qs.annotate(assigned_slot_count=Count('slots__assignments', distinct=True)).filter(assigned_slot_count=0)
 
         # Q filters for all escalation levels:
         eligible_q = (
@@ -2172,7 +2187,207 @@ class CommunityShiftViewSet(BaseShiftViewSet):
         else:
             allowed = COMMUNITY_LEVELS
 
+        final_qs = qs.filter(role_needed__in=allowed).distinct()
+
+        # _dbg(f"get_queryset: result_count={final_qs.count()} allowed_roles={allowed}")
+
         return qs.filter(role_needed__in=allowed).distinct()
+
+    @action(detail=True, methods=['post'], url_path='claim-shift')
+    def claim_shift(self, request, pk=None):
+        """
+        Allows a worker to claim an open, unassigned community shift.
+        Deep debug version for permission tracing.
+        """
+        # print("\n" + "="*70)
+        # print(f"[CLAIM_DBG] CLAIM STARTED for user={request.user.email} (id={request.user.id}) pk={pk}")
+        # print("[CLAIM_DBG] -> entering get_object() ...")
+
+        try:
+            shift = self.get_object()
+        except Exception as e:
+            import traceback
+            # print("[CLAIM_DBG] ❌ get_object() FAILED")
+            # print(traceback.format_exc())
+            return Response({"detail": f"get_object() failed: {e}"}, status=status.HTTP_403_FORBIDDEN)
+
+        # print(f"[CLAIM_DBG] -> got shift id={shift.id} vis={shift.visibility} pharmacy={shift.pharmacy_id}")
+
+        user = request.user
+        slot_id = request.data.get('slot_id')
+
+        # print("\n" + "=" * 80)
+        # print(f"[CLAIM_DBG] START CLAIM SHIFT DEBUG")
+        # print(f"User ID: {getattr(user, 'id', None)} | Email: {getattr(user, 'email', None)} | Role: {getattr(user, 'role', None)}")
+        # print(f"Shift ID: {shift.id} | Pharmacy ID: {shift.pharmacy_id} | Name: {getattr(shift.pharmacy, 'name', None)}")
+        # print(f"Shift visibility: {shift.visibility} | Role needed: {shift.role_needed} | Emp type: {shift.employment_type}")
+        # print("=" * 80)
+
+        # --- 1. Visibility check ---
+        is_eligible = self.get_queryset().filter(pk=shift.pk).exists()
+        # print(f"[CLAIM_DBG] Step 1 - Visibility eligibility = {is_eligible}")
+        if not is_eligible:
+            # print("[CLAIM_DBG] ❌ FAIL: User cannot see this shift in get_queryset() filter")
+            return Response(
+                {"detail": "You do not have permission to perform this action. [DBG:NOT_ELIGIBLE_VIS]"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # --- 2. Membership verification ---
+        all_memberships = list(
+            Membership.objects.filter(user=user, is_active=True)
+            .values('pharmacy_id', 'role', 'employment_type', 'is_active')
+        )
+        # print(f"[CLAIM_DBG] Step 2 - User active memberships ({len(all_memberships)}): {all_memberships}")
+
+        is_member_of_pharmacy = Membership.objects.filter(
+            user=user,
+            pharmacy=shift.pharmacy,
+            is_active=True
+        ).exists()
+        # print(f"[CLAIM_DBG] Step 2 - Is member of this pharmacy? {is_member_of_pharmacy}")
+
+        if not is_member_of_pharmacy:
+            # print("[CLAIM_DBG] ❌ FAIL: User is not active member of this pharmacy")
+            return Response(
+                {"detail": "You must be an active member of this pharmacy to claim this shift. [DBG:NOT_MEMBER]"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        membership = Membership.objects.filter(
+            user=user, pharmacy=shift.pharmacy, is_active=True
+        ).first()
+        # print(f"[CLAIM_DBG] Step 2 - Membership employment_type={getattr(membership,'employment_type',None)} | "
+        #     f"role={getattr(membership,'role',None)}")
+
+        # --- 3. Tier eligibility check ---
+        allowed_ftpt = {'FULL_TIME', 'PART_TIME', 'CASUAL'}
+        allowed_locum = {'LOCUM', 'SHIFT_HERO'}
+
+        if shift.visibility == 'FULL_PART_TIME':
+            ok = membership and membership.employment_type in allowed_ftpt
+            # print(f"[CLAIM_DBG] Step 3 - Tier check FULL_PART_TIME → ok={ok}")
+            if not ok:
+                # print("[CLAIM_DBG] ❌ FAIL: Tier mismatch for FULL_PART_TIME visibility")
+                return Response(
+                    {"detail": f"Only full/part-time/casual pharmacy members can claim this shift. [DBG:TIER_MISMATCH emp={getattr(membership,'employment_type',None)}]"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        elif shift.visibility == 'LOCUM_CASUAL':
+            ok = membership and membership.employment_type in allowed_locum
+            # print(f"[CLAIM_DBG] Step 3 - Tier check LOCUM_CASUAL → ok={ok}")
+            if not ok:
+                # print("[CLAIM_DBG] ❌ FAIL: Tier mismatch for LOCUM_CASUAL visibility")
+                return Response(
+                    {"detail": f"Only locum/shift-hero members can claim this shift. [DBG:TIER_MISMATCH emp={getattr(membership,'employment_type',None)}]"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        # else:
+        #     print(f"[CLAIM_DBG] Step 3 - Tier check skipped (visibility={shift.visibility})")
+
+        # --- 4. Role match check ---
+        user_role = getattr(user, 'role', None)
+        onboarding_role = None
+        print(f"[CLAIM_DBG] Step 4 - user.top_role={user_role}")
+
+        if user_role == 'OTHER_STAFF':
+            try:
+                onboarding = OtherStaffOnboarding.objects.get(user=user)
+                onboarding_role = onboarding.role_type
+                # print(f"[CLAIM_DBG] Step 4 - OtherStaff onboarding role_type={onboarding_role}")
+            except OtherStaffOnboarding.DoesNotExist:
+                # print("[CLAIM_DBG] ❌ FAIL: Missing OtherStaffOnboarding record")
+                return Response(
+                    {"detail": "Cannot determine your specific role. Please complete your onboarding. [DBG:NO_OTHERSTAFF_ONBOARDING]"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+        effective_user_role = onboarding_role or user_role
+        # print(f"[CLAIM_DBG] Step 4 - Effective user role={effective_user_role} | Required={shift.role_needed}")
+        if effective_user_role != shift.role_needed:
+            # print("[CLAIM_DBG] ❌ FAIL: Role mismatch")
+            return Response(
+                {"detail": f"This shift requires a {shift.role_needed}, but your role is {effective_user_role}. [DBG:ROLE_MISMATCH]"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # --- 5. Check if shift already taken ---
+        any_assigned = ShiftSlotAssignment.objects.filter(shift=shift).exists()
+        # print(f"[CLAIM_DBG] Step 5 - Already assigned? {any_assigned}")
+        if any_assigned:
+            # print("[CLAIM_DBG] ❌ FAIL: Shift already assigned")
+            return Response({"detail": "This shift is no longer available."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # --- 6. Slot selection ---
+        if shift.single_user_only:
+            slots_to_claim = list(shift.slots.all())
+            # print(f"[CLAIM_DBG] Step 6 - Single-user shift → claiming all slots ({len(slots_to_claim)})")
+        elif slot_id:
+            slot = get_object_or_404(ShiftSlot, pk=slot_id, shift=shift)
+            slots_to_claim = [slot]
+            # print(f"[CLAIM_DBG] Step 6 - Slot specified id={slot_id}")
+        else:
+            slots_to_claim = list(shift.slots.all())
+            # print(f"[CLAIM_DBG] Step 6 - Multi-slot shift → claiming all slots ({len(slots_to_claim)})")
+
+        if not slots_to_claim:
+            # print("[CLAIM_DBG] ❌ FAIL: No slots found to claim")
+            return Response({"detail": "No valid slots found to claim for this shift."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # --- 7. Create assignments ---
+        assignment_ids = []
+        with transaction.atomic():
+            for slot in slots_to_claim:
+                taken = ShiftSlotAssignment.objects.filter(slot=slot, slot_date=slot.date).exists()
+                # print(f"[CLAIM_DBG] Step 7 - Slot {slot.id} ({slot.date}) taken? {taken}")
+                if taken:
+                    continue
+
+                rate, reason = get_locked_rate_for_slot(shift=shift, slot=slot, user=user, override_date=slot.date)
+                # print(f"[CLAIM_DBG] Step 7 - Rate calc slot={slot.id} rate={rate} reason={reason}")
+
+                assignment = ShiftSlotAssignment.objects.create(
+                    shift=shift,
+                    slot=slot,
+                    slot_date=slot.date,
+                    user=user,
+                    unit_rate=rate,
+                    rate_reason=reason,
+                    is_rostered=True
+                )
+                assignment_ids.append(assignment.id)
+
+        # --- 8. Cleanup and notification ---
+        ShiftInterest.objects.filter(shift=shift, user=user).delete()
+        ShiftRejection.objects.filter(shift=shift, user=user).delete()
+
+        if shift.created_by and shift.created_by.email:
+            try:
+                ctx = build_shift_email_context(
+                    shift,
+                    user=shift.created_by,
+                    extra={"claimer_name": user.get_full_name() or user.email,
+                        "shift_date": slots_to_claim[0].date}
+                )
+                async_task(
+                    'users.tasks.send_async_email',
+                    subject=f"Your shift at {shift.pharmacy.name} was claimed",
+                    recipient_list=[shift.created_by.email],
+                    template_name="emails/shift_claimed.html",
+                    context=ctx,
+                    text_template="emails/shift_claimed.txt",
+                )
+                # print("[CLAIM_DBG] Step 8 - Notification queued")
+            except Exception as e:
+                print(f"[CLAIM_DBG] Step 8 - Notification error={e}")
+
+        # print(f"[CLAIM_DBG] ✅ SUCCESS: Assignments created: {assignment_ids}")
+        # print("=" * 80 + "\n")
+
+        return Response({
+            "detail": "Shift claimed successfully.",
+            "assignment_ids": assignment_ids
+        }, status=status.HTTP_201_CREATED)
 
 class PublicShiftViewSet(BaseShiftViewSet):
     """Platform‐public shifts, filtered by the user’s exact clinical role."""
@@ -2989,6 +3204,113 @@ class RosterShiftManageViewSet(viewsets.ModelViewSet):
         
         return response
 
+    @action(detail=False, methods=['get'], url_path='list-open-shifts')
+    def list_open_shifts(self, request):
+        """
+        Lists all unassigned shifts for pharmacies controlled by the current user.
+        This is for the owner's view to see their own created open shifts.
+        """
+        user = self.request.user
+        # Use the existing get_queryset logic to filter by controlled pharmacies
+        controlled_pharmacy_ids = self.get_queryset().values_list('pharmacy', flat=True).distinct()
+
+        # Filter for shifts in controlled pharmacies that have no assignments
+        qs = Shift.objects.filter(
+            pharmacy__id__in=controlled_pharmacy_ids,
+            slots__date__gte=date.today() # Only future/current shifts
+        ).annotate(
+            assigned_slot_count=Count('slots__assignments', distinct=True)
+        ).filter(assigned_slot_count=0).distinct()
+
+        # Apply date filters if present
+        start_date_str = self.request.query_params.get('start_date')
+        end_date_str = self.request.query_params.get('end_date')
+
+        if start_date_str:
+            start_date = date.fromisoformat(start_date_str)
+            qs = qs.filter(slots__date__gte=start_date)
+        if end_date_str:
+            end_date = date.fromisoformat(end_date_str)
+            qs = qs.filter(slots__date__lte=end_date)
+
+        serializer = OpenShiftSerializer(qs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'], url_path='create-open-shift')
+    def create_open_shift(self, request):
+        """
+        Allows an owner/admin to create an unassigned community shift for others to claim.
+        """
+        pharmacy_id = request.data.get('pharmacy_id')
+        role_needed = request.data.get('role_needed')
+        slot_date_str = request.data.get('slot_date')
+        start_time_str = request.data.get('start_time')
+        end_time_str = request.data.get('end_time')
+        description = request.data.get('description', '')
+
+        if not all([pharmacy_id, role_needed, slot_date_str, start_time_str, end_time_str]):
+            return Response({"detail": "Missing required fields for open shift creation."}, status=status.HTTP_400_BAD_REQUEST)
+
+        pharmacy = get_object_or_404(Pharmacy, pk=pharmacy_id)
+
+        try:
+            slot_date = date.fromisoformat(slot_date_str)
+            start_time = datetime.strptime(start_time_str, '%H:%M').time()
+            end_time = datetime.strptime(end_time_str, '%H:%M').time()
+            if start_time >= end_time:
+                return Response({"detail": "End time must be after start time."}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError:
+            return Response({"detail": "Invalid date or time format. Use YYYY-MM-DD and HH:MM."}, status=status.HTTP_400_BAD_REQUEST)
+
+        requesting_user = request.user
+        has_permission = False
+        if hasattr(requesting_user, 'owneronboarding') and pharmacy.owner == requesting_user.owneronboarding:
+            has_permission = True
+        elif OrganizationMembership.objects.filter(
+            user=requesting_user,
+            role='ORG_ADMIN',
+            organization_id=pharmacy.organization_id
+        ).exists():
+            has_permission = True
+        elif Membership.objects.filter(
+            user=requesting_user,
+            pharmacy=pharmacy,
+            role='PHARMACY_ADMIN',
+            is_active=True
+        ).exists():
+            has_permission = True
+
+        if not has_permission:
+            return Response({'detail': 'Permission denied: Not authorized to create shifts for this pharmacy.'}, status=status.HTTP_403_FORBIDDEN)
+
+        new_shift = Shift.objects.create(
+            pharmacy=pharmacy,
+            role_needed=role_needed,
+            employment_type='FULL_TIME',     # <<< was 'LOCUM'
+            visibility='FULL_PART_TIME',     # <<< was 'LOCUM_CASUAL'
+            single_user_only=True,
+            created_by=requesting_user,
+            rate_type='FLEXIBLE',
+            description=description,
+        )
+
+        new_slot = ShiftSlot.objects.create(
+            shift=new_shift,
+            date=slot_date,
+            start_time=start_time,
+            end_time=end_time,
+            is_recurring=False,
+        )
+
+
+        # _dbg(f"approve: created open shift id={new_shift.id} vis={new_shift.visibility} emp={new_shift.employment_type}")
+
+        return Response({
+            "detail": "Open shift created successfully.",
+            "shift_id": new_shift.id,
+            "slot_id": new_slot.id,
+        }, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['post'])
     def escalate(self, request, pk=None):
         """
@@ -3079,15 +3401,18 @@ class CreateShiftAndAssignView(APIView):
         if not has_permission:
             return Response({'detail': 'Permission denied: Not authorized to create shifts for this pharmacy.'}, status=status.HTTP_403_FORBIDDEN)
 
-        new_shift = Shift.objects.create(
-            pharmacy=pharmacy,
-            role_needed=role_needed,
-            employment_type='FULL_TIME',
-            visibility='FULL_PART_TIME',
-            single_user_only=True,
-            created_by=requesting_user,
-            rate_type='FLEXIBLE',
-        )
+        shift_data = {
+            "pharmacy": pharmacy,
+            "role_needed": role_needed,
+            "employment_type": "FULL_TIME",
+            "visibility": "FULL_PART_TIME",
+            "single_user_only": True,
+            "created_by": requesting_user,
+        }
+        if role_needed == "PHARMACIST":
+            shift_data["rate_type"] = "FLEXIBLE"
+
+        new_shift = Shift.objects.create(**shift_data)
 
         new_slot = ShiftSlot.objects.create(
             shift=new_shift,
@@ -3146,10 +3471,12 @@ class RosterWorkerViewSet(viewsets.ReadOnlyModelViewSet):
             shift__pharmacy_id__in=member_pharmacy_ids
         ).select_related('shift__pharmacy', 'slot', 'user').distinct()
 
-        # --- START OF FIX ---
+        # --- START OF FIX (This part is correct, but the following part needs to be removed) ---
 
         # 1. Filter by the specific pharmacy ID from the request
         pharmacy_id_param = self.request.query_params.get('pharmacy')
+        # The user-specific filter is removed to show all assignments for the pharmacy.
+        # The frontend will handle opacity/interactivity for non-user shifts.
         if pharmacy_id_param:
             try:
                 # Security check: Ensure the requested pharmacy is one the user can see
@@ -3181,7 +3508,110 @@ class RosterWorkerViewSet(viewsets.ReadOnlyModelViewSet):
             except ValueError:
                 pass  # Ignore invalid date format
                 
-        # --- END OF FIX ---
+        # --- END OF FIX (The user-specific filter was here) ---
+        
+        return qs
+
+    @action(detail=False, methods=['get'])
+    def pharmacies(self, request):
+        user = request.user
+        memberships = (
+            Membership.objects
+            .filter(user=user, is_active=True)
+            .select_related('pharmacy')
+        )
+
+        data = []
+        for m in memberships:
+            p = m.pharmacy
+
+            # Safely use legacy 'address' if it exists; otherwise compose from new parts.
+            address = (
+                getattr(p, "address", None)  # legacy compatibility (if still present anywhere)
+                or ", ".join(filter(None, [
+                    (p.street_address or "").strip(),
+                    (p.suburb or "").strip(),
+                    (p.state or "").strip(),
+                    (p.postcode or "").strip(),
+                ]))
+            )
+
+            data.append({
+                "id": p.id,
+                "name": p.name,
+                "address": address,
+                # keep returning the structured bits too (harmless + future-proof)
+                "street_address": p.street_address,
+                "suburb": p.suburb,
+                "state": p.state,
+                "postcode": p.postcode,
+                "latitude": p.latitude,
+                "longitude": p.longitude,
+            })
+
+        return Response(data)
+
+class RosterWorkerViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = RosterAssignmentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Returns rostered assignments for pharmacies where the user is a member.
+        The queryset is now filtered by the 'pharmacy', 'start_date', and 
+        'end_date' query parameters if they are provided in the request.
+        """
+        user = self.request.user
+        
+        # Get all pharmacies where the user has an active membership
+        member_pharmacy_ids = Membership.objects.filter(
+            user=user, is_active=True
+        ).values_list('pharmacy_id', flat=True)
+        
+        # Start with a base queryset of all assignments in those pharmacies
+        qs = ShiftSlotAssignment.objects.filter(
+            is_rostered=True,
+            shift__pharmacy_id__in=member_pharmacy_ids
+        ).select_related('shift__pharmacy', 'slot', 'user').distinct()
+
+        # --- START OF FIX (This part is correct, but the following part needs to be removed) ---
+
+        # 1. Filter by the specific pharmacy ID from the request
+        pharmacy_id_param = self.request.query_params.get('pharmacy')
+        # The user-specific filter is removed to show all assignments for the pharmacy.
+        # The frontend will handle opacity/interactivity for non-user shifts.
+        if pharmacy_id_param:
+            try:
+                # Security check: Ensure the requested pharmacy is one the user can see
+                requested_pharmacy_id = int(pharmacy_id_param)
+                if requested_pharmacy_id in member_pharmacy_ids:
+                    qs = qs.filter(shift__pharmacy_id=requested_pharmacy_id)
+                else:
+                    # If user requests a pharmacy they aren't a member of, return nothing
+                    return ShiftSlotAssignment.objects.none()
+            except (ValueError, TypeError):
+                # If pharmacy_id is not a valid integer, ignore it
+                pass
+
+        # 2. Filter by the date range from the request
+        start_date_str = self.request.query_params.get('start_date')
+        end_date_str = self.request.query_params.get('end_date')
+
+        if start_date_str:
+            try:
+                start_date = date.fromisoformat(start_date_str)
+                qs = qs.filter(slot_date__gte=start_date)
+            except ValueError:
+                pass  # Ignore invalid date format
+
+        if end_date_str:
+            try:
+                end_date = date.fromisoformat(end_date_str)
+                qs = qs.filter(slot_date__lte=end_date)
+            except ValueError:
+                pass  # Ignore invalid date format
+                
+        # --- END OF FIX (The user-specific filter was here) ---
         
         return qs
 
@@ -3443,7 +3873,6 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         )
         return Response({'status': 'rejected'})
 
-
 class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
     """
     Shift Cover Requests:
@@ -3592,14 +4021,45 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
         if req.status != "PENDING":
             return Response({"detail": f"Already {req.status.lower()}."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Business state only; do NOT create invalid ShiftSlotAssignment here.
-        # The owner/admin will roster or escalate as per your existing flows.
-        req.status = "APPROVED"
+        pharmacy = req.pharmacy
+        
+        # Check the pharmacy setting for auto-publishing
+        # --- NEW LOGIC: Always create an open shift on approval ---
+        # Create a new community shift based on the request details
+        new_shift = Shift.objects.create(
+            pharmacy=pharmacy,
+            role_needed=req.role,
+            employment_type='LOCUM',
+            visibility='LOCUM_CASUAL',
+            single_user_only=True,
+            created_by=request.user,
+            rate_type='FLEXIBLE',
+            description=f"This shift was created from a cover request by {req.requested_by.get_full_name()} for {req.slot_date}. Note: {req.note or 'No note provided.'}"
+        )
+
+        ShiftSlot.objects.create(
+            shift=new_shift,
+            date=req.slot_date,
+            start_time=req.start_time,
+            end_time=req.end_time,
+            is_recurring=False,
+        )
+
+        # If the original request was for an existing assignment, un-assign the worker
+        if req.shift:
+            # req.shift is a ShiftSlotAssignment instance
+            req.shift.delete()
+
+        # Update the request status to show it was auto-published
+        req.status = "AUTO_PUBLISHED"
         req.resolved_at = timezone.now()
         req.resolved_by = request.user
         req.save(update_fields=["status", "resolved_at", "resolved_by"])
+        
+        approval_status_message = "approved and a new community shift has been published"
 
         # Email the worker with their own, role-correct dashboard/roster link
+        # This notification is sent for both auto-published and manually approved requests.
         ctx = {
             "worker_name": req.requested_by.get_full_name() or req.requested_by.email,
             "pharmacy_name": req.pharmacy.name,
@@ -3609,7 +4069,7 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
         if req.requested_by.email:
             notification_payload = {
                 "title": f"Shift cover approved: {ctx['pharmacy_name']}",
-                "body": f"Your cover request for {ctx['shift_date']} was approved.",
+                "body": f"Your cover request for {ctx['shift_date']} was {approval_status_message}.",
                 "action_url": ctx["shift_link"],
                 "payload": {"worker_shift_request_id": req.id},
             }
@@ -3624,7 +4084,7 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
                 text_template="emails/swap_approved.txt",
                 notification=notification_payload,
             )
-        return Response({'status': 'approved'})
+        return Response({'status': req.status.lower()})
 
     # ---------------------------
     # REJECT (Admin action)
@@ -3643,6 +4103,9 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
         req.resolved_at = timezone.now()
         req.resolved_by = request.user
         req.save(update_fields=["status", "resolved_at", "resolved_by"])
+
+        # NEW: If the request was linked to an assignment, it is now implicitly restored.
+        # The frontend will no longer show it as a pending request.
 
         # Email the worker with their own, role-correct link
         ctx = {
@@ -5955,4 +6418,3 @@ class OrganizationHubReactionView(OrganizationHubAccessMixin, APIView):
             ).delete()
             post.recompute_reaction_summary()
         return Response(status=status.HTTP_204_NO_CONTENT)
-

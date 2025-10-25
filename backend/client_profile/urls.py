@@ -27,7 +27,7 @@ router.register(r'shifts', ShiftDetailViewSet, basename='shift')
 # Roster endpoints
 router.register(r'roster-owner', RosterOwnerViewSet, basename='roster-owner')
 router.register(r'roster-worker', RosterWorkerViewSet, basename='roster-worker')
-router.register(r'roster/manage-shifts', RosterShiftManageViewSet, basename='roster-manage-shift')
+router.register(r'roster-shifts', RosterShiftManageViewSet, basename='roster-shift')
 # Interest endpoint
 router.register(r'shift-interests', ShiftInterestViewSet,  basename='shift-interests')
 router.register(r'shift-rejections', ShiftRejectionViewSet, basename='shift-rejections')

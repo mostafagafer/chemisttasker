@@ -3750,6 +3750,7 @@ class ShiftSerializer(serializers.ModelSerializer):
             'id', 'created_by','created_at', 'pharmacy',  'pharmacy_detail','role_needed', 'employment_type', 'visibility',
             'escalation_level', 'escalate_to_owner_chain', 'escalate_to_org_chain', 'escalate_to_platform',
             'must_have', 'nice_to_have', 'rate_type', 'fixed_rate', 'owner_adjusted_rate','slots','single_user_only',
+            'escalate_to_locum_casual',
             'interested_users_count', 'reveal_quota', 'reveal_count', 'workload_tags','slot_assignments',
             'allowed_escalation_levels','is_single_user', 'description' ]
         read_only_fields = [
@@ -4102,33 +4103,11 @@ class WorkerShiftRequestSerializer(serializers.ModelSerializer):
         read_only_fields = ["status", "created_at", "updated_at"]
 
     def create(self, validated_data):
-        """
-        Called when a worker submits a swap/cover request.
-
-        Behaviour:
-        - Automatically sets the requester to the logged-in user.
-        - Defaults to status = 'PENDING' unless auto-publish is enabled.
-        - If the pharmacy has auto_publish_worker_requests=True,
-          automatically creates a ShiftSlotAssignment and sets
-          status = 'AUTO_PUBLISHED'.
-        """
         user = self.context["request"].user
-        pharmacy = validated_data["pharmacy"]
 
         # Explicitly link requester
         validated_data["requested_by"] = user
         validated_data["status"] = "PENDING"
-
-        # --- Handle auto-publish worker requests ---
-        if getattr(pharmacy, "auto_publish_worker_requests", False):
-            from client_profile.models import ShiftSlotAssignment
-
-            ShiftSlotAssignment.objects.create(
-                slot_date=validated_data["slot_date"],
-                assigned_user=None,
-                shift=None,  # adjust if your Shift model requires linking
-            )
-            validated_data["status"] = "AUTO_PUBLISHED"
 
         return super().create(validated_data)
 
@@ -4205,6 +4184,22 @@ class RosterAssignmentSerializer(serializers.ModelSerializer):
                 "date_resolved": leave.date_resolved,
             }
         return None
+
+
+class OpenShiftSerializer(serializers.ModelSerializer):
+    slots = ShiftSlotSerializer(many=True, read_only=True)
+    pharmacy_name = serializers.CharField(source='pharmacy.name', read_only=True)
+
+    class Meta:
+        model = Shift
+        fields = [
+            "id",
+            "pharmacy",
+            "pharmacy_name",
+            "role_needed",
+            "description",
+            "slots",
+        ]
 
 # === Invoice ===
 class InvoiceLineItemSerializer(serializers.ModelSerializer):

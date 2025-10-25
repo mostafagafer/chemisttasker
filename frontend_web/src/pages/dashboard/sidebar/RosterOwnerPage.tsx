@@ -4,6 +4,7 @@ import {
   Typography,
   Tabs,
   Tab,
+  Stack,
   Skeleton,
   Button,
   Box,
@@ -23,6 +24,7 @@ import {
   CircularProgress,
   Checkbox,
   OutlinedInput,
+  FormControlLabel,
   Paper,
   Chip,
   Snackbar,
@@ -38,6 +40,7 @@ import 'react-big-calendar/lib/css/react-big-calendar.css';
 
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
+import { ROSTER_COLORS } from '../../../constants/rosterColors';
 
 const localizer = momentLocalizer(moment);
 
@@ -71,6 +74,31 @@ interface Assignment {
   shift_detail: ShiftDetail;
   leave_request: LeaveRequest | null; // Added leave_request
 }
+
+// NEW: Interface for an open shift (unassigned, community-visible)
+interface OpenShift {
+  id: number;
+  pharmacy: number;
+  role_needed: string;
+  slots: SlotDetail[]; // An open shift can have slots
+  description: string;
+  // Add other relevant fields from ShiftSerializer if needed
+  // For calendar rendering, we mainly need role, and slot details.
+}
+
+
+// NEW: Interface for worker shift requests
+interface WorkerShiftRequest {
+  id: number;
+  pharmacy: number;
+  requester_name: string;
+  role: string;
+  slot_date: string;
+  start_time: string;
+  end_time: string;
+  note: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'AUTO_PUBLISHED';
+}
 interface PharmacyMember { id: number; user: number; user_details: UserDetail; invited_name?: string; role: string; employment_type: string; }
 interface ShiftForEdit { id: number; role_needed: string; slots: SlotDetail[]; }
 
@@ -78,15 +106,6 @@ interface ShiftForEdit { id: number; role_needed: string; slots: SlotDetail[]; }
 // --- Constants for Roles, Colors, and Leave (Updated) ---
 const ROLES = ['PHARMACIST', 'ASSISTANT', 'INTERN', 'TECHNICIAN'];
 const ALL_STAFF = 'ALL';
-const ROLE_COLORS: { [key: string]: string } = {
-  PHARMACIST: '#3174ad',   // Blue
-  ASSISTANT: '#4caf50',    // Green
-  INTERN: '#ff9800',       // Orange
-  TECHNICIAN: '#9c27b0',   // Purple
-  LEAVE_PENDING: '#757575',// Grey for pending leave
-  LEAVE_APPROVED: '#f44336',// Red for approved leave
-  DEFAULT: '#757575',      // Grey
-};
 const LEAVE_TYPES_MAP: { [key: string]: string } = {
     SICK: 'Sick Leave',
     ANNUAL: 'Annual Leave',
@@ -118,6 +137,8 @@ export default function RosterOwnerPage() {
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   const [selectedPharmacyId, setSelectedPharmacyId] = useState<number | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [openShifts, setOpenShifts] = useState<OpenShift[]>([]); // NEW: State for open shifts
+  const [workerRequests, setWorkerRequests] = useState<WorkerShiftRequest[]>([]); // NEW: State for cover requests
   const [pharmacyMembers, setPharmacyMembers] = useState<PharmacyMember[]>([]);
   
   // --- Loading States ---
@@ -148,6 +169,9 @@ export default function RosterOwnerPage() {
   const [escalationLevel, setEscalationLevel] = useState<string>('');
   const [isLeaveManageDialogOpen, setIsLeaveManageDialogOpen] = useState(false); // New dialog state
   
+  const [isCoverRequestDialogOpen, setIsCoverRequestDialogOpen] = useState(false); // NEW: Dialog for cover requests
+  const [postAsOpenShift, setPostAsOpenShift] = useState(false);
+  const [selectedCoverRequest, setSelectedCoverRequest] = useState<WorkerShiftRequest | null>(null); // NEW
   const [roleFilters, setRoleFilters] = useState<string[]>([ALL_STAFF]);
   // --- Snackbar ---
   const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -174,9 +198,16 @@ export default function RosterOwnerPage() {
           setSelectedPharmacyId(firstPharmacyId);
           const start = moment(calendarDate).startOf(calendarView as moment.unitOfTime.StartOf).format('YYYY-MM-DD');
           const end = moment(calendarDate).endOf(calendarView as moment.unitOfTime.StartOf).format('YYYY-MM-DD');
-          // The RosterOwner endpoint now returns leave_request data automatically
+          // Fetch assignments
           const assignmentsRes = await apiClient.get<PaginatedResponse<Assignment>>(`${API_ENDPOINTS.getRosterOwner}?pharmacy=${firstPharmacyId}&start_date=${start}&end_date=${end}`);
           setAssignments(assignmentsRes.data.results || []);
+          // NEW: Fetch worker shift requests
+          const requestsRes = await apiClient.get<PaginatedResponse<WorkerShiftRequest>>(`${API_ENDPOINTS.workerShiftRequests}?pharmacy=${firstPharmacyId}&start_date=${start}&end_date=${end}`);
+          setWorkerRequests(requestsRes.data.results || []);
+          // FIX: Use the correct endpoint for owner's open shifts
+          const openShiftsRes = await apiClient.get<PaginatedResponse<OpenShift>>(`${API_ENDPOINTS.ownerOpenShifts}?pharmacy=${firstPharmacyId}&start_date=${start}&end_date=${end}`);
+          setOpenShifts(openShiftsRes.data.results || openShiftsRes.data as any || []);
+
         }
       } catch (err) { 
         console.error("Failed to load initial page data", err); 
@@ -220,8 +251,16 @@ export default function RosterOwnerPage() {
   const loadAssignments = async (pharmacyId: number, startDate?: string, endDate?: string) => {
     setIsAssignmentsLoading(true);
     try {
-      const res = await apiClient.get<PaginatedResponse<Assignment>>(`${API_ENDPOINTS.getRosterOwner}?pharmacy=${pharmacyId}&start_date=${startDate}&end_date=${endDate}`);
-      setAssignments(res.data.results || []);
+      // Fetch both assignments and worker requests in parallel
+      const [assignmentsRes, requestsRes, openShiftsRes] = await Promise.all([
+        apiClient.get<PaginatedResponse<Assignment>>(`${API_ENDPOINTS.getRosterOwner}?pharmacy=${pharmacyId}&start_date=${startDate}&end_date=${endDate}`),
+        apiClient.get<PaginatedResponse<WorkerShiftRequest>>(`${API_ENDPOINTS.workerShiftRequests}?pharmacy=${pharmacyId}&start_date=${startDate}&end_date=${endDate}`),
+        // FIX: Use the correct endpoint for owner's open shifts
+        apiClient.get<PaginatedResponse<OpenShift>>(`${API_ENDPOINTS.ownerOpenShifts}?pharmacy=${pharmacyId}&start_date=${startDate}&end_date=${endDate}`)
+      ]);
+      setAssignments(assignmentsRes.data.results || []);
+      setWorkerRequests(requestsRes.data.results || []);
+      setOpenShifts(openShiftsRes.data.results || openShiftsRes.data as any || []);
     } catch (err) { console.error("Failed to load roster assignments", err); }
     finally { setIsAssignmentsLoading(false); }
   };
@@ -339,6 +378,63 @@ export default function RosterOwnerPage() {
       }
   };
   
+  // NEW: Handle posting an open shift
+  const handleCreateOpenShift = async () => {
+    if (!selectedPharmacyId || !newShiftRoleNeeded || !dialogShiftDate || !dialogShiftStartTime || !dialogShiftEndTime) {
+      showSnackbar("Please ensure role, date, and times are selected."); return;
+    }
+    setIsCreatingShift(true);
+    try {
+      await apiClient.post(API_ENDPOINTS.createOpenShift, {
+        pharmacy_id: selectedPharmacyId,
+        role_needed: newShiftRoleNeeded,
+        slot_date: dialogShiftDate,
+        start_time: dialogShiftStartTime,
+        end_time: dialogShiftEndTime,
+        // You can add a description field to the dialog if needed
+        description: "Open shift posted by owner.",
+      });
+      showSnackbar("Open shift posted successfully!");
+      setIsAddAssignmentDialogOpen(false);
+      reloadAssignments();
+    } catch (err: any) {
+      showSnackbar(`Failed to post open shift: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setIsCreatingShift(false);
+    }
+  };
+
+  // NEW: Cover Request Handlers
+  const handleApproveCoverRequest = async () => {
+    if (!selectedCoverRequest) return;
+    setIsActionLoading(true);
+    try {
+      await apiClient.post(`${API_ENDPOINTS.workerShiftRequests}${selectedCoverRequest.id}/approve/`); // This will now create an open shift
+      showSnackbar("Cover request approved successfully.");
+      setIsCoverRequestDialogOpen(false);
+      reloadAssignments();
+    } catch (err: any) {
+      showSnackbar(`Failed to approve request: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const handleRejectCoverRequest = async () => {
+    if (!selectedCoverRequest) return;
+    setIsActionLoading(true);
+    try {
+      await apiClient.post(`${API_ENDPOINTS.workerShiftRequests}${selectedCoverRequest.id}/reject/`);
+      showSnackbar("Cover request has been rejected.");
+      setIsCoverRequestDialogOpen(false);
+      reloadAssignments();
+    } catch (err: any) {
+      showSnackbar(`Failed to reject request: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
   // --- UI HANDLERS (Updated) ---
   const handleSelectSlot = (slotInfo: { start: Date, end: Date }) => {
     setIsAddAssignmentDialogOpen(true);
@@ -346,22 +442,55 @@ export default function RosterOwnerPage() {
     setDialogShiftStartTime(moment(slotInfo.start).format('HH:mm'));
     setDialogShiftEndTime(moment(slotInfo.end).format('HH:mm'));
     setNewShiftRoleNeeded('');
+    setPostAsOpenShift(false); // Reset checkbox
     setSelectedUserForAssignment(null);
   };
 
-  const handleSelectEvent = (event: { resource: Assignment }) => {
-    const assignment = event.resource;
-    setSelectedAssignment(assignment);
+  const handleSelectEvent = (event: { resource: any }) => {
+    const item = event.resource;
 
-    // ** NEW LOGIC **
-    // If there's a PENDING leave request, show the management dialog.
-    // Otherwise, show the normal options dialog.
-    if (assignment.leave_request && assignment.leave_request.status === 'PENDING') {
+    // NEW: Check if it's an open shift
+    if (item.isOpenShift) {
+      // For now, just show options dialog for open shifts (e.g., to delete it)
+      // We create a temporary "Assignment-like" object for the dialog
+      const tempAssignment = {
+        ...item.originalShift,
+        id: `open-${item.originalShift.id}`, // A unique ID for the event
+        shift: item.originalShift.id,
+        slot: item.originalShift.slots[0].id,
+        slot_date: item.originalShift.slots[0].date,
+        slot_detail: item.originalShift.slots[0],
+        shift_detail: { // This was missing
+          ...item.shift_detail,
+          allowed_escalation_levels: [], // Provide a default empty array
+        },
+        user_detail: { first_name: 'Open', last_name: 'Shift' } };
+      setSelectedAssignment(tempAssignment as any);
+      setIsOptionsDialogOpen(true);
+      setIsLeaveManageDialogOpen(false);
+      setIsCoverRequestDialogOpen(false);
+      return;
+    }
+
+    // NEW: Check if it's a cover request
+    if (item.isCoverRequest) {
+      setSelectedCoverRequest(item.originalRequest);
+      setIsCoverRequestDialogOpen(true);
+      setIsOptionsDialogOpen(false);
+      setIsLeaveManageDialogOpen(false);
+      return;
+    }
+
+    // Existing logic for assignments and leave requests
+    setSelectedAssignment(item);
+    if (item.leave_request && item.leave_request.status === 'PENDING') {
         setIsLeaveManageDialogOpen(true);
         setIsOptionsDialogOpen(false); // Ensure other dialog is closed
+        setIsCoverRequestDialogOpen(false);
     } else {
         setIsOptionsDialogOpen(true);
         setIsLeaveManageDialogOpen(false); // Ensure other dialog is closed
+        setIsCoverRequestDialogOpen(false);
     }
   };
   
@@ -380,7 +509,8 @@ export default function RosterOwnerPage() {
 
   // --- Memos and Styles (Updated) ---
   const calendarEvents = useMemo(() => {
-    return assignments
+    // Map regular assignments
+    const assignmentEvents = assignments
       .filter(a => {
         if (roleFilters.includes(ALL_STAFF)) {
             return true;
@@ -402,19 +532,72 @@ export default function RosterOwnerPage() {
             resource: a
         });
     });
-  }, [assignments, roleFilters]);
+
+    // NEW: Map worker cover requests
+    const requestEvents = workerRequests
+      .filter(req => req.status === 'PENDING') // Only show pending requests
+      .map(req => ({
+        id: `cover-${req.id}`,
+        title: `${req.requester_name} (Cover Request)`,
+        start: moment(`${req.slot_date} ${req.start_time}`).toDate(),
+        end: moment(`${req.slot_date} ${req.end_time}`).toDate(),
+        allDay: false,
+        resource: {
+          isCoverRequest: true,
+          originalRequest: req,
+          shift_detail: { role_needed: req.role } // For filtering
+        }
+      }));
+
+    // NEW: Map owner-created open shifts
+    const openShiftEvents = openShifts
+      .filter(shift => {
+        if (roleFilters.includes(ALL_STAFF)) return true;
+        return roleFilters.includes(shift.role_needed);
+      })
+      .flatMap(shift =>
+        shift.slots.map(slot => ({
+            id: `open-${shift.id}-${slot.id}`,
+            title: `OPEN: ${shift.role_needed}`,
+            start: moment(`${slot.date} ${slot.start_time}`).toDate(),
+            end: moment(`${slot.date} ${slot.end_time}`).toDate(),
+            allDay: false,
+            resource: {
+              isOpenShift: true,
+              originalShift: shift, // Keep original data for context
+              shift_detail: { role_needed: shift.role_needed } // For filtering and styling
+            }
+          }))
+    );
+
+    return [...assignmentEvents, ...requestEvents, ...openShiftEvents];
+  }, [assignments, workerRequests, openShifts, roleFilters]);
 
   const eventStyleGetter = (event: any) => {
-    const assignment = event.resource as Assignment;
+    const assignment = event.resource;
     const role = assignment?.shift_detail?.role_needed;
-    let backgroundColor = ROLE_COLORS[role as keyof typeof ROLE_COLORS] || ROLE_COLORS.DEFAULT;
+
+    // NEW: Style for open shifts
+    if (assignment.isOpenShift) {
+      return { // Ensure this style is applied
+        style: { backgroundColor: ROSTER_COLORS.OPEN_SHIFT, borderRadius: '5px', opacity: 0.9, color: 'white', border: '1px dashed #fff', display: 'block' }
+      };
+    }
+    // NEW: Style for cover requests
+    if (assignment.isCoverRequest) {
+      return {
+        style: { backgroundColor: ROSTER_COLORS.SWAP_PENDING, borderRadius: '5px', opacity: 0.9, color: 'white', border: '0px', display: 'block' }
+      };
+    }
+
+    let backgroundColor = ROSTER_COLORS[role as keyof typeof ROSTER_COLORS] || ROSTER_COLORS.DEFAULT;
 
     // Override color for leave requests
     if (assignment?.leave_request) {
         if (assignment.leave_request.status === 'PENDING') {
-            backgroundColor = ROLE_COLORS.LEAVE_PENDING;
+            backgroundColor = ROSTER_COLORS.LEAVE_PENDING;
         } else if (assignment.leave_request.status === 'APPROVED') {
-            backgroundColor = ROLE_COLORS.LEAVE_APPROVED;
+            backgroundColor = ROSTER_COLORS.LEAVE_APPROVED;
         }
     }
 
@@ -443,7 +626,9 @@ export default function RosterOwnerPage() {
       </Tabs>
       
       <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2}}>
-          <Typography variant="h5">Roster Calendar</Typography>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <Typography variant="h5">Roster Calendar</Typography>
+          </Stack>
           <FormControl sx={{ m: 1, width: 300 }}>
               <InputLabel>Filter by Role</InputLabel>
               <Select
@@ -501,7 +686,7 @@ export default function RosterOwnerPage() {
       </Box>
 
       {/* DIALOGS */}
-      {/* Add Assignment Dialog (Unchanged) */}
+      {/* Add Assignment / Open Shift Dialog */}
       <Dialog open={isAddAssignmentDialogOpen} onClose={() => setIsAddAssignmentDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Create New Shift and Assign</DialogTitle>
         <DialogContent dividers>
@@ -521,9 +706,16 @@ export default function RosterOwnerPage() {
                   <MenuItem value="ASSISTANT">Assistant</MenuItem>
                 </Select>
               </FormControl>
-              <FormControl fullWidth required>
+              <FormControlLabel
+                control={
+                  <Checkbox checked={postAsOpenShift} onChange={(e) => setPostAsOpenShift(e.target.checked)} />
+                }
+                label="Post as an Open Shift for the community to claim"
+              />
+
+              <FormControl fullWidth required disabled={postAsOpenShift}>
                 <InputLabel>Assign Staff Member</InputLabel>
-                <Select value={selectedUserForAssignment || ''} onChange={(e) => setSelectedUserForAssignment(e.target.value as number)} label="Assign Staff Member" disabled={!newShiftRoleNeeded}>
+                <Select value={selectedUserForAssignment || ''} onChange={(e) => setSelectedUserForAssignment(e.target.value as number)} label="Assign Staff Member" disabled={!newShiftRoleNeeded || postAsOpenShift}>
                   {filteredMembers.length === 0 ? (
                     <MenuItem disabled value="">{newShiftRoleNeeded ? "No staff for this role" : "Select a role first"}</MenuItem>
                   ) : (
@@ -540,12 +732,12 @@ export default function RosterOwnerPage() {
         <DialogActions>
           <Button onClick={() => setIsAddAssignmentDialogOpen(false)} disabled={isCreatingShift}>Cancel</Button>
           <Button 
-            onClick={handleCreateShiftAndAssign} 
+            onClick={postAsOpenShift ? handleCreateOpenShift : handleCreateShiftAndAssign} 
             variant="contained" 
             color="primary"
             disabled={isCreatingShift}
           >
-            {isCreatingShift ? <CircularProgress size={24} color="inherit" /> : 'Create & Assign'}
+            {isCreatingShift ? <CircularProgress size={24} color="inherit" /> : (postAsOpenShift ? 'Post Open Shift' : 'Create & Assign')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -603,6 +795,37 @@ export default function RosterOwnerPage() {
         </DialogActions>
       </Dialog>
 
+      {/* NEW: Cover/Swap Request Management Dialog */}
+      <Dialog open={isCoverRequestDialogOpen} onClose={() => setIsCoverRequestDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Manage Cover Request</DialogTitle>
+        <DialogContent dividers>
+            {selectedCoverRequest ? (
+                <Box sx={{pt: 1}}>
+                    <List dense>
+                        <ListItem><ListItemText primary="Staff Member" secondary={selectedCoverRequest.requester_name} /></ListItem>
+                        <ListItem><ListItemText primary="Shift Date" secondary={moment(selectedCoverRequest.slot_date).format('dddd, MMMM Do YYYY')} /></ListItem>
+                        <ListItem><ListItemText primary="Time" secondary={`${moment(selectedCoverRequest.start_time, "HH:mm:ss").format("h:mm A")} - ${moment(selectedCoverRequest.end_time, "HH:mm:ss").format("h:mm A")}`} /></ListItem>
+                        <ListItem><ListItemText primary="Role" secondary={selectedCoverRequest.role} /></ListItem>
+                    </List>
+                    <Typography variant="subtitle2" sx={{ mt: 2, color: 'text.secondary' }}>Worker's Note:</Typography>
+                    <Paper variant="outlined" sx={{ p: 2, mt: 1, minHeight: '60px', bgcolor: 'grey.100' }}>
+                        <Typography variant="body2" sx={{ fontStyle: selectedCoverRequest.note ? 'normal' : 'italic', color: selectedCoverRequest.note ? 'text.primary' : 'text.secondary' }}>
+                            {selectedCoverRequest.note || "No note provided."}
+                        </Typography>
+                    </Paper>
+                </Box>
+            ) : <Skeleton variant="rectangular" height={200} />}
+        </DialogContent>
+        <DialogActions>
+            <Button onClick={() => setIsCoverRequestDialogOpen(false)} disabled={isActionLoading}>Cancel</Button>
+            <Button onClick={handleRejectCoverRequest} variant="outlined" color="error" disabled={isActionLoading}>
+              {isActionLoading ? <CircularProgress size={24} color="inherit" /> : 'Reject Request'}
+            </Button>
+            <Button onClick={handleApproveCoverRequest} variant="contained" color="success" disabled={isActionLoading}>
+              {isActionLoading ? <CircularProgress size={24} color="inherit" /> : 'Approve Request'}
+            </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Edit Dialog (Unchanged) */}
       <Dialog open={isEditDialogOpen} onClose={() => setIsEditDialogOpen(false)} fullWidth maxWidth="sm">

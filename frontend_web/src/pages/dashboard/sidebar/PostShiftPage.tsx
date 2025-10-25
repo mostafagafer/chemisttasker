@@ -193,13 +193,31 @@ const PostShiftPage: React.FC = () => {
         .catch(() => showSnackbar('Failed to load shift for editing', 'error'));
     }
   }, [editingShiftId]);
+
   const allowedVis = useMemo(() => {
     const p = pharmacies.find(x => x.id === pharmacyId);
     if (!p) return [];
-    if (user?.role === 'ORG_ADMIN') return ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'];
-    if (!p.has_chain && !p.claimed) return ['PLATFORM'];
-    if (p.has_chain && !p.claimed) return ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'PLATFORM'];
-    return ['FULL_PART_TIME', 'LOCUM_CASUAL', 'PLATFORM'];
+
+    // All users start with the basic tiers
+    const tiers = ['FULL_PART_TIME', 'LOCUM_CASUAL'];
+
+    // Add chain tier if the pharmacy has a chain
+    if (p.has_chain) {
+      tiers.push('OWNER_CHAIN');
+    }
+    // Add organization tier if the owner is claimed by an org
+    if (p.claimed) {
+      tiers.push('ORG_CHAIN');
+    }
+    // Platform is always the final tier
+    tiers.push('PLATFORM');
+
+    // ORG_ADMINs can see all tiers regardless of pharmacy status
+    if (user?.role?.startsWith('ORG_')) {
+      return ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'];
+    }
+
+    return tiers;
   }, [pharmacyId, pharmacies, user]);
 
   useEffect(() => {

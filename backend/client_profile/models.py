@@ -1214,6 +1214,18 @@ class WorkerShiftRequest(models.Model):
         related_name="swap_requests",
     )
 
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="resolved_worker_shift_requests",
+    )
+    resolved_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
     role = models.CharField(max_length=100)
     slot_date = models.DateField()
     start_time = models.TimeField()

@@ -88,6 +88,7 @@ export const API_ENDPOINTS = {
   // Create & marketplace
   createShift:           '/client-profile/community-shifts/',
   getCommunityShifts:    '/client-profile/community-shifts/',
+  claimShift: (shiftId: number | string) => `/client-profile/community-shifts/${shiftId}/claim-shift/`,
   getPublicShifts:       '/client-profile/public-shifts/',
 
   // My-Shifts by status
@@ -136,8 +137,9 @@ export const API_ENDPOINTS = {
   rejectWorkerShiftRequest: (id: number) =>`/client-profile/worker-shift-requests/${id}/reject/`,
 
   // NEW: Endpoints for managing a SHIFT from the roster view
-  rosterManageShift: (shiftId: number) => `/client-profile/roster/manage-shifts/${shiftId}/`, // For EDIT (PATCH) and DELETE
-  rosterEscalateShift: (shiftId: number) => `/client-profile/roster/manage-shifts/${shiftId}/escalate/`, // For ESCALATE (POST)
+  rosterManageShift: (shiftId: number) => `/client-profile/roster-shifts/${shiftId}/`, // For EDIT (PATCH) and DELETE
+  ownerOpenShifts: '/client-profile/roster-shifts/list-open-shifts/', // NEW: For owners to list their open shifts
+  createOpenShift: `/client-profile/roster-shifts/create-open-shift/`,
 
   // NOTE: Deleting an ASSIGNMENT still uses getRosterOwner
   rosterDeleteAssignment: (assignmentId: number) => `/client-profile/roster-owner/${assignmentId}/`,
@@ -247,4 +249,3 @@ export const API_ENDPOINTS = {
 
 
 };
-

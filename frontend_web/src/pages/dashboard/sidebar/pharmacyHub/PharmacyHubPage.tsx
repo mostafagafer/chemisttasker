@@ -47,7 +47,7 @@ import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
 import SpeakerNotesOffOutlinedIcon from "@mui/icons-material/SpeakerNotesOffOutlined";
 import SpeakerNotesOutlinedIcon from "@mui/icons-material/SpeakerNotesOutlined"; 
-import dayjs from "dayjs";
+import dayjs from "dayjs"; 
 import { useAuth, PharmacyMembership as AuthPharmacyMembership } from "../../../../contexts/AuthContext";
 import apiClient from "../../../../utils/apiClient";
 import { API_ENDPOINTS } from "../../../../constants/api";
@@ -65,12 +65,12 @@ import {
   updatePharmacyHubComment,
   updatePharmacyHubPost,
 } from "../../../../api/pharmacyHub"; 
-import {
-HubComment,
- HubPost,
-HubReactionType,
- } from "../../../../types/pharmacyHub";
-
+import { 
+  HubComment, 
+  HubPost, 
+  HubReactionType, 
+} from "../../../../types/pharmacyHub";
+ 
 type CommentDraftMap = Record<number, string>;
 type CommentListMap = Record<number, HubComment[]>;
 type CommentLoadingMap = Record<number, boolean>;
@@ -92,10 +92,10 @@ type PostEditorState = {
 };
 type PharmacyMember = {
   id: number;
- name: string;
-role: string;
+  name: string;
+  role: string;
 };
-const HUB_POLL_INTERVAL_MS = 45000;
+const HUB_POLL_INTERVAL_MS = 45000; 
 const REACTIONS: { type: HubReactionType; label: string; Icon: typeof ThumbUpAltOutlinedIcon }[] = [
   { type: "LIKE", label: "Like", Icon: ThumbUpAltOutlinedIcon },
 { type: "CELEBRATE", label: "Celebrate", Icon: CelebrationIcon },
@@ -108,10 +108,10 @@ const REACTIONS: { type: HubReactionType; label: string; Icon: typeof ThumbUpAlt
 
 ];
 
-type TagContext =
-
+type TagContext = 
+ 
   | { type: "composer" }
-
+ 
   | { type: "comment"; postId: number };
 
 type CommentNode = HubComment & { replies: CommentNode[] };
@@ -127,10 +127,10 @@ type SimpleUser = {
 };
 
 function formatDisplayName(member?: SimpleUser) {
-
   if (!member) return "Unknown member";
 
   const parts = [member.firstName, member.lastName].filter(Boolean);
+ 
 
   if (parts.length) {
 
@@ -138,10 +138,10 @@ function formatDisplayName(member?: SimpleUser) {
 
   }
 
-  return member.email ?? "Unnamed member";
+  return member.email ?? "Unnamed member"; 
 
 }
-
+ 
 function getInitials(member?: SimpleUser) {
 
   if (!member) return "";
@@ -156,10 +156,10 @@ function getInitials(member?: SimpleUser) {
 
   return (member.email ?? "?").slice(0, 2).toUpperCase();
 
-}
+} 
 
 function addTagToText(value: string, tag: string) {
-
+ 
   const trimmed = value.trimEnd();
 
   const separator = trimmed.length === 0 ? "" : " ";
@@ -172,9 +172,9 @@ function buildCommentTree(comments: HubComment[]): CommentNode[] {
   const map = new Map<number, CommentNode>();
   const roots: CommentNode[] = [];
 
-  comments.forEach((comment) => { 
-map.set(comment.id, { ...comment, replies: [] });
-
+  comments.forEach((comment) => {  
+    map.set(comment.id, { ...comment, replies: [] });
+ 
   });
 
   map.forEach((node) => {
@@ -191,7 +191,7 @@ map.set(comment.id, { ...comment, replies: [] });
 
   });
 
-  return roots;
+  return roots; 
 }
 
 function generateDraftId() {
@@ -216,10 +216,10 @@ const toSimpleUserFromAuth = (authUser: unknown): SimpleUser => {
   if (!authUser || typeof authUser !== "object") {
     return { firstName: null, lastName: null, email: null };
   }
- const record = authUser as Record<string, unknown>;
+  const record = authUser as Record<string, unknown>;
 
   return {
-
+ 
     firstName: (record.firstName ?? record.first_name ?? null) as string | null,
 
     lastName: (record.lastName ?? record.last_name ?? null) as string | null,
@@ -230,9 +230,9 @@ const toSimpleUserFromAuth = (authUser: unknown): SimpleUser => {
 
 };
 
-const PharmacyHubPage = () => { 
-const { user } = useAuth();
-
+const PharmacyHubPage = () => {  
+  const { user } = useAuth();
+ 
   const viewerUser = useMemo(() => toSimpleUserFromAuth(user), [user]);
 
   const pharmacyMemberships = useMemo(() => {
@@ -255,10 +255,10 @@ const { user } = useAuth();
 
   }, [user]);
 
-  // Added to fix undefined variables used in JSX
+  // Added to fix undefined variables used in JSX 
   const headline = "";
   const subheading = "";
-
+ 
   const [selectedPharmacyId, setSelectedPharmacyId] = useState<number | null>(
     pharmacyMemberships.length ? pharmacyMemberships[0].id : null
   );
@@ -318,10 +318,10 @@ const { user } = useAuth();
     [updatePosts]
   );
 useEffect(() => {
-
+ 
     if (pharmacyMemberships.length && !selectedPharmacyId) {
 
-      setSelectedPharmacyId(pharmacyMemberships[0].id);
+      setSelectedPharmacyId(pharmacyMemberships[0].id); 
 
     }
 
@@ -329,9 +329,9 @@ useEffect(() => {
 
   useEffect(() => {
 
-    if (!selectedPharmacyId) { 
-setPosts([]);
-
+    if (!selectedPharmacyId) {  
+      setPosts([]);
+ 
       return;
 
     }
@@ -346,10 +346,10 @@ setPosts([]);
         setCommentsByPost(() => {
           const next: CommentListMap = {};
           payload.results.forEach((post) => {
-            next[post.id] = post.recentComments;
+            next[post.id] = post.recentComments; 
           });
- return next;
-
+          return next;
+ 
         });
 
       })
@@ -404,7 +404,7 @@ useEffect(() => {
 
       .then((res) => {
 
-        if (ignore) return;
+        if (ignore) return; 
         const payload = Array.isArray(res.data?.results) ? res.data.results : Array.isArray(res.data) ? res.data : [];
 const mapped: PharmacyMember[] = payload.map((item: any) => {
 
@@ -438,10 +438,10 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
 
           };
 
-        });
-        setMembers(mapped); 
-})
-
+        }); 
+        setMembers(mapped);  
+      })
+ 
       .catch(() => {
         if (!ignore) setMembers([]); 
  });
@@ -450,10 +450,10 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
 
       ignore = true; 
 };
-  }, [selectedPharmacyId]);
-useEffect(() => {
-if (!selectedPharmacyId) {
-
+  }, [selectedPharmacyId]); 
+  useEffect(() => { 
+    if (!selectedPharmacyId) {
+ 
       return undefined;
 
     }
@@ -461,10 +461,10 @@ if (!selectedPharmacyId) {
       try {
         const payload = await fetchPharmacyHubPosts(selectedPharmacyId);
         setPosts(sortHubPosts(payload.results)); 
-setCommentsByPost((prev) => {
+        setCommentsByPost((prev) => {
 
           const next: CommentListMap = {};
-
+ 
           payload.results.forEach((post) => {
 
             const existing = prev[post.id];
@@ -485,7 +485,7 @@ setCommentsByPost((prev) => {
 
     return () => window.clearInterval(intervalId);
   }, [selectedPharmacyId]);
-const openTagMenu = (event: ReactMouseEvent<HTMLElement>, context: TagContext) => {
+  const openTagMenu = (event: ReactMouseEvent<HTMLElement>, context: TagContext) => {
 
     setTagAnchorEl(event.currentTarget);
 
@@ -501,7 +501,7 @@ const openTagMenu = (event: ReactMouseEvent<HTMLElement>, context: TagContext) =
 
   };
 
-  const insertTag = (tagLabel: string) => {
+  const insertTag = (tagLabel: string) => { 
 
     if (!tagContext) return;
 
@@ -523,7 +523,7 @@ const openTagMenu = (event: ReactMouseEvent<HTMLElement>, context: TagContext) =
 
     }
  };
-
+ 
   const handleSelectTag = (member: PharmacyMember | "everyone") => {
     const tag = member === "everyone" ? "@everyone" : `@${member.name}`;
     insertTag(tag);
@@ -745,11 +745,11 @@ const openTagMenu = (event: ReactMouseEvent<HTMLElement>, context: TagContext) =
       setComposerValue("");
       clearComposerAttachments();
       setSnackbar({ open: true, message: "Post shared with the team.", severity: "success" });
-    } catch (error: any) {
+    } catch (error: any) { 
       setSnackbar({ open: true, message: error?.response?.data?.detail ?? "Could not create post.", severity: "error" });
     } finally {
-      setSubmittingPost(false); 
-}
+      setSubmittingPost(false);  
+    }
 };
 
   const handleDeletePost = async (postId: number) => {
@@ -894,10 +894,10 @@ const openTagMenu = (event: ReactMouseEvent<HTMLElement>, context: TagContext) =
 
   const handleSubmitComment = async (postId: number) => {
     if (!selectedPharmacyId) return;
-    const body = (commentDrafts[postId] || "").trim();
+    const body = (commentDrafts[postId] || "").trim(); 
     if (!body) return;
     const targetPost = posts.find((post) => post.id === postId);
-    if (targetPost?.isDeleted) {
+    if (targetPost?.isDeleted) { 
       setSnackbar({ open: true, message: "Cannot comment on a deleted post.", severity: "error" });
       return;
     }
@@ -932,10 +932,10 @@ const openTagMenu = (event: ReactMouseEvent<HTMLElement>, context: TagContext) =
             : post
         )
       );
-    } catch {
-setSnackbar({ open: true, message: "Could not add comment.", severity: "error" });
-} finally {
-
+    } catch { 
+      setSnackbar({ open: true, message: "Could not add comment.", severity: "error" });
+    } finally {
+ 
       setCommentsLoading((prev) => ({ ...prev, [postId]: false }));
 
     }
@@ -1007,10 +1007,10 @@ setSnackbar({ open: true, message: "Could not add comment.", severity: "error" }
     try {
       if (targetPost?.viewerReaction === reaction) {
         await removePharmacyHubReaction(selectedPharmacyId, postId);
-      } else {
+      } else { 
         await reactToPharmacyHubPost(selectedPharmacyId, postId, reaction);
       }
-    } catch {
+    } catch { 
       setSnackbar({ open: true, message: "Could not update reaction.", severity: "error" });
       const refreshed = await fetchPharmacyHubPosts(selectedPharmacyId);
       setPosts(sortHubPosts(refreshed.results));
@@ -1019,7 +1019,7 @@ setCommentsByPost((prev) => {
         const next: CommentListMap = {};
 
         refreshed.results.forEach((post) => {
-
+ 
           next[post.id] = prev[post.id] ?? post.recentComments;
 
         });
@@ -1170,7 +1170,7 @@ setCommentsByPost((prev) => {
     );
   };
 return (
-
+ 
     <Box
 
       sx={{
@@ -1215,10 +1215,10 @@ return (
 
               <Box>
 
-                <Typography variant="h4" fontWeight={700}>
+                <Typography variant="h4" fontWeight={700}> 
                   Pharmacy Hub
 
-                  {headline}
+                  {headline} 
 
                 </Typography>
 
@@ -1226,10 +1226,10 @@ return (
                   Share announcements, celebrate wins, and keep your team aligned in one place.
 
                   {subheading}
-
+ 
                 </Typography> 
  </Box>
-
+ 
             </Stack>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}> 
 <Select
@@ -1247,7 +1247,7 @@ return (
                   bgcolor: "rgba(255,255,255,0.15)",
 
                   color: "white",
-
+ 
                   "& .MuiSelect-icon": { color: "white" },
                   minWidth: { xs: "100%", sm: 280 },
   }}
@@ -1266,7 +1266,7 @@ return (
 
               </Select>
 {selectedMembership && (
-
+ 
                 <Chip
 
                   label={`${selectedMembership.role.replace(/_/g, " ")} access`}
@@ -1281,7 +1281,7 @@ return (
 
           </Stack>
 
-        </Paper>
+        </Paper> 
         <Paper
           variant="outlined"
           sx={{
@@ -1419,10 +1419,10 @@ return (
 
           <Alert severity="info" sx={{ borderRadius: 3 }}>
             No updates yet. Start the conversation with your team above. 
- </Alert>
+          </Alert>
 
         ) : (
-
+ 
           posts.map((post) => {
 
             const comments = commentsByPost[post.id] ?? post.recentComments;
@@ -1434,7 +1434,7 @@ return (
             const isExpanded = expandedPostIds.has(post.id);
             const replyingTo = replyTargets[post.id];
             const commentsDisabled = post.isDeleted || !post.allowComments;
- return (
+            return (
 
               <Paper
 
@@ -1635,7 +1635,7 @@ return (
 
                       )}
 
-                      <Button
+                      <Button 
 
                         size="small"
 
@@ -1653,7 +1653,7 @@ return (
 
                   </Box>
 
-                </Stack>
+                </Stack> 
 
                 <Collapse in={isExpanded} timeout="auto" unmountOnExit>
 
@@ -1683,10 +1683,10 @@ return (
 
                   <Box mt={3}>
                     {!commentsDisabled && replyingTo && (
-                      <Paper
+                      <Paper 
                         variant="outlined"
                         sx={{
-                          mb: 1,
+                          mb: 1, 
                           px: 1.5,
 py: 1,
 
@@ -1785,10 +1785,9 @@ py: 1,
                 </Collapse>
               </Paper>
             );
-})
+          })
         )}
       </Stack>
-
       <Dialog
         open={Boolean(postEditor)}
         fullWidth
@@ -1937,7 +1936,6 @@ py: 1,
           </Button>
         </DialogActions>
       </Dialog>
-
       <Menu
         anchorEl={postMenuAnchor}
         open={Boolean(postMenuAnchor)}
@@ -2013,7 +2011,6 @@ py: 1,
           </MenuItem>
         )}
       </Menu>
-
       <Menu anchorEl={tagAnchorEl} open={Boolean(tagAnchorEl)} onClose={closeTagMenu}>
         <MenuItem onClick={() => handleSelectTag("everyone")}>@everyone</MenuItem>
         <Divider sx={{ my: 0.5 }} />
@@ -2023,7 +2020,6 @@ py: 1,
           </MenuItem>
         ))}
       </Menu>
-
       <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}
@@ -2038,11 +2034,8 @@ py: 1,
           {snackbar.message}
         </Alert>
       </Snackbar>
-
     </Box>
-
   );
-
 };
 
 export default PharmacyHubPage; 

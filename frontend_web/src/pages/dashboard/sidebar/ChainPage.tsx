@@ -74,13 +74,15 @@ export default function ChainPage() {
   useEffect(() => {
     if (!chain) return;
     setPageLoading(true);
+    // The response might be a paginated object { count, results } or a direct array.
     apiClient
-      .get<Pharmacy[]>(
+      .get<any>( // Use 'any' to handle both possible response shapes
         `${API_BASE_URL}${API_ENDPOINTS.chainDetail(chain.id)}pharmacies/`
       )
       .then(res => {
-        setChainPharmacies(res.data);
-        res.data.forEach(p => loadMembers(p.id));
+        const pharmacies = Array.isArray(res.data) ? res.data : res.data.results;
+        setChainPharmacies(pharmacies);
+        pharmacies.forEach((p: Pharmacy) => loadMembers(p.id));
       })
       .catch(console.error)
       .finally(() => setPageLoading(false));

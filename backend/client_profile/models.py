@@ -1887,6 +1887,14 @@ class PharmacyHubPost(models.Model):
         choices=Visibility.choices,
         default=Visibility.NORMAL,
     )
+    community_group = models.ForeignKey(
+        'client_profile.PharmacyCommunityGroup',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='hub_posts'
+    )
+
     allow_comments = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1907,13 +1915,7 @@ class PharmacyHubPost(models.Model):
         blank=True,
         related_name="pinned_pharmacy_hub_posts",
     )
-    community_group = models.ForeignKey(
-        PharmacyCommunityGroup,
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="posts",
-    )
+
 
     comment_count = models.PositiveIntegerField(default=0)
     reaction_summary = models.JSONField(default=dict, blank=True)
@@ -1929,6 +1931,7 @@ class PharmacyHubPost(models.Model):
     )
 
     class Meta:
+        db_table = "client_profile_pharmacyhubpost"
         ordering = ["-is_pinned", "-pinned_at", "-created_at"]
         indexes = [
             models.Index(fields=["pharmacy", "created_at"]),
@@ -1946,6 +1949,21 @@ class PharmacyHubPost(models.Model):
         ]
 
     def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+
+        if self.pharmacy_id and not self.organization_id:
+            self.organization_id = None
+            if update_fields is not None:
+                fields = set(update_fields)
+                fields.add("organization")
+                kwargs["update_fields"] = list(fields)
+        elif self.organization_id and not self.pharmacy_id:
+            self.pharmacy_id = None
+            if update_fields is not None:
+                fields = set(update_fields)
+                fields.add("pharmacy")
+                kwargs["update_fields"] = list(fields)
+
         if self.community_group_id:
             group_pharmacy_id = self.community_group.pharmacy_id
             if not group_pharmacy_id:

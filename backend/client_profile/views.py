@@ -5884,6 +5884,8 @@ class PharmacyHubPostViewSet(
     def perform_create(self, serializer):
         post = serializer.save(
             pharmacy=self.pharmacy,
+            organization=None,
+            community_group=None,
             author_membership=self._ensure_author_membership(),
             original_body=serializer.validated_data.get("body", ""),
             is_edited=False,

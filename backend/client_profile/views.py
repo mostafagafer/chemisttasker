@@ -3283,15 +3283,25 @@ class RosterShiftManageViewSet(viewsets.ModelViewSet):
         if not has_permission:
             return Response({'detail': 'Permission denied: Not authorized to create shifts for this pharmacy.'}, status=status.HTTP_403_FORBIDDEN)
 
+        rate_kwargs = {
+            'rate_type': None,
+            'fixed_rate': None,
+        }
+        if role_needed == 'PHARMACIST':
+            default_rate_type = getattr(pharmacy, 'default_rate_type', None)
+            default_fixed_rate = getattr(pharmacy, 'default_fixed_rate', None)
+            rate_kwargs['rate_type'] = default_rate_type or 'FLEXIBLE'
+            rate_kwargs['fixed_rate'] = default_fixed_rate if rate_kwargs['rate_type'] == 'FIXED' else None
+
         new_shift = Shift.objects.create(
             pharmacy=pharmacy,
             role_needed=role_needed,
-            employment_type='FULL_TIME',     # <<< was 'LOCUM'
-            visibility='FULL_PART_TIME',     # <<< was 'LOCUM_CASUAL'
+            employment_type='FULL_TIME',
+            visibility='FULL_PART_TIME',
             single_user_only=True,
             created_by=requesting_user,
-            rate_type='FLEXIBLE',
             description=description,
+            **rate_kwargs,
         )
 
         new_slot = ShiftSlot.objects.create(
@@ -3782,6 +3792,31 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
                 notification=notification_payload
             )
 
+    def _assert_worker_can_modify(self, leave):
+        if leave.user != self.request.user:
+            raise PermissionDenied("You can only manage your own leave requests.")
+        if leave.status != 'PENDING':
+            raise ValidationError("Only pending leave requests can be updated or cancelled.")
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        self._assert_worker_can_modify(instance)
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self._assert_worker_can_modify(instance)
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     def is_owner_or_claimed_admin(self, user):
         from .models import Pharmacy  # To avoid circular imports
 
@@ -4007,6 +4042,32 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
                 text_template="emails/swap_requested.txt",
                 notification=notification_payload,
             )
+
+    def _assert_requester_can_modify(self, request_obj):
+        user = self.request.user
+        if request_obj.requested_by != user:
+            raise PermissionDenied("You can only manage your own cover requests.")
+        if request_obj.status != "PENDING":
+            raise ValidationError("Only pending cover requests can be updated or cancelled.")
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        self._assert_requester_can_modify(instance)
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self._assert_requester_can_modify(instance)
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     # ---------------------------
     # APPROVE (Admin action)

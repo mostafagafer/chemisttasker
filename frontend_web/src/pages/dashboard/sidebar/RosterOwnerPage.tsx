@@ -37,6 +37,7 @@ import { Close as CloseIcon } from '@mui/icons-material';
 import { Calendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
+import { calendarViews, calendarMessages, getDateRangeForView, CalendarViewKey } from './calendarViews';
 
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
@@ -149,7 +150,7 @@ export default function RosterOwnerPage() {
   const [isActionLoading, setIsActionLoading] = useState(false); // General purpose for dialog actions
 
   // --- Calendar State ---
-  const [calendarView, setCalendarView] = useState<string>('week');
+  const [calendarView, setCalendarView] = useState<CalendarViewKey>('week');
   const [calendarDate, setCalendarDate] = useState<Date>(new Date());
   
   // --- Dialogs and Forms State (Updated) ---
@@ -196,17 +197,19 @@ export default function RosterOwnerPage() {
         if (loadedPharmacies.length > 0) {
           const firstPharmacyId = loadedPharmacies[0].id;
           setSelectedPharmacyId(firstPharmacyId);
-          const start = moment(calendarDate).startOf(calendarView as moment.unitOfTime.StartOf).format('YYYY-MM-DD');
-          const end = moment(calendarDate).endOf(calendarView as moment.unitOfTime.StartOf).format('YYYY-MM-DD');
+          const { start, end } = getDateRangeForView(calendarDate, calendarView);
+          const startDate = start.format('YYYY-MM-DD');
+          const endDate = end.format('YYYY-MM-DD');
           // Fetch assignments
-          const assignmentsRes = await apiClient.get<PaginatedResponse<Assignment>>(`${API_ENDPOINTS.getRosterOwner}?pharmacy=${firstPharmacyId}&start_date=${start}&end_date=${end}`);
+          const assignmentsRes = await apiClient.get<PaginatedResponse<Assignment>>(`${API_ENDPOINTS.getRosterOwner}?pharmacy=${firstPharmacyId}&start_date=${startDate}&end_date=${endDate}`);
           setAssignments(assignmentsRes.data.results || []);
           // NEW: Fetch worker shift requests
-          const requestsRes = await apiClient.get<PaginatedResponse<WorkerShiftRequest>>(`${API_ENDPOINTS.workerShiftRequests}?pharmacy=${firstPharmacyId}&start_date=${start}&end_date=${end}`);
+          const requestsRes = await apiClient.get<PaginatedResponse<WorkerShiftRequest>>(`${API_ENDPOINTS.workerShiftRequests}?pharmacy=${firstPharmacyId}&start_date=${startDate}&end_date=${endDate}`);
           setWorkerRequests(requestsRes.data.results || []);
           // FIX: Use the correct endpoint for owner's open shifts
-          const openShiftsRes = await apiClient.get<PaginatedResponse<OpenShift>>(`${API_ENDPOINTS.ownerOpenShifts}?pharmacy=${firstPharmacyId}&start_date=${start}&end_date=${end}`);
-          setOpenShifts(openShiftsRes.data.results || openShiftsRes.data as any || []);
+          const openShiftsRes = await apiClient.get<PaginatedResponse<OpenShift>>(`${API_ENDPOINTS.ownerOpenShifts}?pharmacy=${firstPharmacyId}&start_date=${startDate}&end_date=${endDate}`);
+          const openShiftData = Array.isArray(openShiftsRes.data) ? openShiftsRes.data : openShiftsRes.data?.results ?? [];
+          setOpenShifts(openShiftData as OpenShift[]);
 
         }
       } catch (err) { 
@@ -243,9 +246,8 @@ export default function RosterOwnerPage() {
   // --- API CALLS (Updated) ---
   const reloadAssignments = () => {
       if (!selectedPharmacyId) return;
-      const start = moment(calendarDate).startOf(calendarView as moment.unitOfTime.StartOf).format('YYYY-MM-DD');
-      const end = moment(calendarDate).endOf(calendarView as moment.unitOfTime.StartOf).format('YYYY-MM-DD');
-      loadAssignments(selectedPharmacyId, start, end);
+      const { start, end } = getDateRangeForView(calendarDate, calendarView);
+      loadAssignments(selectedPharmacyId, start.format('YYYY-MM-DD'), end.format('YYYY-MM-DD'));
   }
 
   const loadAssignments = async (pharmacyId: number, startDate?: string, endDate?: string) => {
@@ -260,7 +262,8 @@ export default function RosterOwnerPage() {
       ]);
       setAssignments(assignmentsRes.data.results || []);
       setWorkerRequests(requestsRes.data.results || []);
-      setOpenShifts(openShiftsRes.data.results || openShiftsRes.data as any || []);
+      const openShiftData = Array.isArray(openShiftsRes.data) ? openShiftsRes.data : openShiftsRes.data?.results ?? [];
+      setOpenShifts(openShiftData as OpenShift[]);
     } catch (err) { console.error("Failed to load roster assignments", err); }
     finally { setIsAssignmentsLoading(false); }
   };
@@ -677,11 +680,13 @@ export default function RosterOwnerPage() {
           view={calendarView as any}
           date={calendarDate}
           onNavigate={setCalendarDate}
-          onView={setCalendarView}
+          onView={(nextView: CalendarViewKey | string) => setCalendarView(nextView as CalendarViewKey)}
           selectable
           onSelectSlot={handleSelectSlot}
           onSelectEvent={handleSelectEvent}
           eventPropGetter={eventStyleGetter}
+          views={calendarViews}
+          messages={calendarMessages}
         />
       </Box>
 

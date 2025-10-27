@@ -3579,10 +3579,23 @@ class ChainSerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
         ]
         read_only_fields = ['owner','organization','created_at','updated_at', 'is_active']
 
+MAX_ACTIVE_PHARMACY_MEMBERSHIPS = 3
+
+
+def _count_active_memberships(user, exclude_membership_id=None):
+    if not user:
+        return 0
+    qs = Membership.objects.filter(user=user, is_active=True)
+    if exclude_membership_id:
+        qs = qs.exclude(pk=exclude_membership_id)
+    return qs.count()
+
+
 class MembershipSerializer(serializers.ModelSerializer):
     user_details = UserProfileSerializer(source='user', read_only=True)
     invited_by_details = UserProfileSerializer(source='invited_by', read_only=True)
     pharmacy_detail = PharmacySerializer(source='pharmacy', read_only=True)
+    is_pharmacy_owner = serializers.SerializerMethodField()
 
     class Meta:
         model = Membership
@@ -3595,9 +3608,10 @@ class MembershipSerializer(serializers.ModelSerializer):
             'intern_half',
             'student_year',
             'staff_category',
+            'is_pharmacy_owner',
         ]
         read_only_fields = [
-            'invited_by', 'invited_by_details', 'created_at', 'updated_at',
+            'invited_by', 'invited_by_details', 'created_at', 'updated_at', 'is_pharmacy_owner',
         ]
 
     # No 'create' method needed. The default ModelSerializer.create() works perfectly
@@ -3611,6 +3625,23 @@ class MembershipSerializer(serializers.ModelSerializer):
         - Default employment_type for Pharmacy Admin if it wasn't provided.
         - Clear irrelevant classification fields according to the selected role.
         """
+        user = attrs.get('user', getattr(self.instance, 'user', None))
+
+        if user:
+            if self.instance:
+                will_be_active = attrs.get('is_active', self.instance.is_active)
+                if will_be_active and not self.instance.is_active:
+                    current_active = _count_active_memberships(user, exclude_membership_id=self.instance.pk)
+                    if current_active >= MAX_ACTIVE_PHARMACY_MEMBERSHIPS:
+                        raise serializers.ValidationError(
+                            {'is_active': f'User already belongs to {MAX_ACTIVE_PHARMACY_MEMBERSHIPS} pharmacies.'}
+                        )
+            else:
+                if _count_active_memberships(user) >= MAX_ACTIVE_PHARMACY_MEMBERSHIPS:
+                    raise serializers.ValidationError(
+                        {'user': f'User already belongs to {MAX_ACTIVE_PHARMACY_MEMBERSHIPS} pharmacies.'}
+                    )
+
         # Resolve role and employment_type considering partial updates
         role = attrs.get('role', getattr(self.instance, 'role', None))
         employment_type = attrs.get('employment_type', getattr(self.instance, 'employment_type', None))
@@ -3643,6 +3674,11 @@ class MembershipSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def get_is_pharmacy_owner(self, obj):
+        owner = getattr(obj.pharmacy, "owner", None)
+        owner_user_id = getattr(owner, "user_id", None) if owner else None
+        return owner_user_id == obj.user_id
+
     def update(self, instance, validated_data):
         """
         This override is only needed to add one piece of custom logic: if the user's role
@@ -3670,7 +3706,6 @@ class MembershipInviteLinkSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data['created_by'] = self.context['request'].user
         return super().create(validated_data)
-
 
 class MembershipApplicationSerializer(serializers.ModelSerializer):
     invite_link = serializers.PrimaryKeyRelatedField(

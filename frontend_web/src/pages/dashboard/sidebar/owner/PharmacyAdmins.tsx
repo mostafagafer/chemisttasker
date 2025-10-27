@@ -12,7 +12,6 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
-  Stack,
   TextField,
   Tooltip,
   Typography,
@@ -26,6 +25,7 @@ import { useTheme } from "@mui/material/styles";
 import { MembershipDTO, surface } from "./types";
 import apiClient from "../../../../utils/apiClient";
 import { API_BASE_URL, API_ENDPOINTS } from "../../../../constants/api";
+import { useAuth } from "../../../../contexts/AuthContext";
 
 interface PharmacyAdminsProps {
   pharmacyId: string;
@@ -36,6 +36,7 @@ interface PharmacyAdminsProps {
 export default function PharmacyAdmins({ pharmacyId, admins, onMembershipsChanged }: PharmacyAdminsProps) {
   const theme = useTheme();
   const tokens = surface(theme);
+  const { user: authUser, setUser } = useAuth();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [form, setForm] = useState({ invited_name: "", email: "" });
   const [submitting, setSubmitting] = useState(false);
@@ -49,7 +50,7 @@ export default function PharmacyAdmins({ pharmacyId, admins, onMembershipsChange
     }
     setSubmitting(true);
     try {
-      await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`, {
+      const response = await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`, {
         invitations: [
           {
             pharmacy: pharmacyId,
@@ -60,22 +61,54 @@ export default function PharmacyAdmins({ pharmacyId, admins, onMembershipsChange
           },
         ],
       });
+      const errors = response?.data?.errors;
+      if (Array.isArray(errors) && errors.length > 0) {
+        const firstError = errors[0];
+        const message =
+          firstError?.error ||
+          firstError?.detail ||
+          (typeof firstError === "string" ? firstError : "Failed to send invite");
+        setToast({ message, severity: "error" });
+        return;
+      }
       setToast({ message: "Admin invitation sent", severity: "success" });
       setInviteOpen(false);
       setForm({ invited_name: "", email: "" });
       onMembershipsChanged();
     } catch (error: any) {
-      setToast({ message: error?.response?.data?.detail || "Failed to send invite", severity: "error" });
+      const detail =
+        error?.response?.data?.detail ||
+        error?.response?.data?.errors?.[0]?.error ||
+        error?.message;
+      setToast({ message: detail || "Failed to send invite", severity: "error" });
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleRemove = async (id: string | number) => {
+  const handleRemove = async (admin: MembershipDTO) => {
+    const id = admin.id;
     setLoadingId(id);
     try {
       await apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.membershipDelete(String(id))}`);
       setToast({ message: "Admin removed", severity: "success" });
+      if (authUser && admin.user && authUser.id === admin.user) {
+        setUser((prev) => {
+          if (!prev) return prev;
+          const updatedMemberships =
+            prev.memberships?.filter((membership) => {
+              if (
+                typeof (membership as any)?.pharmacy_id === "number" &&
+                String((membership as any).pharmacy_id) === String(pharmacyId) &&
+                (membership as any).role === "PHARMACY_ADMIN"
+              ) {
+                return false;
+              }
+              return true;
+            }) ?? [];
+          return { ...prev, memberships: updatedMemberships };
+        });
+      }
       onMembershipsChanged();
     } catch (error: any) {
       setToast({ message: error?.response?.data?.detail || "Failed to remove", severity: "error" });
@@ -132,7 +165,7 @@ export default function PharmacyAdmins({ pharmacyId, admins, onMembershipsChange
                         <span>
                           <IconButton
                             color="error"
-                            onClick={() => handleRemove(admin.id)}
+                            onClick={() => handleRemove(admin)}
                             disabled={loadingId === admin.id}
                           >
                             {loadingId === admin.id ? <CircularProgress size={16} /> : <DeleteOutlineIcon fontSize="small" />}
@@ -177,12 +210,13 @@ export default function PharmacyAdmins({ pharmacyId, admins, onMembershipsChange
         </DialogActions>
       </Dialog>
 
-      <Snackbar
-        open={Boolean(toast)}
-        autoHideDuration={4000}
-        onClose={() => setToast(null)}
-        message={toast?.message}
-      />
+      {toast && (
+        <Snackbar open autoHideDuration={4000} onClose={() => setToast(null)}>
+          <Alert severity={toast.severity} onClose={() => setToast(null)} sx={{ width: "100%" }}>
+            {toast.message}
+          </Alert>
+        </Snackbar>
+      )}
     </Card>
   );
 }

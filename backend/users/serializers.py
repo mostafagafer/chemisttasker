@@ -122,15 +122,31 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             for pm in pharm_memberships
         ]
 
+        owned_pharmacies = Pharmacy.objects.filter(owner__user=self.user)
+        owned_payload = [
+            {
+                'pharmacy_id':   pharmacy.id,
+                'pharmacy_name': pharmacy.name,
+                'role':          'OWNER',
+            }
+            for pharmacy in owned_pharmacies
+        ]
+
+        pharmacy_map = {entry['pharmacy_id']: entry for entry in pharm_payload}
+        for entry in owned_payload:
+            pharmacy_map[entry['pharmacy_id']] = entry
+
+        combined_pharm_payload = list(pharmacy_map.values())
+
         # 3) Combined user payload (+ is_mobile_verified added)
         data['user'] = {
             'id':       self.user.id,
             'username': self.user.username,
             'email':    self.user.email,
             'role':     self.user.role,
-            'memberships': org_payload + pharm_payload,
+            'memberships': org_payload + combined_pharm_payload,
             'is_pharmacy_admin': any(pm.role == 'PHARMACY_ADMIN' for pm in pharm_memberships),
-            'is_mobile_verified': bool(getattr(self.user, 'is_mobile_verified', False)),  # <— added
+            'is_mobile_verified': bool(getattr(self.user, 'is_mobile_verified', False)),
         }
         return data
 
@@ -165,14 +181,30 @@ class CustomTokenRefreshSerializer(TokenRefreshSerializer):
             for pm in pharm_memberships
         ]
 
+        owned_pharmacies = Pharmacy.objects.filter(owner__user=user)
+        owned_payload = [
+            {
+                'pharmacy_id':   pharmacy.id,
+                'pharmacy_name': pharmacy.name,
+                'role':          'OWNER',
+            }
+            for pharmacy in owned_pharmacies
+        ]
+
+        pharmacy_map = {entry['pharmacy_id']: entry for entry in pharm_payload}
+        for entry in owned_payload:
+            pharmacy_map[entry['pharmacy_id']] = entry
+
+        combined_pharm_payload = list(pharmacy_map.values())
+
         data['user'] = {
             'id':       user.id,
             'username': user.username,
             'email':    user.email,
             'role':     user.role,
-            'memberships': org_payload + pharm_payload,
+            'memberships': org_payload + combined_pharm_payload,
             'is_pharmacy_admin': any(pm.role == 'PHARMACY_ADMIN' for pm in pharm_memberships),
-            'is_mobile_verified': bool(getattr(user, 'is_mobile_verified', False)),  # <— added
+            'is_mobile_verified': bool(getattr(user, 'is_mobile_verified', False)),
         }
 
         return data

@@ -15,12 +15,14 @@ export type PharmacyDTO = {
 
 export type MembershipDTO = {
   id: string | number;
+  user?: number;
   role?: string;
   employment_type?: string;
   invited_name?: string;
   name?: string;
   email?: string;
   user_details?: { email?: string; first_name?: string; last_name?: string };
+  is_pharmacy_owner?: boolean;
 };
 
 export function coerceRole(raw?: string): Role {

@@ -175,15 +175,29 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
 
     setInviteSubmitting(true);
     try {
-      await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`, {
+      const response = await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`, {
         invitations: payload,
       });
-      setToast({ message: "Invitations sent!", severity: "success" });
-      setInviteOpen(false);
-      resetInviteForm();
-      onMembershipsChanged();
+      const errors = response?.data?.errors;
+      if (Array.isArray(errors) && errors.length > 0) {
+        const first = errors[0];
+        const message =
+          first?.error ||
+          first?.detail ||
+          (typeof first === "string" ? first : "Failed to send invitations.");
+        setToast({ message, severity: "error" });
+      } else {
+        setToast({ message: "Invitations sent!", severity: "success" });
+        setInviteOpen(false);
+        resetInviteForm();
+        onMembershipsChanged();
+      }
     } catch (error: any) {
-      setToast({ message: error?.response?.data?.detail || "Failed to send invitations.", severity: "error" });
+      const detail =
+        error?.response?.data?.detail ||
+        error?.response?.data?.errors?.[0]?.error ||
+        error?.message;
+      setToast({ message: detail || "Failed to send invitations.", severity: "error" });
     } finally {
       setInviteSubmitting(false);
     }
@@ -363,18 +377,18 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
         </DialogActions>
       </Dialog>
 
-      <Snackbar
-        open={Boolean(toast)}
-        autoHideDuration={4000}
-        onClose={() => setToast(null)}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
-        {toast ? (
+      {toast && (
+        <Snackbar
+          open
+          autoHideDuration={4000}
+          onClose={() => setToast(null)}
+          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        >
           <Alert severity={toast.severity} onClose={() => setToast(null)} sx={{ width: "100%" }}>
             {toast.message}
           </Alert>
-        ) : null}
-      </Snackbar>
+        </Snackbar>
+      )}
 
       <MembershipApplicationsPanel
         pharmacyId={pharmacyId}

@@ -42,9 +42,9 @@ export default function ProtectedRoute({ children, requiredRole }: ProtectedRout
   const allowOrgZone = requiredRole === 'ORG_ADMIN' && hasOrgRole;
 
   // NEW: recognize Pharmacy Admins (membership-based, not user.role)
-  const isPharmacyAdmin =
+  const isPharmacyAdminOrOwner =
     Array.isArray(user.memberships) &&
-    user.memberships.some((m: any) => m?.role === 'PHARMACY_ADMIN');
+    user.memberships.some((m: any) => m?.role === 'PHARMACY_ADMIN' || m?.role === 'OWNER');
 
   // 6) If route wants OWNER, allow it for users who can actually hit the Owner dashboard (Owners or Pharmacy Admins)
   const [ownerLikeOK, setOwnerLikeOK] = useState<boolean | null>(null);
@@ -76,7 +76,7 @@ export default function ProtectedRoute({ children, requiredRole }: ProtectedRout
 
   // 7) Final decision
   // If base checks pass, allow immediately
-  if (hasBaseRole || allowOrgZone || (requiredRole === 'OWNER' && isPharmacyAdmin)) {
+  if (hasBaseRole || allowOrgZone || (requiredRole === 'OWNER' && isPharmacyAdminOrOwner)) {
     return children;
   }
 

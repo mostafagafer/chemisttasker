@@ -613,7 +613,7 @@ class Membership(models.Model):
         ("TECHNICIAN", "Dispensary Technician"),
         ("ASSISTANT", "Pharmacy Assistant"),
         ("STUDENT", "Pharmacy Student"),
-        ('CONTACT', 'Contact'), #  <-- ADD THIS LINE
+        ('CONTACT', 'Contact'),
 
     ]
 

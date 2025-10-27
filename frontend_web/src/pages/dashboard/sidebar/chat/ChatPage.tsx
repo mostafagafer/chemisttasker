@@ -162,7 +162,7 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
   const canCreateChat = useMemo(() => {
     if (!user) return false;
     const isGlobalAdmin = ['OWNER', 'ORG_ADMIN'].includes(user.role);
-    const isPharmacyAdmin = myMemberships.some(m => m.role === 'PHARMACY_ADMIN');
+  const isPharmacyAdmin = myMemberships.some(m => m.role === 'PHARMACY_ADMIN' || m.role === 'OWNER');
     return isGlobalAdmin || isPharmacyAdmin;
   }, [user, myMemberships]);
 

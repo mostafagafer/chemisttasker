@@ -70,7 +70,7 @@ export default function App() {
 
     if (
       Array.isArray(user.memberships) &&
-      user.memberships.some((m) => m?.role === "PHARMACY_ADMIN")
+      user.memberships.some((m) => m?.role === "PHARMACY_ADMIN" || m?.role === "OWNER")
     ) {
       return getOwnerNav(progress, hasUnreadMessages);
     }

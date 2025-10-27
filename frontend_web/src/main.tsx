@@ -31,7 +31,6 @@ import OwnerOnboarding from './pages/onboarding/OwnerOnboarding';
 import PharmacistOnboarding from './pages/onboarding/PharmacistOnboarding';
 import OtherStaffOnboarding from './pages/onboarding/OtherStaffOnboarding';
 import ExplorerOnboarding from './pages/onboarding/ExplorerOnboarding';
-// import c from './pages/onboarding/RefereeConfirmPage';
 import RefereeQuestionnairePage from './pages/onboarding/RefereeQuestionnairePage';
 import RefereeRejectPage from './pages/onboarding/RefereeRejectPage';
 import RosterOwnerPage from './pages/dashboard/sidebar/RosterOwnerPage';

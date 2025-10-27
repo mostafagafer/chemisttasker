@@ -38,6 +38,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
 from client_profile.tasks import cancel_referee_reminder, schedule_referee_reminder, cancel_all_referee_reminders
 from django.db import transaction, IntegrityError
+from django.db.models.deletion import ProtectedError
 from datetime import timedelta                   # used in TimestampSigner max_age
 from decimal import Decimal                      # used in manual_assign
 import uuid                                      # used in generate_share_link
@@ -56,6 +57,17 @@ import mimetypes
 #     # Prints to console and logger; safe to remove later
 #     print(f"[CLAIM_DBG] {msg}")
 #     logger.info(f"[CLAIM_DBG] {msg}")
+
+MAX_ACTIVE_PHARMACY_MEMBERSHIPS = 3
+
+
+def _count_active_memberships(user, exclude_membership_id=None):
+    if not user:
+        return 0
+    qs = Membership.objects.filter(user=user, is_active=True)
+    if exclude_membership_id:
+        qs = qs.exclude(pk=exclude_membership_id)
+    return qs.count()
 
 
 # Onboardings
@@ -891,7 +903,7 @@ class MembershipViewSet(viewsets.ModelViewSet):
         visible_pharmacies = (owned_pharmacies | org_pharmacies | admin_pharmacies | member_pharmacies).distinct()
 
         # 2. Base the Membership query on these visible pharmacies.
-        qs = Membership.objects.filter(pharmacy__in=visible_pharmacies)
+        qs = Membership.objects.filter(pharmacy__in=visible_pharmacies, is_active=True)
 
         # 3. Apply the optional query filters from the request.
         pharmacy_id = self.request.query_params.get('pharmacy_id')
@@ -955,7 +967,11 @@ class MembershipViewSet(viewsets.ModelViewSet):
 
             # Step 2: Now that the protection is removed, delete the membership.
             # This will also cascade-delete all of their messages.
-            membership.delete()
+            try:
+                membership.delete()
+            except ProtectedError:
+                membership.is_active = False
+                membership.save(update_fields=["is_active"])
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -973,6 +989,11 @@ class MembershipViewSet(viewsets.ModelViewSet):
 
             if not email or not pharmacy_id or not role:
                 return None, 'email, pharmacy, and role are required.'
+
+            try:
+                pharmacy = Pharmacy.objects.select_related("owner__user").get(id=pharmacy_id)
+            except Pharmacy.DoesNotExist:
+                return None, 'Pharmacy not found.'
 
             # Find or create user
             user = User.objects.filter(email__iexact=email).first()
@@ -1006,6 +1027,15 @@ class MembershipViewSet(viewsets.ModelViewSet):
                     user.role = "OTHER_STAFF"
                     user.save()
 
+            # Enforce maximum active pharmacy memberships per user
+            active_memberships = _count_active_memberships(user)
+            if active_memberships >= MAX_ACTIVE_PHARMACY_MEMBERSHIPS:
+                return None, f'This user already belongs to {MAX_ACTIVE_PHARMACY_MEMBERSHIPS} pharmacies.'
+
+            owner_user_id = getattr(pharmacy.owner, "user_id", None) if getattr(pharmacy, "owner", None) else None
+            if owner_user_id and owner_user_id == user.id and role == "PHARMACY_ADMIN":
+                return None, "Pharmacy owners already manage this pharmacy and cannot be invited as admins."
+
             # Membership exists?
             if Membership.objects.filter(user=user, pharmacy_id=pharmacy_id).exists():
                 return None, 'User is already a member of this pharmacy.'
@@ -1037,8 +1067,6 @@ class MembershipViewSet(viewsets.ModelViewSet):
 
             # Prepare and send email
             try:
-                pharmacy = Pharmacy.objects.get(id=pharmacy_id)
-
                 base = (getattr(settings, "FRONTEND_BASE_URL", "") or "").rstrip("/")
                 admin_landing_url = f"{base}/dashboard/owner/manage-pharmacies/my-pharmacies"
                 login_url = f"{base}/login"
@@ -1314,6 +1342,26 @@ class SubmitMembershipApplication(APIView):
 
         payload = request.data.copy()
         payload['invite_link'] = link.pk  # serializer will lock category+pharmacy from link
+
+        # Enforce membership limit for workers responding via magic link
+        email_raw = payload.get('email')
+        if email_raw:
+            email_clean = clean_email((email_raw or '').strip().lower())
+            payload['email'] = email_clean
+            try:
+                existing_user = User.objects.get(email=email_clean)
+            except User.DoesNotExist:
+                existing_user = None
+            if existing_user:
+                active_count = _count_active_memberships(existing_user)
+                if active_count >= MAX_ACTIVE_PHARMACY_MEMBERSHIPS:
+                    return Response(
+                        {
+                            'detail': f'You already belong to {MAX_ACTIVE_PHARMACY_MEMBERSHIPS} pharmacies.'
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
         serializer = MembershipApplicationSerializer(data=payload, context={'request': request})
         serializer.is_valid(raise_exception=True)
         app = serializer.save(
@@ -5268,20 +5316,30 @@ class MyMembershipsViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        # This "healing" step for owners is crucial and remains.
+        # Ensure owners always retain an active OWNER membership for their pharmacies.
         if hasattr(user, 'owneronboarding'):
             owned_pharmacies = Pharmacy.objects.filter(owner=user.owneronboarding)
             for pharmacy in owned_pharmacies:
-                Membership.objects.get_or_create(
+                membership, created = Membership.objects.get_or_create(
                     user=user,
                     pharmacy=pharmacy,
                     defaults={
-                        'role': 'PHARMACY_ADMIN',
+                        'role': 'OWNER',
                         'employment_type': 'FULL_TIME',
                         'is_active': True,
                         'invited_by': user,
                     }
                 )
+                if not created:
+                    updated = False
+                    if membership.role != 'OWNER':
+                        membership.role = 'OWNER'
+                        updated = True
+                    if not membership.is_active:
+                        membership.is_active = True
+                        updated = True
+                    if updated:
+                        membership.save(update_fields=['role', 'is_active'])
         return Membership.objects.filter(user=user, is_active=True).select_related('pharmacy', 'user')
 
 class MessageViewSet(viewsets.ModelViewSet):

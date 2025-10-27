@@ -163,7 +163,7 @@ export default function PharmacyPage() {
   const [about, setAbout] = useState('');
   const [autoPublishWorkerRequests, setAutoPublishWorkerRequests] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
-  const [snackMsg, setSnackMsg] = useState('');
+  const [snackbarState, setSnackbarState] = useState<{ message: string; severity: 'success' | 'error' | 'info' } | null>(null);
   const [error, setError] = useState('');
 
   const hoursFields = [ { label: 'Weekdays', start: weekdaysStart, setStart: setWeekdaysStart, end: weekdaysEnd, setEnd: setWeekdaysEnd }, { label: 'Saturdays', start: saturdaysStart, setStart: setSaturdaysStart, end: saturdaysEnd, setEnd: setSaturdaysEnd }, { label: 'Sundays', start: sundaysStart, setStart: setSundaysStart, end: sundaysEnd, setEnd: setSundaysEnd }, { label: 'Public Holidays', start: publicHolidaysStart, setStart: setPublicHolidaysStart, end: publicHolidaysEnd, setEnd: setPublicHolidaysEnd }];
@@ -174,6 +174,11 @@ export default function PharmacyPage() {
   const getFileUrl = (path: string | null) => {
     if (!path) return '';
     return path.startsWith('http') ? path : `${API_BASE_URL}${path}`;
+  };
+
+  const showSnackbar = (message: string, severity: 'success' | 'error' | 'info' = 'info') => {
+    setSnackbarState({ message, severity });
+    setSnackbarOpen(true);
   };
 
 
@@ -201,7 +206,7 @@ useEffect(() => {
   const isPharmacyAdmin =
     !!user?.is_pharmacy_admin ||
     (Array.isArray(user?.memberships) &&
-      user.memberships.some((m: any) => m?.role === 'PHARMACY_ADMIN'));
+      user.memberships.some((m: any) => m?.role === 'PHARMACY_ADMIN' || m?.role === 'OWNER'));
 
   const load = async () => {
     try {
@@ -354,19 +359,19 @@ if (orgMem?.organization_id) {
       if (editing) {
         const res = await apiClient.patch(`${urlBase}${editing.id}/`, fd);
         setPharmacies(prev => prev.map(x => (x.id === editing.id ? res.data : x)));
-        setSnackMsg('Pharmacy updated!');
+        showSnackbar('Pharmacy updated!', 'success');
       } else {
         const res = await apiClient.post(urlBase, fd);
         setPharmacies(prev => [...prev, res.data]);
-        setSnackMsg('Pharmacy added!');
+        showSnackbar('Pharmacy added!', 'success');
       }
-      setSnackbarOpen(true); closeDialog();
+      closeDialog();
     } catch (err: unknown) {
       if (err instanceof AxiosError) setError(err.response?.data?.detail || err.message);
       else setError('An unexpected error occurred.');
     }
   };
-  const handleDelete = async (id: string) => { try { await apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.pharmacies}${id}/`); setPharmacies(prev => prev.filter(p => p.id !== id)); setSnackMsg('Deleted successfully!'); setSnackbarOpen(true); } catch (err) { console.error(err); } };
+  const handleDelete = async (id: string) => { try { await apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.pharmacies}${id}/`); setPharmacies(prev => prev.filter(p => p.id !== id)); showSnackbar('Deleted successfully!', 'success'); } catch (err) { console.error(err); showSnackbar('Failed to delete pharmacy.', 'error'); } };
   const handleOpenInviteDialog = (pharmacy: Pharmacy, mode: 'internal' | 'locum' | 'admin') => {
     setCurrentPh(pharmacy);
     setInviteMode(mode);
@@ -421,16 +426,14 @@ const handleCreateMagicLink = async () => {
     const url = `${window.location.origin}/membership/apply/${token}`;
     setGeneratedLinkUrl(url);
   } catch (e: any) {
-    setSnackMsg(e?.response?.data?.detail || 'Failed to generate link.');
-    setSnackbarOpen(true);
+    showSnackbar(e?.response?.data?.detail || 'Failed to generate link.', 'error');
   }
 };
 
 const copyLinkToClipboard = async () => {
   if (!generatedLinkUrl) return;
   await navigator.clipboard.writeText(generatedLinkUrl);
-  setSnackMsg('Link copied to clipboard');
-  setSnackbarOpen(true);
+  showSnackbar('Link copied to clipboard', 'success');
 };
 
 const approveApplication = async (appId: number, pharmacyId: string, employmentType?: string) => {
@@ -443,22 +446,20 @@ const approveApplication = async (appId: number, pharmacyId: string, employmentT
 
     await loadApplications(pharmacyId);
     await loadMembers(pharmacyId);
-    setSnackMsg('Application approved');
+    showSnackbar('Application approved', 'success');
   } catch (e: any) {
-    setSnackMsg(e?.response?.data?.detail || 'Failed to approve.');
+    showSnackbar(e?.response?.data?.detail || 'Failed to approve.', 'error');
   }
-  setSnackbarOpen(true);
 };
 
 const rejectApplication = async (appId: number, pharmacyId: string) => {
   try {
     await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipApplications}${appId}/reject/`, {});
     await loadApplications(pharmacyId);
-    setSnackMsg('Application rejected');
+    showSnackbar('Application rejected', 'success');
   } catch (e: any) {
-    setSnackMsg(e?.response?.data?.detail || 'Failed to reject.');
+    showSnackbar(e?.response?.data?.detail || 'Failed to reject.', 'error');
   }
-  setSnackbarOpen(true);
 };
 
 
@@ -467,8 +468,7 @@ const rejectApplication = async (appId: number, pharmacyId: string) => {
 
     if (inviteMode === 'admin') {
       if (!adminInvite.email) {
-        setSnackMsg('Please enter an email.');
-        setSnackbarOpen(true);
+        showSnackbar('Please enter an email.', 'error');
         return;
       }
       invites = [{
@@ -491,23 +491,35 @@ const rejectApplication = async (appId: number, pharmacyId: string) => {
     }
 
     if (!invites.length) {
-      setSnackMsg('Please fill out at least one invite.');
-      setSnackbarOpen(true);
+      showSnackbar('Please fill out at least one invite.', 'error');
       return;
     }
 
     try {
-      await apiClient.post(
+      const response = await apiClient.post(
         `${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`,
         { invitations: invites }
       );
       if (currentPh) await loadMembers(currentPh.id);
-      setSnackMsg('Invitations sent!');
+      const errors = response?.data?.errors;
+      if (Array.isArray(errors) && errors.length) {
+        const first = errors[0];
+        const message =
+          first?.error ||
+          first?.detail ||
+          (typeof first === 'string' ? first : 'Failed to send invitations.');
+        showSnackbar(message, 'error');
+        return;
+      }
+      showSnackbar('Invitations sent!', 'success');
     } catch (e: any) {
-      setSnackMsg(e?.response?.data?.detail || 'Failed to send invitations.');
+      const detail =
+        e?.response?.data?.detail ||
+        e?.response?.data?.errors?.[0]?.error ||
+        e?.message;
+      showSnackbar(detail || 'Failed to send invitations.', 'error');
     }
 
-    setSnackbarOpen(true);
     setOpenStaffDlg(false);
   };
 
@@ -1019,7 +1031,28 @@ const rejectApplication = async (appId: number, pharmacyId: string) => {
         </DialogActions>
       </Dialog>
 
-      <Snackbar open={snackbarOpen} autoHideDuration={3000} onClose={() => setSnackbarOpen(false)} message={snackMsg} />
+      <Snackbar
+        open={snackbarOpen && Boolean(snackbarState)}
+        autoHideDuration={4000}
+        onClose={() => {
+          setSnackbarOpen(false);
+          setSnackbarState(null);
+        }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        {snackbarState ? (
+          <Alert
+            severity={snackbarState.severity}
+            onClose={() => {
+              setSnackbarOpen(false);
+              setSnackbarState(null);
+            }}
+            sx={{ width: '100%' }}
+          >
+            {snackbarState.message}
+          </Alert>
+        ) : null}
+      </Snackbar>
       <Box mt={4}>
         {loading ? ( Array.from(new Array(3)).map((_, index) => (<Skeleton key={index} variant="rectangular" height={150} sx={{ mb: 3, borderRadius: 2 }} />)) ) : pharmacies.length === 0 ? ( <Typography variant="h6">You have no pharmacies.</Typography> ) : ( paginatedPharmacies.map(p => (
             <Box key={p.id} sx={{ mb: 3 }}>

@@ -45,10 +45,14 @@ import LightbulbOutlinedIcon from "@mui/icons-material/LightbulbOutlined";
 import FavoriteBorderIcon from "@mui/icons-material/FavoriteBorder";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
+import PlayCircleOutlineRoundedIcon from "@mui/icons-material/PlayCircleOutlineRounded";
 import SpeakerNotesOffOutlinedIcon from "@mui/icons-material/SpeakerNotesOffOutlined";
-import SpeakerNotesOutlinedIcon from "@mui/icons-material/SpeakerNotesOutlined"; 
-import dayjs from "dayjs"; 
-import { useAuth, PharmacyMembership as AuthPharmacyMembership } from "../../../../contexts/AuthContext";
+import SpeakerNotesOutlinedIcon from "@mui/icons-material/SpeakerNotesOutlined";
+import dayjs from "dayjs";
+import {
+  useAuth,
+  PharmacyMembership as AuthPharmacyMembership,
+} from "../../../../contexts/AuthContext";
 import apiClient from "../../../../utils/apiClient";
 import { API_ENDPOINTS } from "../../../../constants/api";
 import {
@@ -64,23 +68,22 @@ import {
   unpinPharmacyHubPost,
   updatePharmacyHubComment,
   updatePharmacyHubPost,
-} from "../../../../api/pharmacyHub"; 
-import { 
-  HubComment, 
-  HubPost, 
-  HubReactionType, 
-} from "../../../../types/pharmacyHub";
- 
+} from "../../../../api/pharmacyHub";
+import { HubAttachment, HubComment, HubPost, HubReactionType } from "../../../../types/pharmacyHub";
+
 type CommentDraftMap = Record<number, string>;
 type CommentListMap = Record<number, HubComment[]>;
 type CommentLoadingMap = Record<number, boolean>;
 type ReplyTargetMap = Record<number, HubComment | null>;
 type CommentEditDraftMap = Record<number, string>;
 
+type AttachmentCategory = "image" | "video" | "document" | "other";
+
 type AttachmentDraft = {
   id: string;
   file: File;
   preview: string;
+  category: AttachmentCategory;
 };
 
 type PostEditorState = {
@@ -95,103 +98,139 @@ type PharmacyMember = {
   name: string;
   role: string;
 };
-const HUB_POLL_INTERVAL_MS = 45000; 
+const HUB_POLL_INTERVAL_MS = 45000;
 const REACTIONS: { type: HubReactionType; label: string; Icon: typeof ThumbUpAltOutlinedIcon }[] = [
   { type: "LIKE", label: "Like", Icon: ThumbUpAltOutlinedIcon },
-{ type: "CELEBRATE", label: "Celebrate", Icon: CelebrationIcon },
-
+  { type: "CELEBRATE", label: "Celebrate", Icon: CelebrationIcon },
   { type: "SUPPORT", label: "Support", Icon: HandshakeOutlinedIcon },
-
   { type: "INSIGHTFUL", label: "Insightful", Icon: LightbulbOutlinedIcon },
-
   { type: "LOVE", label: "Love", Icon: FavoriteBorderIcon },
-
 ];
 
-type TagContext = 
- 
-  | { type: "composer" }
- 
-  | { type: "comment"; postId: number };
+type TagContext = { type: "composer" } | { type: "comment"; postId: number };
 
 type CommentNode = HubComment & { replies: CommentNode[] };
 
 type SimpleUser = {
-
   firstName: string | null;
-
   lastName: string | null;
-
   email: string | null;
+};
 
+const VIDEO_FILE_EXTENSIONS = new Set([
+  "mp4",
+  "mov",
+  "avi",
+  "mkv",
+  "wmv",
+  "flv",
+  "webm",
+  "m4v",
+]);
+const DOCUMENT_FILE_EXTENSIONS = new Set([
+  "pdf",
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "csv",
+  "zip",
+  "txt",
+  "ppt",
+  "pptx",
+  "rtf",
+  "json",
+  "pages",
+  "numbers",
+  "key",
+]);
+
+const getFileExtension = (filename?: string | null) => {
+  if (!filename) return "";
+  const dotIndex = filename.lastIndexOf(".");
+  if (dotIndex === -1) return "";
+  return filename.slice(dotIndex + 1).toLowerCase();
+};
+
+const getAttachmentCategoryFromFile = (file: File): AttachmentCategory => {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  const extension = getFileExtension(file.name);
+  if (VIDEO_FILE_EXTENSIONS.has(extension)) return "video";
+  if (DOCUMENT_FILE_EXTENSIONS.has(extension)) return "document";
+  return "other";
+};
+
+const getAttachmentCategoryFromHubAttachment = (
+  attachment: HubAttachment,
+): AttachmentCategory => {
+  const extension = getFileExtension(attachment.filename);
+  const contentTypeRaw = (attachment as Record<string, unknown>).contentType;
+  const contentType =
+    typeof contentTypeRaw === "string" ? contentTypeRaw.toLowerCase() : "";
+  if (
+    attachment.kind === "IMAGE" ||
+    attachment.kind === "GIF" ||
+    contentType.startsWith("image/")
+  )
+    return "image";
+  if (contentType.startsWith("video/")) return "video";
+  if (extension && VIDEO_FILE_EXTENSIONS.has(extension)) return "video";
+  if (extension && DOCUMENT_FILE_EXTENSIONS.has(extension)) return "document";
+  return "other";
+};
+
+const getVideoThumbnailUrl = (attachment: HubAttachment) => {
+  const thumbnailRaw = (attachment as Record<string, unknown>).thumbnailUrl;
+  if (typeof thumbnailRaw === "string" && thumbnailRaw.length > 0) {
+    return thumbnailRaw;
+  }
+  return null;
 };
 
 function formatDisplayName(member?: SimpleUser) {
   if (!member) return "Unknown member";
-
   const parts = [member.firstName, member.lastName].filter(Boolean);
- 
-
   if (parts.length) {
-
     return parts.join(" ");
-
   }
-
-  return member.email ?? "Unnamed member"; 
-
+  return member.email ?? "Unnamed member";
 }
- 
+
 function getInitials(member?: SimpleUser) {
-
   if (!member) return "";
-
-  const letters = [member.firstName?.[0], member.lastName?.[0]].filter(Boolean).join("");
-
+  const letters = [member.firstName?.[0], member.lastName?.[0]]
+    .filter(Boolean)
+    .join("");
   if (letters) {
-
     return letters.toUpperCase();
-
   }
-
   return (member.email ?? "?").slice(0, 2).toUpperCase();
-
-} 
+}
 
 function addTagToText(value: string, tag: string) {
- 
   const trimmed = value.trimEnd();
-
   const separator = trimmed.length === 0 ? "" : " ";
-
   return `${trimmed}${separator}${tag} `;
-
 }
 
 function buildCommentTree(comments: HubComment[]): CommentNode[] {
   const map = new Map<number, CommentNode>();
   const roots: CommentNode[] = [];
 
-  comments.forEach((comment) => {  
+  comments.forEach((comment) => {
     map.set(comment.id, { ...comment, replies: [] });
- 
   });
 
   map.forEach((node) => {
-
     if (node.parentCommentId && map.has(node.parentCommentId)) {
-
       map.get(node.parentCommentId)!.replies.push(node);
-
     } else {
-
       roots.push(node);
-
     }
-
   });
 
-  return roots; 
+  return roots;
 }
 
 function generateDraftId() {
@@ -219,62 +258,65 @@ const toSimpleUserFromAuth = (authUser: unknown): SimpleUser => {
   const record = authUser as Record<string, unknown>;
 
   return {
- 
     firstName: (record.firstName ?? record.first_name ?? null) as string | null,
 
     lastName: (record.lastName ?? record.last_name ?? null) as string | null,
 
     email: (record.email ?? null) as string | null,
-
   };
-
 };
 
-const PharmacyHubPage = () => {  
+const PharmacyHubPage = () => {
   const { user } = useAuth();
- 
+
   const viewerUser = useMemo(() => toSimpleUserFromAuth(user), [user]);
 
   const pharmacyMemberships = useMemo(() => {
-
     if (!user?.memberships) return [];
 
-    return (user.memberships.filter((m): m is AuthPharmacyMembership =>
-
-      (m as AuthPharmacyMembership)?.pharmacy_id !== undefined
-
-    ) ?? []).map((m) => ({
-
+    return (
+      user.memberships.filter(
+        (m): m is AuthPharmacyMembership =>
+          (m as AuthPharmacyMembership)?.pharmacy_id !== undefined,
+      ) ?? []
+    ).map((m) => ({
       id: m.pharmacy_id,
 
       name: m.pharmacy_name ?? "Pharmacy",
 
       role: m.role,
-
     }));
-
   }, [user]);
 
-  // Added to fix undefined variables used in JSX 
+  // Added to fix undefined variables used in JSX
   const headline = "";
   const subheading = "";
- 
+
   const [selectedPharmacyId, setSelectedPharmacyId] = useState<number | null>(
-    pharmacyMemberships.length ? pharmacyMemberships[0].id : null
+    pharmacyMemberships.length ? pharmacyMemberships[0].id : null,
   );
   const [posts, setPosts] = useState<HubPost[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [composerValue, setComposerValue] = useState("");
-  const [composerAttachments, setComposerAttachments] = useState<AttachmentDraft[]>([]);
+  const [composerAttachments, setComposerAttachments] = useState<
+    AttachmentDraft[]
+  >([]);
   const [submittingPost, setSubmittingPost] = useState(false);
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: "success" | "error" }>({
+  const [snackbar, setSnackbar] = useState<{
+    open: boolean;
+    message: string;
+    severity: "success" | "error";
+  }>({
     open: false,
     message: "",
     severity: "success",
   });
-  const [expandedPostIds, setExpandedPostIds] = useState<Set<number>>(new Set());
+  const [expandedPostIds, setExpandedPostIds] = useState<Set<number>>(
+    new Set(),
+  );
   const [commentDrafts, setCommentDrafts] = useState<CommentDraftMap>({});
-  const [commentEditDrafts, setCommentEditDrafts] = useState<CommentEditDraftMap>({});
+  const [commentEditDrafts, setCommentEditDrafts] =
+    useState<CommentEditDraftMap>({});
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [commentSavingId, setCommentSavingId] = useState<number | null>(null);
   const [replyTargets, setReplyTargets] = useState<ReplyTargetMap>({});
@@ -284,27 +326,38 @@ const PharmacyHubPage = () => {
   const [tagAnchorEl, setTagAnchorEl] = useState<null | HTMLElement>(null);
   const [tagContext, setTagContext] = useState<TagContext | null>(null);
   const [postEditor, setPostEditor] = useState<PostEditorState | null>(null);
-  const [postMenuAnchor, setPostMenuAnchor] = useState<HTMLElement | null>(null);
+  const [postMenuAnchor, setPostMenuAnchor] = useState<HTMLElement | null>(
+    null,
+  );
   const [postMenuPostId, setPostMenuPostId] = useState<number | null>(null);
   const [postMenuLoading, setPostMenuLoading] = useState(false);
+  const [mediaViewerState, setMediaViewerState] = useState<{
+    open: boolean;
+    url: string | null;
+    type: "image" | "video" | null;
+  }>({ open: false, url: null, type: null });
+
+  const openMediaViewer = (url: string, type: "image" | "video") => {
+    setMediaViewerState({ open: true, url, type });
+  };
+
   const activeMenuPost = useMemo(
     () => posts.find((post) => post.id === postMenuPostId) ?? null,
-    [posts, postMenuPostId]
+    [posts, postMenuPostId],
   );
 
-  const updatePosts = useCallback(
-    (updater: (prev: HubPost[]) => HubPost[]) => {
-      setPosts((prev) => sortHubPosts(updater(prev)));
-    },
-    []
-  );
+  const updatePosts = useCallback((updater: (prev: HubPost[]) => HubPost[]) => {
+    setPosts((prev) => sortHubPosts(updater(prev)));
+  }, []);
 
   const applyPostUpdate = useCallback(
     (updatedPost: HubPost, options: { replaceComments?: boolean } = {}) => {
       updatePosts((prev) => {
         const exists = prev.some((post) => post.id === updatedPost.id);
         if (exists) {
-          return prev.map((post) => (post.id === updatedPost.id ? updatedPost : post));
+          return prev.map((post) =>
+            post.id === updatedPost.id ? updatedPost : post,
+          );
         }
         return [updatedPost, ...prev];
       });
@@ -315,25 +368,19 @@ const PharmacyHubPage = () => {
         return { ...prev, [updatedPost.id]: updatedPost.recentComments };
       });
     },
-    [updatePosts]
+    [updatePosts],
   );
-useEffect(() => {
- 
+  useEffect(() => {
     if (pharmacyMemberships.length && !selectedPharmacyId) {
-
-      setSelectedPharmacyId(pharmacyMemberships[0].id); 
-
+      setSelectedPharmacyId(pharmacyMemberships[0].id);
     }
-
   }, [pharmacyMemberships, selectedPharmacyId]);
 
   useEffect(() => {
-
-    if (!selectedPharmacyId) {  
+    if (!selectedPharmacyId) {
       setPosts([]);
- 
-      return;
 
+      return;
     }
 
     let active = true;
@@ -346,50 +393,38 @@ useEffect(() => {
         setCommentsByPost(() => {
           const next: CommentListMap = {};
           payload.results.forEach((post) => {
-            next[post.id] = post.recentComments; 
+            next[post.id] = post.recentComments;
           });
           return next;
- 
         });
-
       })
 
       .catch(() => {
-
         if (!active) return;
 
         setPosts([]);
 
         setSnackbar({
-
           open: true,
 
           message: "Unable to load hub posts. Please try again.",
 
           severity: "error",
-
         });
-
       })
 
       .finally(() => {
-
         if (active) setLoadingPosts(false);
-
       });
 
     return () => {
-
       active = false;
-
     };
   }, [selectedPharmacyId]);
-useEffect(() => {
-
+  useEffect(() => {
     if (!selectedPharmacyId) {
       setMembers([]);
- return;
-
+      return;
     }
 
     let ignore = false;
@@ -397,17 +432,17 @@ useEffect(() => {
     apiClient
 
       .get(API_ENDPOINTS.membershipList, {
-
         params: { pharmacy: selectedPharmacyId, is_active: true },
-
       })
 
       .then((res) => {
-
-        if (ignore) return; 
-        const payload = Array.isArray(res.data?.results) ? res.data.results : Array.isArray(res.data) ? res.data : [];
-const mapped: PharmacyMember[] = payload.map((item: any) => {
-
+        if (ignore) return;
+        const payload = Array.isArray(res.data?.results)
+          ? res.data.results
+          : Array.isArray(res.data)
+            ? res.data
+            : [];
+        const mapped: PharmacyMember[] = payload.map((item: any) => {
           const details = item.user_details || item.user || {};
 
           const firstName = details.firstName ?? details.first_name ?? "";
@@ -419,111 +454,89 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
           const invitedName = item.invited_name ?? "";
 
           const name =
-
             invitedName.trim() ||
-
             [firstName, lastName].filter(Boolean).join(" ").trim() ||
-
             email ||
-
             "Pharmacy member";
 
           return {
-
             id: item.id ?? details.id ?? Math.random(),
 
             name,
 
             role: (item.role ?? "MEMBER") as string,
-
           };
-
-        }); 
-        setMembers(mapped);  
+        });
+        setMembers(mapped);
       })
- 
+
       .catch(() => {
-        if (!ignore) setMembers([]); 
- });
+        if (!ignore) setMembers([]);
+      });
 
     return () => {
-
-      ignore = true; 
-};
-  }, [selectedPharmacyId]); 
-  useEffect(() => { 
+      ignore = true;
+    };
+  }, [selectedPharmacyId]);
+  useEffect(() => {
     if (!selectedPharmacyId) {
- 
       return undefined;
-
     }
     const intervalId = window.setInterval(async () => {
       try {
         const payload = await fetchPharmacyHubPosts(selectedPharmacyId);
-        setPosts(sortHubPosts(payload.results)); 
+        setPosts(sortHubPosts(payload.results));
         setCommentsByPost((prev) => {
-
           const next: CommentListMap = {};
- 
-          payload.results.forEach((post) => {
 
+          payload.results.forEach((post) => {
             const existing = prev[post.id];
-            next[post.id] = existing && existing.length > post.recentComments.length ? existing : post.recentComments; 
-  });
+            next[post.id] =
+              existing && existing.length > post.recentComments.length
+                ? existing
+                : post.recentComments;
+          });
 
           return next;
-
         });
-
       } catch {
-
         // ignore polling errors
-
       }
-
     }, HUB_POLL_INTERVAL_MS);
 
     return () => window.clearInterval(intervalId);
   }, [selectedPharmacyId]);
-  const openTagMenu = (event: ReactMouseEvent<HTMLElement>, context: TagContext) => {
-
+  const openTagMenu = (
+    event: ReactMouseEvent<HTMLElement>,
+    context: TagContext,
+  ) => {
     setTagAnchorEl(event.currentTarget);
 
     setTagContext(context);
-
   };
 
   const closeTagMenu = () => {
-
     setTagAnchorEl(null);
 
     setTagContext(null);
-
   };
 
-  const insertTag = (tagLabel: string) => { 
-
+  const insertTag = (tagLabel: string) => {
     if (!tagContext) return;
 
     if (tagContext.type === "composer") {
-
       setComposerValue((prev) => addTagToText(prev, tagLabel));
-
     } else {
-
       const { postId } = tagContext;
 
       setCommentDrafts((prev) => ({
-
         ...prev,
 
         [postId]: addTagToText(prev[postId] ?? "", tagLabel),
-
       }));
-
     }
- };
- 
+  };
+
   const handleSelectTag = (member: PharmacyMember | "everyone") => {
     const tag = member === "everyone" ? "@everyone" : `@${member.name}`;
     insertTag(tag);
@@ -536,6 +549,7 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
       id: generateDraftId(),
       file,
       preview: URL.createObjectURL(file),
+      category: getAttachmentCategoryFromFile(file),
     }));
     if (!drafts.length) return;
     setComposerAttachments((prev) => [...prev, ...drafts]);
@@ -588,6 +602,7 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
       id: generateDraftId(),
       file,
       preview: URL.createObjectURL(file),
+      category: getAttachmentCategoryFromFile(file),
     }));
     if (!drafts.length) return;
     setPostEditor((prev) =>
@@ -596,7 +611,7 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
             ...prev,
             newAttachments: [...prev.newAttachments, ...drafts],
           }
-        : prev
+        : prev,
     );
     event.target.value = "";
   };
@@ -610,7 +625,9 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
       }
       return {
         ...prev,
-        newAttachments: prev.newAttachments.filter((item) => item.id !== draftId),
+        newAttachments: prev.newAttachments.filter(
+          (item) => item.id !== draftId,
+        ),
       };
     });
   };
@@ -641,13 +658,21 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
     }
     setPostEditor((prev) => (prev ? { ...prev, saving: true } : prev));
     try {
-      const updated = await updatePharmacyHubPost(selectedPharmacyId, postEditor.postId, {
-        body: trimmed,
-        attachments: postEditor.newAttachments.map((item) => item.file),
-        removeAttachmentIds: postEditor.removeAttachmentIds,
-      });
+      const updated = await updatePharmacyHubPost(
+        selectedPharmacyId,
+        postEditor.postId,
+        {
+          body: trimmed,
+          attachments: postEditor.newAttachments.map((item) => item.file),
+          removeAttachmentIds: postEditor.removeAttachmentIds,
+        },
+      );
       applyPostUpdate(updated, { replaceComments: true });
-      setSnackbar({ open: true, message: "Post updated.", severity: "success" });
+      setSnackbar({
+        open: true,
+        message: "Post updated.",
+        severity: "success",
+      });
       closePostEditor();
     } catch (error: any) {
       setSnackbar({
@@ -694,12 +719,17 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
     }
     setCommentSavingId(commentId);
     try {
-      const updated = await updatePharmacyHubComment(selectedPharmacyId, postId, commentId, {
-        body: draft,
-      });
+      const updated = await updatePharmacyHubComment(
+        selectedPharmacyId,
+        postId,
+        commentId,
+        {
+          body: draft,
+        },
+      );
       const existingComments = commentsByPost[postId] ?? [];
       const nextComments = existingComments.map((comment) =>
-        comment.id === commentId ? updated : comment
+        comment.id === commentId ? updated : comment,
       );
       setCommentsByPost((prev) => ({
         ...prev,
@@ -713,10 +743,14 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
                 ...post,
                 recentComments: nonDeleted.slice(-2),
               }
-            : post
-        )
+            : post,
+        ),
       );
-      setSnackbar({ open: true, message: "Comment updated.", severity: "success" });
+      setSnackbar({
+        open: true,
+        message: "Comment updated.",
+        severity: "success",
+      });
       cancelEditingComment(commentId);
     } catch (error: any) {
       setSnackbar({
@@ -744,13 +778,21 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
       applyPostUpdate(newPost, { replaceComments: true });
       setComposerValue("");
       clearComposerAttachments();
-      setSnackbar({ open: true, message: "Post shared with the team.", severity: "success" });
-    } catch (error: any) { 
-      setSnackbar({ open: true, message: error?.response?.data?.detail ?? "Could not create post.", severity: "error" });
+      setSnackbar({
+        open: true,
+        message: "Post shared with the team.",
+        severity: "success",
+      });
+    } catch (error: any) {
+      setSnackbar({
+        open: true,
+        message: error?.response?.data?.detail ?? "Could not create post.",
+        severity: "error",
+      });
     } finally {
-      setSubmittingPost(false);  
+      setSubmittingPost(false);
     }
-};
+  };
 
   const handleDeletePost = async (postId: number) => {
     if (!selectedPharmacyId) return;
@@ -766,16 +808,27 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
                 attachments: [],
                 allowComments: false,
               }
-            : post
-        )
+            : post,
+        ),
       );
-      setSnackbar({ open: true, message: "Post marked as deleted.", severity: "success" });
+      setSnackbar({
+        open: true,
+        message: "Post marked as deleted.",
+        severity: "success",
+      });
     } catch {
-      setSnackbar({ open: true, message: "Could not delete post.", severity: "error" });
+      setSnackbar({
+        open: true,
+        message: "Could not delete post.",
+        severity: "error",
+      });
     }
   };
 
-  const handleOpenPostMenu = (event: ReactMouseEvent<HTMLButtonElement>, postId: number) => {
+  const handleOpenPostMenu = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    postId: number,
+  ) => {
     setPostMenuAnchor(event.currentTarget);
     setPostMenuPostId(postId);
     setPostMenuLoading(false);
@@ -831,7 +884,8 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
     } catch (error: any) {
       setSnackbar({
         open: true,
-        message: error?.response?.data?.detail ?? "Could not update comment settings.",
+        message:
+          error?.response?.data?.detail ?? "Could not update comment settings.",
         severity: "error",
       });
     } finally {
@@ -877,42 +931,59 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
     if (!selectedPharmacyId) return;
     setCommentsLoading((prev) => ({ ...prev, [postId]: true }));
     try {
-      const comments = await fetchPharmacyHubComments(selectedPharmacyId, postId);
+      const comments = await fetchPharmacyHubComments(
+        selectedPharmacyId,
+        postId,
+      );
       setCommentsByPost((prev) => ({ ...prev, [postId]: comments }));
     } catch {
-      setSnackbar({ open: true, message: "Could not load comments.", severity: "error" });
+      setSnackbar({
+        open: true,
+        message: "Could not load comments.",
+        severity: "error",
+      });
     } finally {
       setCommentsLoading((prev) => ({ ...prev, [postId]: false }));
     }
   };
 
   const handleCommentChange = (postId: number, value: string) => {
-
     setCommentDrafts((prev) => ({ ...prev, [postId]: value }));
-
   };
 
   const handleSubmitComment = async (postId: number) => {
     if (!selectedPharmacyId) return;
-    const body = (commentDrafts[postId] || "").trim(); 
+    const body = (commentDrafts[postId] || "").trim();
     if (!body) return;
     const targetPost = posts.find((post) => post.id === postId);
-    if (targetPost?.isDeleted) { 
-      setSnackbar({ open: true, message: "Cannot comment on a deleted post.", severity: "error" });
+    if (targetPost?.isDeleted) {
+      setSnackbar({
+        open: true,
+        message: "Cannot comment on a deleted post.",
+        severity: "error",
+      });
       return;
     }
     if (targetPost && !targetPost.allowComments) {
-      setSnackbar({ open: true, message: "Comments are disabled for this post.", severity: "error" });
+      setSnackbar({
+        open: true,
+        message: "Comments are disabled for this post.",
+        severity: "error",
+      });
       return;
     }
 
     setCommentsLoading((prev) => ({ ...prev, [postId]: true }));
     try {
       const replyTarget = replyTargets[postId];
-      const comment = await createPharmacyHubComment(selectedPharmacyId, postId, {
-        body,
-        parentComment: replyTarget ? replyTarget.id : null,
-      });
+      const comment = await createPharmacyHubComment(
+        selectedPharmacyId,
+        postId,
+        {
+          body,
+          parentComment: replyTarget ? replyTarget.id : null,
+        },
+      );
       const existingComments = commentsByPost[postId] ?? [];
       const updatedComments = [...existingComments, comment];
       setCommentsByPost((prev) => {
@@ -929,17 +1000,18 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
                 commentCount: post.commentCount + 1,
                 recentComments: nonDeleted.slice(-2),
               }
-            : post
-        )
+            : post,
+        ),
       );
-    } catch { 
-      setSnackbar({ open: true, message: "Could not add comment.", severity: "error" });
+    } catch {
+      setSnackbar({
+        open: true,
+        message: "Could not add comment.",
+        severity: "error",
+      });
     } finally {
- 
       setCommentsLoading((prev) => ({ ...prev, [postId]: false }));
-
     }
-
   };
 
   const handleDeleteComment = async (postId: number, commentId: number) => {
@@ -956,13 +1028,15 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
               body: "This comment has been deleted.",
               canEdit: false,
             }
-          : comment
+          : comment,
       );
       setCommentsByPost((prev) => ({
         ...prev,
         [postId]: updatedComments,
       }));
-      const nonDeleted = updatedComments.filter((comment) => !comment.isDeleted);
+      const nonDeleted = updatedComments.filter(
+        (comment) => !comment.isDeleted,
+      );
       updatePosts((prev) =>
         prev.map((post) =>
           post.id === postId
@@ -971,12 +1045,20 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
                 commentCount: Math.max(0, post.commentCount - 1),
                 recentComments: nonDeleted.slice(-2),
               }
-            : post
-        )
+            : post,
+        ),
       );
-      setSnackbar({ open: true, message: "Comment marked as deleted.", severity: "success" });
+      setSnackbar({
+        open: true,
+        message: "Comment marked as deleted.",
+        severity: "success",
+      });
     } catch {
-      setSnackbar({ open: true, message: "Could not delete comment.", severity: "error" });
+      setSnackbar({
+        open: true,
+        message: "Could not delete comment.",
+        severity: "error",
+      });
     } finally {
       setCommentsLoading((prev) => ({ ...prev, [postId]: false }));
     }
@@ -986,42 +1068,52 @@ const mapped: PharmacyMember[] = payload.map((item: any) => {
     if (!selectedPharmacyId) return;
     const targetPost = posts.find((post) => post.id === postId);
     if (targetPost?.isDeleted) {
-      setSnackbar({ open: true, message: "Cannot react to a deleted post.", severity: "error" });
+      setSnackbar({
+        open: true,
+        message: "Cannot react to a deleted post.",
+        severity: "error",
+      });
       return;
     }
     updatePosts((prev) =>
       prev.map((post) => {
         if (post.id !== postId) return post;
-        const summary: Record<HubReactionType, number> = { ...post.reactionSummary } as Record<HubReactionType, number>;
+        const summary: Record<HubReactionType, number> = {
+          ...post.reactionSummary,
+        } as Record<HubReactionType, number>;
         if (post.viewerReaction) {
-          summary[post.viewerReaction] = Math.max(0, (summary[post.viewerReaction] ?? 1) - 1);
+          summary[post.viewerReaction] = Math.max(
+            0,
+            (summary[post.viewerReaction] ?? 1) - 1,
+          );
         }
         if (post.viewerReaction === reaction) {
           return { ...post, viewerReaction: null, reactionSummary: summary };
         }
         summary[reaction] = (summary[reaction] ?? 0) + 1;
         return { ...post, viewerReaction: reaction, reactionSummary: summary };
-      })
+      }),
     );
 
     try {
       if (targetPost?.viewerReaction === reaction) {
         await removePharmacyHubReaction(selectedPharmacyId, postId);
-      } else { 
+      } else {
         await reactToPharmacyHubPost(selectedPharmacyId, postId, reaction);
       }
-    } catch { 
-      setSnackbar({ open: true, message: "Could not update reaction.", severity: "error" });
+    } catch {
+      setSnackbar({
+        open: true,
+        message: "Could not update reaction.",
+        severity: "error",
+      });
       const refreshed = await fetchPharmacyHubPosts(selectedPharmacyId);
       setPosts(sortHubPosts(refreshed.results));
-setCommentsByPost((prev) => {
-
+      setCommentsByPost((prev) => {
         const next: CommentListMap = {};
 
         refreshed.results.forEach((post) => {
- 
           next[post.id] = prev[post.id] ?? post.recentComments;
-
         });
 
         return next;
@@ -1031,9 +1123,13 @@ setCommentsByPost((prev) => {
 
   const selectedMembership = useMemo(() => {
     if (!selectedPharmacyId) return null;
-    return pharmacyMemberships.find((ph) => ph.id === selectedPharmacyId) ?? null;
+    return (
+      pharmacyMemberships.find((ph) => ph.id === selectedPharmacyId) ?? null
+    );
   }, [pharmacyMemberships, selectedPharmacyId]);
-  const editingPost = postEditor ? posts.find((post) => post.id === postEditor.postId) ?? null : null;
+  const editingPost = postEditor
+    ? (posts.find((post) => post.id === postEditor.postId) ?? null)
+    : null;
   const renderCommentNode = (node: CommentNode, depth = 0, postId: number) => {
     const isEditing = editingCommentId === node.id;
     const draftValue = commentEditDrafts[node.id] ?? node.body;
@@ -1060,7 +1156,13 @@ setCommentsByPost((prev) => {
                 backgroundColor: depth ? "grey.50" : "background.paper",
               }}
             >
-              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" rowGap={1}>
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
+                flexWrap="wrap"
+                rowGap={1}
+              >
                 <Typography fontWeight={600}>
                   {formatDisplayName({
                     firstName: node.author.user.firstName,
@@ -1068,18 +1170,32 @@ setCommentsByPost((prev) => {
                     email: node.author.user.email,
                   })}
                 </Typography>
-                <Chip size="small" label={node.author.role.replace(/_/g, " ")} />
+                <Chip
+                  size="small"
+                  label={node.author.role.replace(/_/g, " ")}
+                />
                 <Typography variant="caption" color="text.secondary">
                   {dayjs(node.createdAt).format("MMM D, YYYY h:mm A")}
                 </Typography>
                 {node.isEdited && !node.isDeleted && (
                   <Tooltip
-                    title={node.originalBody ? node.originalBody : "Original content unavailable."}
+                    title={
+                      node.originalBody
+                        ? node.originalBody
+                        : "Original content unavailable."
+                    }
                   >
                     <Chip size="small" label="Edited" variant="outlined" />
                   </Tooltip>
                 )}
-                {node.isDeleted && <Chip size="small" label="Deleted" color="error" variant="outlined" />}
+                {node.isDeleted && (
+                  <Chip
+                    size="small"
+                    label="Deleted"
+                    color="error"
+                    variant="outlined"
+                  />
+                )}
               </Stack>
               {isEditing ? (
                 <>
@@ -1165,16 +1281,15 @@ setCommentsByPost((prev) => {
             </Stack>
           </Box>
         </Stack>
-        {node.replies.map((child) => renderCommentNode(child, depth + 1, postId))}
+        {node.replies.map((child) =>
+          renderCommentNode(child, depth + 1, postId),
+        )}
       </Box>
     );
   };
-return (
- 
+  return (
     <Box
-
       sx={{
-
         py: { xs: 3, md: 4 },
 
         px: { xs: 1, md: 2 },
@@ -1182,17 +1297,11 @@ return (
         bgcolor: "grey.50",
 
         minHeight: "100%",
-
       }}
-
     >
-
       <Stack spacing={3} maxWidth="min(920px, 100%)" mx="auto">
-
         <Paper
-
           sx={{
-
             borderRadius: 3,
 
             p: { xs: 2.5, md: 3 },
@@ -1202,86 +1311,61 @@ return (
             color: "white",
 
             boxShadow: "0 20px 40px rgba(15,23,42,0.25)",
-
           }}
-
         >
-
           <Stack spacing={1.5}>
-
             <Stack direction="row" spacing={1.5} alignItems="center">
-
               <ForumIcon fontSize="large" />
 
               <Box>
-
-                <Typography variant="h4" fontWeight={700}> 
+                <Typography variant="h4" fontWeight={700}>
                   Pharmacy Hub
-
-                  {headline} 
-
+                  {headline}
                 </Typography>
 
                 <Typography variant="body2" sx={{ opacity: 0.85 }}>
-                  Share announcements, celebrate wins, and keep your team aligned in one place.
-
+                  Share announcements, celebrate wins, and keep your team
+                  aligned in one place.
                   {subheading}
- 
-                </Typography> 
- </Box>
- 
+                </Typography>
+              </Box>
             </Stack>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}> 
-<Select
-
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+              <Select
                 fullWidth
-
                 size="small"
-
                 value={selectedPharmacyId ?? ""}
-
-                onChange={(event) => setSelectedPharmacyId(Number(event.target.value))}
-
+                onChange={(event) =>
+                  setSelectedPharmacyId(Number(event.target.value))
+                }
                 sx={{
-
                   bgcolor: "rgba(255,255,255,0.15)",
 
                   color: "white",
- 
+
                   "& .MuiSelect-icon": { color: "white" },
                   minWidth: { xs: "100%", sm: 280 },
-  }}
-
+                }}
               >
-
                 {pharmacyMemberships.map((membership) => (
-
                   <MenuItem key={membership.id} value={membership.id}>
-
                     {membership.name} ({membership.role})
-
                   </MenuItem>
-
                 ))}
-
               </Select>
-{selectedMembership && (
- 
+              {selectedMembership && (
                 <Chip
-
                   label={`${selectedMembership.role.replace(/_/g, " ")} access`}
-
-                  sx={{ alignSelf: "center", bgcolor: "rgba(255,255,255,0.18)", color: "white" }}
-
+                  sx={{
+                    alignSelf: "center",
+                    bgcolor: "rgba(255,255,255,0.18)",
+                    color: "white",
+                  }}
                 />
-
               )}
-
             </Stack>
-
           </Stack>
-
-        </Paper> 
+        </Paper>
         <Paper
           variant="outlined"
           sx={{
@@ -1292,7 +1376,9 @@ return (
           }}
         >
           <Stack direction="row" spacing={2} alignItems="flex-start">
-            <Avatar sx={{ width: 48, height: 48 }}>{getInitials(viewerUser)}</Avatar>
+            <Avatar sx={{ width: 48, height: 48 }}>
+              {getInitials(viewerUser)}
+            </Avatar>
             <Box flexGrow={1}>
               <Typography fontWeight={600} mb={0.5}>
                 Share an update with your team
@@ -1308,8 +1394,7 @@ return (
               {composerAttachments.length > 0 && (
                 <Stack direction="row" spacing={1.5} flexWrap="wrap" mt={1}>
                   {composerAttachments.map((attachment) => {
-                    const isImage = attachment.file.type.startsWith("image/");
-                    if (isImage) {
+                    if (attachment.category === "image") {
                       return (
                         <Box
                           key={attachment.id}
@@ -1327,11 +1412,17 @@ return (
                             component="img"
                             src={attachment.preview}
                             alt={attachment.file.name}
-                            sx={{ width: "100%", height: "100%", objectFit: "cover" }}
+                            sx={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                            }}
                           />
                           <IconButton
                             size="small"
-                            onClick={() => removeComposerAttachment(attachment.id)}
+                            onClick={() =>
+                              removeComposerAttachment(attachment.id)
+                            }
                             sx={{
                               position: "absolute",
                               top: 4,
@@ -1346,15 +1437,124 @@ return (
                         </Box>
                       );
                     }
+
+                    if (attachment.category === "video") {
+                      return (
+                        <Box
+                          key={attachment.id}
+                          sx={{
+                            position: "relative",
+                            width: 136,
+                            height: 96,
+                            borderRadius: 2,
+                            overflow: "hidden",
+                            border: "1px solid",
+                            borderColor: "divider",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            bgcolor: "grey.100",
+                          }}
+                        >
+                        <Box
+                          component="video"
+                          src={attachment.preview}
+                          muted
+                          playsInline
+                          preload="metadata"
+                          sx={{
+                            width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                            }}
+                          />
+                          <PlayCircleOutlineRoundedIcon
+                            sx={{
+                              position: "absolute",
+                              fontSize: 48,
+                              color: "rgba(255,255,255,0.9)",
+                              pointerEvents: "none",
+                            }}
+                          />
+                          <IconButton
+                            size="small"
+                            onClick={() =>
+                              removeComposerAttachment(attachment.id)
+                            }
+                            sx={{
+                              position: "absolute",
+                              top: 4,
+                              right: 4,
+                              bgcolor: "rgba(0,0,0,0.6)",
+                              color: "white",
+                              "&:hover": { bgcolor: "rgba(0,0,0,0.8)" },
+                            }}
+                          >
+                            <CloseRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      );
+                    }
+
+                    const extension = getFileExtension(attachment.file.name);
                     return (
-                      <Chip
-                        key={attachment.id}
-                        icon={<InsertDriveFileOutlinedIcon fontSize="small" />}
-                        label={attachment.file.name}
-                        onDelete={() => removeComposerAttachment(attachment.id)}
-                        deleteIcon={<CloseRoundedIcon />}
-                        sx={{ maxWidth: 220 }}
-                      />
+                      <Tooltip key={attachment.id} title={attachment.file.name}>
+                        <Box
+                          sx={{
+                            position: "relative",
+                            width: 136,
+                            height: 96,
+                            borderRadius: 2,
+                            border: "1px solid",
+                            borderColor: "divider",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            bgcolor: "grey.50",
+                            textAlign: "center",
+                            px: 1.5,
+                          }}
+                        >
+                          <Stack
+                            spacing={0.5}
+                            alignItems="center"
+                            sx={{ maxWidth: "100%" }}
+                          >
+                            <InsertDriveFileOutlinedIcon color="action" />
+                            <Typography
+                              variant="caption"
+                              noWrap
+                              sx={{ maxWidth: "100%" }}
+                            >
+                              {attachment.file.name}
+                            </Typography>
+                            {extension && (
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
+                                {extension.toUpperCase()}
+                              </Typography>
+                            )}
+                          </Stack>
+                          <IconButton
+                            size="small"
+                            onClick={() =>
+                              removeComposerAttachment(attachment.id)
+                            }
+                            sx={{
+                              position: "absolute",
+                              top: 4,
+                              right: 4,
+                              bgcolor: "rgba(0,0,0,0.6)",
+                              color: "white",
+                              "&:hover": { bgcolor: "rgba(0,0,0,0.8)" },
+                            }}
+                          >
+                            <CloseRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      </Tooltip>
                     );
                   })}
                 </Stack>
@@ -1369,7 +1569,12 @@ return (
               >
                 <Stack direction="row" spacing={1} alignItems="center">
                   <Tooltip title="Tag someone">
-                    <IconButton color="primary" onClick={(event) => openTagMenu(event, { type: "composer" })}>
+                    <IconButton
+                      color="primary"
+                      onClick={(event) =>
+                        openTagMenu(event, { type: "composer" })
+                      }
+                    >
                       <AlternateEmailIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
@@ -1391,7 +1596,7 @@ return (
                       hidden
                       multiple
                       onChange={handleComposerFileChange}
-                      accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.zip,.txt"
+                      accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.zip,.txt,.ppt,.pptx,.rtf"
                     />
                   </Button>
                 </Stack>
@@ -1407,43 +1612,37 @@ return (
             </Box>
           </Stack>
         </Paper>
-{loadingPosts ? (
-
-          <Paper sx={{ borderRadius: 3, p: 4, display: "flex", justifyContent: "center" }}>
-
+        {loadingPosts ? (
+          <Paper
+            sx={{
+              borderRadius: 3,
+              p: 4,
+              display: "flex",
+              justifyContent: "center",
+            }}
+          >
             <CircularProgress />
-
           </Paper>
-
         ) : posts.length === 0 ? (
-
           <Alert severity="info" sx={{ borderRadius: 3 }}>
-            No updates yet. Start the conversation with your team above. 
+            No updates yet. Start the conversation with your team above.
           </Alert>
-
         ) : (
- 
           posts.map((post) => {
-
             const comments = commentsByPost[post.id] ?? post.recentComments;
 
             const commentTree = buildCommentTree(comments);
-            const reactionSummaryEntries = Object.entries(post.reactionSummary).filter(
-              ([, count]) => count > 0
-            ) as [HubReactionType, number][];
+            const reactionSummaryEntries = Object.entries(
+              post.reactionSummary,
+            ).filter(([, count]) => count > 0) as [HubReactionType, number][];
             const isExpanded = expandedPostIds.has(post.id);
             const replyingTo = replyTargets[post.id];
             const commentsDisabled = post.isDeleted || !post.allowComments;
             return (
-
               <Paper
-
                 key={post.id}
-
                 variant="outlined"
-
                 sx={{
-
                   borderRadius: 3,
 
                   p: { xs: 2, md: 3 },
@@ -1451,29 +1650,27 @@ return (
                   boxShadow: "0 14px 35px rgba(15,23,42,0.08)",
 
                   borderColor: "divider",
-
                 }}
-
               >
-
                 <Stack direction="row" spacing={2} alignItems="flex-start">
-
                   <Avatar sx={{ width: 48, height: 48 }}>
-
                     {getInitials({
-
                       firstName: post.author.user.firstName,
 
                       lastName: post.author.user.lastName,
 
                       email: post.author.user.email,
-
                     })}
-
                   </Avatar>
 
                   <Box flexGrow={1}>
-                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" rowGap={1}>
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      alignItems="center"
+                      flexWrap="wrap"
+                      rowGap={1}
+                    >
                       <Typography fontWeight={700}>
                         {formatDisplayName({
                           firstName: post.author.user.firstName,
@@ -1481,15 +1678,26 @@ return (
                           email: post.author.user.email,
                         })}
                       </Typography>
-                      <Chip size="small" label={post.author.role.replace(/_/g, " ")} />
+                      <Chip
+                        size="small"
+                        label={post.author.role.replace(/_/g, " ")}
+                      />
                       <Typography variant="caption" color="text.secondary">
                         {dayjs(post.createdAt).format("MMM D, YYYY h:mm A")}
                       </Typography>
                       {post.isEdited && !post.isDeleted && (
                         <Tooltip
-                          title={post.originalBody ? post.originalBody : "Original content unavailable."}
+                          title={
+                            post.originalBody
+                              ? post.originalBody
+                              : "Original content unavailable."
+                          }
                         >
-                          <Chip size="small" label="Edited" variant="outlined" />
+                          <Chip
+                            size="small"
+                            label="Edited"
+                            variant="outlined"
+                          />
                         </Tooltip>
                       )}
                       {post.isPinned && (
@@ -1501,13 +1709,24 @@ return (
                           label="Pinned"
                         />
                       )}
-                      {post.isDeleted && <Chip size="small" label="Deleted" color="error" variant="outlined" />}
+                      {post.isDeleted && (
+                        <Chip
+                          size="small"
+                          label="Deleted"
+                          color="error"
+                          variant="outlined"
+                        />
+                      )}
                       <Box sx={{ flexGrow: 1 }} />
                       {(post.canManage || post.viewerIsAdmin) && (
                         <IconButton
                           size="small"
-                          onClick={(event) => handleOpenPostMenu(event, post.id)}
-                          disabled={postMenuLoading && postMenuPostId === post.id}
+                          onClick={(event) =>
+                            handleOpenPostMenu(event, post.id)
+                          }
+                          disabled={
+                            postMenuLoading && postMenuPostId === post.id
+                          }
                         >
                           <MoreVertIcon fontSize="small" />
                         </IconButton>
@@ -1517,27 +1736,29 @@ return (
                       {post.body}
                     </Typography>
                     {post.attachments.length > 0 && (
-                      <Stack direction="row" spacing={1.5} flexWrap="wrap" mt={2}>
-                      {post.attachments.map((attachment) => {
-                        const key = `${post.id}-${attachment.id}`;
-                        const attachmentUrl = attachment.url ?? undefined;
-                        if ((attachment.kind === "IMAGE" || attachment.kind === "GIF") && attachmentUrl) {
-                          return (
-                            <Stack
-                              key={key}
-                              spacing={0.5}
-                              sx={{
-                                flexBasis: { xs: "100%", sm: "auto" },
-                                maxWidth: "100%",
-                              }}
-                            >
-                              <Tooltip title="Click to open full size">
+                      <Stack
+                        direction="row"
+                        spacing={1.5}
+                        flexWrap="wrap"
+                        mt={2}
+                      >
+                        {post.attachments.map((attachment) => {
+                          const key = `${post.id}-${attachment.id}`;
+                          const attachmentUrl = attachment.url ?? undefined;
+                          const category =
+                            getAttachmentCategoryFromHubAttachment(attachment);
+                          const filename = attachment.filename ?? "Attachment";
+                          if (category === "image" && attachmentUrl) {
+                            return (
+                              <Tooltip key={key} title="Click to view image">
                                 <Box
                                   component="img"
                                   src={attachmentUrl}
-                                  alt={attachment.filename ?? "Attachment"}
+                                  alt={filename}
                                   loading="lazy"
-                                  onClick={() => window.open(attachmentUrl, "_blank", "noopener")}
+                                  onClick={() =>
+                                    openMediaViewer(attachmentUrl, "image")
+                                  }
                                   sx={{
                                     width: "100%",
                                     maxWidth: 520,
@@ -1546,43 +1767,136 @@ return (
                                     border: "1px solid",
                                     borderColor: "divider",
                                     objectFit: "contain",
-                                    cursor: "zoom-in",
+                                    cursor: "pointer",
                                     backgroundColor: "grey.100",
+                                    flexBasis: { xs: "100%", sm: "auto" },
                                   }}
                                 />
                               </Tooltip>
-                              {attachment.filename && (
-                                <Button
-                                  size="small"
-                                  variant="text"
-                                  onClick={() => window.open(attachmentUrl, "_blank", "noopener")}
-                                  sx={{ alignSelf: "flex-start", textTransform: "none" }}
+                            );
+                          }
+
+                          if (category === "video" && attachmentUrl) {
+                            const thumbnailUrl =
+                              getVideoThumbnailUrl(attachment);
+                            return (
+                              <Tooltip key={key} title="Click to watch video">
+                                <Box
+                                  onClick={() =>
+                                    openMediaViewer(attachmentUrl, "video")
+                                  }
+                                  sx={{
+                                    position: "relative",
+                                    width: "100%",
+                                    maxWidth: 520,
+                                    maxHeight: 520,
+                                    borderRadius: 2,
+                                    border: "1px solid",
+                                    borderColor: "divider",
+                                    overflow: "hidden",
+                                    cursor: "pointer",
+                                    backgroundColor: "grey.100",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    aspectRatio: "16/9",
+                                    flexBasis: { xs: "100%", sm: "auto" },
+                                  }}
                                 >
-                                  {attachment.filename}
-                                </Button>
-                              )}
-                            </Stack>
+                                  <Box
+                                    component="video"
+                                    src={attachmentUrl}
+                                    poster={thumbnailUrl ?? undefined}
+                                    muted
+                                    playsInline
+                                    preload="metadata"
+                                    sx={{
+                                      width: "100%",
+                                      height: "100%",
+                                      objectFit: "cover",
+                                      pointerEvents: "none",
+                                    }}
+                                  />
+                                  <PlayCircleOutlineRoundedIcon
+                                    sx={{
+                                      position: "absolute",
+                                      fontSize: 64,
+                                      color: "rgba(255, 255, 255, 0.85)",
+                                      pointerEvents: "none",
+                                    }}
+                                  />
+                                </Box>
+                              </Tooltip>
+                            );
+                          }
+
+                          const extension = getFileExtension(
+                            attachment.filename,
                           );
-                        }
-                        return (
-                          <Button
-                            key={key}
-                            variant="outlined"
-                            startIcon={<InsertDriveFileOutlinedIcon />}
-                            component="a"
-                            href={attachmentUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            disabled={!attachmentUrl}
-                            sx={{ textTransform: "none" }}
-                          >
-                            {attachment.filename ?? "Download attachment"}
-                          </Button>
-                        );
-                      })}
-                    </Stack>
-                  )}
-                    <Stack direction="row" spacing={2} alignItems="center" mt={2} flexWrap="wrap">
+                          const attachmentLinkProps = attachmentUrl
+                            ? {
+                                component: "a" as const,
+                                href: attachmentUrl,
+                                target: "_blank",
+                                rel: "noopener noreferrer",
+                              }
+                            : { component: "div" as const };
+                          return (
+                            <Tooltip key={key} title={filename}>
+                              <Box
+                                {...attachmentLinkProps}
+                                sx={{
+                                  position: "relative",
+                                  width: 180,
+                                  height: 128,
+                                  borderRadius: 2,
+                                  border: "1px solid",
+                                  borderColor: "divider",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  gap: 1,
+                                  px: 2,
+                                  textAlign: "center",
+                                  textDecoration: "none",
+                                  backgroundColor: "grey.50",
+                                  cursor: attachmentUrl ? "pointer" : "default",
+                                  flexBasis: { xs: "100%", sm: "auto" },
+                                }}
+                              >
+                                <InsertDriveFileOutlinedIcon
+                                  color="action"
+                                  sx={{ fontSize: 32 }}
+                                />
+                                <Typography
+                                  variant="body2"
+                                  noWrap
+                                  sx={{ width: "100%" }}
+                                >
+                                  {filename}
+                                </Typography>
+                                {extension && (
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                  >
+                                    {extension.toUpperCase()}
+                                  </Typography>
+                                )}
+                              </Box>
+                            </Tooltip>
+                          );
+                        })}
+                      </Stack>
+                    )}
+                    <Stack
+                      direction="row"
+                      spacing={2}
+                      alignItems="center"
+                      mt={2}
+                      flexWrap="wrap"
+                    >
                       {REACTIONS.map((reaction) => {
                         const isActive = post.viewerReaction === reaction.type;
                         return (
@@ -1599,141 +1913,98 @@ return (
                           </Button>
                         );
                       })}
- {reactionSummaryEntries.length > 0 && (
-
+                      {reactionSummaryEntries.length > 0 && (
                         <Stack direction="row" spacing={1}>
-
                           {reactionSummaryEntries.map(([type, count]) => {
-
-                            const reactionConfig = REACTIONS.find((item) => item.type === type);
+                            const reactionConfig = REACTIONS.find(
+                              (item) => item.type === type,
+                            );
 
                             if (!reactionConfig) return null;
 
                             return (
-
                               <Chip
-
                                 key={type}
-
                                 size="small"
-
                                 color="primary"
-
                                 variant="outlined"
-
                                 icon={<reactionConfig.Icon fontSize="small" />}
-
                                 label={`${count} ${reactionConfig.label}`}
-
                               />
-
                             );
-
                           })}
-
                         </Stack>
-
                       )}
 
-                      <Button 
-
+                      <Button
                         size="small"
-
                         startIcon={<CommentIcon fontSize="small" />}
-
                         onClick={() => toggleComments(post.id)}
-
                       >
-
-                        {post.commentCount} {post.commentCount === 1 ? "Comment" : "Comments"}
-
+                        {post.commentCount}{" "}
+                        {post.commentCount === 1 ? "Comment" : "Comments"}
                       </Button>
-
                     </Stack>
-
                   </Box>
-
-                </Stack> 
+                </Stack>
 
                 <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-
                   <Divider sx={{ my: 2.5 }} />
 
                   {commentsLoading[post.id] ? (
-
                     <Stack alignItems="center" py={2}>
-
                       <CircularProgress size={24} />
-
                     </Stack>
-
                   ) : commentTree.length === 0 ? (
-
                     <Typography variant="body2" color="text.secondary">
-
                       No comments yet. Be the first to respond.
-
                     </Typography>
-
                   ) : (
-
-                    <Stack spacing={2.5}>{commentTree.map((node) => renderCommentNode(node, 0, post.id))}</Stack>
-
+                    <Stack spacing={2.5}>
+                      {commentTree.map((node) =>
+                        renderCommentNode(node, 0, post.id),
+                      )}
+                    </Stack>
                   )}
 
                   <Box mt={3}>
                     {!commentsDisabled && replyingTo && (
-                      <Paper 
+                      <Paper
                         variant="outlined"
                         sx={{
-                          mb: 1, 
+                          mb: 1,
                           px: 1.5,
-py: 1,
+                          py: 1,
 
                           borderRadius: 2,
 
                           borderColor: "primary.light",
 
                           bgcolor: "primary.50",
-
                         }}
-
                       >
-
                         <Stack direction="row" spacing={1} alignItems="center">
-
                           <Typography variant="body2" color="primary">
-
-                            Replying to {formatDisplayName({
-
+                            Replying to{" "}
+                            {formatDisplayName({
                               firstName: replyingTo.author.user.firstName,
 
                               lastName: replyingTo.author.user.lastName,
 
                               email: replyingTo.author.user.email,
-
                             })}
-
                           </Typography>
 
                           <Button
-
                             size="small"
-
                             onClick={() =>
-
                               setReplyTargets((prev) => ({
-
                                 ...prev,
 
                                 [post.id]: null,
-
                               }))
-
                             }
-
                           >
-
                             Cancel
                           </Button>
                         </Stack>
@@ -1746,8 +2017,14 @@ py: 1,
                           : "Comments have been turned off for this post."}
                       </Typography>
                     ) : (
-                      <Stack direction="row" spacing={2} alignItems="flex-start">
-                        <Avatar sx={{ width: 36, height: 36 }}>{getInitials(viewerUser)}</Avatar>
+                      <Stack
+                        direction="row"
+                        spacing={2}
+                        alignItems="flex-start"
+                      >
+                        <Avatar sx={{ width: 36, height: 36 }}>
+                          {getInitials(viewerUser)}
+                        </Avatar>
                         <Box flexGrow={1}>
                           <TextField
                             placeholder="Add a comment..."
@@ -1756,13 +2033,25 @@ py: 1,
                             maxRows={6}
                             fullWidth
                             value={commentDrafts[post.id] ?? ""}
-                            onChange={(event) => handleCommentChange(post.id, event.target.value)}
+                            onChange={(event) =>
+                              handleCommentChange(post.id, event.target.value)
+                            }
                           />
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" mt={1}>
+                          <Stack
+                            direction="row"
+                            justifyContent="space-between"
+                            alignItems="center"
+                            mt={1}
+                          >
                             <Tooltip title="Tag someone">
                               <IconButton
                                 color="primary"
-                                onClick={(event) => openTagMenu(event, { type: "comment", postId: post.id })}
+                                onClick={(event) =>
+                                  openTagMenu(event, {
+                                    type: "comment",
+                                    postId: post.id,
+                                  })
+                                }
                                 disabled={commentsLoading[post.id]}
                               >
                                 <AlternateEmailIcon fontSize="small" />
@@ -1772,7 +2061,10 @@ py: 1,
                               variant="contained"
                               size="small"
                               startIcon={<SendIcon fontSize="small" />}
-                              disabled={commentsLoading[post.id] || !(commentDrafts[post.id] ?? "").trim()}
+                              disabled={
+                                commentsLoading[post.id] ||
+                                !(commentDrafts[post.id] ?? "").trim()
+                              }
                               onClick={() => handleSubmitComment(post.id)}
                             >
                               Comment
@@ -1810,17 +2102,28 @@ py: 1,
                 disabled={postEditor.saving}
               />
               <Stack spacing={1}>
-                <Typography variant="subtitle2">Existing attachments</Typography>
+                <Typography variant="subtitle2">
+                  Existing attachments
+                </Typography>
                 {editingPost && editingPost.attachments.length > 0 ? (
                   editingPost.attachments.map((attachment) => {
-                    const marked = postEditor.removeAttachmentIds.includes(attachment.id);
+                    const marked = postEditor.removeAttachmentIds.includes(
+                      attachment.id,
+                    );
                     return (
-                      <Stack key={attachment.id} direction="row" spacing={1} alignItems="center">
+                      <Stack
+                        key={attachment.id}
+                        direction="row"
+                        spacing={1}
+                        alignItems="center"
+                      >
                         <FormControlLabel
                           control={
                             <Checkbox
                               checked={marked}
-                              onChange={() => togglePostEditorAttachmentRemoval(attachment.id)}
+                              onChange={() =>
+                                togglePostEditorAttachmentRemoval(attachment.id)
+                              }
                               disabled={postEditor.saving}
                             />
                           }
@@ -1862,14 +2165,13 @@ py: 1,
                     hidden
                     multiple
                     onChange={handlePostEditorFileChange}
-                    accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.zip,.txt"
+                    accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.zip,.txt,.ppt,.pptx,.rtf"
                   />
                 </Button>
                 {postEditor.newAttachments.length > 0 && (
                   <Stack direction="row" spacing={1.5} flexWrap="wrap">
                     {postEditor.newAttachments.map((attachment) => {
-                      const isImage = attachment.file.type.startsWith("image/");
-                      if (isImage) {
+                      if (attachment.category === "image") {
                         return (
                           <Box
                             key={attachment.id}
@@ -1887,11 +2189,17 @@ py: 1,
                               component="img"
                               src={attachment.preview}
                               alt={attachment.file.name}
-                              sx={{ width: "100%", height: "100%", objectFit: "cover" }}
+                              sx={{
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "cover",
+                              }}
                             />
                             <IconButton
                               size="small"
-                              onClick={() => removePostEditorNewAttachment(attachment.id)}
+                              onClick={() =>
+                                removePostEditorNewAttachment(attachment.id)
+                              }
                               sx={{
                                 position: "absolute",
                                 top: 4,
@@ -1906,15 +2214,127 @@ py: 1,
                           </Box>
                         );
                       }
+
+                      if (attachment.category === "video") {
+                        return (
+                          <Box
+                            key={attachment.id}
+                            sx={{
+                              position: "relative",
+                              width: 136,
+                              height: 96,
+                              borderRadius: 2,
+                              overflow: "hidden",
+                              border: "1px solid",
+                              borderColor: "divider",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              bgcolor: "grey.100",
+                            }}
+                          >
+                        <Box
+                          component="video"
+                          src={attachment.preview}
+                          muted
+                          playsInline
+                          preload="metadata"
+                          sx={{
+                            width: "100%",
+                                height: "100%",
+                                objectFit: "cover",
+                              }}
+                            />
+                            <PlayCircleOutlineRoundedIcon
+                              sx={{
+                                position: "absolute",
+                                fontSize: 48,
+                                color: "rgba(255,255,255,0.9)",
+                                pointerEvents: "none",
+                              }}
+                            />
+                            <IconButton
+                              size="small"
+                              onClick={() =>
+                                removePostEditorNewAttachment(attachment.id)
+                              }
+                              sx={{
+                                position: "absolute",
+                                top: 4,
+                                right: 4,
+                                bgcolor: "rgba(0,0,0,0.6)",
+                                color: "white",
+                                "&:hover": { bgcolor: "rgba(0,0,0,0.8)" },
+                              }}
+                            >
+                              <CloseRoundedIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
+                        );
+                      }
+
+                      const extension = getFileExtension(attachment.file.name);
                       return (
-                        <Chip
+                        <Tooltip
                           key={attachment.id}
-                          icon={<InsertDriveFileOutlinedIcon fontSize="small" />}
-                          label={attachment.file.name}
-                          onDelete={() => removePostEditorNewAttachment(attachment.id)}
-                          deleteIcon={<CloseRoundedIcon />}
-                          sx={{ maxWidth: 220 }}
-                        />
+                          title={attachment.file.name}
+                        >
+                          <Box
+                            sx={{
+                              position: "relative",
+                              width: 136,
+                              height: 96,
+                              borderRadius: 2,
+                              border: "1px solid",
+                              borderColor: "divider",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              bgcolor: "grey.50",
+                              textAlign: "center",
+                              px: 1.5,
+                            }}
+                          >
+                            <Stack
+                              spacing={0.5}
+                              alignItems="center"
+                              sx={{ maxWidth: "100%" }}
+                            >
+                              <InsertDriveFileOutlinedIcon color="action" />
+                              <Typography
+                                variant="caption"
+                                noWrap
+                                sx={{ maxWidth: "100%" }}
+                              >
+                                {attachment.file.name}
+                              </Typography>
+                              {extension && (
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                >
+                                  {extension.toUpperCase()}
+                                </Typography>
+                              )}
+                            </Stack>
+                            <IconButton
+                              size="small"
+                              onClick={() =>
+                                removePostEditorNewAttachment(attachment.id)
+                              }
+                              sx={{
+                                position: "absolute",
+                                top: 4,
+                                right: 4,
+                                bgcolor: "rgba(0,0,0,0.6)",
+                                color: "white",
+                                "&:hover": { bgcolor: "rgba(0,0,0,0.8)" },
+                              }}
+                            >
+                              <CloseRoundedIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
+                        </Tooltip>
                       );
                     })}
                   </Stack>
@@ -1930,7 +2350,7 @@ py: 1,
           <Button
             variant="contained"
             onClick={submitPostEditor}
-            disabled={postEditor?.saving || !(postEditor?.value.trim())}
+            disabled={postEditor?.saving || !postEditor?.value.trim()}
           >
             {postEditor?.saving ? "Saving..." : "Save changes"}
           </Button>
@@ -1970,7 +2390,9 @@ py: 1,
                 </ListItemIcon>
                 <ListItemText
                   primary={
-                    activeMenuPost.allowComments ? "Turn off comments" : "Turn on comments"
+                    activeMenuPost.allowComments
+                      ? "Turn off comments"
+                      : "Turn on comments"
                   }
                 />
               </MenuItem>
@@ -1992,14 +2414,21 @@ py: 1,
                   <Divider sx={{ my: 0.5 }} />
                 )}
                 <MenuItem
-                  onClick={() => handleMenuPinChange(activeMenuPost, !activeMenuPost.isPinned)}
+                  onClick={() =>
+                    handleMenuPinChange(
+                      activeMenuPost,
+                      !activeMenuPost.isPinned,
+                    )
+                  }
                   disabled={postMenuLoading || activeMenuPost.isDeleted}
                 >
                   <ListItemIcon>
                     <PushPinOutlinedIcon fontSize="small" />
                   </ListItemIcon>
                   <ListItemText
-                    primary={activeMenuPost.isPinned ? "Unpin post" : "Pin to top"}
+                    primary={
+                      activeMenuPost.isPinned ? "Unpin post" : "Pin to top"
+                    }
                   />
                 </MenuItem>
               </>
@@ -2011,8 +2440,14 @@ py: 1,
           </MenuItem>
         )}
       </Menu>
-      <Menu anchorEl={tagAnchorEl} open={Boolean(tagAnchorEl)} onClose={closeTagMenu}>
-        <MenuItem onClick={() => handleSelectTag("everyone")}>@everyone</MenuItem>
+      <Menu
+        anchorEl={tagAnchorEl}
+        open={Boolean(tagAnchorEl)}
+        onClose={closeTagMenu}
+      >
+        <MenuItem onClick={() => handleSelectTag("everyone")}>
+          @everyone
+        </MenuItem>
         <Divider sx={{ my: 0.5 }} />
         {members.map((member) => (
           <MenuItem key={member.id} onClick={() => handleSelectTag(member)}>
@@ -2034,8 +2469,55 @@ py: 1,
           {snackbar.message}
         </Alert>
       </Snackbar>
+      <Dialog
+        open={mediaViewerState.open}
+        onClose={() =>
+          setMediaViewerState({ open: false, url: null, type: null })
+        }
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{
+          sx: {
+            bgcolor: "transparent",
+            boxShadow: "none",
+            maxHeight: "calc(100% - 64px)",
+          },
+        }}
+      >
+        <IconButton
+          onClick={() =>
+            setMediaViewerState({ open: false, url: null, type: null })
+          }
+          sx={{
+            position: "absolute",
+            top: 8,
+            right: 8,
+            color: "white",
+            bgcolor: "rgba(0, 0, 0, 0.5)",
+            "&:hover": { bgcolor: "rgba(0, 0, 0, 0.7)" },
+          }}
+        >
+          <CloseRoundedIcon />
+        </IconButton>
+        {mediaViewerState.url &&
+          (mediaViewerState.type === "video" ? (
+            <Box
+              component="video"
+              controls
+              autoPlay
+              src={mediaViewerState.url}
+              sx={{ width: "100%", maxHeight: "inherit", borderRadius: 2 }}
+            />
+          ) : (
+            <Box
+              component="img"
+              src={mediaViewerState.url}
+              sx={{ width: "100%", height: "100%", objectFit: "contain" }}
+            />
+          ))}
+      </Dialog>
     </Box>
   );
 };
 
-export default PharmacyHubPage; 
+export default PharmacyHubPage;

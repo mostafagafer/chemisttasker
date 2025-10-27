@@ -62,7 +62,7 @@ export default function Login() {
 
       // If Pharmacy Admin (membership-based), land on Owner dashboard
       const isPharmacyAdmin = Array.isArray(userInfo?.memberships)
-        ? userInfo.memberships.some((m: any) => m?.role === 'PHARMACY_ADMIN')
+        ? userInfo.memberships.some((m: any) => m?.role === 'PHARMACY_ADMIN' || m?.role === 'OWNER')
         : false;
       if (isPharmacyAdmin) {
         navigate('/dashboard/owner/overview');

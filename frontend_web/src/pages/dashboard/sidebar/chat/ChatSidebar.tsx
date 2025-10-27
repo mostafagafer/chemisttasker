@@ -111,7 +111,7 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
     if (room.pharmacy) {
       const myMem = myMemberships.find(m => m.id === myMemId);
       const role = (myMem?.role || '').toUpperCase();
-      return ['PHARMACY_ADMIN', 'PHARMACY_OWNER'].includes(role);
+      return ['PHARMACY_ADMIN', 'OWNER'].includes(role);
     }
 
     // --- Custom groups: prefer per-participant admin flag; creator handled above ---

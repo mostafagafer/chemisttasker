@@ -2004,6 +2004,14 @@ class PharmacyHubPost(models.Model):
 
     def soft_delete(self):
         if not self.deleted_at:
+            attachments = list(self.attachments.all())
+            for attachment in attachments:
+                try:
+                    if attachment.file:
+                        attachment.file.delete(save=False)
+                except Exception:
+                    pass
+                attachment.delete()
             self.deleted_at = timezone.now()
             self.is_pinned = False
             self.pinned_at = None

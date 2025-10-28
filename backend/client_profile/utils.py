@@ -6,6 +6,12 @@ import difflib
 from django.utils import timezone
 from django.core.signing import TimestampSigner
 from urllib.parse import urlencode
+from django.db.models import Q
+from rest_framework.exceptions import ValidationError
+
+from client_profile.models import Shift
+
+MAX_PUBLIC_SHIFTS_PER_DAY = 10
 
 def build_shift_email_context(shift, user=None, extra=None, role=None, shift_type=None):
     """
@@ -48,6 +54,28 @@ def build_shift_email_context(shift, user=None, extra=None, role=None, shift_typ
     if extra:
         ctx.update(extra)
     return ctx
+
+
+def enforce_public_shift_daily_limit(pharmacy, *, max_per_day: int = MAX_PUBLIC_SHIFTS_PER_DAY, on_date=None):
+    """
+    Ensure the given pharmacy has not already published the daily quota of public shifts.
+    Counts shifts that became public today either via creation (created_at) or escalation timestamps.
+    """
+    target_date = on_date or timezone.localdate()
+
+    platform_shifts_today = Shift.objects.filter(
+        pharmacy=pharmacy,
+        visibility='PLATFORM',
+    ).filter(
+        Q(escalate_to_platform__date=target_date) |
+        Q(escalate_to_platform__isnull=True, created_at__date=target_date)
+    ).count()
+
+    if platform_shifts_today >= max_per_day:
+        raise ValidationError({
+            'detail': f'Maximum of {max_per_day} public shifts per day reached for {pharmacy.name}.'
+        })
+
 
 def build_roster_email_link(user, pharmacy):
     base = f"{settings.FRONTEND_BASE_URL}/dashboard"

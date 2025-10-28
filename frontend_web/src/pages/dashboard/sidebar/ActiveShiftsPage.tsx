@@ -577,9 +577,10 @@ const ActiveShiftsPage: React.FC = () => {
       // After escalating, set the selected level to the new level
       setSelectedLevelByShift(prev => ({ ...prev, [shift.id]: targetLevel.key }));
       showSnackbar(`Shift escalated to ${targetLevel.label}`);
-    } catch (error) {
-      console.error('Failed to escalate shift', error);
-      showSnackbar('Failed to escalate shift.');
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || 'Failed to escalate shift.';
+      console.error('Failed to escalate shift', detail);
+      showSnackbar(detail);
     } finally {
       setEscalating(prev => ({ ...prev, [shift.id]: false }));
     }

@@ -9,7 +9,7 @@ from users.serializers import UserProfileSerializer
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from decimal import Decimal
-from client_profile.utils import q6, send_referee_emails, clean_email
+from client_profile.utils import q6, send_referee_emails, clean_email, enforce_public_shift_daily_limit
 from datetime import date, timedelta
 from django.utils import timezone
 from django_q.tasks import async_task
@@ -3893,6 +3893,10 @@ class ShiftSerializer(serializers.ModelSerializer):
                 'visibility': f"Invalid choice; must be one of {allowed_tiers}"
             })
 
+        if chosen == 'PLATFORM':
+            enforce_public_shift_daily_limit(pharmacy)
+            validated_data.setdefault('escalate_to_platform', timezone.now())
+
         # Index of that choice becomes the escalation_level
         validated_data['escalation_level'] = allowed_tiers.index(chosen)
         validated_data['created_by']       = user
@@ -5239,6 +5243,7 @@ class PharmacyHubPostSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         if data.get("is_deleted"):
             data["body"] = "This post has been deleted."
+            data["attachments"] = []
         return data
 
 

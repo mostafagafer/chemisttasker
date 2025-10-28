@@ -19,7 +19,7 @@ import json
 from django.db.models import Q, Count, F, Avg, Exists, OuterRef
 from django.utils import timezone
 from client_profile.services import get_locked_rate_for_slot, expand_shift_slots, generate_invoice_from_shifts, render_invoice_to_pdf, generate_preview_invoice_lines
-from client_profile.utils import build_shift_email_context, clean_email, build_roster_email_link, get_frontend_dashboard_url
+from client_profile.utils import build_shift_email_context, clean_email, build_roster_email_link, get_frontend_dashboard_url, enforce_public_shift_daily_limit
 from client_profile.notifications import mark_notifications_read, broadcast_message_read
 from django.utils.crypto import get_random_string
 from django.contrib.auth.tokens import default_token_generator
@@ -47,6 +47,7 @@ from users.models import User                    # referenced throughout (accept
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import mimetypes
+from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 # import logging
 # logger = logging.getLogger("roster.debug")
 
@@ -68,6 +69,21 @@ def _count_active_memberships(user, exclude_membership_id=None):
     if exclude_membership_id:
         qs = qs.exclude(pk=exclude_membership_id)
     return qs.count()
+
+
+def _ensure_content_type(uploaded):
+    if not uploaded:
+        return uploaded
+    content_type = getattr(uploaded, "content_type", "")
+    if content_type and content_type != "application/octet-stream":
+        return uploaded
+    guessed, _ = mimetypes.guess_type(getattr(uploaded, "name", ""))
+    if not guessed:
+        return uploaded
+    uploaded.content_type = guessed
+    if isinstance(uploaded, (InMemoryUploadedFile, TemporaryUploadedFile)):
+        uploaded.content_type_extra = {"Content-Type": guessed}
+    return uploaded
 
 
 # Onboardings
@@ -2679,6 +2695,8 @@ class ActiveShiftViewSet(BaseShiftViewSet):
 
         # Advance to next escalation
         next_visibility = escalation_flow[current_index + 1]
+        if next_visibility == PUBLIC_LEVEL:
+            enforce_public_shift_daily_limit(pharmacy)
         shift.visibility = next_visibility
         shift.escalation_level = current_index + 1
 
@@ -3404,6 +3422,8 @@ class RosterShiftManageViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Already at highest escalation level (Platform).'}, status=status.HTTP_400_BAD_REQUEST)
 
         next_visibility = escalation_flow[current_index + 1]
+        if next_visibility == PUBLIC_LEVEL:
+            enforce_public_shift_daily_limit(pharm)
         shift.visibility = next_visibility
         shift.escalation_level = current_index + 1 # The integer representation
         shift.save()
@@ -5677,6 +5697,7 @@ class HubAttachmentMixin:
         for uploaded in files or []:
             if not uploaded:
                 continue
+            uploaded = _ensure_content_type(uploaded)
             PharmacyHubAttachment.objects.create(
                 post=post,
                 file=uploaded,

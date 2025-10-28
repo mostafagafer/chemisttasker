@@ -68,8 +68,6 @@ class OwnerOnboarding(models.Model):
                              blank=True,
                              related_name='owner_onboardings'
                           )
-    organization_claimed = models.BooleanField(default=False)
-    
     # Verification Fields
     ahpra_verified = models.BooleanField(default=False, db_index=True)
     ahpra_registration_status = models.CharField(max_length=100, blank=True, null=True)
@@ -489,6 +487,7 @@ class Pharmacy(models.Model):
     ]
 
     name                   = models.CharField(max_length=120)
+    email                  = models.EmailField(blank=True, null=True)
     # --- ADD THESE NEW STRUCTURED ADDRESS FIELDS ---
     street_address = models.CharField(max_length=255, blank=True, null=True)
     suburb = models.CharField(max_length=100, blank=True, null=True)
@@ -571,10 +570,105 @@ class Pharmacy(models.Model):
             models.Index(fields=['owner']),
             models.Index(fields=['organization']),
             models.Index(fields=['state']),
+            models.Index(fields=['email']),
         ]
 
     def __str__(self):
         return self.name
+
+
+class PharmacyClaim(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        ACCEPTED = "ACCEPTED", "Accepted"
+        REJECTED = "REJECTED", "Rejected"
+
+    pharmacy = models.ForeignKey(
+        "client_profile.Pharmacy",
+        on_delete=models.CASCADE,
+        related_name="claims",
+    )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="pharmacy_claims",
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pharmacy_claims_requested",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    message = models.TextField(blank=True)
+    response_message = models.TextField(blank=True)
+    responded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pharmacy_claims_reviewed",
+    )
+    responded_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["pharmacy", "organization"],
+                condition=Q(status__in=["PENDING", "ACCEPTED"]),
+                name="unique_active_pharmacy_claim",
+            ),
+            models.UniqueConstraint(
+                fields=["pharmacy"],
+                condition=Q(status="ACCEPTED"),
+                name="unique_accepted_pharmacy_claim",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["pharmacy"]),
+            models.Index(fields=["organization"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def mark_accepted(self, responder, response_message=""):
+        self.status = self.Status.ACCEPTED
+        self.responded_by = responder
+        self.response_message = response_message
+        self.responded_at = timezone.now()
+        self.save(
+            update_fields=[
+                "status",
+                "responded_by",
+                "response_message",
+                "responded_at",
+                "updated_at",
+            ]
+        )
+
+    def mark_rejected(self, responder, response_message=""):
+        self.status = self.Status.REJECTED
+        self.responded_by = responder
+        self.response_message = response_message
+        self.responded_at = timezone.now()
+        self.save(
+            update_fields=[
+                "status",
+                "responded_by",
+                "response_message",
+                "responded_at",
+                "updated_at",
+            ]
+        )
+
+    def __str__(self):
+        return f"PharmacyClaim#{self.pk} pharmacy={self.pharmacy_id} org={self.organization_id} status={self.status}"
 
 
 PHARMACIST_AWARD_LEVEL_CHOICES = [

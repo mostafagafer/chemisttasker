@@ -54,6 +54,8 @@ export const API_ENDPOINTS = {
   passwordReset: '/users/password-reset/', 
   passwordResetConfirm: '/users/password-reset-confirm/',
   claimOnboarding: '/client-profile/owner-onboarding/claim/',
+  pharmacyClaims: '/client-profile/pharmacy-claims/',
+  pharmacyClaimDetail: (claimId: number | string) => `/client-profile/pharmacy-claims/${claimId}/`,
 
   // Pharmacies
   pharmacies:       '/client-profile/pharmacies/',

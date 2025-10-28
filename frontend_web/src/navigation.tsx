@@ -1,4 +1,4 @@
-// src/navigation.tsx
+﻿// src/navigation.tsx
 import  { Navigation } from '@toolpad/core'
 import DashboardIcon           from '@mui/icons-material/Dashboard'
 import MedicationLiquidIcon    from '@mui/icons-material/MedicationLiquid'
@@ -18,6 +18,7 @@ import PlayArrowIcon    from '@mui/icons-material/PlayArrow';
 import CheckCircleIcon  from '@mui/icons-material/CheckCircle';
 import HistoryIcon      from '@mui/icons-material/History';
 import ReceiptIcon from '@mui/icons-material/Receipt';
+import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import Chip from "@mui/material/Chip";
 
 // Helper component for the "NEW" badge
@@ -99,6 +100,7 @@ export function getOwnerNav(progress_percent: number, hasUnreadMessages: boolean
     },
     { segment: 'dashboard/owner/community-groups', title: 'Community Groups', icon: <GroupsIcon /> },
     { segment: 'dashboard/owner/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
+    { segment: 'dashboard/owner/claim-requests', title: 'Claim Requests', icon: <NotificationsActiveIcon /> },
     { kind: 'divider' as const },
     { kind: 'header' as const, title: 'Manage Pharmacies and Shifts' },
     { segment: 'dashboard/owner/manage-pharmacies',

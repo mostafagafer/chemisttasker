@@ -1,0 +1,13 @@
+﻿Hi there,
+
+{{ owner_name }} has {{ status_display|lower }} your request to manage {{ pharmacy_name }} on ChemistTasker.
+{% if response_message %}
+Response message:
+{{ response_message }}
+{% endif %}
+
+Review the status of your claims here:
+{{ action_url }}
+
+Need a hand? Reach out any time.
+— The ChemistTasker Team

@@ -75,6 +75,8 @@ interface Slot {
   recurring_end_date?: string | null;
 }
 
+type ClaimStatus = "PENDING" | "ACCEPTED" | "REJECTED" | null;
+
 interface PharmacyDetail {
   id: number;
   name: string;
@@ -82,8 +84,9 @@ interface PharmacyDetail {
   suburb?: string;
   postcode?: string;
   state?: string;
-  owner?: { id: number; organization_claimed?: boolean; user?: { id: number; email?: string } };
-  organization?: { id: number; name?: string };
+  owner?: { id: number; user?: { id: number; email?: string } | undefined } | null;
+  organization?: { id: number; name?: string } | number | null;
+  claim_status?: ClaimStatus;
 }
 
 interface Shift {
@@ -237,8 +240,8 @@ const dedupeMembers = (members: MemberStatus[]): MemberStatus[] => {
 
 const deriveLevelSequence = (shift: Shift) => {
   const hasOrganizationAccess =
-    Boolean(shift.pharmacy_detail?.organization?.id) ||
-    Boolean(shift.pharmacy_detail?.owner?.organization_claimed) ||
+    Boolean(shift.pharmacy_detail?.organization) ||
+    shift.pharmacy_detail?.claim_status === 'ACCEPTED' ||
     shift.visibility === 'ORG_CHAIN';
 
   return ESCALATION_LEVELS.filter(level =>

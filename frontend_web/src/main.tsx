@@ -19,6 +19,7 @@ import MobileOTPVerify from './pages/MobileOTPVerify';
 import PublicJobBoardPage from './pages/PublicJobBoardPage';
 import SharedShiftLandingPage from './pages/SharedShiftLandingPage';
 import MembershipApplyPage from './pages/MembershipApplyPage';
+import OwnerClaimRequestsPage from './pages/OwnerClaimRequestsPage';
 
 // Orgnization
 import OrganizationOverviewPage from './pages/dashboard/organization/OrganizationOverviewPage';
@@ -208,6 +209,8 @@ const router = createBrowserRouter([
           { path: 'chat', element: <ChatPage /> },
           { path: 'community-groups', element: <CommunityGroupsPage /> },
           { path: 'pharmacy-hub', element: <PharmacyHubPage /> },
+          { path: 'claim-requests', element: <OwnerClaimRequestsPage /> },
+          { path: 'claim-requests', element: <OwnerClaimRequestsPage /> },
           {
             path: 'manage-pharmacies',
             children: [
@@ -255,6 +258,7 @@ const router = createBrowserRouter([
           { path: 'chat', element: <ChatPage /> },
           { path: 'community-groups', element: <CommunityGroupsPage /> },
           { path: 'pharmacy-hub', element: <PharmacyHubPage /> },
+          { path: 'claim-requests', element: <OwnerClaimRequestsPage /> },
 
  
           {
@@ -302,6 +306,7 @@ const router = createBrowserRouter([
           { path: 'chat', element: <ChatPage /> },
           { path: 'community-groups', element: <CommunityGroupsPage /> },
           { path: 'pharmacy-hub', element: <PharmacyHubPage /> },
+          { path: 'claim-requests', element: <OwnerClaimRequestsPage /> },
           {
             path: 'shifts',
             children: [

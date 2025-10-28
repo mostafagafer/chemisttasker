@@ -102,6 +102,8 @@ interface Slot {
   end_time: string;
 }
 
+type ClaimStatus = "PENDING" | "ACCEPTED" | "REJECTED" | null;
+
 interface Shift {
   id: number;
   visibility: string;
@@ -111,8 +113,9 @@ interface Shift {
     suburb?: string;
     postcode?: string;
     state?: string;
-    organization?: { id?: number; name?: string } | null;
-    owner?: { organization_claimed?: boolean } | null;
+    organization?: { id?: number; name?: string } | number | null;
+    claim_status?: ClaimStatus;
+    owner?: { id?: number; user?: { id?: number; email?: string | null } | null } | null;
   };
   role_needed: string;
   slots: Slot[];
@@ -316,8 +319,8 @@ const ActiveShiftsPage: React.FC = () => {
 
   const deriveLevelSequence = useCallback((shift: Shift) => {
     const hasOrganizationAccess =
-      Boolean(shift.pharmacy_detail?.organization?.id) ||
-      Boolean(shift.pharmacy_detail?.owner?.organization_claimed) ||
+      Boolean(shift.pharmacy_detail?.organization) ||
+      shift.pharmacy_detail?.claim_status === 'ACCEPTED' ||
       shift.visibility === 'ORG_CHAIN';
 
     return ESCALATION_LEVELS.filter(level =>

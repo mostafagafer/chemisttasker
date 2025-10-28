@@ -11,6 +11,7 @@ router.register(r'organizations', OrganizationViewSet, basename='organization')
 # Register the views with appropriate routes
 router.register(r'chains', ChainViewSet, basename='chain')
 router.register(r'pharmacies', PharmacyViewSet)
+router.register(r'pharmacy-claims', PharmacyClaimViewSet, basename='pharmacy-claim')
 router.register(r'memberships', MembershipViewSet, basename='membership')
 router.register(r'membership-invite-links', MembershipInviteLinkViewSet, basename='membership-invite-link')
 router.register(r'membership-applications', MembershipApplicationViewSet, basename='membership-application')

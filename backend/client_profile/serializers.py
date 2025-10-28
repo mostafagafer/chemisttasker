@@ -137,7 +137,7 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
             'username', 'first_name', 'last_name',
             'phone_number', 'role', 'chain_pharmacy',
             'ahpra_number', 'verified',
-            'organization', 'organization_claimed', 'progress_percent',
+            'organization', 'progress_percent',
             'ahpra_verified',
             'ahpra_registration_status',
             'ahpra_registration_type',
@@ -147,7 +147,6 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
         extra_kwargs = {
             'verified': {'read_only': True},
             'organization': {'read_only': True},
-            'organization_claimed': {'read_only': True},
         }
         read_only_fields = [
             'ahpra_verified',
@@ -3464,6 +3463,9 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
     )
     has_chain = serializers.SerializerMethodField()
     claimed   = serializers.SerializerMethodField()
+    claim_status = serializers.SerializerMethodField()
+    claim_request_id = serializers.SerializerMethodField()
+    email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
     file_fields = [
         'methadone_s8_protocols',
         'qld_sump_docs',
@@ -3478,6 +3480,7 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "email",
             "street_address",
             "suburb",
             "postcode",
@@ -3514,6 +3517,8 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
 
             'has_chain',
             'claimed',
+            'claim_status',
+            'claim_request_id',
         ]
 
         read_only_fields = ["owner", "organization", "verified"]
@@ -3525,8 +3530,25 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_claimed(self, obj) -> bool:
-        # “Has the owner been claimed by an Organization?”
-        return getattr(obj.owner, 'organization_claimed', False)
+        if obj.organization_id:
+            return True
+        return obj.claims.filter(status__in=["PENDING", "ACCEPTED"]).exists()
+
+    def _get_active_claim(self, obj):
+        cached = getattr(obj, "_active_pharmacy_claim", None)
+        if cached is not None:
+            return cached
+        claim = obj.claims.filter(status__in=["PENDING", "ACCEPTED"]).order_by('-created_at').first()
+        setattr(obj, "_active_pharmacy_claim", claim)
+        return claim
+
+    def get_claim_status(self, obj):
+        claim = self._get_active_claim(obj)
+        return claim.status if claim else None
+
+    def get_claim_request_id(self, obj):
+        claim = self._get_active_claim(obj)
+        return claim.id if claim else None
 
     def validate_abn(self, value: str) -> str:
         digits = ''.join(ch for ch in value if ch.isdigit())
@@ -3556,6 +3578,96 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
         if upper not in allowed:
             raise serializers.ValidationError("Invalid Australian state/territory.")
         return upper
+
+
+class PharmacyClaimSerializer(serializers.ModelSerializer):
+    pharmacy = serializers.SerializerMethodField()
+    organization = serializers.SerializerMethodField()
+    requested_by_user = UserProfileSerializer(source='requested_by', read_only=True)
+    responded_by_user = UserProfileSerializer(source='responded_by', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    can_respond = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PharmacyClaim
+        fields = [
+            'id',
+            'pharmacy',
+            'organization',
+            'status',
+            'status_display',
+            'message',
+            'response_message',
+            'requested_by',
+            'requested_by_user',
+            'responded_by',
+            'responded_by_user',
+            'responded_at',
+            'can_respond',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = [
+            'id',
+            'pharmacy',
+            'organization',
+            'requested_by_user',
+            'responded_by_user',
+            'responded_at',
+            'created_at',
+            'updated_at',
+            'status_display',
+            'requested_by',
+            'responded_by',
+            'can_respond',
+        ]
+
+    def get_pharmacy(self, obj):
+        pharmacy = obj.pharmacy
+        owner = getattr(pharmacy, "owner", None)
+        owner_user = getattr(owner, "user", None)
+        owner_payload = None
+        if owner_user:
+            owner_payload = {
+                "id": owner.id,
+                "user_id": owner_user.id,
+                "email": owner_user.email,
+                "first_name": owner_user.first_name,
+                "last_name": owner_user.last_name,
+            }
+        return {
+            "id": pharmacy.id,
+            "name": pharmacy.name,
+            "email": pharmacy.email,
+            "organization_id": pharmacy.organization_id,
+            "owner": owner_payload,
+        }
+
+    def get_organization(self, obj):
+        org = obj.organization
+        return {"id": org.id, "name": org.name}
+
+    def get_can_respond(self, obj):
+        request = self.context.get('request')
+        if not request or not hasattr(request, 'user'):
+            return False
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        owner = getattr(obj.pharmacy, "owner", None)
+        owner_user = getattr(owner, "user", None)
+        return owner_user and owner_user.id == user.id and obj.status == PharmacyClaim.Status.PENDING
+
+
+class PharmacyClaimCreateSerializer(serializers.Serializer):
+    pharmacy_id = serializers.IntegerField(required=False)
+    pharmacy_email = serializers.EmailField(required=False)
+    message = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if not attrs.get("pharmacy_id") and not attrs.get("pharmacy_email"):
+            raise serializers.ValidationError("Provide either pharmacy_id or pharmacy_email.")
+        return attrs
 
 class ChainSerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
     file_fields = ['logo']
@@ -3822,8 +3934,8 @@ class ShiftSerializer(serializers.ModelSerializer):
             user=user, role='ORG_ADMIN', organization_id=pharmacy.organization_id
         ).exists()
 
-        owner    = pharmacy.owner
-        claimed  = getattr(owner, 'organization_claimed', False) if owner else False
+        owner = pharmacy.owner
+        claimed = bool(pharmacy.organization_id)
         has_chain = Chain.objects.filter(owner=owner).exists() if owner else False
 
         # 1) Org-Admins always get every tier
@@ -4179,7 +4291,7 @@ class RosterShiftDetailSerializer(serializers.ModelSerializer):
         ).exists()
 
         owner = pharmacy.owner
-        claimed = getattr(owner, 'organization_claimed', False) if owner else False
+        claimed = bool(pharmacy.organization_id)
         has_chain = Chain.objects.filter(owner=owner).exists() if owner else False
 
         if is_org_admin:

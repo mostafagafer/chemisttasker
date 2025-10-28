@@ -1,0 +1,54 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Pharmacy Claim Response</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 28px 24px; background: #ffffff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); max-width: 520px; margin: 40px auto; }
+        .badge {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 14px;
+        }
+        .badge.accepted { background: #ecfdf5; color: #047857; }
+        .badge.rejected { background: #fef2f2; color: #b91c1c; }
+        .footer { margin-top: 28px; font-size: 0.875rem; color: #6b7280; }
+        .message { padding: 12px 16px; background: #f3f4f6; border-radius: 8px; margin: 16px 0; font-style: italic; }
+        .btn {
+            display: inline-block;
+            background: #6d28d9;
+            color: #ffffff;
+            padding: 12px 26px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            margin: 18px 0;
+        }
+        .btn:hover { background: #5b21b6; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <span class="badge {% if status_display == 'Accepted' %}accepted{% else %}rejected{% endif %}">{{ status_display }}</span>
+        <h2>{{ pharmacy_name }} claim {{ status_display }}</h2>
+        <p>Hi there,</p>
+        <p>
+            {{ owner_name }} has {{ status_display|lower }} your request to manage {{ pharmacy_name }}.
+        </p>
+        {% if response_message %}
+        <div class="message">
+            "{{ response_message }}"
+        </div>
+        {% endif %}
+        <a class="btn" href="{{ action_url }}">Open claim dashboard</a>
+        <p class="footer">
+            You can review the status of your claims at any time from the Organization dashboard.<br>
+            — The ChemistTasker Team
+        </p>
+    </div>
+</body>
+</html>

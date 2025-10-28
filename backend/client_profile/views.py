@@ -43,7 +43,7 @@ from datetime import timedelta                   # used in TimestampSigner max_a
 from decimal import Decimal                      # used in manual_assign
 import uuid                                      # used in generate_share_link
 from django.contrib.auth import get_user_model   # used in ChainViewSet.add_user
-from users.models import User                    # referenced throughout (accept_user, etc.)
+from users.models import User, OrganizationMembership                    # referenced throughout (accept_user, etc.)
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import mimetypes
@@ -106,53 +106,192 @@ class OwnerOnboardingDetail(generics.RetrieveUpdateAPIView):
         except OwnerOnboarding.DoesNotExist:
             raise NotFound("Owner onboarding profile not found.")
 
+def _build_owner_claims_url(owner_user):
+    base_url = get_frontend_dashboard_url(owner_user)
+    if not base_url.endswith('/'):
+        base_url = f"{base_url}/"
+    return f"{base_url}claim-requests"
+
+def _build_org_claims_url():
+    return f"{settings.FRONTEND_BASE_URL}/dashboard/organization/claim"
+
+def _create_owner_claim_notification(claim):
+    owner_profile = getattr(claim.pharmacy, "owner", None)
+    owner_user = getattr(owner_profile, "user", None)
+    if not owner_user:
+        return
+
+    action_url = _build_owner_claims_url(owner_user)
+    title = f"{claim.organization.name} wants to manage {claim.pharmacy.name}"
+    body = claim.message or "Please review this organization claim request."
+    Notification.objects.create(
+        user=owner_user,
+        type=Notification.Type.ALERT,
+        title=title,
+        body=body,
+        action_url=action_url,
+        payload={
+            "claim_id": claim.id,
+            "pharmacy_id": claim.pharmacy_id,
+            "organization_id": claim.organization_id,
+        },
+    )
+
+def _send_owner_claim_email(claim):
+    owner_profile = getattr(claim.pharmacy, "owner", None)
+    owner_user = getattr(owner_profile, "user", None)
+    if not owner_user or not owner_user.email:
+        return
+
+    action_url = _build_owner_claims_url(owner_user)
+    subject = f"{claim.organization.name} wants to claim {claim.pharmacy.name}"
+    context = {
+        "owner_name": owner_user.get_full_name() or owner_user.email,
+        "pharmacy_name": claim.pharmacy.name,
+        "organization_name": claim.organization.name,
+        "message": claim.message or "",
+        "action_url": action_url,
+    }
+    email_kwargs = {
+        "subject": subject,
+        "recipient_list": [owner_user.email],
+        "template_name": "emails/pharmacy_claim_request.html",
+        "text_template": "emails/pharmacy_claim_request.txt",
+        "context": context,
+    }
+    async_task("users.tasks.send_async_email", **email_kwargs)
+
+def _notify_org_of_claim_response(claim):
+    admins = OrganizationMembership.objects.filter(
+        organization_id=claim.organization_id,
+        role="ORG_ADMIN",
+    ).select_related("user")
+    recipients = []
+    action_url = _build_org_claims_url()
+    title = f"{claim.pharmacy.name} claim {claim.get_status_display()}"
+    body = (
+        claim.response_message
+        or f"{claim.pharmacy.owner.user.get_full_name() if getattr(claim.pharmacy.owner, 'user', None) else 'The owner'} responded to your claim."
+    )
+    for membership in admins:
+        user = membership.user
+        if not user:
+            continue
+        if user.email:
+            recipients.append(user.email)
+        Notification.objects.create(
+            user=user,
+            type=Notification.Type.ALERT,
+            title=title,
+            body=body,
+            action_url=action_url,
+            payload={
+                "claim_id": claim.id,
+                "pharmacy_id": claim.pharmacy_id,
+                "status": claim.status,
+            },
+        )
+    if not recipients:
+        return
+    owner_user = getattr(getattr(claim.pharmacy, "owner", None), "user", None)
+    owner_display = owner_user.get_full_name() or owner_user.email if owner_user else "The owner"
+    context = {
+        "organization_name": claim.organization.name,
+        "pharmacy_name": claim.pharmacy.name,
+        "status_display": claim.get_status_display(),
+        "response_message": claim.response_message or "",
+        "owner_name": owner_display,
+        "action_url": action_url,
+    }
+    email_kwargs = {
+        "subject": f"{claim.pharmacy.name} claim {claim.get_status_display()}",
+        "recipient_list": sorted(set(recipients)),
+        "template_name": "emails/pharmacy_claim_response.html",
+        "text_template": "emails/pharmacy_claim_response.txt",
+        "context": context,
+    }
+    async_task("users.tasks.send_async_email", **email_kwargs)
+
 class OwnerOnboardingClaim(APIView):
     """
-    Only ORG_ADMIN of that org may claim an OwnerOnboarding by email.
+    Organization admin endpoint to request a pharmacy claim (per pharmacy, not per owner).
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        # 1) Make sure the user is an ORG_ADMIN somewhere
-        if not request.user.organization_memberships.filter(role='ORG_ADMIN').exists():
-            return Response(
-                {'detail': 'Not an Org-Admin.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        # 2) Pull the email payload
-        email = (request.data.get('email') or '').strip().lower()
-        if not email:
-            return Response(
-                {'detail': 'Email is required.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # 3) Look up the onboarding record
-        try:
-            onboarding = OwnerOnboarding.objects.get(user__email__iexact=email)
-        except OwnerOnboarding.DoesNotExist:
-            return Response(
-                {'detail': 'No onboarding profile found.'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-
-        # 4) Grab the admin’s own org
         membership = request.user.organization_memberships.filter(
             role='ORG_ADMIN'
-        ).first()
+        ).select_related('organization').first()
+        if not membership:
+            return Response(
+                {'detail': 'Not an Org-Admin.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = PharmacyClaimCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+
+        message = validated.get('message') or ''
+        pharmacy = None
+
+        if validated.get('pharmacy_id'):
+            pharmacy = Pharmacy.objects.select_related('owner__user').filter(pk=validated['pharmacy_id']).first()
+            if not pharmacy:
+                return Response({'detail': 'Pharmacy not found.'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            cleaned = clean_email(validated.get('pharmacy_email', ''))
+            if not cleaned:
+                return Response({'detail': 'Valid pharmacy_email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                pharmacy = Pharmacy.objects.select_related('owner__user').get(email__iexact=cleaned)
+            except Pharmacy.DoesNotExist:
+                return Response({'detail': 'No pharmacy found with that email.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not pharmacy.owner_id:
+            return Response({'detail': 'Pharmacy does not have an owner profile yet.'}, status=status.HTTP_400_BAD_REQUEST)
+
         org = membership.organization
 
-        # 5) Claim it
-        onboarding.organization = org
-        onboarding.organization_claimed = True
-        onboarding.save(update_fields=['organization', 'organization_claimed'])
+        if pharmacy.organization_id and pharmacy.organization_id != org.id:
+            return Response(
+                {'detail': 'Pharmacy is already managed by another organization.'},
+                status=status.HTTP_409_CONFLICT,
+            )
 
-        # 6) Return the updated record
+        existing_active = PharmacyClaim.objects.filter(
+            pharmacy=pharmacy,
+            status__in=[PharmacyClaim.Status.PENDING, PharmacyClaim.Status.ACCEPTED],
+        ).exclude(organization=org)
+        if existing_active.exists():
+            return Response(
+                {'detail': 'Pharmacy already has an active claim.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        active_claim = PharmacyClaim.objects.filter(
+            pharmacy=pharmacy,
+            organization=org,
+            status__in=[PharmacyClaim.Status.PENDING, PharmacyClaim.Status.ACCEPTED],
+        ).first()
+        if active_claim:
+            return Response(
+                PharmacyClaimSerializer(active_claim, context={'request': request}).data,
+                status=status.HTTP_200_OK,
+            )
+
+        claim = PharmacyClaim.objects.create(
+            pharmacy=pharmacy,
+            organization=org,
+            requested_by=request.user,
+            message=message,
+        )
+        _create_owner_claim_notification(claim)
+        _send_owner_claim_email(claim)
+
         return Response(
-            OwnerOnboardingSerializer(onboarding).data,
-            status=status.HTTP_200_OK
+            PharmacyClaimSerializer(claim, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
         )
 
 # class PharmacistOnboardingCreateView(CreateAPIView):
@@ -486,29 +625,36 @@ class OrganizationDashboardView(APIView):
         ).first()
         org = membership.organization
 
-        # 1) claimed owners, annotated with their pharmacy count
-        claimed_qs = OwnerOnboarding.objects.filter(
-            organization=org,
-            organization_claimed=True
-        ).select_related('user').annotate( # Add select_related('user') for efficiency
-            pharmacies_count=Count('pharmacies')   # ← use your actual related_name here
-        )
+        claims_qs = PharmacyClaim.objects.filter(
+            organization=org
+        ).select_related(
+            'pharmacy',
+            'pharmacy__owner',
+            'pharmacy__owner__user',
+            'requested_by',
+            'responded_by',
+        ).order_by('-created_at')
 
-        claimed_data = [
+        claims_data = PharmacyClaimSerializer(
+            claims_qs,
+            many=True,
+            context={'request': request},
+        ).data
+
+        accepted_data = [
             {
-                'id':               o.id,
-                'username':         o.user.username, # Access username through the related user object
-                'first_name':       o.user.first_name, # Add first_name for better display
-                'last_name':        o.user.last_name,  # Add last_name for better display
-                'phone_number':     o.user.mobile_number, # Access mobile_number through the related user object
-                'pharmacies_count': o.pharmacies_count,
+                'claim_id': claim.id,
+                'pharmacy_id': claim.pharmacy_id,
+                'pharmacy_name': claim.pharmacy.name,
+                'pharmacy_email': claim.pharmacy.email,
+                'owner_email': getattr(getattr(claim.pharmacy.owner, 'user', None), 'email', None),
             }
-            for o in claimed_qs
+            for claim in claims_qs
+            if claim.status == PharmacyClaim.Status.ACCEPTED
         ]
 
-        # 2) shifts for every pharmacy under this org
         shifts_qs = Shift.objects.filter(
-            pharmacy__owner__organization=org
+            pharmacy__organization=org
         )
         shifts = ShiftSerializer(shifts_qs, many=True).data
 
@@ -518,9 +664,173 @@ class OrganizationDashboardView(APIView):
                 'name': org.name,
                 'role': membership.role,
             },
-            'claimed_pharmacies': claimed_data,
+            'claimed_pharmacies': accepted_data,
+            'pharmacy_claims': claims_data,
             'shifts':            shifts,
         }, status=status.HTTP_200_OK)
+
+class PharmacyClaimViewSet(mixins.ListModelMixin,
+                           mixins.RetrieveModelMixin,
+                           mixins.UpdateModelMixin,
+                           viewsets.GenericViewSet):
+    serializer_class = PharmacyClaimSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        base_qs = PharmacyClaim.objects.select_related(
+            'pharmacy',
+            'pharmacy__owner',
+            'pharmacy__owner__user',
+            'organization',
+            'requested_by',
+            'responded_by',
+        )
+        org_ids = list(
+            user.organization_memberships.filter(role='ORG_ADMIN').values_list('organization_id', flat=True)
+        )
+        owner_profile = OwnerOnboarding.objects.filter(user=user).first()
+
+        params = self.request.query_params
+        def _is_truthy(value):
+            return str(value).lower() in {'1', 'true', 'yes', 'on'}
+
+        filters = Q()
+        owned_by_me = params.get('owned_by_me')
+        if owned_by_me is not None and _is_truthy(owned_by_me):
+            if owner_profile:
+                filters |= Q(pharmacy__owner_id=owner_profile.id)
+        else:
+            if org_ids:
+                filters |= Q(organization_id__in=org_ids)
+            if owner_profile:
+                filters |= Q(pharmacy__owner_id=owner_profile.id)
+
+        if not filters:
+            return base_qs.none()
+
+        qs = base_qs.filter(filters)
+
+        status_params = params.getlist('status')
+        if not status_params:
+            single_status = params.get('status')
+            if single_status:
+                status_params = [single_status]
+        if status_params:
+            normalized = {status.strip().upper() for status in status_params if status}
+            valid_statuses = [s for s in normalized if s in PharmacyClaim.Status.values]
+            if valid_statuses:
+                qs = qs.filter(status__in=valid_statuses)
+            else:
+                qs = qs.none()
+
+        org_filter = params.get('organization')
+        if org_filter:
+            qs = qs.filter(organization_id=org_filter)
+
+        pharmacy_filter = params.get('pharmacy')
+        if pharmacy_filter:
+            qs = qs.filter(pharmacy_id=pharmacy_filter)
+
+        return qs.order_by('-created_at')
+
+    def partial_update(self, request, *args, **kwargs):
+        claim = self.get_object()
+        owner_profile = OwnerOnboarding.objects.filter(user=request.user).select_related('user').first()
+        if not owner_profile or claim.pharmacy.owner_id != owner_profile.id:
+            raise PermissionDenied("Only the pharmacy owner can respond to this claim.")
+
+        if claim.status != PharmacyClaim.Status.PENDING:
+            raise ValidationError({'detail': 'Only pending claims can be updated.'})
+
+        status_value = request.data.get('status')
+        if status_value not in [PharmacyClaim.Status.ACCEPTED, PharmacyClaim.Status.REJECTED]:
+            raise ValidationError({'status': 'Status must be ACCEPTED or REJECTED.'})
+
+        response_message = request.data.get('response_message', '')
+
+        impacted_ids = []
+        with transaction.atomic():
+            if status_value == PharmacyClaim.Status.ACCEPTED:
+                impacted_ids = self._accept_claim(claim, request.user, response_message)
+            else:
+                impacted_ids = self._reject_claim(claim, request.user, response_message)
+
+        impacted_ids = list(dict.fromkeys(impacted_ids or []))
+
+        def trigger_notification():
+            for claim_id in impacted_ids:
+                refreshed = PharmacyClaim.objects.select_related(
+                    'pharmacy',
+                    'pharmacy__owner',
+                    'pharmacy__owner__user',
+                    'organization',
+                ).get(pk=claim_id)
+                _notify_org_of_claim_response(refreshed)
+
+        transaction.on_commit(trigger_notification)
+
+        serializer = self.get_serializer(claim)
+        return Response(serializer.data)
+
+    def _accept_claim(self, claim, user, response_message):
+        now = timezone.now()
+        impacted_ids = [claim.id]
+
+        # Demote any existing accepted claims to keep uniqueness.
+        for other in claim.pharmacy.claims.filter(status=PharmacyClaim.Status.ACCEPTED).exclude(pk=claim.pk):
+            other.status = PharmacyClaim.Status.REJECTED
+            other.response_message = "Superseded by a new organization acceptance."
+            other.responded_by = user
+            other.responded_at = now
+            other.save(update_fields=['status', 'response_message', 'responded_by', 'responded_at', 'updated_at'])
+            impacted_ids.append(other.id)
+
+        for pending in claim.pharmacy.claims.filter(status=PharmacyClaim.Status.PENDING).exclude(pk=claim.pk):
+            pending.status = PharmacyClaim.Status.REJECTED
+            pending.response_message = "Automatically rejected after another organization was accepted."
+            pending.responded_by = user
+            pending.responded_at = now
+            pending.save(update_fields=['status', 'response_message', 'responded_by', 'responded_at', 'updated_at'])
+            impacted_ids.append(pending.id)
+
+        claim.status = PharmacyClaim.Status.ACCEPTED
+        claim.response_message = response_message
+        claim.responded_by = user
+        claim.responded_at = now
+        claim.save(update_fields=['status', 'response_message', 'responded_by', 'responded_at', 'updated_at'])
+
+        pharmacy = claim.pharmacy
+        if pharmacy.organization_id != claim.organization_id:
+            pharmacy.organization = claim.organization
+            pharmacy.save(update_fields=['organization'])
+
+        owner = pharmacy.owner
+        if owner and owner.organization_id != claim.organization_id:
+            owner.organization = claim.organization
+            owner.save(update_fields=['organization'])
+        return impacted_ids
+
+    def _reject_claim(self, claim, user, response_message):
+        now = timezone.now()
+
+        claim.status = PharmacyClaim.Status.REJECTED
+        claim.response_message = response_message
+        claim.responded_by = user
+        claim.responded_at = now
+        claim.save(update_fields=['status', 'response_message', 'responded_by', 'responded_at', 'updated_at'])
+
+        pharmacy = claim.pharmacy
+        owner = pharmacy.owner
+        if pharmacy.organization_id == claim.organization_id:
+            pharmacy.organization = None
+            pharmacy.save(update_fields=['organization'])
+        if owner:
+            has_other_orgs = owner.pharmacies.filter(organization__isnull=False).exclude(pk=pharmacy.pk).exists()
+            if not has_other_orgs and owner.organization_id:
+                owner.organization = None
+                owner.save(update_fields=['organization'])
+        return [claim.id]
 
 class OwnerDashboard(APIView):
     permission_classes = [IsAuthenticated]
@@ -1573,13 +1883,8 @@ class ChainViewSet(viewsets.ModelViewSet):
         # Org-chain: pharmacy.organization or pharm.owner.organization must match
         elif chain.organization:
             org = chain.organization
-            owns_direct = (pharm.organization == org)
-            owns_via_claim = (
-                pharm.owner.organization == org
-                and pharm.owner.organization_claimed
-            )
-            if not (owns_direct or owns_via_claim):
-                raise PermissionDenied("That pharmacy isn’t in your organization.")
+            if pharm.organization != org:
+                raise PermissionDenied("That pharmacy isn't in your organization.")
         else:
             # no owner or org on chain
             raise PermissionDenied("Chain has no owner or organization.")
@@ -2485,12 +2790,7 @@ class ActiveShiftViewSet(BaseShiftViewSet):
         org_ids = OrganizationMembership.objects.filter(
             user=user, role='ORG_ADMIN'
         ).values_list('organization_id', flat=True)
-        claimed_q = Q(
-            pharmacy__owner__organization_claimed=True,
-            pharmacy__owner__organization__memberships__user=user, # <-- Potentially needs fix like this
-            pharmacy__owner__organization__memberships__role='ORG_ADMIN', # <-- Potentially needs fix like this
-            pharmacy__owner__organization_id__in=org_ids
-        )
+        claimed_q = Q(pharmacy__organization_id__in=org_ids)
 
         admin_pharmacies = Pharmacy.objects.filter(
             memberships__user=user,
@@ -2709,12 +3009,7 @@ class ConfirmedShiftViewSet(BaseShiftViewSet):
         org_ids = OrganizationMembership.objects.filter(
             user=user, role='ORG_ADMIN'
         ).values_list('organization_id', flat=True)
-        claimed_q = Q(
-            pharmacy__owner__organization_claimed=True,
-            pharmacy__owner__organization__memberships__user=user, # <-- Potentially needs fix like this
-            pharmacy__owner__organization__memberships__role='ORG_ADMIN', # <-- Potentially needs fix like this
-            pharmacy__owner__organization_id__in=org_ids
-        )
+        claimed_q = Q(pharmacy__organization_id__in=org_ids)
         admin_pharmacies = Pharmacy.objects.filter(
             memberships__user=user,
             memberships__role='PHARMACY_ADMIN',
@@ -2806,10 +3101,7 @@ class HistoryShiftViewSet(BaseShiftViewSet):
         org_ids = OrganizationMembership.objects.filter(
             user=user, role='ORG_ADMIN'
         ).values_list('organization_id', flat=True)
-        claimed_q = Q(
-            pharmacy__owner__organization_claimed=True,
-            pharmacy__owner__organization_id__in=org_ids
-        )
+        claimed_q = Q(pharmacy__organization_id__in=org_ids)
 
         admin_pharmacies = Pharmacy.objects.filter(
             memberships__user=user,
@@ -3768,7 +4060,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         notification_users = []
         owner_user = getattr(pharmacy.owner, "user", None) if hasattr(pharmacy, "owner") and pharmacy.owner else None
         org_admins = []
-        if hasattr(pharmacy.owner, "organization_claimed") and pharmacy.owner.organization_claimed:
+        if pharmacy.organization_id:
             org_admins = OrganizationMembership.objects.filter(
                 role='ORG_ADMIN',
                 organization_id=pharmacy.organization_id
@@ -3876,7 +4168,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         is_claimed_admin = OrganizationMembership.objects.filter(
             user=user,
             role='ORG_ADMIN',
-            organization__pharmacies__owner__organization_claimed=True
+            organization__pharmacies__isnull=False
         ).exists()
 
         is_pharmacy_admin = Membership.objects.filter(
@@ -3894,8 +4186,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         user = self.request.user
         is_owner = hasattr(pharmacy, "owner") and pharmacy.owner and getattr(pharmacy.owner, "user", None) == user
         is_claimed_admin = (
-            hasattr(pharmacy.owner, "organization_claimed")
-            and pharmacy.owner.organization_claimed
+            pharmacy.organization_id
             and OrganizationMembership.objects.filter(
                 user=user,
                 role='ORG_ADMIN',
@@ -4028,9 +4319,9 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
             is_active=True
         ).select_related('user')
 
-        # Org Admins if the owner is org-claimed
+        # Org Admins if the pharmacy is attached to an organization
         org_admins = []
-        if hasattr(pharmacy, "owner") and getattr(pharmacy.owner, "organization_claimed", False):
+        if pharmacy.organization_id:
             org_admins = OrganizationMembership.objects.filter(
                 role='ORG_ADMIN',
                 organization_id=pharmacy.organization_id
@@ -4260,8 +4551,7 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
         is_owner = hasattr(pharmacy, "owner") and pharmacy.owner and getattr(pharmacy.owner, "user", None) == user
 
         is_claimed_admin = (
-            hasattr(pharmacy.owner, "organization_claimed")
-            and pharmacy.owner.organization_claimed
+            pharmacy.organization_id
             and OrganizationMembership.objects.filter(
                 user=user,
                 role='ORG_ADMIN',

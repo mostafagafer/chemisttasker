@@ -1,0 +1,13 @@
+﻿Hi {{ owner_name }},
+
+{{ organization_name }} has requested to claim {{ pharmacy_name }} on ChemistTasker.
+{% if message %}
+Message from the organization:
+{{ message }}
+{% endif %}
+
+Review the request and respond when you are ready:
+{{ action_url }}
+
+If you need support, contact us any time.
+— The ChemistTasker Team

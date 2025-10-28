@@ -24,7 +24,7 @@ import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
 const GOOGLE_LIBRARIES = ['places'] as Array<'places'>;
 
 interface Pharmacy {
-  id: string; owner: number; name: string; street_address: string; suburb: string; postcode: string;
+  id: string; owner: number; name: string; email: string | null; street_address: string; suburb: string; postcode: string;
   google_place_id: string; latitude: number | null; longitude: number | null; state: string;
   chain: number | null; abn: string;  methadone_s8_protocols?: string;
   qld_sump_docs?: string; sops?: string; induction_guides?: string; employment_types?: string[];
@@ -132,6 +132,7 @@ export default function PharmacyPage() {
   const [tabIndex, setTabIndex] = useState(0);
   const tabLabels = ['Basic', 'Regulatory', 'Docs', 'Employment', 'Hours', 'Rate', 'About'];
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [streetAddress, setStreetAddress] = useState('');
   const [suburb, setSuburb] = useState('');
   const [postcode, setPostcode] = useState('');
@@ -255,8 +256,11 @@ useEffect(() => {
   const openDialog = (p?: Pharmacy) => {
     setApprovalCertFile(null); setSopsFile(null); setInductionGuidesFile(null); setSumpDocsFile(null);
     if (p) {
-      setEditing(p); setName(p.name || ''); setStreetAddress(p.street_address || ''); setSuburb(p.suburb || ''); setPostcode(p.postcode || '');
-      setGooglePlaceId(p.google_place_id || ''); setLatitude(p.latitude || null); setLongitude(p.longitude || null); setState(p.state || '');
+      setEditing(p); setName(p.name || ''); setEmail(p.email ?? ''); setStreetAddress(p.street_address || ''); setSuburb(p.suburb || ''); setPostcode(p.postcode || '');
+      setGooglePlaceId(p.google_place_id || '');
+      setLatitude(p.latitude !== null && p.latitude !== undefined ? Number(p.latitude) : null);
+      setLongitude(p.longitude !== null && p.longitude !== undefined ? Number(p.longitude) : null);
+      setState(p.state || '');
       setAbn(p.abn || ''); setExistingApprovalCert(p.methadone_s8_protocols || null);
       setExistingSops(p.sops || null); setExistingInductionGuides(p.induction_guides || null); setExistingSumpDocs(p.qld_sump_docs || null);
       setEmploymentTypes(p.employment_types || []); setRolesNeeded(p.roles_needed || []); setWeekdaysStart(p.weekdays_start || '');
@@ -266,7 +270,7 @@ useEffect(() => {
       setAbout(p.about || '');
       setAutoPublishWorkerRequests(Boolean(p.auto_publish_worker_requests));
     } else {
-      setEditing(null); setName(''); setStreetAddress(''); setSuburb(''); setPostcode(''); setGooglePlaceId(''); setLatitude(null);
+      setEditing(null); setName(''); setEmail(''); setStreetAddress(''); setSuburb(''); setPostcode(''); setGooglePlaceId(''); setLatitude(null);
       setLongitude(null); setAbn(''); setState(''); setExistingApprovalCert(null); setExistingSops(null);
       setExistingInductionGuides(null); setExistingSumpDocs(null); setEmploymentTypes([]); setRolesNeeded([]); setWeekdaysStart('');
       setWeekdaysEnd(''); setSaturdaysStart(''); setSaturdaysEnd(''); setSundaysStart(''); setSundaysEnd(''); setPublicHolidaysStart('');
@@ -323,10 +327,22 @@ const handlePlaceChanged = () => {
   const handleSave = async () => {
     if (abnDigits.length !== 11) { setError('ABN must be 11 digits.'); return; }
     const fd = new FormData();
-    fd.append('name', name); fd.append('street_address', streetAddress); fd.append('suburb', suburb); fd.append('postcode', postcode);
+    fd.append('name', name);
+    fd.append('email', email.trim());
+    fd.append('street_address', streetAddress); fd.append('suburb', suburb); fd.append('postcode', postcode);
     fd.append('google_place_id', googlePlaceId);
-    if (latitude !== null) fd.append('latitude', latitude.toFixed(6));
-    if (longitude !== null) fd.append('longitude', longitude.toFixed(6));
+    if (latitude !== null) {
+      const latNum = Number(latitude);
+      if (!Number.isNaN(latNum)) {
+        fd.append('latitude', latNum.toFixed(6));
+      }
+    }
+    if (longitude !== null) {
+      const lngNum = Number(longitude);
+      if (!Number.isNaN(lngNum)) {
+        fd.append('longitude', lngNum.toFixed(6));
+      }
+    }
 
     fd.append('state', state);
     fd.append('abn', abnDigits);
@@ -567,6 +583,14 @@ const rejectApplication = async (appId: number, pharmacyId: string) => {
               )}
 
                 <TextField label="Pharmacy Name" fullWidth margin="normal" value={name} onChange={e => setName(e.target.value)} />
+                <TextField
+                  label="Pharmacy Email"
+                  type="email"
+                  fullWidth
+                  margin="normal"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                />
 
                 <FormControlLabel
                   control={

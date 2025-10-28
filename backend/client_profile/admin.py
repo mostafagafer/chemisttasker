@@ -14,11 +14,11 @@ class OrganizationAdmin(admin.ModelAdmin):
 class OwnerOnboardingAdmin(admin.ModelAdmin):
     list_display = [
         'user', 'role', 'chain_pharmacy', 'verified',
-        'organization', 'organization_claimed', 'ahpra_verified','ahpra_verification_note'
+        'organization', 'ahpra_verified','ahpra_verification_note'
     ]
     list_filter = [
         'role', 'chain_pharmacy', 'verified',
-        'organization', 'organization_claimed'
+        'organization',
     ]
     search_fields = [
         'user__username', 'user__email',
@@ -26,7 +26,7 @@ class OwnerOnboardingAdmin(admin.ModelAdmin):
     ]
     fields = [
         'user', 'phone_number', 'role', 'chain_pharmacy',
-        'ahpra_number','ahpra_verified', 'verified', 'organization', 'organization_claimed'
+        'ahpra_number','ahpra_verified', 'verified', 'organization'
     ]
     def save_model(self, request, obj, form, change):
         obj.full_clean()

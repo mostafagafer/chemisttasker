@@ -2501,13 +2501,26 @@ const PharmacyHubPage = () => {
         </IconButton>
         {mediaViewerState.url &&
           (mediaViewerState.type === "video" ? (
-            <Box
-              component="video"
-              controls
-              autoPlay
-              src={mediaViewerState.url}
-              sx={{ width: "100%", maxHeight: "inherit", borderRadius: 2 }}
-            />
+            <Box sx={{ width: "100%", maxHeight: "inherit", position: "relative", display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'black', borderRadius: 2 }}>
+              <Box
+                component="video"
+                controls
+                autoPlay
+                src={mediaViewerState.url}
+                onError={(e) => {
+                  const videoElement = e.target as HTMLVideoElement;
+                  // To prevent showing a generic browser error message, we can hide the video element
+                  videoElement.style.display = 'none';
+                  // And show our own message
+                  const errorNode = document.createElement('div');
+                  errorNode.innerText = 'The video could not be loaded. It may have been moved or deleted.';
+                  errorNode.style.color = 'white';
+                  errorNode.style.padding = '20px';
+                  videoElement.parentNode?.appendChild(errorNode);
+                }}
+                sx={{ width: "100%", maxHeight: "inherit", borderRadius: 2, zIndex: 1 }}
+              />
+            </Box>
           ) : (
             <Box
               component="img"

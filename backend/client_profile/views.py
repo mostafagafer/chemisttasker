@@ -47,7 +47,6 @@ from users.models import User                    # referenced throughout (accept
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import mimetypes
-from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 # import logging
 # logger = logging.getLogger("roster.debug")
 
@@ -69,22 +68,6 @@ def _count_active_memberships(user, exclude_membership_id=None):
     if exclude_membership_id:
         qs = qs.exclude(pk=exclude_membership_id)
     return qs.count()
-
-
-def _ensure_content_type(uploaded):
-    if not uploaded:
-        return uploaded
-    content_type = getattr(uploaded, "content_type", "")
-    if content_type and content_type != "application/octet-stream":
-        return uploaded
-    guessed, _ = mimetypes.guess_type(getattr(uploaded, "name", ""))
-    if not guessed:
-        return uploaded
-    uploaded.content_type = guessed
-    if isinstance(uploaded, (InMemoryUploadedFile, TemporaryUploadedFile)):
-        uploaded.content_type_extra = {"Content-Type": guessed}
-    return uploaded
-
 
 # Onboardings
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -5697,7 +5680,6 @@ class HubAttachmentMixin:
         for uploaded in files or []:
             if not uploaded:
                 continue
-            uploaded = _ensure_content_type(uploaded)
             PharmacyHubAttachment.objects.create(
                 post=post,
                 file=uploaded,

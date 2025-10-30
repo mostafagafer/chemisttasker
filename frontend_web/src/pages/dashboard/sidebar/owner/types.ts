@@ -10,6 +10,7 @@ export type Role =
   | "CONTACT"
   | "PHARMACY_ADMIN";
 export type WorkType = "FULL_TIME" | "PART_TIME" | "CASUAL" | "LOCUM" | "SHIFT_HERO" | "CONTACT";
+export type UserPortalRole = "OWNER" | "PHARMACIST" | "OTHER_STAFF" | "EXPLORER";
 
 export type PharmacyDTO = {
   id: string;
@@ -31,6 +32,37 @@ export type MembershipDTO = {
   user_details?: { email?: string; first_name?: string; last_name?: string };
   is_pharmacy_owner?: boolean;
 };
+
+export const ROLE_LABELS: Record<Role, string> = {
+  PHARMACIST: "Pharmacist",
+  TECHNICIAN: "Dispensary Technician",
+  ASSISTANT: "Pharmacy Assistant",
+  INTERN: "Intern Pharmacist",
+  STUDENT: "Pharmacy Student",
+  CONTACT: "Contact",
+  PHARMACY_ADMIN: "Pharmacy Admin",
+};
+
+export const USER_ROLE_LABELS: Record<UserPortalRole, string> = {
+  OWNER: "Pharmacy Owner",
+  PHARMACIST: "Pharmacist",
+  OTHER_STAFF: "Other Staff",
+  EXPLORER: "Explorer",
+};
+
+const ROLE_REQUIRED_USER_ROLE: Partial<Record<Role, UserPortalRole>> = {
+  PHARMACIST: "PHARMACIST",
+  INTERN: "OTHER_STAFF",
+  STUDENT: "OTHER_STAFF",
+  TECHNICIAN: "OTHER_STAFF",
+  ASSISTANT: "OTHER_STAFF",
+};
+
+export const requiredUserRoleForMembership = (role: Role): UserPortalRole | null =>
+  ROLE_REQUIRED_USER_ROLE[role] ?? null;
+
+export const formatMembershipRole = (role: Role): string => ROLE_LABELS[role] ?? role;
+export const formatUserPortalRole = (role: UserPortalRole): string => USER_ROLE_LABELS[role] ?? role;
 
 export function coerceRole(raw?: string): Role {
   const r = (raw || "").toUpperCase();

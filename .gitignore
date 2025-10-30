@@ -2,6 +2,7 @@
 # virtualenvs
 venv/
 **/venv/
+Admin_codes
 
 # Bytecode & caches
 __pycache__/

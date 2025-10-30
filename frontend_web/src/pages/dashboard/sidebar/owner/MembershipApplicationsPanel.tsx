@@ -19,6 +19,10 @@ import DoneIcon from "@mui/icons-material/Done";
 import CloseIcon from "@mui/icons-material/Close";
 import apiClient from "../../../../utils/apiClient";
 import { API_BASE_URL, API_ENDPOINTS } from "../../../../constants/api";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+
+dayjs.extend(utc);
 
 type MembershipApplication = {
   id: number;
@@ -76,11 +80,8 @@ const formatClassification = (app: MembershipApplication) => {
 
 const formatTimestamp = (value?: string) => {
   if (!value) return "—";
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value;
-  }
+  const parsed = dayjs.utc(value);
+  return parsed.isValid() ? parsed.local().toDate().toLocaleString() : value;
 };
 
 const buildDefaultMap = (apps: MembershipApplication[], fallback: string) => {

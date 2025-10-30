@@ -7,6 +7,10 @@ import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutl
 import AddReactionOutlinedIcon from '@mui/icons-material/AddReactionOutlined';
 import { ChatMessage } from './types';
 import PushPinIcon from '@mui/icons-material/PushPin';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+
+dayjs.extend(utc);
 
 const initialsOf = (first?: string, last?: string) => {
   const f = (first || '').trim();
@@ -225,7 +229,7 @@ export const MessageBubble: FC<Props> = ({ msg, prevMsg, isMe, onStartDm, roomTy
 
         <Box className="msg-meta">
           {!isMe && !isSameSenderAsPrevious && fullName ? `${fullName}  •  ` : ''}
-          {new Date(msg.created_at).toLocaleString()}
+          {dayjs.utc(msg.created_at).local().toDate().toLocaleString()}
           {msg.is_edited && (
             <Tooltip title={`Original: ${msg.original_body}`}>
               <Typography variant="caption" sx={{ fontStyle: 'italic', ml: 0.5 }}> · edited</Typography>

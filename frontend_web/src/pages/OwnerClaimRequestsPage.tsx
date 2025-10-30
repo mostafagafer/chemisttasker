@@ -19,6 +19,10 @@ import {
 } from '@mui/material';
 import apiClient from '../utils/apiClient';
 import { API_ENDPOINTS } from '../constants/api';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+
+dayjs.extend(utc);
 
 const STATUS_COLORS: Record<'PENDING' | 'ACCEPTED' | 'REJECTED', 'warning' | 'success' | 'error'> = {
   PENDING: 'warning',
@@ -192,7 +196,7 @@ export default function OwnerClaimRequestsPage() {
                   <Typography variant="body2" color="text.secondary">
                     Requested by <strong>{claim.organization?.name ?? 'Unknown organization'}</strong>
                     {' on '}
-                    {new Date(claim.created_at).toLocaleString()}
+                    {dayjs.utc(claim.created_at).local().toDate().toLocaleString()}
                   </Typography>
 
                   {claim.message && (

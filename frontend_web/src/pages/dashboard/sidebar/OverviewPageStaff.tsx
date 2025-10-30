@@ -18,6 +18,11 @@ import apiClient from "../../../utils/apiClient";
 import { API_ENDPOINTS } from "../../../constants/api";
 import { useAuth } from "../../../contexts/AuthContext";
 
+const formatShiftDate = (value?: string | null) => {
+  if (!value) return "No date provided";
+  return value.replace("T", " ").replace("Z", "");
+};
+
 type User = {
   id: number;
   email: string;
@@ -367,7 +372,7 @@ if (loading) {
               <Box flex={1}>
                 <Typography fontWeight={600}>{shift.pharmacy_name}</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {shift.date ? new Date(shift.date).toLocaleString() : "No date provided"}
+                  {formatShiftDate(shift.date)}
                 </Typography>
               </Box>
               <Button

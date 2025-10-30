@@ -27,7 +27,11 @@ import CloseIcon from '@mui/icons-material/Close';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import { useAuth } from '../../../contexts/AuthContext';
+
+dayjs.extend(utc);
 
 interface Invoice {
   id: number;
@@ -74,8 +78,8 @@ export default function InvoiceManagePage() {
         // Sort descending by invoice_date
         const sorted: Invoice[] = res.data.sort(
           (a: Invoice, b: Invoice) =>
-            new Date(b.invoice_date).getTime() -
-            new Date(a.invoice_date).getTime()
+            dayjs.utc(b.invoice_date).valueOf() -
+            dayjs.utc(a.invoice_date).valueOf()
         );
         setInvoices(sorted);
       })
@@ -240,7 +244,9 @@ export default function InvoiceManagePage() {
                 {inv.pharmacy_name_snapshot ||
                   inv.custom_bill_to_name}
               </TableCell>
-              <TableCell>{inv.invoice_date}</TableCell>
+              <TableCell>
+                {dayjs.utc(inv.invoice_date).local().format('YYYY-MM-DD')}
+              </TableCell>
               <TableCell>{inv.total}</TableCell>
               <TableCell>{inv.status}</TableCell>
               <TableCell align="right">

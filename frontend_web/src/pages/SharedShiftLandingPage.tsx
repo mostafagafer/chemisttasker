@@ -4,6 +4,18 @@ import { Container, Typography, Card, CardContent, Button, Skeleton, Box, Chip, 
 import apiClient from '../utils/apiClient';
 import { API_ENDPOINTS } from '../constants/api';
 import { useAuth } from '../contexts/AuthContext';
+import dayjs from 'dayjs';
+
+const formatClockTime = (value?: string | null) => {
+  if (!value) return '';
+  const [hourPart = '0', minutePart = '00'] = value.split(':');
+  let hour = Number(hourPart);
+  const suffix = hour >= 12 ? 'PM' : 'AM';
+  hour = hour % 12;
+  if (hour === 0) hour = 12;
+  const minutes = minutePart.padStart(2, '0');
+  return `${hour}:${minutes} ${suffix}`;
+};
 
 interface Shift {
   id: number;
@@ -107,7 +119,11 @@ const SharedShiftLandingPage: React.FC = () => {
                     <Divider sx={{ mb: 2 }} />
                     <Typography variant="h6">Slots:</Typography>
                     {shift.slots.map((slot, index) => (
-                        <Typography key={index}>{new Date(slot.date).toLocaleDateString()} from {slot.start_time} to {slot.end_time}</Typography>
+                        <Typography key={index}>
+                          {dayjs(slot.date).format('MMM D, YYYY')} from{' '}
+                          {formatClockTime(slot.start_time)} to{' '}
+                          {formatClockTime(slot.end_time)}
+                        </Typography>
                     ))}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       {shift.description && (

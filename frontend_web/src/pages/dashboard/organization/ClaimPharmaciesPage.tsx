@@ -21,6 +21,10 @@ import type { OrgMembership } from '../../../contexts/AuthContext';
 import { ORG_ROLES } from '../../../constants/roles';
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+
+dayjs.extend(utc);
 
 type ClaimStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED';
 
@@ -65,7 +69,7 @@ const STATUS_COLOR: Record<ClaimStatus, 'success' | 'warning' | 'error'> = {
 };
 
 const formatDateTime = (value?: string | null) =>
-  value ? new Date(value).toLocaleString() : '—';
+  value ? dayjs.utc(value).local().toDate().toLocaleString() : '—';
 
 export default function ClaimPharmaciesPage() {
   const { user } = useAuth();

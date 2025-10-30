@@ -20,8 +20,20 @@ import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { formatDistanceToNow } from 'date-fns';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import { green } from '@mui/material/colors';
 
+const formatClockTime = (value?: string | null) => {
+  if (!value) return '';
+  const [hourPart = '0', minutePart = '00'] = value.split(':');
+  let hour = Number(hourPart);
+  const suffix = hour >= 12 ? 'PM' : 'AM';
+  hour = hour % 12;
+  if (hour === 0) hour = 12;
+  const minutes = minutePart.padStart(2, '0');
+  return `${hour}:${minutes} ${suffix}`;
+};
 // --- Interface Definitions ---
 interface Slot {
   id: number;
@@ -224,18 +236,16 @@ const WorkerShiftDetailPage: React.FC = () => {
 
 
   const formatSlotDate = (slot: Slot) => {
-    const dateStr = new Date(slot.date).toLocaleDateString(undefined, {
-        year: 'numeric', month: 'long', day: 'numeric', weekday: 'long'
-    });
-    const start = new Date(`1970-01-01T${slot.start_time}`).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-    const end = new Date(`1970-01-01T${slot.end_time}`).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-    let base = `${dateStr} from ${start} to ${end}`;
-    if (slot.is_recurring && slot.recurring_days.length && slot.recurring_end_date) {
-        const days = slot.recurring_days.map(d => WEEKDAY_LABELS[d]).join(', ');
-        base += ` (Repeats on ${days} until ${new Date(slot.recurring_end_date).toLocaleDateString()})`;
-    }
-    return base;
-  }
+        const dateStr = dayjs(slot.date).format('dddd, MMMM D, YYYY');
+        const start = formatClockTime(slot.start_time);
+        const end = formatClockTime(slot.end_time);
+        let base = `${dateStr} from ${start} to ${end}`;
+        if (slot.is_recurring && slot.recurring_days.length && slot.recurring_end_date) {
+            const days = slot.recurring_days.map(d => WEEKDAY_LABELS[d]).join(', ');
+            base += ` (Repeats on ${days} until ${dayjs(slot.recurring_end_date).format('MMM D, YYYY')})`;
+        }
+        return base;
+      }
 
   if (loading) {
     return (
@@ -405,7 +415,7 @@ const WorkerShiftDetailPage: React.FC = () => {
 
             <Box sx={{ mt: 3, textAlign: 'right' }}>
                 <Typography variant="caption" color="textSecondary">
-                Posted {formatDistanceToNow(new Date(shift.created_at), { addSuffix: true })}
+                Posted {formatDistanceToNow(dayjs.utc(shift.created_at).toDate(), { addSuffix: true })}
                 </Typography>
             </Box>
 
@@ -428,3 +438,4 @@ const WorkerShiftDetailPage: React.FC = () => {
 };
 
 export default WorkerShiftDetailPage;
+dayjs.extend(utc);

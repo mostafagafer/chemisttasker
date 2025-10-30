@@ -10,6 +10,10 @@ import type { ChatMessage, ChatRoom, MemberCache, PharmacyRef } from './types';
 import './chat.css';
 import PushPinIcon from '@mui/icons-material/PushPin';
 import CloseIcon from '@mui/icons-material/Close';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+
+dayjs.extend(utc);
 
 type Membership = {
   id: number;
@@ -361,10 +365,10 @@ return 'Direct Message';
   }, [activeRoom, pharmacies, myMemberships, memberCache]);
 
   const firstUnreadIndex = useMemo(() => {
-    const lastReadTime = activeRoom?.my_last_read_at ? new Date(activeRoom.my_last_read_at).getTime() : 0;
+    const lastReadTime = activeRoom?.my_last_read_at ? dayjs.utc(activeRoom.my_last_read_at).valueOf() : 0;
     if (!lastReadTime) return -1;
     return messages.findIndex(msg =>
-      (new Date(msg.created_at).getTime() > lastReadTime) &&
+      (dayjs.utc(msg.created_at).valueOf() > lastReadTime) &&
       (msg.sender.user_details.id !== currentUserId)
     );
   }, [activeRoom?.my_last_read_at, messages, currentUserId]);

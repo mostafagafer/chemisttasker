@@ -10,6 +10,10 @@ import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+
+dayjs.extend(utc);
 
 
 
@@ -239,9 +243,9 @@ export default function InvoiceDetailPage() {
     c[idx][field] = value;
     if (field === 'start_time' || field === 'end_time') {
       const { date, start_time, end_time } = c[idx];
-      const s = new Date(`${date}T${start_time}`);
-      const e = new Date(`${date}T${end_time}`);
-      c[idx].quantity = parseFloat(((e.getTime() - s.getTime()) / 3600000).toFixed(2));
+      const start = dayjs.utc(`${date}T${start_time}`).local();
+      const end = dayjs.utc(`${date}T${end_time}`).local();
+      c[idx].quantity = parseFloat(((end.valueOf() - start.valueOf()) / 3600000).toFixed(2));
     }
     if (field === 'category_code' && ['Transportation', 'Accommodation'].includes(value)) {
       c[idx].quantity = 1;

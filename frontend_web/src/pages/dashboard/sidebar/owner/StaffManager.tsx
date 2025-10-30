@@ -26,7 +26,22 @@ import {
 import FilterListIcon from "@mui/icons-material/FilterList";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
-import { Role, WorkType, MembershipDTO, coerceRole, coerceWorkType, surface } from "./types";
+import {
+  Role,
+  WorkType,
+  MembershipDTO,
+  coerceRole,
+  coerceWorkType,
+  surface,
+  requiredUserRoleForMembership,
+  UserPortalRole,
+} from "./types";
+import {
+  describeRoleMismatch,
+  fetchUserRoleByEmail,
+  formatExistingUserRole,
+  normalizeEmail,
+} from "./inviteUtils";
 import LinkIcon from "@mui/icons-material/Link";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { useTheme } from "@mui/material/styles";
@@ -43,6 +58,26 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "ASSISTANT", label: "Pharmacy Assistant" },
   { value: "STUDENT", label: "Pharmacy Student" },
 ];
+
+type InviteRowState = {
+  email: string;
+  invited_name: string;
+  role: Role;
+  employment_type: (typeof EMPLOYMENT_TYPES)[number];
+  existingUserRole?: UserPortalRole | null;
+  checking?: boolean;
+  error?: string | null;
+};
+
+const createInviteRow = (): InviteRowState => ({
+  email: "",
+  invited_name: "",
+  role: "PHARMACIST",
+  employment_type: "FULL_TIME",
+  existingUserRole: undefined,
+  checking: false,
+  error: null,
+});
 
 const getRoleChipColor = (role: Role) => {
   switch (role) {
@@ -128,9 +163,7 @@ export default function StaffManager({
   }, [list, sortBy, filterRole, filterWork]);
 
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteRows, setInviteRows] = useState([
-    { email: "", invited_name: "", role: "PHARMACIST" as Role, employment_type: "FULL_TIME" as (typeof EMPLOYMENT_TYPES)[number] },
-  ]);
+  const [inviteRows, setInviteRows] = useState<InviteRowState[]>([createInviteRow()]);
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; severity: "success" | "error" } | null>(null);
   const handleApplicationsNotification = useCallback(
@@ -147,21 +180,103 @@ export default function StaffManager({
   const [confirmRemove, setConfirmRemove] = useState<Staff | null>(null);
 
   const resetInviteForm = () => {
-    setInviteRows([
-      { email: "", invited_name: "", role: "PHARMACIST", employment_type: "FULL_TIME" },
-    ]);
+    setInviteRows([createInviteRow()]);
   };
 
-  const handleInviteFieldChange = (idx: number, field: "email" | "invited_name" | "role" | "employment_type", value: string) => {
+  const handleInviteFieldChange = (
+    idx: number,
+    field: "email" | "invited_name" | "role" | "employment_type",
+    value: string
+  ) => {
     setInviteRows((prev) => {
       const next = [...prev];
-      next[idx] = { ...next[idx], [field]: value } as any;
+      const current = next[idx];
+      if (!current) {
+        return prev;
+      }
+      const updated: InviteRowState = { ...current, [field]: value } as InviteRowState;
+      if (field === "email") {
+        updated.existingUserRole = undefined;
+        updated.error = null;
+      }
+      if (field === "role") {
+        updated.error = describeRoleMismatch(value as Role, updated.existingUserRole);
+      }
+      next[idx] = updated;
       return next;
     });
   };
 
-  const addInviteRow = () => setInviteRows((rows) => [...rows, { email: "", invited_name: "", role: "PHARMACIST", employment_type: "FULL_TIME" }]);
-  const removeInviteRow = (idx: number) => setInviteRows((rows) => rows.filter((_, i) => i !== idx));
+  const refreshInviteRowUserRole = useCallback(
+    async (idx: number) => {
+      const targetRow = inviteRows[idx];
+      if (!targetRow) {
+        return;
+      }
+      const email = normalizeEmail(targetRow.email);
+      if (!email || !email.includes("@")) {
+        setInviteRows((prev) => {
+          const next = [...prev];
+          if (!next[idx]) {
+            return prev;
+          }
+          next[idx] = { ...next[idx], existingUserRole: null, checking: false, error: null };
+          return next;
+        });
+        return;
+      }
+
+      setInviteRows((prev) => {
+        const next = [...prev];
+        const row = next[idx];
+        if (!row) {
+          return prev;
+        }
+        next[idx] = { ...row, checking: true, error: null };
+        return next;
+      });
+
+      try {
+        const fetchedRole = await fetchUserRoleByEmail(email);
+        setInviteRows((prev) => {
+          const next = [...prev];
+          const row = next[idx];
+          if (!row || normalizeEmail(row.email) !== email) {
+            return prev;
+          }
+          next[idx] = {
+            ...row,
+            checking: false,
+            existingUserRole: fetchedRole,
+            error: describeRoleMismatch(row.role, fetchedRole),
+          };
+          return next;
+        });
+      } catch {
+        setInviteRows((prev) => {
+          const next = [...prev];
+          const row = next[idx];
+          if (!row || normalizeEmail(row.email) !== email) {
+            return prev;
+          }
+          next[idx] = {
+            ...row,
+            checking: false,
+            error: "We couldn't verify this email. Please try again.",
+          };
+          return next;
+        });
+      }
+    },
+    [inviteRows]
+  );
+
+  const addInviteRow = () => setInviteRows((rows) => [...rows, createInviteRow()]);
+  const removeInviteRow = (idx: number) =>
+    setInviteRows((rows) => {
+      const next = rows.filter((_, i) => i !== idx);
+      return next.length ? next : [createInviteRow()];
+    });
 
   const openLinkDialog = () => {
     setLinkExpiry("14");
@@ -201,19 +316,79 @@ export default function StaffManager({
   };
 
   const handleSendInvites = async () => {
-    const payload = inviteRows
-      .filter((row) => row.email)
-      .map((row) => ({
-        ...row,
-        pharmacy: pharmacyId,
-      }));
-
-    if (!payload.length) {
+    let rows = inviteRows.map((row) => ({
+      ...row,
+      email: row.email.trim(),
+    }));
+    const rowsWithEmail = rows.filter((row) => row.email);
+    if (!rowsWithEmail.length) {
       setToast({ message: "Please fill out at least one invite.", severity: "error" });
       return;
     }
 
     setInviteSubmitting(true);
+    let hasErrors = false;
+    for (let idx = 0; idx < rows.length; idx += 1) {
+      const row = rows[idx];
+      if (!row.email) {
+        continue;
+      }
+
+      const normalizedEmail = normalizeEmail(row.email);
+      if (!normalizedEmail || !normalizedEmail.includes("@")) {
+        rows[idx] = { ...row, error: "Please enter a valid email address.", checking: false };
+        hasErrors = true;
+        continue;
+      }
+
+      let userRole = row.existingUserRole;
+      if (typeof userRole === "undefined") {
+        try {
+          userRole = await fetchUserRoleByEmail(normalizedEmail);
+        } catch {
+          rows[idx] = {
+            ...row,
+            checking: false,
+            error: "We couldn't verify this email. Please try again.",
+          };
+          hasErrors = true;
+          continue;
+        }
+      }
+
+      const mismatch = describeRoleMismatch(row.role, userRole);
+      if (mismatch) {
+        hasErrors = true;
+      }
+
+      rows[idx] = {
+        ...row,
+        checking: false,
+        existingUserRole: userRole ?? null,
+        error: mismatch,
+      };
+    }
+
+    setInviteRows(rows);
+    if (hasErrors) {
+      setToast({
+        message: "One or more invitations need attention before sending.",
+        severity: "error",
+      });
+      setInviteSubmitting(false);
+      return;
+    }
+
+    const payload = rows
+      .filter((row) => row.email)
+      .map((row) => ({
+        email: row.email,
+        invited_name: row.invited_name,
+        role: row.role,
+        employment_type: row.employment_type,
+        pharmacy: pharmacyId,
+      }));
+
     try {
       const response = await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`, {
         invitations: payload,
@@ -414,9 +589,10 @@ export default function StaffManager({
                 required
                 value={row.email}
                 onChange={(e) => handleInviteFieldChange(idx, "email", e.target.value)}
+                onBlur={() => void refreshInviteRowUserRole(idx)}
                 fullWidth
               />
-              <FormControl fullWidth>
+              <FormControl fullWidth error={Boolean(row.error)}>
                 <InputLabel id={`role-${idx}`}>Role</InputLabel>
                 <Select
                   labelId={`role-${idx}`}
@@ -424,11 +600,19 @@ export default function StaffManager({
                   value={row.role}
                   onChange={(e) => handleInviteFieldChange(idx, "role", e.target.value as Role)}
                 >
-                  {ROLE_OPTIONS.map((opt) => (
-                    <MenuItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </MenuItem>
-                  ))}
+                  {ROLE_OPTIONS.map((opt) => {
+                    const requiredRole = requiredUserRoleForMembership(opt.value);
+                    const disableOption =
+                      requiredRole !== null &&
+                      row.existingUserRole !== undefined &&
+                      row.existingUserRole !== null &&
+                      row.existingUserRole !== requiredRole;
+                    return (
+                      <MenuItem key={opt.value} value={opt.value} disabled={disableOption}>
+                        {opt.label}
+                      </MenuItem>
+                    );
+                  })}
                 </Select>
               </FormControl>
               <FormControl fullWidth>
@@ -446,6 +630,26 @@ export default function StaffManager({
                   ))}
                 </Select>
               </FormControl>
+              <Box sx={{ gridColumn: "span 2", minHeight: 20 }}>
+                {row.checking ? (
+                  <Typography variant="caption" color="text.secondary">
+                    Checking existing account...
+                  </Typography>
+                ) : row.error ? (
+                  <Typography variant="caption" color="error">
+                    {row.error}
+                  </Typography>
+                ) : (
+                  (() => {
+                    const label = formatExistingUserRole(row.existingUserRole);
+                    return label ? (
+                      <Typography variant="caption" color="text.secondary">
+                        {label}
+                      </Typography>
+                    ) : null;
+                  })()
+                )}
+              </Box>
               <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 1, gridColumn: "span 2" }}>
                 {inviteRows.length > 1 && (
                   <Button color="error" onClick={() => removeInviteRow(idx)}>

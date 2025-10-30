@@ -57,10 +57,6 @@ import {
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
-// --- Timezone handling (match PostShiftPage) ---
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-dayjs.extend(utc);
 
 interface PaginatedResponse<T> {
   count: number;
@@ -318,11 +314,7 @@ const formatAddress = (pharmacy: PharmacyDetail) =>
     .filter(Boolean)
     .join(', ');
 
-const formatSlotLabel = (slot: Slot) => {
-  const localDate = dayjs.utc(`${slot.date}T${slot.start_time}`).local().format('ddd, MMM D YYYY h:mm A');
-  const localEnd = dayjs.utc(`${slot.date}T${slot.end_time}`).local().format('h:mm A');
-  return `${localDate} – ${localEnd}`;
-};
+const formatSlotLabel = (slot: Slot) => `${slot.date} ${slot.start_time}\\u2013${slot.end_time}`;
 const PosterShiftDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();

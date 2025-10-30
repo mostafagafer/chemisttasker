@@ -3705,6 +3705,20 @@ def _count_active_memberships(user, exclude_membership_id=None):
         qs = qs.exclude(pk=exclude_membership_id)
     return qs.count()
 
+ROLE_REQUIRED_USER_ROLE = {
+    "PHARMACIST": "PHARMACIST",
+    "INTERN": "OTHER_STAFF",
+    "STUDENT": "OTHER_STAFF",
+    "TECHNICIAN": "OTHER_STAFF",
+    "ASSISTANT": "OTHER_STAFF",
+}
+
+
+def required_user_role_for_membership(role):
+    if not role:
+        return None
+    return ROLE_REQUIRED_USER_ROLE.get(role)
+
 
 class MembershipSerializer(serializers.ModelSerializer):
     user_details = UserProfileSerializer(source='user', read_only=True)
@@ -3736,39 +3750,89 @@ class MembershipSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         """
-        Keep Membership data consistent:
-        - Default employment_type for Pharmacy Admin if it wasn't provided.
-        - Clear irrelevant classification fields according to the selected role.
+        Validate and keep Membership data consistent:
+        - Prevent assigning a role that conflicts with user's onboarding profile.
+        - Enforce maximum active memberships per user.
+        - Default employment_type for Pharmacy Admin if missing.
+        - Clear irrelevant classification fields when role changes.
         """
-        user = attrs.get('user', getattr(self.instance, 'user', None))
 
+        user = attrs.get('user', getattr(self.instance, 'user', None))
+        role = attrs.get('role', getattr(self.instance, 'role', None))
+        employment_type = attrs.get('employment_type', getattr(self.instance, 'employment_type', None))
+
+        # --- (1) Enforce active membership limit ---
         if user:
             if self.instance:
                 will_be_active = attrs.get('is_active', self.instance.is_active)
                 if will_be_active and not self.instance.is_active:
                     current_active = _count_active_memberships(user, exclude_membership_id=self.instance.pk)
                     if current_active >= MAX_ACTIVE_PHARMACY_MEMBERSHIPS:
-                        raise serializers.ValidationError(
-                            {'is_active': f'User already belongs to {MAX_ACTIVE_PHARMACY_MEMBERSHIPS} pharmacies.'}
-                        )
+                        raise serializers.ValidationError({
+                            'is_active': f'User already belongs to {MAX_ACTIVE_PHARMACY_MEMBERSHIPS} pharmacies.'
+                        })
             else:
                 if _count_active_memberships(user) >= MAX_ACTIVE_PHARMACY_MEMBERSHIPS:
-                    raise serializers.ValidationError(
-                        {'user': f'User already belongs to {MAX_ACTIVE_PHARMACY_MEMBERSHIPS} pharmacies.'}
-                    )
+                    raise serializers.ValidationError({
+                        'user': f'User already belongs to {MAX_ACTIVE_PHARMACY_MEMBERSHIPS} pharmacies.'
+                    })
 
-        # Resolve role and employment_type considering partial updates
-        role = attrs.get('role', getattr(self.instance, 'role', None))
-        employment_type = attrs.get('employment_type', getattr(self.instance, 'employment_type', None))
+        # --- (2) Enforce role consistency with user onboarding ---
+        if user:
+            pharmacist_onboard = getattr(user, 'pharmacistonboarding', None)
+            otherstaff_onboard = getattr(user, 'otherstaffonboarding', None)
+            explorer_onboard = getattr(user, 'exploreronboarding', None)
 
-        # 1) Pharmacy Admin: default employment_type if omitted
+            # Pharmacist accounts
+            if pharmacist_onboard and role not in ['PHARMACIST']:
+                raise serializers.ValidationError({
+                    'role': 'This user is a Pharmacist and can only be assigned as PHARMACIST.'
+                })
+
+            # Other staff (interns, assistants, etc.)
+            if otherstaff_onboard:
+                onboard_role = otherstaff_onboard.role_type
+                if onboard_role == 'INTERN' and role != 'INTERN':
+                    raise serializers.ValidationError({
+                        'role': 'This user is onboarded as an Intern and cannot be invited as another role.'
+                    })
+                elif onboard_role == 'TECHNICIAN' and role != 'TECHNICIAN':
+                    raise serializers.ValidationError({
+                        'role': 'This user is onboarded as a Technician and cannot be invited as another role.'
+                    })
+                elif onboard_role == 'ASSISTANT' and role != 'ASSISTANT':
+                    raise serializers.ValidationError({
+                        'role': 'This user is onboarded as an Assistant and cannot be invited as another role.'
+                    })
+
+            # Explorer users
+            if explorer_onboard:
+                raise serializers.ValidationError({
+                    'role': 'Explorer users cannot be added to pharmacies.'
+                })
+
+        # --- (3) Enforce user-role mapping if defined globally ---
+        required_user_role = required_user_role_for_membership(role)
+        user_role = getattr(user, 'role', None) if user else None
+        if required_user_role and user_role and user_role != required_user_role:
+            role_label = dict(Membership.ROLE_CHOICES).get(role, role)
+            required_label = dict(User.ROLE_CHOICES).get(required_user_role, required_user_role)
+            actual_label = dict(User.ROLE_CHOICES).get(user_role, user_role)
+            identifier = getattr(user, 'email', getattr(user, 'username', 'This user'))
+            raise serializers.ValidationError({
+                'role': (
+                    f'{identifier} is registered as {actual_label} and cannot be assigned the {role_label} role. '
+                    f'Ask them to complete the {required_label} onboarding first.'
+                )
+            })
+
+        # --- (4) Default employment type for Pharmacy Admin ---
         if role == 'PHARMACY_ADMIN' and not employment_type:
             attrs['employment_type'] = 'FULL_TIME'
 
-        # 2) Role-based cleanup of classification fields
-        #    (prevents leaving stale data when role changes via PATCH)
-        def clear(*field_names):
-            for f in field_names:
+        # --- (5) Role-based cleanup of classification fields ---
+        def clear(*fields):
+            for f in fields:
                 if f in attrs:
                     attrs[f] = None
 
@@ -3776,16 +3840,12 @@ class MembershipSerializer(serializers.ModelSerializer):
             clear('pharmacist_award_level', 'otherstaff_classification_level', 'intern_half', 'student_year')
         elif role == 'PHARMACIST':
             clear('otherstaff_classification_level', 'intern_half', 'student_year')
-            # (pharmacist_award_level can stay / be set)
         elif role in ('ASSISTANT', 'TECHNICIAN'):
             clear('pharmacist_award_level', 'intern_half', 'student_year')
-            # (otherstaff_classification_level can stay / be set)
         elif role == 'INTERN':
             clear('pharmacist_award_level', 'otherstaff_classification_level', 'student_year')
-            # (intern_half can stay / be set)
         elif role == 'STUDENT':
             clear('pharmacist_award_level', 'otherstaff_classification_level', 'intern_half')
-            # (student_year can stay / be set)
 
         return attrs
 

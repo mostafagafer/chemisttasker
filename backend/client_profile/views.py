@@ -2,6 +2,7 @@
 from rest_framework import generics, permissions, status, viewsets, mixins
 from rest_framework.pagination import PageNumberPagination
 from .serializers import *
+from .serializers import required_user_role_for_membership
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, SAFE_METHODS
@@ -1329,12 +1330,15 @@ class MembershipViewSet(viewsets.ModelViewSet):
                     traceback.print_exc()
                     return None, f'Failed to create user: {str(e)}'
             else:
-                if role == "PHARMACIST" and user.role != "PHARMACIST":
-                    user.role = "PHARMACIST"
-                    user.save()
-                elif role in ["INTERN", "STUDENT", "ASSISTANT", "TECHNICIAN"] and user.role == "EXPLORER":
-                    user.role = "OTHER_STAFF"
-                    user.save()
+                required_user_role = required_user_role_for_membership(role)
+                if required_user_role and user.role != required_user_role:
+                    membership_role_label = dict(Membership.ROLE_CHOICES).get(role, role)
+                    user_role_label = dict(User.ROLE_CHOICES).get(user.role, user.role or "Unspecified")
+                    required_role_label = dict(User.ROLE_CHOICES).get(required_user_role, required_user_role)
+                    return None, (
+                        f"{user.email} is registered as {user_role_label} and cannot be added as "
+                        f"{membership_role_label}. Ask them to complete the {required_role_label} onboarding first."
+                    )
 
             # Enforce maximum active pharmacy memberships per user
             active_memberships = _count_active_memberships(user)

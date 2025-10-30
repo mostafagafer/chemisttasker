@@ -4,6 +4,10 @@ import { Container, Typography, Card, CardContent, Button, Skeleton, Box, Chip, 
 import apiClient from '../utils/apiClient';
 import { API_ENDPOINTS } from '../constants/api';
 import { formatDistanceToNow } from 'date-fns';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+
+dayjs.extend(utc);
 
 interface Shift {
   id: number;
@@ -76,7 +80,7 @@ const PublicJobBoardPage: React.FC = () => {
               </Box>
 
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'right' }}>
-                Posted {formatDistanceToNow(new Date(shift.created_at), { addSuffix: true })}
+                Posted {formatDistanceToNow(dayjs.utc(shift.created_at).toDate(), { addSuffix: true })}
               </Typography>
             </CardContent>
           </Card>

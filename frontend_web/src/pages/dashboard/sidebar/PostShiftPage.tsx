@@ -48,9 +48,6 @@ import { Calendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';   // add this
-
-dayjs.extend(utc);                    // activate UTC plugin
 
 // --- Interface Definitions ---
 interface Pharmacy { id: number; name: string; has_chain: boolean; claimed: boolean; }

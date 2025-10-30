@@ -9,6 +9,10 @@ import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+
+dayjs.extend(utc);
 
 type ApiData = {
   // referee 1
@@ -154,7 +158,8 @@ export default function RefereesV2() {
 
   const formatDateTime = (iso?: string | null) => {
     if (!iso) return '';
-    try { return new Date(iso).toLocaleString(); } catch { return iso as string; }
+    const dt = dayjs.utc(iso);
+    return dt.isValid() ? dt.local().toDate().toLocaleString() : (iso as string);
   };
 
   if (loading) return <Typography>Loading…</Typography>;

@@ -21,6 +21,19 @@ import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { formatDistanceToNow } from 'date-fns';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+
+const formatClockTime = (value?: string | null) => {
+  if (!value) return '';
+  const [hourPart = '0', minutePart = '00'] = value.split(':');
+  let hour = Number(hourPart);
+  const suffix = hour >= 12 ? 'PM' : 'AM';
+  hour = hour % 12;
+  if (hour === 0) hour = 12;
+  const minutes = minutePart.padStart(2, '0');
+  return `${hour}:${minutes} ${suffix}`;
+};
 
 interface Slot {
   id: number;
@@ -397,23 +410,13 @@ export default function CommunityShiftsPage() {
   };
 
   const formatSlot = (slot: Slot) => {
-    const dateStr = new Date(slot.date).toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-    const start = new Date(`1970-01-01T${slot.start_time}`).toLocaleTimeString(
-      undefined,
-      { hour: '2-digit', minute: '2-digit' }
-    );
-    const end = new Date(`1970-01-01T${slot.end_time}`).toLocaleTimeString(
-      undefined,
-      { hour: '2-digit', minute: '2-digit' }
-    );
+    const dateStr = dayjs(slot.date).format('MMM D, YYYY');
+    const start = formatClockTime(slot.start_time);
+    const end = formatClockTime(slot.end_time);
     let base = `${dateStr} ${start} – ${end}`;
     if (slot.is_recurring && slot.recurring_days.length && slot.recurring_end_date) {
       const days = slot.recurring_days.map(d => WEEKDAY_LABELS[d]).join(', ');
-      base += ` (Repeats ${days} until ${new Date(slot.recurring_end_date).toLocaleDateString()})`;
+      base += ` (Repeats ${days} until ${dayjs(slot.recurring_end_date).format('MMM D, YYYY')})`;
     }
     return base;
   };
@@ -679,7 +682,7 @@ export default function CommunityShiftsPage() {
                     </Box>
                     <Box sx={{ mt: 1, textAlign: 'left' }}>
                       <Typography variant="caption" color="textSecondary">
-                        Posted {formatDistanceToNow(new Date(shift.created_at), { addSuffix: true })}
+                        Posted {formatDistanceToNow(dayjs.utc(shift.created_at).toDate(), { addSuffix: true })}
                       </Typography>
                     </Box>
                   </Box>
@@ -716,3 +719,4 @@ export default function CommunityShiftsPage() {
     </Container>
   );
 }
+dayjs.extend(utc);

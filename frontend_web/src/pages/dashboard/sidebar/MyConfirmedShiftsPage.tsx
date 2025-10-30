@@ -433,7 +433,7 @@ export default function MyConfirmedShiftsPage() {
                             <Rating value={rc.stars} readOnly size="small" />
                             {rc.created_at && (
                               <Typography variant="caption" color="text.secondary">
-                                {new Date(rc.created_at).toLocaleDateString()}
+                                {new Date(rc.created_at ?? '').toLocaleDateString()}
                               </Typography>
                             )}
                           </Box>

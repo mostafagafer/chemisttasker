@@ -5,6 +5,10 @@ import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
 import { ChatListItem } from './ChatListItem';
 import type { ChatRoom, PharmacyRef, CachedMember, ChatMessage, MemberCache } from './types';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+
+dayjs.extend(utc);
 
 type Membership = {
   id: number;
@@ -194,7 +198,7 @@ return 'Direct Message';
   const sortedRooms = useMemo(
     () =>
       [...filteredRooms].sort(
-        (a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
+        (a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf()
       ),
     [filteredRooms]
   );

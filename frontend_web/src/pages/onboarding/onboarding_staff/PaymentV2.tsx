@@ -10,6 +10,10 @@ import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+
+dayjs.extend(utc);
 
 type ApiData = {
   // server basics
@@ -43,13 +47,9 @@ type ApiData = {
 
 const prettyDate = (d?: string | null) => {
   if (!d) return '';
-  try {
-    const dt = new Date(d);
-    if (Number.isNaN(dt.getTime())) return d;
-    return dt.toLocaleDateString();
-  } catch {
-    return d;
-  }
+  const dt = dayjs.utc(d);
+  if (!dt.isValid()) return d;
+  return dt.local().toDate().toLocaleDateString();
 };
 
 // digits-only helper (used by ABN/TFN validation & payload)
@@ -169,7 +169,7 @@ export default function PaymentV2() {
               </>
             ) : null}
           </li>
-          {data.abn_last_checked ? <li><b>Last checked:</b> {new Date(data.abn_last_checked).toLocaleString()}</li> : null}
+          {data.abn_last_checked ? <li><b>Last checked:</b> {dayjs.utc(data.abn_last_checked).local().toDate().toLocaleString()}</li> : null}
         </Box>
         {data.abn_verification_note && (
           <Alert severity="info" sx={{ mt: 1 }}>{data.abn_verification_note}</Alert>

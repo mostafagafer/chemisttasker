@@ -5,6 +5,8 @@ import ChatIcon from '@mui/icons-material/Chat';
 import apiClient from '../../../../utils/apiClient';
 import { API_ENDPOINTS, API_BASE_URL } from '../../../../constants/api';
 import { useAuth } from '../../../../contexts/AuthContext';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import { useSearchParams } from 'react-router-dom';
 
 import { ChatRoom, ChatMessage, MemberCache, CachedMember } from './types';
@@ -12,6 +14,8 @@ import { ChatSidebar } from './ChatSidebar';
 import { ConversationPanel } from './ConversationPanel';
 import { NewChatModal } from './NewChatModal';
 import './chat.css';
+
+dayjs.extend(utc);
 
 type Pharmacy = { id: number; name: string };
 
@@ -225,7 +229,7 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
         
         const initialRooms: ChatRoom[] = roomsRes.data?.results ?? roomsRes.data ?? [];
         initialRooms.sort(
-          (a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
+          (a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf()
         );
         setRooms(initialRooms);
 
@@ -359,7 +363,7 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
               }
               return r;
             });
-            const sorted = [...updatedRooms].sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime());
+            const sorted = [...updatedRooms].sort((a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf());
             if (newMsg.conversation !== activeRoomId) {
               const targetRoom = sorted.find(r => r.id === newMsg.conversation);
               toastRoomName = resolveRoomName(targetRoom);
@@ -705,10 +709,10 @@ const handleDeleteChat = async (roomId: number, roomName: string) => {
         const roomExists = prevRooms.some(room => room.id === savedRoom.id);
         if (roomExists) {
             const updatedRooms = prevRooms.map(r => (r.id === savedRoom.id ? savedRoom : r));
-            return [...updatedRooms].sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime());
+            return [...updatedRooms].sort((a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf());
         }
         const newRooms = [savedRoom, ...prevRooms];
-        return newRooms.sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime());
+        return newRooms.sort((a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf());
     });
     setActiveRoomId(savedRoom.id);
   };

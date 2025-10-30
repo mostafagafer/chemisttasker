@@ -49,6 +49,9 @@ import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
 import SpeakerNotesOffOutlinedIcon from "@mui/icons-material/SpeakerNotesOffOutlined";
 import SpeakerNotesOutlinedIcon from "@mui/icons-material/SpeakerNotesOutlined";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+
+dayjs.extend(utc);
 
 import { useAuth, OrgMembership } from "../../../../contexts/AuthContext";
 import apiClient from "../../../../utils/apiClient";
@@ -173,12 +176,12 @@ function sortHubPosts(posts: HubPost[]): HubPost[] {
     if (a.isPinned !== b.isPinned) {
       return a.isPinned ? -1 : 1;
     }
-    const aPin = a.pinnedAt ? dayjs(a.pinnedAt).valueOf() : 0;
-    const bPin = b.pinnedAt ? dayjs(b.pinnedAt).valueOf() : 0;
+    const aPin = a.pinnedAt ? dayjs.utc(a.pinnedAt).valueOf() : 0;
+    const bPin = b.pinnedAt ? dayjs.utc(b.pinnedAt).valueOf() : 0;
     if (aPin !== bPin) {
       return bPin - aPin;
     }
-    return dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf();
+    return dayjs.utc(b.createdAt).valueOf() - dayjs.utc(a.createdAt).valueOf();
   });
 }
 
@@ -931,7 +934,7 @@ const OrganizationHubPage = () => {
                 </Typography>
                 <Chip size="small" label={node.author.role.replace(/_/g, " ")} />
                 <Typography variant="caption" color="text.secondary">
-                  {dayjs(node.createdAt).format("MMM D, YYYY h:mm A")}
+                  {dayjs.utc(node.createdAt).local().format("MMM D, YYYY h:mm A")}
                 </Typography>
                 {node.isEdited && !node.isDeleted && (
                   <Tooltip
@@ -1268,7 +1271,7 @@ const OrganizationHubPage = () => {
                         <Chip size="small" variant="outlined" label={post.pharmacyName} />
                       )}
                       <Typography variant="caption" color="text.secondary">
-                        {dayjs(post.createdAt).format("MMM D, YYYY h:mm A")}
+                        {dayjs.utc(post.createdAt).local().format("MMM D, YYYY h:mm A")}
                       </Typography>
                       {post.isEdited && !post.isDeleted && (
                         <Tooltip

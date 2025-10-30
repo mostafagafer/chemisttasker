@@ -44,11 +44,15 @@ import {
   Chat as ChatIcon,
 } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+
+dayjs.extend(utc);
 
 type AttachmentKind = 'IMAGE' | 'VIDEO' | 'FILE';
 
@@ -352,7 +356,7 @@ export default function ExplorerInterestsPage() {
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
                   <Chip label={getRoleLabel(post.explorer_role_type)} size="small" />
                   <Typography variant="body2" color="text.secondary">
-                    • {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
+                    • {formatDistanceToNow(dayjs.utc(post.created_at).local().toDate(), { addSuffix: true })}
                   </Typography>
                 </Box>
               }

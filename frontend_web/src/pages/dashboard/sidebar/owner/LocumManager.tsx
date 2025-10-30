@@ -31,7 +31,22 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useTheme } from "@mui/material/styles";
 import apiClient from "../../../../utils/apiClient";
 import { API_BASE_URL, API_ENDPOINTS } from "../../../../constants/api";
-import { MembershipDTO, Role, WorkType, coerceRole, coerceWorkType, surface } from "./types";
+import {
+  MembershipDTO,
+  Role,
+  WorkType,
+  coerceRole,
+  coerceWorkType,
+  surface,
+  requiredUserRoleForMembership,
+  UserPortalRole,
+} from "./types";
+import {
+  describeRoleMismatch,
+  fetchUserRoleByEmail,
+  formatExistingUserRole,
+  normalizeEmail,
+} from "./inviteUtils";
 import MembershipApplicationsPanel from "./MembershipApplicationsPanel";
 
 const LOCUM_WORK_TYPES = ["LOCUM", "SHIFT_HERO"] as const;
@@ -43,6 +58,26 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "ASSISTANT", label: "Pharmacy Assistant" },
   { value: "STUDENT", label: "Pharmacy Student" },
 ];
+
+type InviteRowState = {
+  email: string;
+  invited_name: string;
+  role: Role;
+  employment_type: (typeof LOCUM_WORK_TYPES)[number];
+  existingUserRole?: UserPortalRole | null;
+  checking?: boolean;
+  error?: string | null;
+};
+
+const createInviteRow = (): InviteRowState => ({
+  email: "",
+  invited_name: "",
+  role: "PHARMACIST",
+  employment_type: "LOCUM",
+  existingUserRole: undefined,
+  checking: false,
+  error: null,
+});
 
 const getRoleChipColor = (role: Role) => {
   switch (role) {
@@ -135,14 +170,9 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
   const [confirmRemove, setConfirmRemove] = useState<Locum | null>(null);
   const showSkeleton = loading && memberships.length === 0;
 
-  const [inviteRows, setInviteRows] = useState([
-    { email: "", invited_name: "", role: "PHARMACIST" as Role, employment_type: "LOCUM" as (typeof LOCUM_WORK_TYPES)[number] },
-  ]);
+  const [inviteRows, setInviteRows] = useState<InviteRowState[]>([createInviteRow()]);
 
-  const resetInviteRows = () =>
-    setInviteRows([
-      { email: "", invited_name: "", role: "PHARMACIST" as Role, employment_type: "LOCUM" as (typeof LOCUM_WORK_TYPES)[number] },
-    ]);
+  const resetInviteRows = () => setInviteRows([createInviteRow()]);
 
   const handleInviteFieldChange = (
     idx: number,
@@ -151,18 +181,94 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
   ) => {
     setInviteRows((prev) => {
       const next = [...prev];
-      next[idx] = { ...next[idx], [field]: value } as any;
+      const row = next[idx];
+      if (!row) {
+        return prev;
+      }
+      const updated: InviteRowState = { ...row, [field]: value } as InviteRowState;
+      if (field === "email") {
+        updated.existingUserRole = undefined;
+        updated.error = null;
+      }
+      if (field === "role") {
+        updated.error = describeRoleMismatch(value as Role, updated.existingUserRole);
+      }
+      next[idx] = updated;
       return next;
     });
   };
 
-  const addInviteRow = () =>
-    setInviteRows((prev) => [
-      ...prev,
-      { email: "", invited_name: "", role: "PHARMACIST" as Role, employment_type: "LOCUM" as (typeof LOCUM_WORK_TYPES)[number] },
-    ]);
+  const refreshInviteRowUserRole = useCallback(
+    async (idx: number) => {
+      const row = inviteRows[idx];
+      if (!row) {
+        return;
+      }
+      const email = normalizeEmail(row.email);
+      if (!email || !email.includes("@")) {
+        setInviteRows((prev) => {
+          const next = [...prev];
+          if (!next[idx]) {
+            return prev;
+          }
+          next[idx] = { ...next[idx], existingUserRole: null, checking: false, error: null };
+          return next;
+        });
+        return;
+      }
 
-  const removeInviteRow = (idx: number) => setInviteRows((prev) => prev.filter((_, rowIdx) => rowIdx !== idx));
+      setInviteRows((prev) => {
+        const next = [...prev];
+        const current = next[idx];
+        if (!current) {
+          return prev;
+        }
+        next[idx] = { ...current, checking: true, error: null };
+        return next;
+      });
+
+      try {
+        const fetchedRole = await fetchUserRoleByEmail(email);
+        setInviteRows((prev) => {
+          const next = [...prev];
+          const current = next[idx];
+          if (!current || normalizeEmail(current.email) !== email) {
+            return prev;
+          }
+          next[idx] = {
+            ...current,
+            checking: false,
+            existingUserRole: fetchedRole,
+            error: describeRoleMismatch(current.role, fetchedRole),
+          };
+          return next;
+        });
+      } catch {
+        setInviteRows((prev) => {
+          const next = [...prev];
+          const current = next[idx];
+          if (!current || normalizeEmail(current.email) !== email) {
+            return prev;
+          }
+          next[idx] = {
+            ...current,
+            checking: false,
+            error: "We couldn't verify this email. Please try again.",
+          };
+          return next;
+        });
+      }
+    },
+    [inviteRows]
+  );
+
+  const addInviteRow = () => setInviteRows((prev) => [...prev, createInviteRow()]);
+
+  const removeInviteRow = (idx: number) =>
+    setInviteRows((prev) => {
+      const next = prev.filter((_, rowIdx) => rowIdx !== idx);
+      return next.length ? next : [createInviteRow()];
+    });
 
   const openInviteDialog = () => {
     resetInviteRows();
@@ -170,19 +276,79 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
   };
 
   const handleSendInvites = async () => {
-    const payload = inviteRows
-      .filter((row) => row.email)
-      .map((row) => ({
-        ...row,
-        pharmacy: pharmacyId,
-      }));
-
-    if (!payload.length) {
+    let rows = inviteRows.map((row) => ({
+      ...row,
+      email: row.email.trim(),
+    }));
+    const rowsWithEmail = rows.filter((row) => row.email);
+    if (!rowsWithEmail.length) {
       setToast({ message: "Please add at least one invite.", severity: "error" });
       return;
     }
 
     setInviteSubmitting(true);
+    let hasErrors = false;
+    for (let idx = 0; idx < rows.length; idx += 1) {
+      const row = rows[idx];
+      if (!row.email) {
+        continue;
+      }
+
+      const normalizedEmail = normalizeEmail(row.email);
+      if (!normalizedEmail || !normalizedEmail.includes("@")) {
+        rows[idx] = { ...row, error: "Please enter a valid email address.", checking: false };
+        hasErrors = true;
+        continue;
+      }
+
+      let userRole = row.existingUserRole;
+      if (typeof userRole === "undefined") {
+        try {
+          userRole = await fetchUserRoleByEmail(normalizedEmail);
+        } catch {
+          rows[idx] = {
+            ...row,
+            checking: false,
+            error: "We couldn't verify this email. Please try again.",
+          };
+          hasErrors = true;
+          continue;
+        }
+      }
+
+      const mismatch = describeRoleMismatch(row.role, userRole);
+      if (mismatch) {
+        hasErrors = true;
+      }
+
+      rows[idx] = {
+        ...row,
+        checking: false,
+        existingUserRole: userRole ?? null,
+        error: mismatch,
+      };
+    }
+
+    setInviteRows(rows);
+    if (hasErrors) {
+      setToast({
+        message: "One or more invitations need attention before sending.",
+        severity: "error",
+      });
+      setInviteSubmitting(false);
+      return;
+    }
+
+    const payload = rows
+      .filter((row) => row.email)
+      .map((row) => ({
+        email: row.email,
+        invited_name: row.invited_name,
+        role: row.role,
+        employment_type: row.employment_type,
+        pharmacy: pharmacyId,
+      }));
+
     try {
       const response = await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`, {
         invitations: payload,
@@ -424,22 +590,31 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
                 type="email"
                 value={row.email}
                 onChange={(e) => handleInviteFieldChange(idx, "email", e.target.value)}
+                onBlur={() => void refreshInviteRowUserRole(idx)}
                 fullWidth
                 required
               />
-              <FormControl fullWidth>
+              <FormControl fullWidth error={Boolean(row.error)}>
                 <InputLabel id={`role-${idx}`}>Role</InputLabel>
                 <Select
                   labelId={`role-${idx}`}
                   label="Role"
                   value={row.role}
-                  onChange={(e) => handleInviteFieldChange(idx, "role", e.target.value)}
+                  onChange={(e) => handleInviteFieldChange(idx, "role", e.target.value as Role)}
                 >
-                  {ROLE_OPTIONS.map((opt) => (
-                    <MenuItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </MenuItem>
-                  ))}
+                  {ROLE_OPTIONS.map((opt) => {
+                    const requiredRole = requiredUserRoleForMembership(opt.value);
+                    const disableOption =
+                      requiredRole !== null &&
+                      row.existingUserRole !== undefined &&
+                      row.existingUserRole !== null &&
+                      row.existingUserRole !== requiredRole;
+                    return (
+                      <MenuItem key={opt.value} value={opt.value} disabled={disableOption}>
+                        {opt.label}
+                      </MenuItem>
+                    );
+                  })}
                 </Select>
               </FormControl>
               <FormControl fullWidth>
@@ -457,6 +632,26 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
                   ))}
                 </Select>
               </FormControl>
+              <Box sx={{ gridColumn: "span 2", minHeight: 20 }}>
+                {row.checking ? (
+                  <Typography variant="caption" color="text.secondary">
+                    Checking existing account...
+                  </Typography>
+                ) : row.error ? (
+                  <Typography variant="caption" color="error">
+                    {row.error}
+                  </Typography>
+                ) : (
+                  (() => {
+                    const label = formatExistingUserRole(row.existingUserRole);
+                    return label ? (
+                      <Typography variant="caption" color="text.secondary">
+                        {label}
+                      </Typography>
+                    ) : null;
+                  })()
+                )}
+              </Box>
               <Box sx={{ gridColumn: "span 2", display: "flex", justifyContent: "flex-end", gap: 1 }}>
                 {inviteRows.length > 1 && (
                   <Button color="error" onClick={() => removeInviteRow(idx)}>

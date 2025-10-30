@@ -12,8 +12,11 @@ import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
 import { useSearchParams } from 'react-router-dom';
+
+dayjs.extend(utc);
 
 interface ShiftSlot {
   id: number;
@@ -81,7 +84,7 @@ const shiftLabel = (s: any) => {
   const end   = first?.end_time   ?? s?.end_time   ?? null;
 
   const role = s?.role_needed ?? s?.role ?? '';
-  const dateStr = date ? dayjs(date).format('DD MMM YYYY') : 'No date';
+  const dateStr = date ? dayjs.utc(date).local().format('DD MMM YYYY') : 'No date';
   const timeStr = start && end ? ` (${String(start).slice(0,5)}–${String(end).slice(0,5)})` : '';
 
   // small hints to differentiate recurring/multi-slot shifts
@@ -373,9 +376,9 @@ useEffect(() => {
     // Recalc hours if start/end changed
     if(field === 'start_time' || field === 'end_time'){
       const { date, start_time, end_time } = c[idx];
-      const s = new Date(`${date}T${start_time}`);
-      const e = new Date(`${date}T${end_time}`);
-      c[idx].quantity = parseFloat(((e.getTime()-s.getTime())/3600000).toFixed(2));
+      const s = dayjs.utc(`${date}T${start_time}`).local();
+      const e = dayjs.utc(`${date}T${end_time}`).local();
+      c[idx].quantity = parseFloat(((e.valueOf()-s.valueOf())/3600000).toFixed(2));
     }
     
     // Set quantity to 1 for Transportation and Accommodation

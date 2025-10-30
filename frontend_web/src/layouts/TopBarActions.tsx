@@ -32,6 +32,10 @@ import { useAuth } from "../contexts/AuthContext";
 import { fetchNotifications, markNotificationsRead, NotificationItem } from "../api/notifications";
 import { API_BASE_URL, API_ENDPOINTS } from "../constants/api";
 import apiClient from "../utils/apiClient";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+
+dayjs.extend(utc);
 
 type SearchOption = {
   label: string;
@@ -990,7 +994,7 @@ export default function TopBarActions() {
                   >
                     <ListItemText
                       primary={item.title}
-                      secondary={item.body || new Date(item.created_at).toLocaleString()}
+                      secondary={item.body || dayjs.utc(item.created_at).local().toDate().toLocaleString()}
                       primaryTypographyProps={{ fontWeight: item.read_at ? 500 : 700 }}
                       secondaryTypographyProps={{ color: "text.secondary" }}
                     />

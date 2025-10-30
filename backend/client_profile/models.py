@@ -1749,9 +1749,7 @@ class Participant(models.Model):
     conversation = models.ForeignKey('client_profile.Conversation',
                                      on_delete=models.CASCADE,
                                      related_name='participants')
-    membership = models.ForeignKey('client_profile.Membership',
-                                   on_delete=models.PROTECT,
-                                   related_name='chat_participations')
+    membership = models.ForeignKey(Membership, on_delete=models.SET_NULL, null=True, blank=True, related_name='chat_participations')
     is_admin = models.BooleanField(default=False)
     joined_at = models.DateTimeField(auto_now_add=True)
     last_read_at = models.DateTimeField(null=True, blank=True)
@@ -1970,11 +1968,8 @@ class PharmacyHubPost(models.Model):
         on_delete=models.CASCADE,
         related_name="hub_posts",
     )
-    author_membership = models.ForeignKey(
-        "client_profile.Membership",
-        on_delete=models.PROTECT,
-        related_name="hub_posts",
-    )
+    author_membership = models.ForeignKey(Membership, on_delete=models.SET_NULL, null=True, blank=True)
+
     body = models.TextField()
     visibility = models.CharField(
         max_length=16,
@@ -2127,11 +2122,8 @@ class PharmacyHubComment(models.Model):
         on_delete=models.CASCADE,
         related_name="comments",
     )
-    author_membership = models.ForeignKey(
-        "client_profile.Membership",
-        on_delete=models.PROTECT,
-        related_name="hub_comments",
-    )
+    author_membership = models.ForeignKey(Membership, on_delete=models.SET_NULL, null=True, blank=True)
+
     body = models.TextField()
     parent_comment = models.ForeignKey(
         "self",

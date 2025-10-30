@@ -1,4 +1,4 @@
-
+﻿
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -57,6 +57,10 @@ import {
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
+// --- Timezone handling (match PostShiftPage) ---
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+dayjs.extend(utc);
 
 interface PaginatedResponse<T> {
   count: number;
@@ -239,14 +243,11 @@ const dedupeMembers = (members: MemberStatus[]): MemberStatus[] => {
 };
 
 const deriveLevelSequence = (shift: Shift) => {
-  const hasOrganizationAccess =
-    Boolean(shift.pharmacy_detail?.organization) ||
-    shift.pharmacy_detail?.claim_status === 'ACCEPTED' ||
-    shift.visibility === 'ORG_CHAIN';
-
-  return ESCALATION_LEVELS.filter(level =>
-    level.requiresOrganization ? hasOrganizationAccess : true
-  );
+  const allowed = new Set(shift.allowed_escalation_levels ?? []);
+  if (!allowed.size) {
+    return ESCALATION_LEVELS;
+  }
+  return ESCALATION_LEVELS.filter(level => allowed.has(level.key));
 };
 
 interface ColorStepIconProps {
@@ -317,7 +318,11 @@ const formatAddress = (pharmacy: PharmacyDetail) =>
     .filter(Boolean)
     .join(', ');
 
-const formatSlotLabel = (slot: Slot) => `${slot.date} ${slot.start_time}\\u2013${slot.end_time}`;
+const formatSlotLabel = (slot: Slot) => {
+  const localDate = dayjs.utc(`${slot.date}T${slot.start_time}`).local().format('ddd, MMM D YYYY h:mm A');
+  const localEnd = dayjs.utc(`${slot.date}T${slot.end_time}`).local().format('h:mm A');
+  return `${localDate} – ${localEnd}`;
+};
 const PosterShiftDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -431,11 +436,11 @@ const PosterShiftDetailPage: React.FC = () => {
 
   const handleLevelSelect = useCallback(
     (currentShift: Shift, levelKey: EscalationKey) => {
-      const levelSequence = deriveLevelSequence(currentShift);
-      const currentLevelIdx = levelSequence.findIndex(level => level.key === currentShift.visibility);
-      const targetLevelIdx = levelSequence.findIndex(level => level.key === levelKey);
-
-      if (targetLevelIdx === -1 || (currentLevelIdx !== -1 && targetLevelIdx > currentLevelIdx)) {
+      const allowedKeys = new Set(currentShift.allowed_escalation_levels || []);
+      if (!allowedKeys.size) {
+        ESCALATION_LEVELS.forEach(level => allowedKeys.add(level.key));
+      }
+      if (!allowedKeys.has(levelKey)) {
         return;
       }
 
@@ -454,7 +459,9 @@ const PosterShiftDetailPage: React.FC = () => {
 
       setEscalating(prev => ({ ...prev, [currentShift.id]: true }));
       try {
-        await apiClient.post(`${API_ENDPOINTS.getActiveShifts}${currentShift.id}/escalate/`);
+        await apiClient.post(`${API_ENDPOINTS.getActiveShifts}${currentShift.id}/escalate/`, {
+          target_visibility: targetLevelKey,
+        });
         showSnackbar(`Shift escalated to ${ESCALATION_LEVELS[targetLevelIdx].label}.`);
 
         const updatedShiftRes = await apiClient.get<Shift>(`${API_ENDPOINTS.getActiveShifts}${currentShift.id}/`);
@@ -732,13 +739,31 @@ const PosterShiftDetailPage: React.FC = () => {
   const currentTabKey = shift ? getTabKey(shift.id, effectiveLevelKey) : null;
   const currentTabData = currentTabKey ? tabData[currentTabKey] : undefined;
 
+  const selectedLevelIdx = levelSequence.findIndex(level => level.key === effectiveLevelKey);
+
+  const allowedKeys = new Set(shift?.allowed_escalation_levels || []);
+  if (!allowedKeys.size) {
+    ESCALATION_LEVELS.forEach(level => allowedKeys.add(level.key));
+  }
+
   const nextLevel =
     currentLevelIdx !== -1 && currentLevelIdx + 1 < levelSequence.length
       ? levelSequence[currentLevelIdx + 1]
       : undefined;
 
+  const canEscalateToSelected =
+    !!(shift && selectedLevelIdx > currentLevelIdx && selectedLevelIdx !== -1 && allowedKeys.has(effectiveLevelKey));
+
   const canEscalateToNext =
-    !!(shift && nextLevel && shift.allowed_escalation_levels.includes(nextLevel.key));
+    !!(shift && nextLevel && allowedKeys.has(nextLevel.key));
+
+  const escalateTarget =
+    canEscalateToSelected
+      ? levelSequence[selectedLevelIdx]
+      : canEscalateToNext
+      ? nextLevel
+      : undefined;
+
 
   const aggregatedMembers = useMemo(() => {
     if (!currentTabData?.membersBySlot) return [] as MemberStatus[];
@@ -926,39 +951,44 @@ const PosterShiftDetailPage: React.FC = () => {
             <Stepper alternativeLabel activeStep={Math.max(0, currentLevelIdx)} connector={<ColorStepConnector />}>
               {levelSequence.map((level, index) => (
                 <Step key={level.key} completed={index < currentLevelIdx}>
-                  <ButtonBase
-                    onClick={() => handleLevelSelect(shift, level.key)}
-                    disabled={index > currentLevelIdx}
-                    sx={{
-                      width: '100%',
-                      pt: 2,
-                      borderRadius: 2,
-                      transition: 'background-color 0.3s',
-                    }}
-                  >
-                    <StepLabel
-                      StepIconComponent={props => <ColorStepIcon {...props} icon={level.icon} />}
-                      sx={{
-                        flexDirection: 'column',
-                        '& .MuiStepLabel-label': {
-                          mt: 1.5,
-                          fontWeight: 500,
-                          color:
-                            effectiveLevelKey === level.key
-                              ? customTheme.palette.primary.main
-                              : outerTheme.palette.text.secondary,
-                          ...(index > currentLevelIdx && { color: outerTheme.palette.text.disabled }),
-                        },
-                      }}
-                    >
-                      {level.label}
-                    </StepLabel>
-                  </ButtonBase>
+                  {(() => {
+                    const levelSelectable = index <= currentLevelIdx || allowedKeys.has(level.key);
+                    return (
+                      <ButtonBase
+                        onClick={() => (levelSelectable ? handleLevelSelect(shift, level.key) : undefined)}
+                        disabled={!levelSelectable}
+                        sx={{
+                          width: '100%',
+                          pt: 2,
+                          borderRadius: 2,
+                          transition: 'background-color 0.3s',
+                        }}
+                      >
+                        <StepLabel
+                          StepIconComponent={props => <ColorStepIcon {...props} icon={level.icon} />}
+                          sx={{
+                            flexDirection: 'column',
+                            '& .MuiStepLabel-label': {
+                              mt: 1.5,
+                              fontWeight: 500,
+                              color:
+                                effectiveLevelKey === level.key
+                                  ? customTheme.palette.primary.main
+                                  : outerTheme.palette.text.secondary,
+                              ...(!levelSelectable && { color: outerTheme.palette.text.disabled }),
+                            },
+                          }}
+                        >
+                          {level.label}
+                        </StepLabel>
+                      </ButtonBase>
+                    );
+                  })()}
                 </Step>
               ))}
             </Stepper>
 
-            {canEscalateToNext && nextLevel && (
+            {shift && escalateTarget && (
               <Paper
                 variant="outlined"
                 sx={{
@@ -972,16 +1002,18 @@ const PosterShiftDetailPage: React.FC = () => {
                 }}
               >
                 <Typography color="text.secondary" sx={{ mb: 2 }}>
-                  Ready to expand your reach? Escalate this shift to <strong>{nextLevel.label}</strong>.
+                  Ready to expand your reach? Escalate this shift to <strong>{escalateTarget.label}</strong>.
                 </Typography>
                 <Button
                   variant="contained"
                   color="primary"
-                  onClick={() => handleEscalate(shift, nextLevel.key)}
+                  onClick={() => handleEscalate(shift, escalateTarget.key)}
                   disabled={escalating[shift.id]}
-                  startIcon={escalating[shift.id] ? <CircularProgress size={18} color="inherit" /> : undefined}
+                  startIcon={
+                    escalating[shift.id] ? <CircularProgress size={18} color="inherit" /> : undefined
+                  }
                 >
-                  {escalating[shift.id] ? 'Escalating…' : `Escalate to ${nextLevel.label}`}
+                  {escalating[shift.id] ? 'Escalating...' : `Escalate to ${escalateTarget.label}`}
                 </Button>
               </Paper>
             )}

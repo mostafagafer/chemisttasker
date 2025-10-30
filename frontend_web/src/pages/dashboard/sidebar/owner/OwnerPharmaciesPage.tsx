@@ -8,14 +8,19 @@ export default function OwnerPharmaciesPage({
   pharmacies,
   staffCounts,
   onOpenPharmacy,
-  onOpenAdmins,
+  onOpenAdmins: _onOpenAdmins,
+  onEditPharmacy,
+  onDeletePharmacy,
 }: {
   pharmacies: PharmacyDTO[];
   staffCounts: Record<string, number>;
   onOpenPharmacy: (pharmacyId: string) => void;
-  onOpenAdmins: (pharmacyId: string) => void;
+  onOpenAdmins?: (pharmacyId: string) => void;
+  onEditPharmacy?: (pharmacy: PharmacyDTO) => void;
+  onDeletePharmacy?: (pharmacyId: string) => void;
 }) {
-  const t = useTheme(); const s = surface(t);
+  const t = useTheme();
+  const s = surface(t);
 
   return (
     <Box sx={{ maxWidth: 1200, mx: "auto", p: 3 }}>
@@ -23,7 +28,11 @@ export default function OwnerPharmaciesPage({
         {pharmacies.map((p) => {
           const address = [p.street_address, p.suburb].filter(Boolean).join(", ");
           return (
-            <Card key={p.id} variant="outlined" sx={{ flex: "1 1 420px", maxWidth: 560, background: s.bg, borderColor: s.border }}>
+            <Card
+              key={p.id}
+              variant="outlined"
+              sx={{ flex: "1 1 420px", maxWidth: 560, background: s.bg, borderColor: s.border }}
+            >
               <CardContent sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
                 <Box sx={{ p: 1.2, borderRadius: 2, bgcolor: s.hover }}>
                   <DomainIcon />
@@ -43,9 +52,16 @@ export default function OwnerPharmaciesPage({
                   <Button variant="outlined" size="small" onClick={() => onOpenPharmacy(p.id)}>
                     Open
                   </Button>
-                  <Button variant="contained" size="small" onClick={() => onOpenAdmins(p.id)}>
-                    Admins
-                  </Button>
+                  {onEditPharmacy && (
+                    <Button variant="outlined" size="small" onClick={() => onEditPharmacy(p)}>
+                      Edit
+                    </Button>
+                  )}
+                  {onDeletePharmacy && (
+                    <Button color="error" size="small" onClick={() => onDeletePharmacy(p.id)}>
+                      Delete
+                    </Button>
+                  )}
                 </Stack>
               </CardContent>
             </Card>

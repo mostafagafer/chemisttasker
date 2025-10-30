@@ -1938,6 +1938,12 @@ class ChainViewSet(viewsets.ModelViewSet):
 # Shifts Mangment
 COMMUNITY_LEVELS = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN','ORG_CHAIN']
 PUBLIC_LEVEL = 'PLATFORM'
+ESCALATION_FIELD_MAP = {
+    'LOCUM_CASUAL': 'escalate_to_locum_casual',
+    'OWNER_CHAIN': 'escalate_to_owner_chain',
+    'ORG_CHAIN': 'escalate_to_org_chain',
+    'PLATFORM': 'escalate_to_platform',
+}
 
 class BaseShiftViewSet(viewsets.ModelViewSet):
     queryset = Shift.objects.all()
@@ -1956,47 +1962,147 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         else:
             pharmacy = self.get_object().pharmacy
 
-        # 1) Pharmacy owner can always post
-        if pharmacy.owner and pharmacy.owner.user == user:
+        if self._user_can_manage_pharmacy(user, pharmacy):
             return
 
-        # 2) Org‐admins of the pharmacy’s organization can post
+        self.permission_denied(request)
+
+    @staticmethod
+    def _user_can_manage_pharmacy(user, pharmacy):
+        if pharmacy.owner and getattr(pharmacy.owner, 'user', None) == user:
+            return True
+
         if OrganizationMembership.objects.filter(
             user=user,
             role='ORG_ADMIN',
             organization_id=pharmacy.organization_id
         ).exists():
-            return
+            return True
 
-        # 3) Pharmacy Admin for THIS pharmacy can post
         if Membership.objects.filter(
             user=user,
             pharmacy=pharmacy,
             role='PHARMACY_ADMIN',
             is_active=True
         ).exists():
-            return
+            return True
 
-
-        # Otherwise, block
-        self.permission_denied(request)
+        return False
 
     def get_queryset(self):
-        qs = Shift.objects.all().annotate(interested_users_count=Count('interests'))
         now = timezone.now()
-        esc_rules = [
-            (0, 'escalate_to_locum_casual', 'LOCUM_CASUAL', 1),
-            (1, 'escalate_to_owner_chain',  'OWNER_CHAIN', 2),
-            (2, 'escalate_to_org_chain',    'ORG_CHAIN',   3),
-            (3, 'escalate_to_platform',     'PLATFORM',    4),
-        ]
-        for lvl, date_field, next_vis, next_lvl in esc_rules:
-            Shift.objects.filter(
-                escalation_level=lvl,
-                **{f'{date_field}__lte': now},
-                interests__isnull=True
-            ).update(visibility=next_vis, escalation_level=next_lvl)
-        return qs
+        self._auto_escalate_shifts(now)
+        return Shift.objects.all().annotate(interested_users_count=Count('interests'))
+
+    def _auto_escalate_shifts(self, now):
+        date_filter = Q()
+        for field in ESCALATION_FIELD_MAP.values():
+            date_filter |= Q(**{f'{field}__lte': now})
+
+        if not date_filter:
+            return
+
+        candidates = Shift.objects.filter(
+            interests__isnull=True
+        ).filter(date_filter).select_related('pharmacy', 'pharmacy__owner', 'created_by')
+
+        for shift in candidates:
+            allowed_tiers = self.serializer_class.build_allowed_tiers(shift.pharmacy)
+            if not allowed_tiers:
+                continue
+
+            current_index = self._resolve_current_index(shift, allowed_tiers)
+            target_index = current_index
+
+            for idx in range(current_index + 1, len(allowed_tiers)):
+                tier = allowed_tiers[idx]
+                field = ESCALATION_FIELD_MAP.get(tier)
+                if not field:
+                    continue
+                ts = getattr(shift, field)
+                if ts and ts <= now:
+                    target_index = idx
+
+            if target_index > current_index:
+                target_visibility = allowed_tiers[target_index]
+                if target_visibility == PUBLIC_LEVEL:
+                    try:
+                        enforce_public_shift_daily_limit(shift.pharmacy)
+                    except ValidationError:
+                        continue
+                self._apply_escalation(shift, allowed_tiers, target_index, stamp_missing=False)
+
+    @staticmethod
+    def _resolve_current_index(shift, allowed_tiers):
+        try:
+            return allowed_tiers.index(shift.visibility)
+        except ValueError:
+            idx = shift.escalation_level or 0
+            if idx < 0:
+                idx = 0
+            if idx >= len(allowed_tiers):
+                idx = len(allowed_tiers) - 1
+            return idx
+
+    @staticmethod
+    def _apply_escalation(shift, allowed_tiers, target_index, *, stamp_missing=True, timestamp=None):
+        target_visibility = allowed_tiers[target_index]
+        update_fields = ['visibility', 'escalation_level']
+        shift.visibility = target_visibility
+        shift.escalation_level = target_index
+
+        if stamp_missing:
+            stamp_time = timestamp or timezone.now()
+            for idx in range(1, target_index + 1):
+                tier = allowed_tiers[idx]
+                field = ESCALATION_FIELD_MAP.get(tier)
+                if field and not getattr(shift, field):
+                    setattr(shift, field, stamp_time)
+                    update_fields.append(field)
+
+        # Remove duplicates while preserving order
+        shift.save(update_fields=list(dict.fromkeys(update_fields)))
+        return target_visibility
+
+    @action(detail=True, methods=['post'])
+    def escalate(self, request, pk=None):
+        shift = self.get_object()
+        user = request.user
+
+        if not self._user_can_manage_pharmacy(user, shift.pharmacy):
+            return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+
+        allowed_tiers = self.serializer_class.build_allowed_tiers(shift.pharmacy)
+        if not allowed_tiers:
+            return Response({'detail': 'No escalation tiers available for this pharmacy.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        current_index = self._resolve_current_index(shift, allowed_tiers)
+
+        target_visibility = request.data.get('target_visibility')
+        if target_visibility:
+            if target_visibility not in allowed_tiers:
+                return Response(
+                    {'detail': f"Invalid target_visibility. Must be one of {allowed_tiers}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            target_index = allowed_tiers.index(target_visibility)
+        else:
+            target_index = current_index + 1
+
+        if target_index <= current_index:
+            return Response({'detail': 'Shift is already at or above that visibility level.'}, status=status.HTTP_400_BAD_REQUEST)
+        if target_index >= len(allowed_tiers):
+            return Response({'detail': 'Already at the highest escalation level.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        next_visibility = allowed_tiers[target_index]
+        if next_visibility == PUBLIC_LEVEL:
+            try:
+                enforce_public_shift_daily_limit(shift.pharmacy)
+            except ValidationError as exc:
+                raise ValidationError(exc.detail if hasattr(exc, 'detail') else exc.args[0])
+
+        visibility = self._apply_escalation(shift, allowed_tiers, target_index)
+        return Response({'detail': f'Shift escalated to {visibility}.'}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'])
     def express_interest(self, request, pk=None):
@@ -2933,70 +3039,6 @@ class ActiveShiftViewSet(BaseShiftViewSet):
 
         return Response(data)
 
-    # OVERRIDE/RE-DEFINE escalate to ensure URL generation for ActiveShiftViewSet
-    @action(detail=True, methods=['post'])
-    def escalate(self, request, pk=None):
-        # You can call super() if you want to reuse the BaseShiftViewSet's logic
-        # return super().escalate(request, pk)
-        # OR, copy the entire logic from BaseShiftViewSet's escalate here:
-        shift = self.get_object()
-        user = request.user
-
-        # Only allow owner, org-admin, or this pharmacy’s Admin to escalate
-        pharmacy = shift.pharmacy
-        is_owner = (pharmacy.owner and pharmacy.owner.user == user)
-        is_org_admin = OrganizationMembership.objects.filter(
-            user=user,
-            role='ORG_ADMIN',
-            organization_id=pharmacy.organization_id
-        ).exists()
-        is_pharm_admin = Membership.objects.filter(
-            user=user,
-            pharmacy=pharmacy,
-            role='PHARMACY_ADMIN',
-            is_active=True
-        ).exists()
-
-        if not (is_owner or is_org_admin or is_pharm_admin):
-            return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
-
-        # Escalation levels and mapping
-        escalation_flow = [
-            'FULL_PART_TIME',
-            'LOCUM_CASUAL',
-            'OWNER_CHAIN',
-            'ORG_CHAIN',
-            'PLATFORM'
-        ]
-        try:
-            current_index = escalation_flow.index(shift.visibility)
-        except ValueError:
-            return Response({'detail': 'Invalid current visibility level.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        if current_index == len(escalation_flow) - 1:
-            return Response({'detail': 'Already at highest escalation (Platform/Public).'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Advance to next escalation
-        next_visibility = escalation_flow[current_index + 1]
-        if next_visibility == PUBLIC_LEVEL:
-            enforce_public_shift_daily_limit(pharmacy)
-        shift.visibility = next_visibility
-        shift.escalation_level = current_index + 1
-
-        # Optionally, set escalation timestamp if you want to track it
-        field_map = {
-            1: 'escalate_to_locum_casual',
-            2: 'escalate_to_owner_chain',
-            3: 'escalate_to_org_chain',
-            4: 'escalate_to_platform'
-        }
-        field = field_map.get(shift.escalation_level)
-        if field and hasattr(shift, field) and not getattr(shift, field):
-            setattr(shift, field, timezone.now())
-
-        shift.save()
-        return Response({'detail': f'Shift escalated to {next_visibility}.'}, status=status.HTTP_200_OK)
-
 class ConfirmedShiftViewSet(BaseShiftViewSet):
     """Upcoming & in-progress fully assigned shifts."""
     def get_queryset(self):
@@ -3665,47 +3707,48 @@ class RosterShiftManageViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def escalate(self, request, pk=None):
         """
-        Escalates the shift's visibility to the NEXT level and removes any assigned staff.
+        Escalate a roster-managed shift while clearing any existing assignments.
         """
         shift = self.get_object()
-        user = request.user
-        pharm = shift.pharmacy
-        allowed = (
-            (pharm.owner and pharm.owner.user == user)
-            or OrganizationMembership.objects.filter(
-                user=user, role='ORG_ADMIN', organization_id=pharm.organization_id
-            ).exists()
-            or Membership.objects.filter(
-                user=user, pharmacy=pharm, role='PHARMACY_ADMIN', is_active=True
-            ).exists()
-        )
-        if not allowed:
+
+        if not BaseShiftViewSet._user_can_manage_pharmacy(request.user, shift.pharmacy):
             return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
 
-        # Un-assign any current user
+        # Clear all existing assignments before escalating
         shift.slot_assignments.all().delete()
-        
-        # This logic correctly finds the next level in your defined flow
-        escalation_flow = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM']
-        try:
-            current_index = escalation_flow.index(shift.visibility)
-        except ValueError:
-            # If current visibility isn't in the flow, reset to the start
-            current_index = -1
 
-        if current_index >= len(escalation_flow) - 1:
-            return Response({'detail': 'Already at highest escalation level (Platform).'}, status=status.HTTP_400_BAD_REQUEST)
+        allowed_tiers = self.serializer_class.build_allowed_tiers(shift.pharmacy)
+        if not allowed_tiers:
+            return Response({'detail': 'No escalation tiers available for this pharmacy.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        next_visibility = escalation_flow[current_index + 1]
+        current_index = BaseShiftViewSet._resolve_current_index(shift, allowed_tiers)
+
+        target_visibility = request.data.get('target_visibility')
+        if target_visibility:
+            if target_visibility not in allowed_tiers:
+                return Response(
+                    {'detail': f"Invalid target_visibility. Must be one of {allowed_tiers}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            target_index = allowed_tiers.index(target_visibility)
+        else:
+            target_index = current_index + 1
+
+        if target_index <= current_index:
+            return Response({'detail': 'Shift is already at or above that visibility level.'}, status=status.HTTP_400_BAD_REQUEST)
+        if target_index >= len(allowed_tiers):
+            return Response({'detail': 'Already at the highest escalation level.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        next_visibility = allowed_tiers[target_index]
         if next_visibility == PUBLIC_LEVEL:
-            enforce_public_shift_daily_limit(pharm)
-        shift.visibility = next_visibility
-        shift.escalation_level = current_index + 1 # The integer representation
-        shift.save()
-        
-        return Response({
-            'detail': f'Shift escalated to {next_visibility} and is now unassigned.'
-        }, status=status.HTTP_200_OK)
+            try:
+                enforce_public_shift_daily_limit(shift.pharmacy)
+            except ValidationError as exc:
+                raise ValidationError(exc.detail if hasattr(exc, 'detail') else exc.args[0])
+
+        visibility = BaseShiftViewSet._apply_escalation(shift, allowed_tiers, target_index)
+        detail_prefix = f'Shift escalated to {visibility}'.rstrip('.')
+        return Response({'detail': f'{detail_prefix} and is now unassigned.'}, status=status.HTTP_200_OK)
 
 class CreateShiftAndAssignView(APIView):
     permission_classes = [IsAuthenticated]

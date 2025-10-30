@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Box,
@@ -21,6 +21,7 @@ import {
   TextField,
   Tooltip,
   Typography,
+  Skeleton,
 } from "@mui/material";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import AddIcon from "@mui/icons-material/Add";
@@ -37,9 +38,32 @@ const LOCUM_WORK_TYPES = ["LOCUM", "SHIFT_HERO"] as const;
 
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "PHARMACIST", label: "Pharmacist" },
-  { value: "TECHNICIAN", label: "Technician" },
-  { value: "ASSISTANT", label: "Assistant" },
+  { value: "INTERN", label: "Intern Pharmacist" },
+  { value: "TECHNICIAN", label: "Dispensary Technician" },
+  { value: "ASSISTANT", label: "Pharmacy Assistant" },
+  { value: "STUDENT", label: "Pharmacy Student" },
 ];
+
+const getRoleChipColor = (role: Role) => {
+  switch (role) {
+    case "PHARMACIST":
+      return "success";
+    case "TECHNICIAN":
+      return "info";
+    case "ASSISTANT":
+      return "warning";
+    case "INTERN":
+      return "secondary";
+    case "STUDENT":
+      return "default";
+    case "CONTACT":
+      return "default";
+    case "PHARMACY_ADMIN":
+      return "primary";
+    default:
+      return "default";
+  }
+};
 
 type Locum = {
   id: string | number;
@@ -53,9 +77,10 @@ type LocumManagerProps = {
   pharmacyId: string;
   memberships: MembershipDTO[];
   onMembershipsChanged: () => void;
+  loading?: boolean;
 };
 
-export default function LocumManager({ pharmacyId, memberships, onMembershipsChanged }: LocumManagerProps) {
+export default function LocumManager({ pharmacyId, memberships, onMembershipsChanged, loading = false }: LocumManagerProps) {
   const theme = useTheme();
   const tokens = surface(theme);
 
@@ -97,10 +122,18 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
   const [deleteLoadingId, setDeleteLoadingId] = useState<string | number | null>(null);
   const [toast, setToast] = useState<{ message: string; severity: "success" | "error" } | null>(null);
+  const handleApplicationsNotification = useCallback(
+    (message: string, severity: "success" | "error") => {
+      setToast({ message, severity });
+    },
+    []
+  );
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkExpiry, setLinkExpiry] = useState("14");
   const [linkValue, setLinkValue] = useState("");
   const [linkSubmitting, setLinkSubmitting] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<Locum | null>(null);
+  const showSkeleton = loading && memberships.length === 0;
 
   const [inviteRows, setInviteRows] = useState([
     { email: "", invited_name: "", role: "PHARMACIST" as Role, employment_type: "LOCUM" as (typeof LOCUM_WORK_TYPES)[number] },
@@ -190,6 +223,7 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
       setToast({ message: error?.response?.data?.detail || "Failed to remove favourite.", severity: "error" });
     } finally {
       setDeleteLoadingId(null);
+      setConfirmRemove(null);
     }
   };
 
@@ -279,8 +313,27 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
         </Button>
       </Stack>
 
-      {filteredLocums.length === 0 ? (
-        <Alert severity="info">No favourite locums yet. Use “Invite Favourite” to add people.</Alert>
+      {showSkeleton ? (
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
+          {Array.from({ length: 3 }).map((_, index) => (
+            <Card
+              key={`locum-skeleton-${index}`}
+              variant="outlined"
+              sx={{ flex: "1 1 420px", maxWidth: 560, borderColor: tokens.border, backgroundColor: tokens.bg }}
+            >
+              <CardContent sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
+                <Skeleton variant="circular" width={40} height={40} />
+                <Box sx={{ flex: 1 }}>
+                  <Skeleton variant="text" width="80%" />
+                  <Skeleton variant="text" width="60%" />
+                  <Skeleton variant="text" width="40%" />
+                </Box>
+              </CardContent>
+            </Card>
+          ))}
+        </Box>
+      ) : filteredLocums.length === 0 ? (
+        <Alert severity="info">No favourite locums yet. Use "Invite Favourite" to add people.</Alert>
       ) : (
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
           {filteredLocums.map((locum) => (
@@ -291,10 +344,7 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
             >
               <CardContent sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
                 <Stack direction="row" spacing={1}>
-                  <Chip
-                    label={locum.role}
-                    color={locum.role === "PHARMACIST" ? "success" : locum.role === "TECHNICIAN" ? "info" : "warning"}
-                  />
+                  <Chip label={locum.role.replace("_", " ")} color={getRoleChipColor(locum.role)} />
                   <Chip label={locum.workType.replace("_", " ")} variant="outlined" />
                 </Stack>
                 <Box sx={{ ml: 1 }}>
@@ -310,7 +360,7 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
                     <span>
                       <IconButton
                         color="error"
-                        onClick={() => handleRemoveMembership(locum.id)}
+                        onClick={() => setConfirmRemove(locum)}
                         disabled={deleteLoadingId === locum.id}
                       >
                         {deleteLoadingId === locum.id ? <CircularProgress size={16} /> : <DeleteOutlineIcon fontSize="small" />}
@@ -323,6 +373,37 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
           ))}
         </Box>
       )}
+
+      <Dialog
+        open={Boolean(confirmRemove)}
+        onClose={() => {
+          if (!deleteLoadingId) setConfirmRemove(null);
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Remove Favourite</DialogTitle>
+        <DialogContent>
+          <Typography>
+            {confirmRemove
+              ? `Remove ${confirmRemove.name} from your favourites? This action can't be undone.`
+              : "This action can't be undone."}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmRemove(null)} disabled={Boolean(deleteLoadingId)}>
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => confirmRemove && handleRemoveMembership(confirmRemove.id)}
+            disabled={Boolean(deleteLoadingId)}
+          >
+            {deleteLoadingId === confirmRemove?.id ? "Removing..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={inviteOpen} onClose={() => setInviteOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Invite Favourite Locums</DialogTitle>
@@ -442,7 +523,7 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
         allowedEmploymentTypes={Array.from(LOCUM_WORK_TYPES)}
         defaultEmploymentType="LOCUM"
         onApproved={onMembershipsChanged}
-        onNotification={(message, severity) => setToast({ message, severity })}
+        onNotification={handleApplicationsNotification}
       />
     </Box>
   );

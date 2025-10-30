@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -103,6 +103,7 @@ export default function MembershipApplicationsPanel({
   const [applications, setApplications] = useState<MembershipApplication[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [approveTypeById, setApproveTypeById] = useState<Record<number, string>>({});
+  const isFetchingRef = useRef(false);
 
   const notify = useCallback(
     (message: string, severity: "success" | "error") => {
@@ -112,6 +113,8 @@ export default function MembershipApplicationsPanel({
   );
 
   const fetchApplications = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     setLoading(true);
     try {
       const res = await apiClient.get<PaginatedResponse<MembershipApplication>>(
@@ -131,10 +134,12 @@ export default function MembershipApplicationsPanel({
         });
         return base;
       });
-    } catch (error) {
-      notify("Failed to load membership applications.", "error");
+    } catch (error: any) {
+      console.error(error);
+      notify(error?.response?.data?.detail || "Failed to load membership applications.", "error");
     } finally {
       setLoading(false);
+      isFetchingRef.current = false;
     }
   }, [category, defaultEmploymentType, notify, pharmacyId]);
 

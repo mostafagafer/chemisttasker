@@ -59,12 +59,16 @@ export default function OwnerPharmacyDetailPage({
   locumMemberships,
   adminMemberships,
   onMembershipsChanged,
+  onEditPharmacy,
+  membershipsLoading = false,
 }: {
   pharmacy: PharmacyDTO;
   staffMemberships: MembershipDTO[];
   locumMemberships: MembershipDTO[];
   adminMemberships: MembershipDTO[];
   onMembershipsChanged: () => void;
+  onEditPharmacy?: (pharmacy: PharmacyDTO) => void;
+  membershipsLoading?: boolean;
 }) {
   const theme = useTheme();
   const tokens = surface(theme);
@@ -73,7 +77,7 @@ export default function OwnerPharmacyDetailPage({
   const locumSectionRef = useRef<HTMLDivElement>(null);
   const adminsSectionRef = useRef<HTMLDivElement>(null);
 
-  const scrollTo = (ref: React.RefObject<HTMLElement>) => {
+  const scrollTo = (ref: { current: HTMLElement | null }) => {
     ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
@@ -83,7 +87,13 @@ export default function OwnerPharmacyDetailPage({
   const handleCheckShifts = () => navigate("/dashboard/owner/shifts/active");
   const handlePostShift = () => navigate("/dashboard/owner/post-shift");
   const handleFavouriteLocums = () => handleManageLocums();
-  const handleConfigurations = () => navigate("/dashboard/owner/manage-pharmacies/my-pharmacies");
+  const handleConfigurations = () => {
+    if (onEditPharmacy) {
+      onEditPharmacy(pharmacy);
+      return;
+    }
+    navigate("/dashboard/owner/manage-pharmacies/my-pharmacies");
+  };
 
   return (
     <Box sx={{ maxWidth: 1200, mx: "auto", p: 3 }}>
@@ -105,7 +115,7 @@ export default function OwnerPharmacyDetailPage({
           </Typography>
         </Box>
         <Box sx={{ display: "flex", gap: 1 }}>
-          <Button variant="outlined" onClick={() => navigate("/dashboard/owner/manage-pharmacies/my-pharmacies")}>Edit</Button>
+          <Button variant="outlined" onClick={() => (onEditPharmacy ? onEditPharmacy(pharmacy) : navigate("/dashboard/owner/manage-pharmacies/my-pharmacies"))}>Edit</Button>
         </Box>
       </Box>
 
@@ -133,6 +143,8 @@ export default function OwnerPharmacyDetailPage({
           pharmacyId={pharmacy.id}
           memberships={staffMemberships}
           onMembershipsChanged={onMembershipsChanged}
+          pharmacyName={pharmacy.name}
+          loading={membershipsLoading}
         />
       </Box>
 
@@ -144,6 +156,7 @@ export default function OwnerPharmacyDetailPage({
           pharmacyId={pharmacy.id}
           memberships={locumMemberships}
           onMembershipsChanged={onMembershipsChanged}
+          loading={membershipsLoading}
         />
       </Box>
 
@@ -152,6 +165,7 @@ export default function OwnerPharmacyDetailPage({
           pharmacyId={pharmacy.id}
           admins={adminMemberships}
           onMembershipsChanged={onMembershipsChanged}
+          loading={membershipsLoading}
         />
       </Box>
     </Box>

@@ -3525,8 +3525,11 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_has_chain(self, obj) -> bool:
-        # “Does this owner have at least one Chain?”
-        return Chain.objects.filter(owner=obj.owner).exists()
+        if not obj.owner:
+            return False
+        return Chain.objects.filter(owner=obj.owner, pharmacies=obj).exists()
+
+
 
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_claimed(self, obj) -> bool:
@@ -3925,50 +3928,48 @@ class ShiftSerializer(serializers.ModelSerializer):
 
         return fields
 
-    def _build_allowed_tiers(self, pharmacy, user):
+    @staticmethod
+    def build_allowed_tiers(pharmacy):
         """
-        Return the escalation path based on Org-Admin status, chain, and claim.
-        Supports five-level escalation: FULL_PART_TIME, LOCUM_CASUAL, OWNER_CHAIN, ORG_CHAIN, PLATFORM.
+        Determine which escalation tiers are available for this pharmacy.
+        Chain escalation is only available when the pharmacy belongs to at least
+        one of the owner's chains. Organization escalation requires the pharmacy
+        to be claimed by an organization.
         """
-        is_org_admin = OrganizationMembership.objects.filter(
-            user=user, role='ORG_ADMIN', organization_id=pharmacy.organization_id
-        ).exists()
-
-        owner = pharmacy.owner
-        claimed = bool(pharmacy.organization_id)
-        has_chain = Chain.objects.filter(owner=owner).exists() if owner else False
-
-        # 1) Org-Admins always get every tier
-        if is_org_admin:
-            return ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM']
-
-        # 2) If no chain AND not claimed, start at PLATFORM only
-        if not has_chain and not claimed:
-            return ['PLATFORM']
-
-        # 3) Otherwise, escalate from FULL_PART_TIME onward
         tiers = ['FULL_PART_TIME', 'LOCUM_CASUAL']
 
-        # …then OWNER_CHAIN if there’s a chain
-        if has_chain:
+        owner = getattr(pharmacy, 'owner', None)
+        if owner and Chain.objects.filter(owner=owner, pharmacies=pharmacy).exists():
             tiers.append('OWNER_CHAIN')
 
-        # …then ORG_CHAIN if claimed
-        if claimed:
+        if pharmacy.organization_id:
             tiers.append('ORG_CHAIN')
 
-        # …and finally PLATFORM
         tiers.append('PLATFORM')
         return tiers
 
 
+
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_allowed_escalation_levels(self, obj) -> list[str]:
-        request = self.context.get('request')
-        if request:
-            # Make sure _build_allowed_tiers is also defined within ShiftSerializer
-            return self._build_allowed_tiers(obj.pharmacy, request.user)
-        return []
+        return self.build_allowed_tiers(obj.pharmacy)
+
+    @staticmethod
+    def _ensure_escalation_stamps(shift, allowed_tiers, target_index):
+        field_map = {
+            'LOCUM_CASUAL': 'escalate_to_locum_casual',
+            'OWNER_CHAIN': 'escalate_to_owner_chain',
+            'ORG_CHAIN': 'escalate_to_org_chain',
+            'PLATFORM': 'escalate_to_platform',
+        }
+        stamp_time = timezone.now()
+        for idx in range(1, target_index + 1):
+            if idx >= len(allowed_tiers):
+                break
+            tier = allowed_tiers[idx]
+            field = field_map.get(tier)
+            if field and not getattr(shift, field):
+                setattr(shift, field, stamp_time)
 
     def _normalize_slots_payload(self, slots_data):
         normalized = []
@@ -3996,7 +3997,7 @@ class ShiftSerializer(serializers.ModelSerializer):
         pharmacy    = validated_data['pharmacy']
 
         # Build the correct path
-        allowed_tiers = self._build_allowed_tiers(pharmacy, user)
+        allowed_tiers = self.build_allowed_tiers(pharmacy)
 
         # Ensure the front-end’s choice is valid
         chosen = validated_data.get('visibility')
@@ -4007,7 +4008,8 @@ class ShiftSerializer(serializers.ModelSerializer):
 
         if chosen == 'PLATFORM':
             enforce_public_shift_daily_limit(pharmacy)
-            validated_data.setdefault('escalate_to_platform', timezone.now())
+            if not validated_data.get('escalate_to_platform'):
+                validated_data['escalate_to_platform'] = timezone.now()
 
         # Index of that choice becomes the escalation_level
         validated_data['escalation_level'] = allowed_tiers.index(chosen)
@@ -4023,13 +4025,17 @@ class ShiftSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         # If visibility is changing, recalc escalation_level
         if 'visibility' in validated_data:
-            allowed_tiers = self._build_allowed_tiers(instance.pharmacy, self.context['request'].user)
+            allowed_tiers = self.build_allowed_tiers(instance.pharmacy)
             new_vis = validated_data['visibility']
             if new_vis not in allowed_tiers:
                 raise serializers.ValidationError({
                     'visibility': f"Invalid choice; must be one of {allowed_tiers}"
                 })
-            instance.escalation_level = allowed_tiers.index(new_vis)
+            target_index = allowed_tiers.index(new_vis)
+            instance.escalation_level = target_index
+            if new_vis == 'PLATFORM' and not validated_data.get('escalate_to_platform') and not instance.escalate_to_platform:
+                validated_data['escalate_to_platform'] = timezone.now()
+            self._ensure_escalation_stamps(instance, allowed_tiers, target_index)
 
         # Apply other fields
         for attr, val in validated_data.items():
@@ -4278,32 +4284,7 @@ class RosterShiftDetailSerializer(serializers.ModelSerializer):
         fields = ['id', 'role_needed', 'pharmacy_name', 'visibility', 'allowed_escalation_levels']
 
     def get_allowed_escalation_levels(self, obj):
-        request = self.context.get('request')
-        if not request:
-            return []
-
-        pharmacy = obj.pharmacy
-        user = request.user
-
-        # This logic determines which tiers are available based on the user and pharmacy
-        is_org_admin = OrganizationMembership.objects.filter(
-            user=user, role='ORG_ADMIN', organization_id=pharmacy.organization_id
-        ).exists()
-
-        owner = pharmacy.owner
-        claimed = bool(pharmacy.organization_id)
-        has_chain = Chain.objects.filter(owner=owner).exists() if owner else False
-
-        if is_org_admin:
-            return ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM']
-
-        tiers = ['FULL_PART_TIME', 'LOCUM_CASUAL']
-        if has_chain:
-            tiers.append('OWNER_CHAIN')
-        if claimed:
-            tiers.append('ORG_CHAIN')
-        tiers.append('PLATFORM')
-        return tiers
+        return ShiftSerializer.build_allowed_tiers(obj.pharmacy)
 
 class RosterAssignmentSerializer(serializers.ModelSerializer):
     user_detail = RosterUserDetailSerializer(source='user', read_only=True)

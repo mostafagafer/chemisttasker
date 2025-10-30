@@ -1,8 +1,15 @@
 // src/pages/dashboard/sidebar/owner/types.ts
 import { alpha, Theme } from "@mui/material/styles";
 
-export type Role = "PHARMACIST" | "TECHNICIAN" | "ASSISTANT" | "PHARMACY_ADMIN";
-export type WorkType = "FULL_TIME" | "PART_TIME" | "CASUAL" | "LOCUM" | "SHIFT_HERO";
+export type Role =
+  | "PHARMACIST"
+  | "TECHNICIAN"
+  | "ASSISTANT"
+  | "INTERN"
+  | "STUDENT"
+  | "CONTACT"
+  | "PHARMACY_ADMIN";
+export type WorkType = "FULL_TIME" | "PART_TIME" | "CASUAL" | "LOCUM" | "SHIFT_HERO" | "CONTACT";
 
 export type PharmacyDTO = {
   id: string;
@@ -27,6 +34,10 @@ export type MembershipDTO = {
 
 export function coerceRole(raw?: string): Role {
   const r = (raw || "").toUpperCase();
+  if (r.includes("ADMIN")) return "PHARMACY_ADMIN";
+  if (r.includes("INTERN")) return "INTERN";
+  if (r.includes("STUDENT")) return "STUDENT";
+  if (r.includes("CONTACT")) return "CONTACT";
   if (r.includes("PHARM")) return "PHARMACIST";
   if (r.includes("TECH")) return "TECHNICIAN";
   if (r.includes("ASSIST")) return "ASSISTANT";
@@ -39,6 +50,7 @@ export function coerceWorkType(raw?: string): WorkType {
   if (r.includes("PART")) return "PART_TIME";
   if (r.includes("LOCUM")) return "LOCUM";
   if (r.includes("SHIFT")) return "SHIFT_HERO";
+  if (r.includes("CONTACT")) return "CONTACT";
   return "CASUAL";
 }
 

@@ -318,14 +318,11 @@ const ActiveShiftsPage: React.FC = () => {
   const getTabKey = useCallback((shiftId: number, levelKey: EscalationKey) => `${shiftId}_${levelKey}`, []);
 
   const deriveLevelSequence = useCallback((shift: Shift) => {
-    const hasOrganizationAccess =
-      Boolean(shift.pharmacy_detail?.organization) ||
-      shift.pharmacy_detail?.claim_status === 'ACCEPTED' ||
-      shift.visibility === 'ORG_CHAIN';
-
-    return ESCALATION_LEVELS.filter(level =>
-      level.requiresOrganization ? hasOrganizationAccess : true
-    );
+    const allowed = new Set(shift.allowed_escalation_levels ?? []);
+    if (!allowed.size) {
+      return ESCALATION_LEVELS;
+    }
+    return ESCALATION_LEVELS.filter(level => allowed.has(level.key));
   }, []);
 
   const loadShifts = useCallback(async () => {
@@ -535,9 +532,16 @@ const ActiveShiftsPage: React.FC = () => {
     [deriveLevelSequence, getTabKey, loadTabData, tabData]
   );
 
-  const handleLevelSelect = (shiftId: number, levelKey: EscalationKey) => {
-    setSelectedLevelByShift(prev => ({ ...prev, [shiftId]: levelKey }));
-  };
+  const handleLevelSelect = useCallback(
+    (shift: Shift, levelKey: EscalationKey) => {
+      setSelectedLevelByShift(prev => ({ ...prev, [shift.id]: levelKey }));
+      const tabKey = getTabKey(shift.id, levelKey);
+      if (!tabData[tabKey]) {
+        loadTabData(shift, levelKey);
+      }
+    },
+    [getTabKey, loadTabData, tabData]
+  );
 
   const handleShare = async (shift: Shift) => {
     if (shift.visibility !== PUBLIC_LEVEL_KEY) {
@@ -573,7 +577,9 @@ const ActiveShiftsPage: React.FC = () => {
 
     setEscalating(prev => ({ ...prev, [shift.id]: true }));
     try {
-      await apiClient.post(`${API_ENDPOINTS.getActiveShifts}${shift.id}/escalate/`);
+      await apiClient.post(`${API_ENDPOINTS.getActiveShifts}${shift.id}/escalate/`, {
+        target_visibility: targetLevel.key,
+      });
       const updatedShift = { ...shift, visibility: targetLevel.key, escalation_level: targetLevelIdx };
       setShifts(prev => prev.map(s => (s.id === shift.id ? updatedShift : s)));
       loadTabData(updatedShift, targetLevel.key);
@@ -835,6 +841,7 @@ const ActiveShiftsPage: React.FC = () => {
               levelSequence.findIndex(level => level.key === shift.visibility)
             );
             const selectedLevelKey = selectedLevelByShift[shift.id] ?? levelSequence[currentLevelIdx]?.key;
+            const selectedLevelIdx = levelSequence.findIndex(level => level.key === selectedLevelKey);
             const isExpanded = expandedShift === shift.id;
             const cardBorderColor =
               shift.visibility === PUBLIC_LEVEL_KEY
@@ -849,8 +856,12 @@ const ActiveShiftsPage: React.FC = () => {
                 .filter(Boolean)
                 .join(', ');
               const shiftSlots = shift.slots
-                ?.map(slot => `${slot.date} (${slot.start_time}–${slot.end_time})`)
+                ?.map(slot => `${slot.date} (${slot.start_time}—${slot.end_time})`)
                 .join(' | ');
+              const allowedKeys = new Set(shift.allowed_escalation_levels || []);
+              if (!allowedKeys.size) {
+                ESCALATION_LEVELS.forEach(level => allowedKeys.add(level.key));
+              }
 
               return (
                 <Card
@@ -984,41 +995,89 @@ const ActiveShiftsPage: React.FC = () => {
                           <Stepper alternativeLabel activeStep={currentLevelIdx} connector={<ColorStepConnector />}>
                             {levelSequence.map((level, index) => (
                               <Step key={level.key} completed={index < currentLevelIdx}>
-                                <ButtonBase
-                                  onClick={() => handleLevelSelect(shift.id, level.key)}
-                                  disabled={index > currentLevelIdx}
-                                  sx={{ width: '100%', pt: 2, borderRadius: 2, transition: 'background-color 0.3s' }}
-                                >
-                                  <StepLabel
-                                    StepIconComponent={props => <ColorStepIcon {...props} icon={level.icon} />}
-                                    sx={{
-                                      flexDirection: 'column',
-                                      '& .MuiStepLabel-label': {
-                                        mt: 1.5,
-                                        fontWeight: 500,
-                                        color:
-                                          selectedLevelKey === level.key
-                                            ? theme.palette.primary.main
-                                            : theme.palette.text.secondary,
-                                        ...(index > currentLevelIdx && { color: theme.palette.text.disabled }),
-                                      },
-                                    }}
-                                  >
-                                    {level.label}
-                                  </StepLabel>
-                                </ButtonBase>
+                                {(() => {
+                                  const levelSelectable =
+                                    index <= currentLevelIdx || allowedKeys.has(level.key);
+                                  return (
+                                    <ButtonBase
+                                      onClick={() =>
+                                        levelSelectable ? handleLevelSelect(shift, level.key) : undefined
+                                      }
+                                      disabled={!levelSelectable}
+                                      sx={{ width: '100%', pt: 2, borderRadius: 2, transition: 'background-color 0.3s' }}
+                                    >
+                                      <StepLabel
+                                        StepIconComponent={props => <ColorStepIcon {...props} icon={level.icon} />}
+                                        sx={{
+                                          flexDirection: 'column',
+                                          '& .MuiStepLabel-label': {
+                                            mt: 1.5,
+                                            fontWeight: 500,
+                                            color:
+                                              selectedLevelKey === level.key
+                                                ? theme.palette.primary.main
+                                                : theme.palette.text.secondary,
+                                            ...(!levelSelectable && { color: theme.palette.text.disabled }),
+                                          },
+                                        }}
+                                      >
+                                        {level.label}
+                                      </StepLabel>
+                                    </ButtonBase>
+                                  );
+                                })()}
                               </Step>
                             ))}
                           </Stepper>
                         </Box>
 
                         {(() => {
+                          const canEscalateToSelected =
+                            selectedLevelIdx > currentLevelIdx &&
+                            selectedLevelIdx !== -1 &&
+                            allowedKeys.has(levelSequence[selectedLevelIdx]?.key as EscalationKey);
+
+                          if (escalating[shift.id]) {
+                            return (
+                              <Box
+                                sx={{
+                                  py: 2,
+                                  textAlign: 'center',
+                                  bgcolor: '#F9FAFB',
+                                  borderRadius: 2,
+                                  border: '1px dashed #E5E7EB',
+                                }}
+                              >
+                                <CircularProgress size={20} sx={{ mr: 1 }} />
+                                Escalating...
+                              </Box>
+                            );
+                          }
+
+                          if (canEscalateToSelected) {
+                            const targetLevel = levelSequence[selectedLevelIdx];
+                            return (
+                              <Box
+                                sx={{
+                                  py: 2,
+                                  textAlign: 'center',
+                                  bgcolor: '#F9FAFB',
+                                  borderRadius: 2,
+                                  border: '1px dashed #E5E7EB',
+                                }}
+                              >
+                                <Typography color="text.secondary" sx={{ mb: 1.5 }}>
+                                  Ready to widen your search?
+                                </Typography>
+                                <Button variant="contained" onClick={() => handleEscalate(shift, targetLevel.key)}>
+                                  Escalate to {targetLevel.label}
+                                </Button>
+                              </Box>
+                            );
+                          }
+
                           const nextLevel = levelSequence[currentLevelIdx + 1];
-                          if (
-                            nextLevel &&
-                            shift.allowed_escalation_levels.includes(nextLevel.key) &&
-                            !escalating[shift.id]
-                          ) {
+                          if (nextLevel && allowedKeys.has(nextLevel.key)) {
                             return (
                               <Box
                                 sx={{
@@ -1038,22 +1097,7 @@ const ActiveShiftsPage: React.FC = () => {
                               </Box>
                             );
                           }
-                          if (escalating[shift.id]) {
-                            return (
-                              <Box
-                                sx={{
-                                  py: 2,
-                                  textAlign: 'center',
-                                  bgcolor: '#F9FAFB',
-                                  borderRadius: 2,
-                                  border: '1px dashed #E5E7EB',
-                                }}
-                              >
-                                <CircularProgress size={20} sx={{ mr: 1 }} />
-                                Escalating...
-                              </Box>
-                            );
-                          }
+
                           return null;
                         })()}
 

@@ -48,6 +48,9 @@ import { Calendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';   // add this
+
+dayjs.extend(utc);                    // activate UTC plugin
 
 // --- Interface Definitions ---
 interface Pharmacy { id: number; name: string; has_chain: boolean; claimed: boolean; }
@@ -107,6 +110,8 @@ const applyTimeToDate = (date: Date, time: string) => {
 
 const formatSlotDate = (value: string) => (value ? dayjs(value).format('ddd, MMM D YYYY') : '');
 const formatSlotTime = (value: string) => dayjs(`1970-01-01T${value}`).format('h:mm A');
+const toInputDateTimeLocal = (value?: string | null) =>
+  value ? dayjs(value).local().format('YYYY-MM-DDTHH:mm') : '';
 
 const describeRecurringDays = (days: number[]) => {
   if (!days?.length) return '';
@@ -185,6 +190,12 @@ const PostShiftPage: React.FC = () => {
           setFixedRate(data.fixed_rate || '');
           setOwnerAdjustedRate(data.owner_adjusted_rate || '');
           setSingleUserOnly(data.single_user_only || false);
+          setEscalationDates({
+            LOCUM_CASUAL: toInputDateTimeLocal(data.escalate_to_locum_casual),
+            OWNER_CHAIN: toInputDateTimeLocal(data.escalate_to_owner_chain),
+            ORG_CHAIN: toInputDateTimeLocal(data.escalate_to_org_chain),
+            PLATFORM: toInputDateTimeLocal(data.escalate_to_platform),
+          });
           setSlots((data.slots || []).map((s: any) => ({
               date: s.date, startTime: s.start_time, endTime: s.end_time, isRecurring: s.is_recurring,
               recurringDays: s.recurring_days || [], recurringEndDate: s.recurring_end_date || '',
@@ -198,27 +209,16 @@ const PostShiftPage: React.FC = () => {
     const p = pharmacies.find(x => x.id === pharmacyId);
     if (!p) return [];
 
-    // All users start with the basic tiers
     const tiers = ['FULL_PART_TIME', 'LOCUM_CASUAL'];
-
-    // Add chain tier if the pharmacy has a chain
     if (p.has_chain) {
       tiers.push('OWNER_CHAIN');
     }
-    // Add organization tier if the owner is claimed by an org
     if (p.claimed) {
       tiers.push('ORG_CHAIN');
     }
-    // Platform is always the final tier
     tiers.push('PLATFORM');
-
-    // ORG_ADMINs can see all tiers regardless of pharmacy status
-    if (user?.role?.startsWith('ORG_')) {
-      return ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'];
-    }
-
     return tiers;
-  }, [pharmacyId, pharmacies, user]);
+  }, [pharmacyId, pharmacies]);
 
   useEffect(() => {
     if (allowedVis.length > 0 && !allowedVis.includes(visibility)) {

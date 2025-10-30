@@ -128,6 +128,14 @@ export default function OwnerOverviewContainer() {
   const goToProfile = () => navigate("/dashboard/owner/onboarding");
   const goToInterests = () => navigate("/dashboard/owner/interests");
   const goToSettings = () => navigate("/dashboard/owner/manage-pharmacies/my-pharmacies");
+  const goToPharmacyManager = (query: string) =>
+    navigate(`/dashboard/owner/manage-pharmacies/my-pharmacies${query}`);
+  const handleEditPharmacy = (pharmacy: PharmacyDTO) => {
+    goToPharmacyManager(`?view=detail&pharmacyId=${pharmacy.id}&action=edit`);
+  };
+  const handleDeletePharmacy = (pharmacyId: string) => {
+    goToPharmacyManager(`?view=detail&pharmacyId=${pharmacyId}&action=delete`);
+  };
 
   useEffect(() => {
     if (view === "pharmacy" && activePharmacyId && !(activePharmacyId in membershipsByPharmacy)) {
@@ -161,6 +169,8 @@ export default function OwnerOverviewContainer() {
             pharmacies={pharmacies}
             staffCounts={staffCounts}
             onOpenPharmacy={openPharmacy}
+            onEditPharmacy={handleEditPharmacy}
+            onDeletePharmacy={handleDeletePharmacy}
             onOpenAdmins={openAdmins}
           />
         </>

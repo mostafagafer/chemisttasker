@@ -140,6 +140,7 @@ export const API_ENDPOINTS = {
 
   // NEW: Endpoints for managing a SHIFT from the roster view
   rosterManageShift: (shiftId: number) => `/client-profile/roster-shifts/${shiftId}/`, // For EDIT (PATCH) and DELETE
+  rosterEscalateShift: (shiftId: number) => `/client-profile/roster-shifts/${shiftId}/escalate/`,
   ownerOpenShifts: '/client-profile/roster-shifts/list-open-shifts/', // NEW: For owners to list their open shifts
   createOpenShift: `/client-profile/roster-shifts/create-open-shift/`,
 

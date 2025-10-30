@@ -169,6 +169,36 @@ export default function RosterOwnerPage() {
   const [filteredMembers, setFilteredMembers] = useState<PharmacyMember[]>([]);
   const [escalationLevel, setEscalationLevel] = useState<string>('');
   const [isLeaveManageDialogOpen, setIsLeaveManageDialogOpen] = useState(false); // New dialog state
+  const currentShiftDetail = selectedAssignment?.shift_detail;
+  const selectableEscalationLevels = useMemo(() => {
+    if (!currentShiftDetail) return [];
+    const allowed = currentShiftDetail.allowed_escalation_levels || [];
+    if (!allowed.length) return [];
+
+    const canonicalOrder = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'];
+    const allowedSet = new Set(allowed);
+    const ordered = canonicalOrder.filter(level => allowedSet.has(level));
+    const extras = allowed.filter(level => !canonicalOrder.includes(level));
+    const sequence = [...ordered, ...extras];
+
+    const currentIndex = sequence.indexOf(currentShiftDetail.visibility);
+    if (currentIndex === -1) {
+      return sequence;
+    }
+    return sequence.slice(currentIndex + 1);
+  }, [currentShiftDetail]);
+  useEffect(() => {
+    if (!isEscalateDialogOpen) {
+      return;
+    }
+    if (!selectableEscalationLevels.length) {
+      setEscalationLevel('');
+      return;
+    }
+    setEscalationLevel(prev =>
+      prev && selectableEscalationLevels.includes(prev) ? prev : selectableEscalationLevels[0]
+    );
+  }, [isEscalateDialogOpen, selectableEscalationLevels]);
   
   const [isCoverRequestDialogOpen, setIsCoverRequestDialogOpen] = useState(false); // NEW: Dialog for cover requests
   const [postAsOpenShift, setPostAsOpenShift] = useState(false);
@@ -335,19 +365,27 @@ export default function RosterOwnerPage() {
 
   const handleConfirmEscalation = async () => {
     if (!selectedAssignment || !escalationLevel) {
-        showSnackbar("Please select an escalation level.");
-        return;
-    };
+      showSnackbar("Please select an escalation level.");
+      return;
+    }
     setIsActionLoading(true);
     try {
-      await apiClient.patch(API_ENDPOINTS.rosterManageShift(selectedAssignment.shift), {
-        visibility: escalationLevel
-      });
-      showSnackbar(`Shift escalated to ${escalationLevel.replace(/_/g, ' ')} and unassigned.`);
+      const res = await apiClient.post(
+        API_ENDPOINTS.rosterEscalateShift(selectedAssignment.shift),
+        { target_visibility: escalationLevel }
+      );
+      const detail =
+        res?.data?.detail ||
+        `Shift escalated to ${escalationLevel.replace(/_/g, ' ')}.`;
+      showSnackbar(detail);
       setIsEscalateDialogOpen(false);
-      reloadAssignments(); 
-    } catch (err: any) { showSnackbar(`Error escalating shift: ${err.response?.data?.detail || err.message}`); }
-    finally { setIsActionLoading(false); }
+      setEscalationLevel('');
+      reloadAssignments();
+    } catch (err: any) {
+      showSnackbar(`Error escalating shift: ${err?.response?.data?.detail || err?.message || 'Unknown error'}`);
+    } finally {
+      setIsActionLoading(false);
+    }
   };
 
   // --- NEW: Leave Request Handlers ---
@@ -761,7 +799,25 @@ export default function RosterOwnerPage() {
         </DialogContent>
         <DialogActions sx={{ flexDirection: 'column', alignItems: 'stretch', p: 2, gap: 1}}>
             <Button variant="outlined" disabled={isActionLoading} onClick={() => { setIsOptionsDialogOpen(false); setIsEditDialogOpen(true); setShiftToEdit({ id: selectedAssignment!.shift, role_needed: selectedAssignment!.shift_detail.role_needed, slots: [selectedAssignment!.slot_detail] }); setSelectedUserForAssignment(selectedAssignment!.user); }}>Edit Shift / Re-Assign</Button>
-            <Button variant="outlined" disabled={isActionLoading} color="secondary" onClick={() => { setIsOptionsDialogOpen(false); setEscalationLevel(selectedAssignment?.shift_detail.visibility || ''); setIsEscalateDialogOpen(true); }}>Escalate Shift</Button>
+            <Button
+              variant="outlined"
+              disabled={isActionLoading || !selectableEscalationLevels.length}
+              color="secondary"
+              onClick={() => {
+                if (!selectedAssignment) {
+                  return;
+                }
+                if (!selectableEscalationLevels.length) {
+                  showSnackbar('No higher visibility levels available to escalate to.');
+                  return;
+                }
+                setIsOptionsDialogOpen(false);
+                setEscalationLevel(selectableEscalationLevels[0] ?? '');
+                setIsEscalateDialogOpen(true);
+              }}
+            >
+              Escalate Shift
+            </Button>
             <Button variant="contained" disabled={isActionLoading} color="error" onClick={handleDeleteAssignment}>
                 {isActionLoading ? <CircularProgress size={24} color="inherit" /> : 'Delete Assignment'}
             </Button>
@@ -874,20 +930,41 @@ export default function RosterOwnerPage() {
           </DialogActions>
       </Dialog>
       
-      {/* Escalate Dialog (Unchanged) */}
-      <Dialog open={isEscalateDialogOpen} onClose={() => setIsEscalateDialogOpen(false)} fullWidth maxWidth="xs">
+      {/* Escalate Dialog */}
+      <Dialog
+        open={isEscalateDialogOpen}
+        onClose={() => {
+          setIsEscalateDialogOpen(false);
+          setEscalationLevel('');
+        }}
+        fullWidth
+        maxWidth="xs"
+      >
           <DialogTitle>Escalate Shift Visibility</DialogTitle>
           <DialogContent>
               <FormControl fullWidth sx={{mt: 1}}>
                   <InputLabel>New Visibility Level</InputLabel>
-                  <Select value={escalationLevel} label="New Visibility Level" onChange={e => setEscalationLevel(e.target.value)}>
-                      {(selectedAssignment?.shift_detail.allowed_escalation_levels || []).map(level => <MenuItem key={level} value={level}>{level.replace(/_/g, ' ')}</MenuItem>)}
+                  <Select
+                    value={escalationLevel}
+                    label="New Visibility Level"
+                    onChange={e => setEscalationLevel(e.target.value)}
+                    disabled={!selectableEscalationLevels.length}
+                  >
+                      {selectableEscalationLevels.length === 0 ? (
+                        <MenuItem value="" disabled>No higher levels available</MenuItem>
+                      ) : (
+                        selectableEscalationLevels.map(level => (
+                          <MenuItem key={level} value={level}>
+                            {level.replace(/_/g, ' ')}
+                          </MenuItem>
+                        ))
+                      )}
                   </Select>
               </FormControl>
           </DialogContent>
           <DialogActions>
               <Button onClick={() => setIsEscalateDialogOpen(false)} disabled={isActionLoading}>Cancel</Button>
-              <Button onClick={handleConfirmEscalation} variant="contained" disabled={isActionLoading}>
+              <Button onClick={handleConfirmEscalation} variant="contained" disabled={isActionLoading || !escalationLevel}>
                 {isActionLoading ? <CircularProgress size={24} color="inherit" /> : 'Confirm & Unassign'}
               </Button>
           </DialogActions>

@@ -149,6 +149,8 @@ const WorkerDayView: any = (props: any) => {
     step = 30
   } = props;
 
+  void getters;
+  void localizer;
   const timeline = buildTimeline(events, date, accessors, step, min, max);
   const { filteredEvents, start, end, totalMinutes, hourMarks } = timeline;
 
@@ -424,7 +426,6 @@ FortnightView.title = (date: Date, { localizer }: any) => {
   return localizer.format({ start, end }, 'dayRangeHeaderFormat');
 };
 
-FortnightView.defaultProps = TimeGrid.defaultProps;
 
 export const calendarViews = {
   month: true,

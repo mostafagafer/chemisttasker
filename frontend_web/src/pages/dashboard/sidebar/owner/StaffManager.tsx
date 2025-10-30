@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Box,
@@ -21,6 +21,7 @@ import {
   Typography,
   Snackbar,
   CircularProgress,
+  Skeleton,
 } from "@mui/material";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -37,9 +38,32 @@ const EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "CASUAL"] as const;
 
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "PHARMACIST", label: "Pharmacist" },
-  { value: "TECHNICIAN", label: "Technician" },
-  { value: "ASSISTANT", label: "Assistant" },
+  { value: "INTERN", label: "Intern Pharmacist" },
+  { value: "TECHNICIAN", label: "Dispensary Technician" },
+  { value: "ASSISTANT", label: "Pharmacy Assistant" },
+  { value: "STUDENT", label: "Pharmacy Student" },
 ];
+
+const getRoleChipColor = (role: Role) => {
+  switch (role) {
+    case "PHARMACIST":
+      return "success";
+    case "TECHNICIAN":
+      return "info";
+    case "ASSISTANT":
+      return "warning";
+    case "INTERN":
+      return "secondary";
+    case "STUDENT":
+      return "default";
+    case "CONTACT":
+      return "default";
+    case "PHARMACY_ADMIN":
+      return "primary";
+    default:
+      return "default";
+  }
+};
 
 type Staff = {
   id: string | number;
@@ -53,9 +77,17 @@ type StaffManagerProps = {
   pharmacyId: string;
   memberships: MembershipDTO[];
   onMembershipsChanged: () => void;
+  loading?: boolean;
+  pharmacyName?: string;
 };
 
-export default function StaffManager({ pharmacyId, memberships, onMembershipsChanged }: StaffManagerProps) {
+export default function StaffManager({
+  pharmacyId,
+  memberships,
+  onMembershipsChanged,
+  loading = false,
+  pharmacyName,
+}: StaffManagerProps) {
   const theme = useTheme();
   const tokens = surface(theme);
 
@@ -83,6 +115,7 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
   const [sortBy, setSortBy] = useState<"role" | "workType">("role");
   const [filterRole, setFilterRole] = useState<Role | "ALL">("ALL");
   const [filterWork, setFilterWork] = useState<WorkType | "ALL">("ALL");
+  const showSkeleton = loading && memberships.length === 0;
 
   const data = useMemo(() => {
     const copy = [...list];
@@ -100,11 +133,18 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
   ]);
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; severity: "success" | "error" } | null>(null);
+  const handleApplicationsNotification = useCallback(
+    (message: string, severity: "success" | "error") => {
+      setToast({ message, severity });
+    },
+    []
+  );
   const [deleteLoadingId, setDeleteLoadingId] = useState<string | number | null>(null);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkExpiry, setLinkExpiry] = useState("14");
   const [linkValue, setLinkValue] = useState("");
   const [linkSubmitting, setLinkSubmitting] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<Staff | null>(null);
 
   const resetInviteForm = () => {
     setInviteRows([
@@ -214,6 +254,7 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
       setToast({ message: error?.response?.data?.detail || "Failed to remove", severity: "error" });
     } finally {
       setDeleteLoadingId(null);
+      setConfirmRemove(null);
     }
   };
 
@@ -266,7 +307,26 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
         </Button>
       </Stack>
 
-      {data.length === 0 ? (
+      {showSkeleton ? (
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
+          {Array.from({ length: 3 }).map((_, index) => (
+            <Card
+              key={`staff-skeleton-${index}`}
+              variant="outlined"
+              sx={{ flex: "1 1 420px", maxWidth: 560, backgroundColor: tokens.bg, borderColor: tokens.border }}
+            >
+              <CardContent sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
+                <Skeleton variant="circular" width={40} height={40} />
+                <Box sx={{ flex: 1 }}>
+                  <Skeleton variant="text" width="80%" />
+                  <Skeleton variant="text" width="60%" />
+                  <Skeleton variant="text" width="40%" />
+                </Box>
+              </CardContent>
+            </Card>
+          ))}
+        </Box>
+      ) : data.length === 0 ? (
         <Alert severity="info">No staff yet. Use "Invite Staff" to add members.</Alert>
       ) : (
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
@@ -277,10 +337,7 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
               sx={{ flex: "1 1 420px", maxWidth: 560, backgroundColor: tokens.bg, borderColor: tokens.border }}
             >
               <CardContent sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
-                <Chip
-                  label={item.role}
-                  color={item.role === "PHARMACIST" ? "success" : item.role === "TECHNICIAN" ? "info" : "warning"}
-                />
+                <Chip label={item.role.replace("_", " ")} color={getRoleChipColor(item.role)} />
                 <Chip label={item.workType.replace("_", " ")} variant="outlined" />
                 <Box sx={{ ml: 1 }}>
                   <Typography fontWeight={600}>{item.name}</Typography>
@@ -295,7 +352,7 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
                     <span>
                       <IconButton
                         color="error"
-                        onClick={() => handleRemoveMembership(item.id)}
+                        onClick={() => setConfirmRemove(item)}
                         disabled={deleteLoadingId === item.id}
                       >
                         {deleteLoadingId === item.id ? <CircularProgress size={16} /> : <DeleteOutlineIcon fontSize="small" />}
@@ -309,8 +366,39 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
         </Box>
       )}
 
+      <Dialog
+        open={Boolean(confirmRemove)}
+        onClose={() => {
+          if (!deleteLoadingId) setConfirmRemove(null);
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Remove Member</DialogTitle>
+        <DialogContent>
+          <Typography>
+            {confirmRemove
+              ? `Remove ${confirmRemove.name} from this pharmacy? This action can't be undone.`
+              : "This action can't be undone."}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmRemove(null)} disabled={Boolean(deleteLoadingId)}>
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => confirmRemove && handleRemoveMembership(confirmRemove.id)}
+            disabled={Boolean(deleteLoadingId)}
+          >
+            {deleteLoadingId === confirmRemove?.id ? "Removing..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={inviteOpen} onClose={() => setInviteOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Invite Staff to {pharmacyId}</DialogTitle>
+        <DialogTitle>Invite Staff to {pharmacyName || pharmacyId}</DialogTitle>
         <DialogContent sx={{ display: "grid", gap: 2, pt: 2 }}>
           {inviteRows.map((row, idx) => (
             <Box key={idx} sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" } }}>
@@ -397,7 +485,7 @@ export default function StaffManager({ pharmacyId, memberships, onMembershipsCha
         allowedEmploymentTypes={Array.from(EMPLOYMENT_TYPES)}
         defaultEmploymentType="CASUAL"
         onApproved={onMembershipsChanged}
-        onNotification={(message, severity) => setToast({ message, severity })}
+        onNotification={handleApplicationsNotification}
       />
 
       <Dialog open={linkOpen} onClose={() => setLinkOpen(false)} fullWidth maxWidth="sm">

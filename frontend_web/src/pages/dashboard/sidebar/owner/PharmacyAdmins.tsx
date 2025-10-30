@@ -17,6 +17,7 @@ import {
   Typography,
   Snackbar,
   CircularProgress,
+  Skeleton,
 } from "@mui/material";
 import ManageAccountsIcon from "@mui/icons-material/ManageAccounts";
 import SecurityIcon from "@mui/icons-material/Security";
@@ -31,9 +32,10 @@ interface PharmacyAdminsProps {
   pharmacyId: string;
   admins: MembershipDTO[];
   onMembershipsChanged: () => void;
+  loading?: boolean;
 }
 
-export default function PharmacyAdmins({ pharmacyId, admins, onMembershipsChanged }: PharmacyAdminsProps) {
+export default function PharmacyAdmins({ pharmacyId, admins, onMembershipsChanged, loading = false }: PharmacyAdminsProps) {
   const theme = useTheme();
   const tokens = surface(theme);
   const { user: authUser, setUser } = useAuth();
@@ -42,6 +44,8 @@ export default function PharmacyAdmins({ pharmacyId, admins, onMembershipsChange
   const [submitting, setSubmitting] = useState(false);
   const [loadingId, setLoadingId] = useState<string | number | null>(null);
   const [toast, setToast] = useState<{ message: string; severity: "success" | "error" } | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<MembershipDTO | null>(null);
+  const showSkeleton = loading && admins.length === 0;
 
   const handleInvite = async () => {
     if (!form.email) {
@@ -114,7 +118,18 @@ export default function PharmacyAdmins({ pharmacyId, admins, onMembershipsChange
       setToast({ message: error?.response?.data?.detail || "Failed to remove", severity: "error" });
     } finally {
       setLoadingId(null);
+      setConfirmRemove(null);
     }
+  };
+
+  const describeAdmin = (admin: MembershipDTO | null) => {
+    if (!admin) return "this admin";
+    const name =
+      admin.invited_name ||
+      admin.name ||
+      [admin.user_details?.first_name, admin.user_details?.last_name].filter(Boolean).join(" ");
+    const email = admin.user_details?.email || admin.email;
+    return name || email || "this admin";
   };
 
   return (
@@ -128,7 +143,25 @@ export default function PharmacyAdmins({ pharmacyId, admins, onMembershipsChange
         }
       />
       <CardContent>
-        {admins.length === 0 ? (
+        {showSkeleton ? (
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
+            {Array.from({ length: 2 }).map((_, index) => (
+              <Card
+                key={`admin-skeleton-${index}`}
+                variant="outlined"
+                sx={{ flex: "1 1 420px", maxWidth: 560, background: tokens.bg, borderColor: tokens.border }}
+              >
+                <CardContent sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
+                  <Skeleton variant="circular" width={40} height={40} />
+                  <Box sx={{ flex: 1 }}>
+                    <Skeleton variant="text" width="80%" />
+                    <Skeleton variant="text" width="60%" />
+                  </Box>
+                </CardContent>
+              </Card>
+            ))}
+          </Box>
+        ) : admins.length === 0 ? (
           <Alert severity="info">No admins yet. Use "Invite Admin" to add one.</Alert>
         ) : (
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
@@ -165,7 +198,7 @@ export default function PharmacyAdmins({ pharmacyId, admins, onMembershipsChange
                         <span>
                           <IconButton
                             color="error"
-                            onClick={() => handleRemove(admin)}
+                            onClick={() => setConfirmRemove(admin)}
                             disabled={loadingId === admin.id}
                           >
                             {loadingId === admin.id ? <CircularProgress size={16} /> : <DeleteOutlineIcon fontSize="small" />}
@@ -180,6 +213,33 @@ export default function PharmacyAdmins({ pharmacyId, admins, onMembershipsChange
           </Box>
         )}
       </CardContent>
+
+      <Dialog
+        open={Boolean(confirmRemove)}
+        onClose={() => {
+          if (!loadingId) setConfirmRemove(null);
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Remove Admin</DialogTitle>
+        <DialogContent>
+          <Typography>{`Remove ${describeAdmin(confirmRemove)}? This action can't be undone.`}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmRemove(null)} disabled={Boolean(loadingId)}>
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => confirmRemove && handleRemove(confirmRemove)}
+            disabled={Boolean(loadingId)}
+          >
+            {loadingId === confirmRemove?.id ? "Removing..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={inviteOpen} onClose={() => setInviteOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Invite Admin</DialogTitle>

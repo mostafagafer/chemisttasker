@@ -3761,6 +3761,11 @@ class MembershipSerializer(serializers.ModelSerializer):
         role = attrs.get('role', getattr(self.instance, 'role', None))
         employment_type = attrs.get('employment_type', getattr(self.instance, 'employment_type', None))
 
+        if role == 'PHARMACY_ADMIN':
+            raise serializers.ValidationError({
+                'role': 'Use the pharmacy admin management endpoints to assign admin roles.'
+            })
+
         # --- (1) Enforce active membership limit ---
         if user:
             if self.instance:
@@ -3827,18 +3832,13 @@ class MembershipSerializer(serializers.ModelSerializer):
             })
 
         # --- (4) Default employment type for Pharmacy Admin ---
-        if role == 'PHARMACY_ADMIN' and not employment_type:
-            attrs['employment_type'] = 'FULL_TIME'
-
         # --- (5) Role-based cleanup of classification fields ---
         def clear(*fields):
             for f in fields:
                 if f in attrs:
                     attrs[f] = None
 
-        if role == 'PHARMACY_ADMIN':
-            clear('pharmacist_award_level', 'otherstaff_classification_level', 'intern_half', 'student_year')
-        elif role == 'PHARMACIST':
+        if role == 'PHARMACIST':
             clear('otherstaff_classification_level', 'intern_half', 'student_year')
         elif role in ('ASSISTANT', 'TECHNICIAN'):
             clear('pharmacist_award_level', 'intern_half', 'student_year')
@@ -3915,6 +3915,81 @@ class MembershipApplicationSerializer(serializers.ModelSerializer):
         validated_data['category'] = link.category
         validated_data['pharmacy'] = link.pharmacy
         return super().create(validated_data)
+
+
+class PharmacyAdminSerializer(serializers.ModelSerializer):
+    user_details = UserProfileSerializer(source='user', read_only=True)
+    pharmacy_detail = PharmacySerializer(source='pharmacy', read_only=True)
+    capabilities = serializers.SerializerMethodField()
+    can_remove = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PharmacyAdmin
+        fields = [
+            "id",
+            "user",
+            "user_details",
+            "pharmacy",
+            "pharmacy_detail",
+            "membership",
+            "admin_level",
+            "staff_role",
+            "job_title",
+            "is_active",
+            "capabilities",
+            "can_remove",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "capabilities",
+            "can_remove",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate(self, attrs):
+        user = attrs.get("user", getattr(self.instance, "user", None))
+        pharmacy = attrs.get("pharmacy", getattr(self.instance, "pharmacy", None))
+        admin_level = attrs.get("admin_level", getattr(self.instance, "admin_level", None))
+
+        if not user or not pharmacy:
+            raise serializers.ValidationError("user and pharmacy are required.")
+
+        existing = PharmacyAdmin.objects.filter(
+            user=user,
+            pharmacy=pharmacy,
+        )
+        if self.instance:
+            existing = existing.exclude(pk=self.instance.pk)
+        if existing.exists():
+            raise serializers.ValidationError("This user is already an admin for the selected pharmacy.")
+
+        owner_user_id = getattr(getattr(pharmacy, "owner", None), "user_id", None)
+        if owner_user_id and owner_user_id == getattr(user, "id", None):
+            if admin_level != PharmacyAdmin.AdminLevel.OWNER:
+                raise serializers.ValidationError({
+                    "admin_level": "Pharmacy owners must remain OWNER admin level."
+                })
+        return attrs
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            validated_data.setdefault("created_by", request.user)
+        return super().create(validated_data)
+
+    def get_capabilities(self, obj) -> list[str]:
+        return sorted(list(obj.capabilities))
+
+    def get_can_remove(self, obj) -> bool:
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        return obj.can_be_removed_by(request.user)
+
 
 # === Shifts ===
 class ShiftSlotSerializer(serializers.ModelSerializer):

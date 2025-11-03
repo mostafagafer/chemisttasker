@@ -20,6 +20,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
+import { useAuth } from '../../../contexts/AuthContext';
 
 // Unified Interface Definitions (RE-ADDED)
 interface Slot {
@@ -73,6 +74,11 @@ const gradientButtonSx = {
 };
 
 export default function ConfirmedShiftsPage() {
+  const { activePersona, activeAdminPharmacyId } = useAuth();
+  const scopedPharmacyId =
+    activePersona === "admin" && typeof activeAdminPharmacyId === "number"
+      ? activeAdminPharmacyId
+      : null;
   // 1) State
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loadingShifts, setLoadingShifts] = useState(true); // Renamed for clarity
@@ -103,18 +109,24 @@ export default function ConfirmedShiftsPage() {
     apiClient
       .get(API_ENDPOINTS.getConfirmedShifts)
       .then(res => {
-        const data = Array.isArray(res.data.results)
+        const data = Array.isArray(res.data?.results)
           ? res.data.results
           : Array.isArray(res.data)
             ? res.data
             : [];
-        setShifts(data);
+        const filtered =
+          scopedPharmacyId != null
+            ? data.filter((shift: any) =>
+                Number(shift.pharmacy_detail?.id ?? shift.pharmacy_id ?? shift.pharmacy) === scopedPharmacyId
+              )
+            : data;
+        setShifts(filtered);
       })
       .catch(() =>
         setSnackbar({ open: true, msg: 'Failed to load confirmed shifts' })
       )
       .finally(() => setLoadingShifts(false));
-  }, []);
+  }, [scopedPharmacyId]);
 
   const closeSnackbar = () => setSnackbar(s => ({ ...s, open: false }));
   const closeDialog = () => {
@@ -337,3 +349,7 @@ export default function ConfirmedShiftsPage() {
     </Container>
   );
 }
+
+
+
+

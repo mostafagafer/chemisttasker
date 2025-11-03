@@ -10,6 +10,7 @@ from django.db.models import Q
 from rest_framework.exceptions import ValidationError
 
 from client_profile.models import Shift
+from client_profile.admin_helpers import is_admin_of
 
 MAX_PUBLIC_SHIFTS_PER_DAY = 10
 
@@ -93,7 +94,7 @@ def build_roster_email_link(user, pharmacy):
         return f"{base}/owner/manage-pharmacies/roster"
     if user.role == "ORG_ADMIN":
         return f"{base}/org-admin/manage-pharmacies/roster"
-    if user.role == "PHARMACY_ADMIN":
+    if is_admin_of(user, pharmacy.id):
         return f"{base}/owner/manage-pharmacies/roster"
 
     return f"{base}/explorer/roster"

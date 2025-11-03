@@ -22,6 +22,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
+import { useAuth } from '../../../contexts/AuthContext';
 
 interface Slot {
   id: number;
@@ -81,6 +82,13 @@ const gradientButtonSx = {
 };
 
 export default function HistoryShiftsPage() {
+  const { activePersona, activeAdminPharmacyId } = useAuth();
+  const scopedPharmacyId =
+    activePersona === "admin" && typeof activeAdminPharmacyId === "number"
+      ? activeAdminPharmacyId
+      : null;
+// State
+  // State
   // State
   const [shifts, setShifts]           = useState<Shift[]>([]);
   const [loading, setLoading]         = useState(true); // Set to true initially for skeleton loading
@@ -109,19 +117,25 @@ export default function HistoryShiftsPage() {
 
   // Load history shifts
   useEffect(() => {
-    setLoading(true); // Ensure loading is true when fetching starts
+    setLoading(true);
     apiClient.get(API_ENDPOINTS.getHistoryShifts)
       .then(res => {
-        const data = Array.isArray(res.data.results)
+        const data = Array.isArray(res.data?.results)
           ? res.data.results
           : Array.isArray(res.data)
             ? res.data
             : [];
-        setShifts(data);
+        const filtered =
+          scopedPharmacyId != null
+            ? data.filter((shift: any) =>
+                Number(shift.pharmacy_detail?.id ?? shift.pharmacy_id ?? shift.pharmacy) === scopedPharmacyId
+              )
+            : data;
+        setShifts(filtered);
       })
       .catch(() => setSnackbar({ open: true, msg: 'Failed to load history shifts' }))
-      .finally(() => setLoading(false)); // Ensure loading is set to false
-  }, []);
+      .finally(() => setLoading(false));
+  }, [scopedPharmacyId]);
 
   const closeSnackbar = () => setSnackbar(s => ({ ...s, open: false }));
   const closeDialog   = () => setDialogOpen(false);
@@ -381,3 +395,8 @@ const openRateWorker = async (workerUserId: number) => {
     </Container>
   );
 }
+
+
+
+
+

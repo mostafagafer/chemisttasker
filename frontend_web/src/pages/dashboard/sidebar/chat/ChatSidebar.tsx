@@ -7,6 +7,8 @@ import { ChatListItem } from './ChatListItem';
 import type { ChatRoom, PharmacyRef, CachedMember, ChatMessage, MemberCache } from './types';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { ADMIN_CAPABILITY_MANAGE_COMMUNICATIONS } from '../../../../constants/adminCapabilities';
 
 dayjs.extend(utc);
 
@@ -57,6 +59,20 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
   currentUserId,
   initialFilter,
 }) => {
+  const { hasCapability, user: authUser } = useAuth();
+  const isOwner = authUser?.role === "OWNER";
+  const canManageCommunications = useCallback(
+    (pharmacyId?: number | null) => {
+      if (isOwner) {
+        return true;
+      }
+      return hasCapability(
+        ADMIN_CAPABILITY_MANAGE_COMMUNICATIONS,
+        typeof pharmacyId === "number" ? pharmacyId : undefined
+      );
+    },
+    [hasCapability, isOwner]
+  );
   const [filter, setFilter] = useState<SidebarFilter>(initialFilter ?? 'all');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -113,9 +129,7 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
 
     // Community (pharmacy) groups: role-based admin (Owner or Admin)
     if (room.pharmacy) {
-      const myMem = myMemberships.find(m => m.id === myMemId);
-      const role = (myMem?.role || '').toUpperCase();
-      return ['PHARMACY_ADMIN', 'OWNER'].includes(role);
+      return canManageCommunications(room.pharmacy);
     }
 
     // --- Custom groups: prefer per-participant admin flag; creator handled above ---
@@ -124,7 +138,7 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
       return entry.is_admin;
     }
     return false;
-  }, [myMemberships, participantCache, currentUserId]);
+  }, [myMemberships, participantCache, currentUserId, canManageCommunications]);
 
   const getDisplayName = useCallback((room: ChatRoom): string => {
     if (room.type === 'GROUP') {

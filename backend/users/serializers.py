@@ -10,6 +10,7 @@ from .models import OrganizationMembership
 import random
 from django.utils import timezone
 from client_profile.models import Pharmacy, Membership as PharmacyMembership
+from client_profile.admin_helpers import admin_assignments_for
 
 User = get_user_model()
 
@@ -138,6 +139,21 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         combined_pharm_payload = list(pharmacy_map.values())
 
+        admin_assignments = admin_assignments_for(self.user).select_related("pharmacy")
+        admin_payload = [
+            {
+                'id': assignment.id,
+                'pharmacy_id': assignment.pharmacy_id,
+                'pharmacy_name': assignment.pharmacy.name if assignment.pharmacy else None,
+                'admin_level': assignment.admin_level,
+                'capabilities': sorted(list(assignment.capabilities)),
+                'staff_role': assignment.staff_role,
+                'job_title': assignment.job_title,
+                'is_active': assignment.is_active,
+            }
+            for assignment in admin_assignments
+        ]
+
         # 3) Combined user payload (+ is_mobile_verified added)
         data['user'] = {
             'id':       self.user.id,
@@ -145,7 +161,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'email':    self.user.email,
             'role':     self.user.role,
             'memberships': org_payload + combined_pharm_payload,
-            'is_pharmacy_admin': any(pm.role == 'PHARMACY_ADMIN' for pm in pharm_memberships),
+            'admin_assignments': admin_payload,
+            'is_pharmacy_admin': bool(admin_payload),
             'is_mobile_verified': bool(getattr(self.user, 'is_mobile_verified', False)),
         }
         return data
@@ -197,13 +214,29 @@ class CustomTokenRefreshSerializer(TokenRefreshSerializer):
 
         combined_pharm_payload = list(pharmacy_map.values())
 
+        admin_assignments = admin_assignments_for(user).select_related("pharmacy")
+        admin_payload = [
+            {
+                'id': assignment.id,
+                'pharmacy_id': assignment.pharmacy_id,
+                'pharmacy_name': assignment.pharmacy.name if assignment.pharmacy else None,
+                'admin_level': assignment.admin_level,
+                'capabilities': sorted(list(assignment.capabilities)),
+                'staff_role': assignment.staff_role,
+                'job_title': assignment.job_title,
+                'is_active': assignment.is_active,
+            }
+            for assignment in admin_assignments
+        ]
+
         data['user'] = {
             'id':       user.id,
             'username': user.username,
             'email':    user.email,
             'role':     user.role,
             'memberships': org_payload + combined_pharm_payload,
-            'is_pharmacy_admin': any(pm.role == 'PHARMACY_ADMIN' for pm in pharm_memberships),
+            'admin_assignments': admin_payload,
+            'is_pharmacy_admin': bool(admin_payload),
             'is_mobile_verified': bool(getattr(user, 'is_mobile_verified', False)),
         }
 

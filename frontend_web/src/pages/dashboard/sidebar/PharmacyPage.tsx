@@ -37,7 +37,7 @@ import { API_BASE_URL, API_ENDPOINTS } from "../../../constants/api";
 import OwnerPharmaciesPage from "./owner/OwnerPharmaciesPage";
 import OwnerPharmacyDetailPage from "./owner/OwnerPharmacyDetailPage";
 import TopBar from "./owner/TopBar";
-import type { MembershipDTO, PharmacyDTO as OwnerPharmacyDTO } from "./owner/types";
+import type { MembershipDTO, PharmacyAdminDTO, PharmacyDTO as OwnerPharmacyDTO } from "./owner/types";
 
 const GOOGLE_LIBRARIES = ["places"] as Array<"places">;
 
@@ -111,7 +111,21 @@ const PHARMACY_CACHE_KEY = "pharmacyPage.cache.v1";
 export default function PharmacyPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user } = useAuth();
+  const { user, isAdminUser, activePersona, activeAdminPharmacyId } = useAuth();
+  const scopedPharmacyId =
+    activePersona === "admin" && typeof activeAdminPharmacyId === "number"
+      ? activeAdminPharmacyId
+      : null;
+
+  const scopePharmacies = useCallback(
+    (input: Pharmacy[]): Pharmacy[] => {
+      if (scopedPharmacyId == null) {
+        return input;
+      }
+      return input.filter((pharmacy) => Number(pharmacy.id) === scopedPharmacyId);
+    },
+    [scopedPharmacyId]
+  );
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: import.meta.env.VITE_Maps_API_KEY || "",
@@ -125,6 +139,7 @@ export default function PharmacyPage() {
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   const [membershipsByPharmacy, setMembershipsByPharmacy] = useState<Record<string, MembershipDTO[]>>({});
+  const [adminAssignmentsByPharmacy, setAdminAssignmentsByPharmacy] = useState<Record<string, PharmacyAdminDTO[]>>({});
   const [membershipsLoading, setMembershipsLoading] = useState<Record<string, boolean>>({});
   const [view, setView] = useState<"list" | "detail">("list");
   const [activePharmacyId, setActivePharmacyId] = useState<string | null>(null);
@@ -210,9 +225,9 @@ export default function PharmacyPage() {
       }),
     [activeMemberships]
   );
-  const adminMemberships = useMemo(
-    () => activeMemberships.filter((m) => (m.role || "").toUpperCase().includes("ADMIN")),
-    [activeMemberships]
+  const activeAdminAssignments = useMemo(
+    () => (activePharmacyId ? adminAssignmentsByPharmacy[activePharmacyId] || [] : []),
+    [activePharmacyId, adminAssignmentsByPharmacy]
   );
 
   useEffect(() => {
@@ -275,15 +290,19 @@ export default function PharmacyPage() {
       const cached = JSON.parse(cachedRaw) as {
         pharmacies?: Pharmacy[];
         memberships?: Record<string, MembershipDTO[]>;
+        admin_assignments?: Record<string, PharmacyAdminDTO[]>;
       };
       if (Array.isArray(cached.pharmacies)) {
-        setPharmacies(cached.pharmacies.map((ph) => ({ ...ph, id: String(ph.id) })));
+        setPharmacies(scopePharmacies(cached.pharmacies.map((ph) => ({ ...ph, id: String(ph.id) }))));
         if (cached.pharmacies.length > 0) {
           setInitialLoadComplete(true);
         }
       }
       if (cached.memberships) {
         setMembershipsByPharmacy(cached.memberships);
+      }
+      if (cached.admin_assignments) {
+        setAdminAssignmentsByPharmacy(cached.admin_assignments);
       }
     } catch (error) {
       console.error("Failed to hydrate pharmacy cache", error);
@@ -294,13 +313,26 @@ export default function PharmacyPage() {
     async (pharmacyId: string) => {
       setMembershipsLoading((prev) => ({ ...prev, [pharmacyId]: true }));
       try {
-        const res: AxiosResponse<PaginatedResponse<MembershipDTO>> = await apiClient.get(
-          `${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${pharmacyId}`
-        );
-        const data = Array.isArray(res.data?.results) ? res.data.results : (res.data as unknown as MembershipDTO[]);
+        const [membershipRes, adminRes]: [
+          AxiosResponse<PaginatedResponse<MembershipDTO>>,
+          AxiosResponse<PaginatedResponse<PharmacyAdminDTO>>
+        ] = await Promise.all([
+          apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${pharmacyId}`),
+          apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.pharmacyAdmins}?pharmacy=${pharmacyId}`),
+        ]);
+        const memberData = Array.isArray(membershipRes.data?.results)
+          ? membershipRes.data.results
+          : ((membershipRes.data as unknown) as MembershipDTO[]);
+        const adminData = Array.isArray(adminRes.data?.results)
+          ? adminRes.data.results
+          : ((adminRes.data as unknown) as PharmacyAdminDTO[]);
         setMembershipsByPharmacy((prev) => ({
           ...prev,
-          [pharmacyId]: Array.isArray(data) ? data : [],
+          [pharmacyId]: Array.isArray(memberData) ? memberData : [],
+        }));
+        setAdminAssignmentsByPharmacy((prev) => ({
+          ...prev,
+          [pharmacyId]: Array.isArray(adminData) ? adminData : [],
         }));
       } catch (err) {
         console.error("Failed to load memberships", err);
@@ -325,7 +357,7 @@ export default function PharmacyPage() {
       );
       const data = Array.isArray(res.data?.results) ? res.data.results : [];
       const normalized = data.map(normalizePharmacy);
-      setPharmacies(normalized);
+      setPharmacies(scopePharmacies(normalized));
       await Promise.all(normalized.map((p) => loadMembers(p.id)));
       setInitialLoadComplete(true);
     } catch (err) {
@@ -345,12 +377,7 @@ export default function PharmacyPage() {
 
     const isOrgAdmin =
       Array.isArray(user?.memberships) && user.memberships.some((m: any) => m?.role === "ORG_ADMIN");
-    const isPharmacyAdmin =
-      !!user?.is_pharmacy_admin ||
-      (Array.isArray(user?.memberships) &&
-        user.memberships.some((m: any) => m?.role === "PHARMACY_ADMIN" || m?.role === "OWNER"));
-
-  if (isOrgAdmin || isPharmacyAdmin) {
+    if (isOrgAdmin || isAdminUser) {
       void loadPharmacies();
       return;
     }
@@ -377,12 +404,13 @@ export default function PharmacyPage() {
       const payload = JSON.stringify({
         pharmacies,
         memberships: membershipsByPharmacy,
+        admin_assignments: adminAssignmentsByPharmacy,
       });
       sessionStorage.setItem(PHARMACY_CACHE_KEY, payload);
     } catch (error) {
       console.error("Failed to persist pharmacy cache", error);
     }
-  }, [pharmacies, membershipsByPharmacy, initialLoadComplete]);
+  }, [pharmacies, membershipsByPharmacy, adminAssignmentsByPharmacy, initialLoadComplete]);
 
   const openPharmacy = useCallback(
     (pharmacyId: string, options?: { replace?: boolean }) => {
@@ -607,7 +635,9 @@ export default function PharmacyPage() {
       if (editing) {
         const res = await apiClient.patch<PharmacyApi>(`${urlBase}${editing.id}/`, fd);
         const saved = normalizePharmacy(res.data);
-        setPharmacies((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+        setPharmacies((prev) =>
+          scopePharmacies(prev.map((p) => (p.id === saved.id ? saved : p)))
+        );
         await loadMembers(saved.id);
         showSnackbar("Pharmacy updated!", "success");
         if (activePharmacyId === editing.id) {
@@ -616,7 +646,12 @@ export default function PharmacyPage() {
       } else {
         const res = await apiClient.post<PharmacyApi>(urlBase, fd);
         const saved = normalizePharmacy(res.data);
-        setPharmacies((prev) => [...prev, saved]);
+        setPharmacies((prev) => {
+          if (scopedPharmacyId != null && Number(saved.id) !== scopedPharmacyId) {
+            return prev;
+          }
+          return scopePharmacies([...prev, saved]);
+        });
         await loadMembers(saved.id);
         setViewWithHistory("detail", { pharmacyId: saved.id });
         showSnackbar("Pharmacy added!", "success");
@@ -776,7 +811,7 @@ export default function PharmacyPage() {
           pharmacy={toOwnerPharmacyDTO(activePharmacy)}
           staffMemberships={staffMemberships}
           locumMemberships={locumMemberships}
-          adminMemberships={adminMemberships}
+          adminAssignments={activeAdminAssignments}
           onMembershipsChanged={() => loadMembers(activePharmacy.id)}
           onEditPharmacy={handleEditPharmacyDto}
           membershipsLoading={activeMembershipsLoading}
@@ -1141,3 +1176,4 @@ export default function PharmacyPage() {
     </Box>
   );
 }
+

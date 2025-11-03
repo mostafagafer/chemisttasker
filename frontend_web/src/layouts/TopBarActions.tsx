@@ -18,12 +18,16 @@ import Autocomplete, { createFilterOptions } from "@mui/material/Autocomplete";
 import TextField from "@mui/material/TextField";
 import InputAdornment from "@mui/material/InputAdornment";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
 import { alpha, useTheme } from "@mui/material/styles";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import NotificationsNoneOutlinedIcon from "@mui/icons-material/NotificationsNoneOutlined";
 import ChatBubbleOutlineOutlinedIcon from "@mui/icons-material/ChatBubbleOutlineOutlined";
 import SearchIcon from "@mui/icons-material/Search";
 import CloseIcon from "@mui/icons-material/Close";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import { useNavigate } from "react-router-dom";
@@ -42,6 +46,42 @@ type SearchOption = {
   path: string;
   keywords?: string[];
   description?: string;
+};
+
+type PersonaMenuOption =
+  | {
+      key: string;
+      kind: "ROLE";
+      role: "PHARMACIST" | "OTHER_STAFF";
+      label: string;
+      helper?: string;
+    }
+  | {
+      key: string;
+      kind: "ADMIN";
+      assignmentId: number;
+      label: string;
+      helper?: string;
+    };
+
+const STAFF_ROLE_LABELS: Record<"PHARMACIST" | "OTHER_STAFF", string> = {
+  PHARMACIST: "Pharmacist",
+  OTHER_STAFF: "Other Staff",
+};
+
+const ADMIN_LEVEL_LABELS: Record<string, string> = {
+  OWNER: "Owner",
+  MANAGER: "Manager",
+  ROSTER_MANAGER: "Roster Manager",
+  COMMUNICATION_MANAGER: "Communications Manager",
+};
+
+const ADMIN_STAFF_ROLE_LABELS: Record<string, string> = {
+  PHARMACIST: "Pharmacist",
+  INTERN: "Intern Pharmacist",
+  TECHNICIAN: "Dispensary Technician",
+  ASSISTANT: "Pharmacy Assistant",
+  STUDENT: "Pharmacy Student",
 };
 
 const ownerOptions: SearchOption[] = [
@@ -425,7 +465,7 @@ type MessageSummary = {
 export default function TopBarActions() {
   const theme = useTheme();
   const { mode, toggleColorMode } = useColorMode();
-  const { user, token, refreshUnreadCount } = useAuth();
+  const { user, token, refreshUnreadCount, adminAssignments, activePersona, activeAdminAssignment, selectRolePersona, selectAdminPersona, isAdminUser } = useAuth();
   const navigate = useNavigate();
   const downSm = useMediaQuery(theme.breakpoints.down("sm"));
   const [query, setQuery] = React.useState("");
@@ -437,6 +477,7 @@ export default function TopBarActions() {
   const [messageAnchor, setMessageAnchor] = React.useState<HTMLElement | null>(null);
   const [messageSummaries, setMessageSummaries] = React.useState<Record<number, MessageSummary>>({});
   const [unreadMessages, setUnreadMessages] = React.useState(0);
+  const [personaAnchor, setPersonaAnchor] = React.useState<HTMLElement | null>(null);
   const wsRef = React.useRef<WebSocket | null>(null);
 
   const filterOptions = React.useMemo(
@@ -450,10 +491,148 @@ export default function TopBarActions() {
     []
   );
 
+  const personaOptions = React.useMemo<PersonaMenuOption[]>(() => {
+    if (user?.role === "OWNER") {
+      return [];
+    }
+    const options: PersonaMenuOption[] = [];
+    if (user?.role === "PHARMACIST" || user?.role === "OTHER_STAFF") {
+      options.push({
+        key: `ROLE:${user.role}`,
+        kind: "ROLE",
+        role: user.role,
+        label: STAFF_ROLE_LABELS[user.role],
+        helper: "Staff dashboard",
+      });
+    }
+
+    adminAssignments.forEach((assignment) => {
+      if (!assignment || assignment.id == null) {
+        return;
+      }
+      const rawName = typeof assignment.pharmacy_name === "string" ? assignment.pharmacy_name.trim() : "";
+      const pharmacyName = rawName || `Pharmacy #${assignment.pharmacy_id}`;
+      const jobTitle = assignment.job_title?.trim();
+      const levelLabel =
+        (assignment.admin_level && ADMIN_LEVEL_LABELS[assignment.admin_level]) ||
+        "Admin";
+      const helperParts: string[] = [pharmacyName];
+      if (jobTitle) {
+        helperParts.push(jobTitle);
+      } else {
+        const staffRole = assignment.staff_role?.trim().toUpperCase();
+        if (staffRole) {
+          helperParts.push(ADMIN_STAFF_ROLE_LABELS[staffRole] ?? staffRole.replace(/_/g, " "));
+        }
+      }
+      const helperText = helperParts.filter(Boolean).join(" - ") || undefined;
+
+      options.push({
+        key: `ADMIN:${assignment.id}`,
+        kind: "ADMIN",
+        assignmentId: assignment.id,
+        label: levelLabel,
+        helper: helperText,
+      });
+    });
+
+    return options;
+  }, [adminAssignments, user?.role]);
+
+  const activePersonaKey = React.useMemo(() => {
+    if (activePersona === "admin") {
+      const activeId =
+        activeAdminAssignment?.id ??
+        adminAssignments.find((assignment) => assignment.id != null)?.id ??
+        null;
+      return activeId != null ? `ADMIN:${activeId}` : null;
+    }
+    if (
+      activePersona === "staff" &&
+      (user?.role === "PHARMACIST" || user?.role === "OTHER_STAFF")
+    ) {
+      return `ROLE:${user.role}`;
+    }
+    return null;
+  }, [activePersona, activeAdminAssignment?.id, adminAssignments, user?.role]);
+
+  const activePersonaOption = React.useMemo(
+    () =>
+      personaOptions.find((option) => option.key === activePersonaKey) ??
+      personaOptions[0] ??
+      null,
+    [personaOptions, activePersonaKey]
+  );
+
+  const showPersonaSwitcher =
+    personaOptions.length > 0 && (isAdminUser || personaOptions.length > 1);
+
+  const handleOpenPersonaMenu = React.useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      setPersonaAnchor(event.currentTarget);
+    },
+    []
+  );
+
+  const handleClosePersonaMenu = React.useCallback(() => {
+    setPersonaAnchor(null);
+  }, []);
+
+  const handlePersonaSelect = React.useCallback(
+    (option: PersonaMenuOption) => {
+      if (option.key === activePersonaKey) {
+        setPersonaAnchor(null);
+        return;
+      }
+      if (option.kind === "ROLE") {
+        selectRolePersona(option.role);
+        const targetPath = option.role === 'PHARMACIST'
+          ? '/dashboard/pharmacist/overview'
+          : option.role === 'OTHER_STAFF'
+          ? '/dashboard/otherstaff/overview'
+          : '/dashboard/explorer/overview';
+        navigate(targetPath);
+      } else {
+        selectAdminPersona(option.assignmentId);
+        const assignment = adminAssignments.find((item) => item.id === option.assignmentId);
+        if (assignment?.pharmacy_id != null) {
+          navigate(`/dashboard/admin/${assignment.pharmacy_id}/overview`, { replace: true });
+        }
+      }
+      setPersonaAnchor(null);
+    },
+    [activePersonaKey, adminAssignments, navigate, selectAdminPersona, selectRolePersona]
+  );
+
   const options = React.useMemo(() => {
     const roleKey = (user?.role || "DEFAULT").toUpperCase();
-    return ROLE_SEARCH_OPTIONS[roleKey] ?? ROLE_SEARCH_OPTIONS.DEFAULT;
-  }, [user?.role]);
+    let baseOptions = ROLE_SEARCH_OPTIONS[roleKey] ?? ROLE_SEARCH_OPTIONS.DEFAULT;
+
+    if (
+      activePersona === "admin" &&
+      activeAdminAssignment?.pharmacy_id
+    ) {
+      const adminBase = `/dashboard/admin/${activeAdminAssignment.pharmacy_id}`;
+      const remapPath = (path: string) => {
+        if (path.startsWith("/dashboard/owner")) {
+          return path.replace("/dashboard/owner", adminBase);
+        }
+        if (path.startsWith("/dashboard/admin/")) {
+          return path;
+        }
+        if (path.startsWith("/")) {
+          return `${adminBase}${path}`;
+        }
+        return `${adminBase}/${path}`;
+      };
+      baseOptions = baseOptions.map((option) => ({
+        ...option,
+        path: remapPath(option.path),
+      }));
+    }
+
+    return baseOptions;
+  }, [user?.role, activePersona, activeAdminAssignment?.pharmacy_id]);
 
   const searchFieldSx = React.useMemo(
     () => ({
@@ -503,7 +682,10 @@ export default function TopBarActions() {
   const handleEnterSubmit = React.useCallback(
     (event: React.KeyboardEvent) => {
       if (event.key !== "Enter" || !query.trim()) return;
-      const matches = filterOptions(options, { inputValue: query });
+      const matches = filterOptions(options, {
+        inputValue: query,
+        getOptionLabel: (option) => option.label,
+      });
       const firstMatch = matches[0];
       if (firstMatch) {
         event.preventDefault();
@@ -902,6 +1084,74 @@ export default function TopBarActions() {
 
   return (
     <Stack direction="row" spacing={1.25} alignItems="center" sx={{ pr: { xs: 0.5, md: 1.5 } }}>
+      {showPersonaSwitcher && (
+        <>
+          <Button
+            size="small"
+            variant="outlined"
+            color="inherit"
+            onClick={handleOpenPersonaMenu}
+            endIcon={<KeyboardArrowDownIcon fontSize="small" />}
+            sx={{
+              textTransform: "none",
+              borderRadius: 999,
+              px: 1.5,
+              py: 0.5,
+              borderColor: alpha(theme.palette.text.primary, 0.3),
+              color: "inherit",
+              maxWidth: { xs: 200, sm: 260 },
+            }}
+          >
+            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.2 }}>
+              <Typography variant="caption" sx={{ color: alpha(theme.palette.text.primary, 0.7), mb: 0.25 }}>
+                Viewing as
+              </Typography>
+              <Typography variant="body2" fontWeight={600} noWrap>
+                {activePersonaOption?.label ?? "Select persona"}
+              </Typography>
+            </Box>
+          </Button>
+          <Menu
+            anchorEl={personaAnchor}
+            open={Boolean(personaAnchor)}
+            onClose={handleClosePersonaMenu}
+            anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+            transformOrigin={{ vertical: "top", horizontal: "left" }}
+            MenuListProps={{ dense: true }}
+          >
+            {personaOptions.map((option) => {
+              const selected = option.key === activePersonaKey;
+              return (
+                <MenuItem
+                  key={option.key}
+                  selected={selected}
+                  onClick={() => handlePersonaSelect(option)}
+                  sx={{ minWidth: 240, alignItems: "flex-start", py: 1 }}
+                >
+                  <Box sx={{ display: "flex", flexDirection: "column" }}>
+                    <Typography variant="body2" fontWeight={selected ? 700 : 500}>
+                      {option.label}
+                    </Typography>
+                    {option.helper && (
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: "text.secondary",
+                          whiteSpace: "normal",
+                          wordBreak: "break-word",
+                          maxWidth: 260,
+                        }}
+                      >
+                        {option.helper}
+                      </Typography>
+                    )}
+                  </Box>
+                </MenuItem>
+              );
+            })}
+          </Menu>
+        </>
+      )}
       {downSm ? (
         <>
           <Tooltip title="Search">
@@ -1071,4 +1321,6 @@ export default function TopBarActions() {
     </Stack>
   );
 }
+
+
 

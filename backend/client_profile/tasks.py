@@ -19,7 +19,7 @@ import dateutil.parser
 from bs4 import BeautifulSoup
 from scrapingbee import ScrapingBeeClient
 from users.tasks import send_async_email
-from client_profile.models import ShiftSlotAssignment, OnboardingNotification, MembershipApplication, Membership, Pharmacy
+from client_profile.models import ShiftSlotAssignment, OnboardingNotification, MembershipApplication, Membership, Pharmacy, PharmacyAdmin
 from django.contrib.contenttypes.models import ContentType
 from client_profile.utils import build_shift_email_context, simple_name_match,clean_email,get_candidate_role, send_referee_emails, get_frontend_dashboard_url 
 import logging
@@ -1063,10 +1063,10 @@ def email_membership_application_submitted(app_id: int):
     if owner_email:
         recipients_by_role[owner_email] = "OWNER"
 
-    # Pharmacy Admins (membership table; do NOT rely on reverse name on User)
+    # Pharmacy Admins (dedicated table)
     admin_emails = list(
-        Membership.objects
-        .filter(pharmacy=pharmacy, role="PHARMACY_ADMIN", is_active=True)
+        PharmacyAdmin.objects
+        .filter(pharmacy=pharmacy, is_active=True)
         .select_related("user")
         .values_list("user__email", flat=True)
     )

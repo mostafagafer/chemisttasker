@@ -2,10 +2,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Box } from "@mui/material";
 import TopBar from "./TopBar";
+import { useAuth } from '../../../../contexts/AuthContext';
 import OwnerOverviewHome from "./OwnerOverviewHome";
 import OwnerPharmaciesPage from "./OwnerPharmaciesPage";
 import OwnerPharmacyDetailPage from "./OwnerPharmacyDetailPage";
-import { MembershipDTO, PharmacyDTO } from "./types";
+import { MembershipDTO, PharmacyAdminDTO, PharmacyDTO } from "./types";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 // Your existing utils
@@ -18,21 +19,37 @@ export default function OwnerOverviewContainer() {
   const navigate = useNavigate();
   const [pharmacies, setPharmacies] = useState<PharmacyDTO[]>([]);
   const [membershipsByPharmacy, setMembershipsByPharmacy] = useState<Record<string, MembershipDTO[]>>({});
+  const [adminAssignmentsByPharmacy, setAdminAssignmentsByPharmacy] = useState<Record<string, PharmacyAdminDTO[]>>({});
   const [searchParams, setSearchParams] = useSearchParams();
+  const { activePersona, activeAdminPharmacyId } = useAuth();
+  const scopedPharmacyId =
+    activePersona === "admin" && typeof activeAdminPharmacyId === "number"
+      ? activeAdminPharmacyId
+      : null;
+  const adminBasePath = scopedPharmacyId != null ? `/dashboard/admin/${scopedPharmacyId}` : null;
 
   const fetchMemberships = useCallback(async (pharmacyId: string) => {
     const res = await apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${pharmacyId}`);
     return Array.isArray(res.data?.results) ? res.data.results : res.data || [];
   }, []);
 
+  const fetchAdmins = useCallback(async (pharmacyId: string) => {
+    const res = await apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.pharmacyAdmins}?pharmacy=${pharmacyId}`);
+    return Array.isArray(res.data?.results) ? res.data.results : res.data || [];
+  }, []);
+
   const reloadPharmacyMemberships = useCallback(async (pharmacyId: string) => {
     try {
-      const data = await fetchMemberships(pharmacyId);
-      setMembershipsByPharmacy(prev => ({ ...prev, [pharmacyId]: data }));
+      const [memberships, admins] = await Promise.all([
+        fetchMemberships(pharmacyId),
+        fetchAdmins(pharmacyId),
+      ]);
+      setMembershipsByPharmacy((prev) => ({ ...prev, [pharmacyId]: memberships }));
+      setAdminAssignmentsByPharmacy((prev) => ({ ...prev, [pharmacyId]: admins }));
     } catch (error) {
       console.error("Failed to reload memberships", error);
     }
-  }, [fetchMemberships]);
+  }, [fetchMemberships, fetchAdmins, scopedPharmacyId]);
 
   // Fetch pharmacies + memberships (like your Pharmacy page)
   useEffect(() => {
@@ -50,17 +67,28 @@ export default function OwnerOverviewContainer() {
             id: String(item.id),
           })
         );
-        setPharmacies(normalizedPharmacies);
+        const scopedPharmacies =
+          scopedPharmacyId != null
+            ? normalizedPharmacies.filter((pharmacy) => Number(pharmacy.id) === scopedPharmacyId)
+            : normalizedPharmacies;
+        setPharmacies(scopedPharmacies);
 
         // Load memberships for each pharmacy
-        const map: Record<string, MembershipDTO[]> = {};
+        const memberMap: Record<string, MembershipDTO[]> = {};
+        const adminMap: Record<string, PharmacyAdminDTO[]> = {};
         await Promise.all(
-          normalizedPharmacies.map(async (p) => {
-            map[p.id] = await fetchMemberships(p.id);
+          scopedPharmacies.map(async (p) => {
+            const [memberships, admins] = await Promise.all([
+              fetchMemberships(p.id),
+              fetchAdmins(p.id),
+            ]);
+            memberMap[p.id] = memberships;
+            adminMap[p.id] = admins;
           })
         );
         if (!mounted) return;
-        setMembershipsByPharmacy(map);
+        setMembershipsByPharmacy(memberMap);
+        setAdminAssignmentsByPharmacy(adminMap);
       } catch (e) {
         console.error("OwnerOverviewContainer fetch error:", e);
       }
@@ -68,7 +96,7 @@ export default function OwnerOverviewContainer() {
     return () => {
       mounted = false;
     };
-  }, [fetchMemberships]);
+  }, [fetchMemberships, fetchAdmins, scopedPharmacyId]);
 
   const setViewParam = useCallback(
     (nextView: View, options?: { pharmacyId?: string | null; replace?: boolean }) => {
@@ -122,14 +150,19 @@ export default function OwnerOverviewContainer() {
     void reloadPharmacyMemberships(id);
   };
 
-  const goToRoster = () => navigate("/dashboard/owner/manage-pharmacies/roster");
-  const goToShifts = () => navigate("/dashboard/owner/shifts/active");
-  const goToPostShift = () => navigate("/dashboard/owner/post-shift");
-  const goToProfile = () => navigate("/dashboard/owner/onboarding");
-  const goToInterests = () => navigate("/dashboard/owner/interests");
-  const goToSettings = () => navigate("/dashboard/owner/manage-pharmacies/my-pharmacies");
+  const buildOwnerPath = (suffix: string) =>
+    `/dashboard/owner/${suffix}`;
+  const resolvePath = (suffix: string) =>
+    adminBasePath ? `${adminBasePath}/${suffix}` : buildOwnerPath(suffix);
+
+  const goToRoster = () => navigate(resolvePath("manage-pharmacies/roster"));
+  const goToShifts = () => navigate(resolvePath("shifts/active"));
+  const goToPostShift = () => navigate(resolvePath("post-shift"));
+  const goToProfile = () => navigate(resolvePath("onboarding"));
+  const goToInterests = () => navigate(resolvePath("interests"));
+  const goToSettings = () => navigate(resolvePath("manage-pharmacies/my-pharmacies"));
   const goToPharmacyManager = (query: string) =>
-    navigate(`/dashboard/owner/manage-pharmacies/my-pharmacies${query}`);
+    navigate(`${resolvePath("manage-pharmacies/my-pharmacies")}${query}`);
   const handleEditPharmacy = (pharmacy: PharmacyDTO) => {
     goToPharmacyManager(`?view=detail&pharmacyId=${pharmacy.id}&action=edit`);
   };
@@ -138,10 +171,14 @@ export default function OwnerOverviewContainer() {
   };
 
   useEffect(() => {
-    if (view === "pharmacy" && activePharmacyId && !(activePharmacyId in membershipsByPharmacy)) {
+    if (
+      view === "pharmacy" &&
+      activePharmacyId &&
+      (!(activePharmacyId in membershipsByPharmacy) || !(activePharmacyId in adminAssignmentsByPharmacy))
+    ) {
       void reloadPharmacyMemberships(activePharmacyId);
     }
-  }, [view, activePharmacyId, membershipsByPharmacy, reloadPharmacyMemberships]);
+  }, [view, activePharmacyId, membershipsByPharmacy, adminAssignmentsByPharmacy, reloadPharmacyMemberships]);
 
   return (
     <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -179,25 +216,35 @@ export default function OwnerOverviewContainer() {
       {view === "pharmacy" && activePharmacy && (
         <>
           <TopBar onBack={() => openPharmacies({ replace: true })} breadcrumb={["My Pharmacies", activePharmacy.name]} />
-          <OwnerPharmacyDetailPage
-            pharmacy={activePharmacy}
-            staffMemberships={(membershipsByPharmacy[activePharmacy.id] || []).filter((m) => {
+          {(() => {
+            const membershipList = membershipsByPharmacy[activePharmacy.id] || [];
+            const adminList = adminAssignmentsByPharmacy[activePharmacy.id] || [];
+            const nonOwnerMemberships = membershipList.filter((m) => !m.is_pharmacy_owner);
+            const staffMemberships = nonOwnerMemberships.filter((m) => {
               const role = (m.role || "").toUpperCase();
               const work = (m.employment_type || "").toUpperCase();
               return !role.includes("ADMIN") && !work.includes("LOCUM") && !work.includes("SHIFT");
-            })}
-            locumMemberships={(membershipsByPharmacy[activePharmacy.id] || []).filter((m) => {
+            });
+            const locumMemberships = nonOwnerMemberships.filter((m) => {
               const role = (m.role || "").toUpperCase();
               const work = (m.employment_type || "").toUpperCase();
               return !role.includes("ADMIN") && (work.includes("LOCUM") || work.includes("SHIFT"));
-            })}
-            adminMemberships={(membershipsByPharmacy[activePharmacy.id] || []).filter((m) =>
-              (m.role || "").toUpperCase().includes("ADMIN")
-            )}
-            onMembershipsChanged={() => reloadPharmacyMemberships(activePharmacy.id)}
-          />
+            });
+            const visibleAdminList = adminList.filter((admin) => admin.admin_level !== "OWNER");
+            return (
+              <OwnerPharmacyDetailPage
+                pharmacy={activePharmacy}
+                staffMemberships={staffMemberships}
+                locumMemberships={locumMemberships}
+                adminAssignments={visibleAdminList}
+                onMembershipsChanged={() => reloadPharmacyMemberships(activePharmacy.id)}
+              />
+            );
+          })()}
         </>
       )}
     </Box>
   );
 }
+
+

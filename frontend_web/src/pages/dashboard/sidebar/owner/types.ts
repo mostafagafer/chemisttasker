@@ -1,5 +1,6 @@
 // src/pages/dashboard/sidebar/owner/types.ts
 import { alpha, Theme } from "@mui/material/styles";
+import type { AdminCapability } from "../../../../constants/adminCapabilities";
 
 export type Role =
   | "PHARMACIST"
@@ -7,8 +8,7 @@ export type Role =
   | "ASSISTANT"
   | "INTERN"
   | "STUDENT"
-  | "CONTACT"
-  | "PHARMACY_ADMIN";
+  | "CONTACT";
 export type WorkType = "FULL_TIME" | "PART_TIME" | "CASUAL" | "LOCUM" | "SHIFT_HERO" | "CONTACT";
 export type UserPortalRole = "OWNER" | "PHARMACIST" | "OTHER_STAFF" | "EXPLORER";
 
@@ -33,6 +33,30 @@ export type MembershipDTO = {
   is_pharmacy_owner?: boolean;
 };
 
+export type AdminLevel = "OWNER" | "MANAGER" | "ROSTER_MANAGER" | "COMMUNICATION_MANAGER";
+
+export type AdminStaffRole =
+  | "PHARMACIST"
+  | "INTERN"
+  | "TECHNICIAN"
+  | "ASSISTANT"
+  | "STUDENT";
+
+export type PharmacyAdminDTO = {
+  id: string | number;
+  pharmacy?: number;
+  pharmacy_name?: string | null;
+  user?: number | null;
+  invited_name?: string | null;
+  email?: string | null;
+  admin_level: AdminLevel;
+  staff_role?: AdminStaffRole | null;
+  job_title?: string | null;
+  user_details?: { email?: string; first_name?: string; last_name?: string };
+  capabilities?: AdminCapability[];
+  can_remove?: boolean;
+};
+
 export const ROLE_LABELS: Record<Role, string> = {
   PHARMACIST: "Pharmacist",
   TECHNICIAN: "Dispensary Technician",
@@ -40,7 +64,6 @@ export const ROLE_LABELS: Record<Role, string> = {
   INTERN: "Intern Pharmacist",
   STUDENT: "Pharmacy Student",
   CONTACT: "Contact",
-  PHARMACY_ADMIN: "Pharmacy Admin",
 };
 
 export const USER_ROLE_LABELS: Record<UserPortalRole, string> = {
@@ -66,7 +89,6 @@ export const formatUserPortalRole = (role: UserPortalRole): string => USER_ROLE_
 
 export function coerceRole(raw?: string): Role {
   const r = (raw || "").toUpperCase();
-  if (r.includes("ADMIN")) return "PHARMACY_ADMIN";
   if (r.includes("INTERN")) return "INTERN";
   if (r.includes("STUDENT")) return "STUDENT";
   if (r.includes("CONTACT")) return "CONTACT";
@@ -85,6 +107,38 @@ export function coerceWorkType(raw?: string): WorkType {
   if (r.includes("CONTACT")) return "CONTACT";
   return "CASUAL";
 }
+
+export const STAFF_ROLE_LABELS: Record<AdminStaffRole, string> = {
+  PHARMACIST: "Pharmacist",
+  INTERN: "Intern Pharmacist",
+  TECHNICIAN: "Dispensary Technician",
+  ASSISTANT: "Pharmacy Assistant",
+  STUDENT: "Pharmacy Student",
+};
+
+export const STAFF_ROLE_OPTIONS = Object.entries(STAFF_ROLE_LABELS).map(([value, label]) => ({
+  value: value as AdminStaffRole,
+  label,
+}));
+
+export const ADMIN_LEVEL_LABELS: Record<AdminLevel, string> = {
+  OWNER: "Owner",
+  MANAGER: "Manager",
+  ROSTER_MANAGER: "Roster Manager",
+  COMMUNICATION_MANAGER: "Communication Manager",
+};
+
+export const ADMIN_LEVEL_HELPERS: Record<AdminLevel, string> = {
+  OWNER: "Full control. Cannot be removed.",
+  MANAGER: "Full control except removing the owner.",
+  ROSTER_MANAGER: "Manage roster/shifts and broadcast communications.",
+  COMMUNICATION_MANAGER: "Communications only. Cannot manage staff or admins.",
+};
+
+export const ADMIN_LEVEL_OPTIONS = Object.entries(ADMIN_LEVEL_LABELS).map(([value, label]) => ({
+  value: value as AdminLevel,
+  label,
+}));
 
 // Dark-mode safe surface tokens for consistent contrast
 export const surface = (t: Theme) => ({

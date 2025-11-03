@@ -60,11 +60,10 @@ export default function Login() {
         return;
       }
 
-      // If Pharmacy Admin (membership-based), land on Owner dashboard
-      const isPharmacyAdmin = Array.isArray(userInfo?.memberships)
-        ? userInfo.memberships.some((m: any) => m?.role === 'PHARMACY_ADMIN' || m?.role === 'OWNER')
-        : false;
-      if (isPharmacyAdmin) {
+      const hasAdminAccess =
+        (Array.isArray(userInfo?.admin_assignments) && userInfo.admin_assignments.length > 0) ||
+        userInfo.role === 'OWNER';
+      if (hasAdminAccess) {
         navigate('/dashboard/owner/overview');
         return;
       }

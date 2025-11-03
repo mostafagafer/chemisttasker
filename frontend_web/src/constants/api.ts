@@ -250,5 +250,7 @@ export const API_ENDPOINTS = {
   organizationHubReaction: (organizationId: number | string, postId: number | string) =>
     `/client-profile/organizations/${organizationId}/hub/posts/${postId}/reactions/`,
 
+  pharmacyAdmins: "/client-profile/pharmacy-admins/",
+  pharmacyAdminDetail: (adminId: string | number) => `/client-profile/pharmacy-admins/${adminId}/`,
 
 };

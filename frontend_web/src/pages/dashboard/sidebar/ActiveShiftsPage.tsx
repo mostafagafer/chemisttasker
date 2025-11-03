@@ -275,7 +275,11 @@ const ActiveShiftsPage: React.FC = () => {
   const [shiftToDelete, setShiftToDelete] = useState<number | null>(null);
   const navigate = useNavigate();
   const theme = useTheme();
-  const { user } = useAuth();
+  const { user, activePersona, activeAdminPharmacyId } = useAuth();
+  const scopedPharmacyId =
+    activePersona === "admin" && typeof activeAdminPharmacyId === "number"
+      ? activeAdminPharmacyId
+      : null;
   const [sharingShiftId, setSharingShiftId] = useState<number | null>(null);
   const [selectedLevelByShift, setSelectedLevelByShift] = useState<Record<number, EscalationKey>>({});
   const [reviewCandidateDialog, setReviewCandidateDialog] = useState<{
@@ -330,14 +334,26 @@ const ActiveShiftsPage: React.FC = () => {
     try {
       const res = await apiClient.get(API_ENDPOINTS.getActiveShifts);
       const data = Array.isArray(res.data) ? res.data : res.data?.results ?? [];
-      setShifts(data);
+      const filtered =
+        scopedPharmacyId != null
+          ? data.filter(
+              (shift: any) =>
+                Number(
+                  shift.pharmacy_id ??
+                    shift.pharmacy ??
+                    shift.pharmacy_detail?.id ??
+                    shift.pharmacy_detail?.pharmacy_id
+                ) === scopedPharmacyId
+            )
+          : data;
+      setShifts(filtered);
     } catch (error) {
       console.error('Failed to load active shifts', error);
       showSnackbar('Failed to load active shifts.');
     } finally {
       setLoadingShifts(false);
     }
-  }, [showSnackbar]);
+  }, [showSnackbar, scopedPharmacyId]);
 
   useEffect(() => {
     loadShifts();
@@ -596,7 +612,12 @@ const ActiveShiftsPage: React.FC = () => {
   };
 
   const handleEdit = (shiftId: number) => {
-    const baseRoute = user?.role?.startsWith('ORG_') ? '/dashboard/organization/post-shift' : '/dashboard/owner/post-shift';
+    const baseRoute =
+      scopedPharmacyId != null
+        ? `/dashboard/admin/${scopedPharmacyId}/post-shift`
+        : user?.role?.startsWith('ORG_')
+        ? '/dashboard/organization/post-shift'
+        : '/dashboard/owner/post-shift';
     navigate(`${baseRoute}?edit=${shiftId}`);
   };
 
@@ -1485,4 +1506,6 @@ const ActiveShiftsPage: React.FC = () => {
 };
 
 export default ActiveShiftsPage;
+
+
 

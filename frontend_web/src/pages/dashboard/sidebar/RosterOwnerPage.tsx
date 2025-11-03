@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import type { SyntheticEvent } from 'react';
 import {
   Container,
   Typography,
@@ -41,6 +42,7 @@ import { calendarViews, calendarMessages, getDateRangeForView, CalendarViewKey }
 
 import apiClient from '../../../utils/apiClient';
 import { API_ENDPOINTS } from '../../../constants/api';
+import { useAuth } from '../../../contexts/AuthContext';
 import { ROSTER_COLORS } from '../../../constants/rosterColors';
 
 const localizer = momentLocalizer(moment);
@@ -134,6 +136,12 @@ const RosterPageSkeleton = () => (
 
 
 export default function RosterOwnerPage() {
+  const { activePersona, activeAdminPharmacyId } = useAuth();
+  const scopedPharmacyId =
+    activePersona === 'admin' && typeof activeAdminPharmacyId === 'number'
+      ? activeAdminPharmacyId
+      : null;
+
   // --- Component State ---
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   const [selectedPharmacyId, setSelectedPharmacyId] = useState<number | null>(null);
@@ -168,6 +176,14 @@ export default function RosterOwnerPage() {
   const [shiftToEdit, setShiftToEdit] = useState<ShiftForEdit | null>(null);
   const [filteredMembers, setFilteredMembers] = useState<PharmacyMember[]>([]);
   const [escalationLevel, setEscalationLevel] = useState<string>('');
+  const handleTabChange = useCallback((_: SyntheticEvent, val: number | boolean) => {
+    if (scopedPharmacyId != null) {
+      return;
+    }
+    if (typeof val === 'number') {
+      setSelectedPharmacyId(val);
+    }
+  }, [scopedPharmacyId]);
   const [isLeaveManageDialogOpen, setIsLeaveManageDialogOpen] = useState(false); // New dialog state
   const currentShiftDetail = selectedAssignment?.shift_detail;
   const selectableEscalationLevels = useMemo(() => {
@@ -221,23 +237,35 @@ export default function RosterOwnerPage() {
         const pharmacyRes = await apiClient.get<PaginatedResponse<Pharmacy>>(API_ENDPOINTS.pharmacies);
 
         const loadedPharmacies = pharmacyRes.data.results || [];
+        const filteredByScope =
+          scopedPharmacyId != null
+            ? loadedPharmacies.filter((ph) => Number(ph.id) === scopedPharmacyId)
+            : [];
+        const availablePharmacies =
+          filteredByScope.length > 0 ? filteredByScope : loadedPharmacies;
 
-        setPharmacies(loadedPharmacies);
-        
-        if (loadedPharmacies.length > 0) {
-          const firstPharmacyId = loadedPharmacies[0].id;
-          setSelectedPharmacyId(firstPharmacyId);
+        setPharmacies(availablePharmacies);
+
+        const defaultPharmacyId: number | null =
+          scopedPharmacyId != null
+            ? scopedPharmacyId
+            : availablePharmacies.length > 0
+            ? availablePharmacies[0].id
+            : null;
+
+        if (defaultPharmacyId != null) {
+          setSelectedPharmacyId(defaultPharmacyId);
           const { start, end } = getDateRangeForView(calendarDate, calendarView);
           const startDate = start.format('YYYY-MM-DD');
           const endDate = end.format('YYYY-MM-DD');
           // Fetch assignments
-          const assignmentsRes = await apiClient.get<PaginatedResponse<Assignment>>(`${API_ENDPOINTS.getRosterOwner}?pharmacy=${firstPharmacyId}&start_date=${startDate}&end_date=${endDate}`);
+          const assignmentsRes = await apiClient.get<PaginatedResponse<Assignment>>(`${API_ENDPOINTS.getRosterOwner}?pharmacy=${defaultPharmacyId}&start_date=${startDate}&end_date=${endDate}`);
           setAssignments(assignmentsRes.data.results || []);
           // NEW: Fetch worker shift requests
-          const requestsRes = await apiClient.get<PaginatedResponse<WorkerShiftRequest>>(`${API_ENDPOINTS.workerShiftRequests}?pharmacy=${firstPharmacyId}&start_date=${startDate}&end_date=${endDate}`);
+          const requestsRes = await apiClient.get<PaginatedResponse<WorkerShiftRequest>>(`${API_ENDPOINTS.workerShiftRequests}?pharmacy=${defaultPharmacyId}&start_date=${startDate}&end_date=${endDate}`);
           setWorkerRequests(requestsRes.data.results || []);
           // FIX: Use the correct endpoint for owner's open shifts
-          const openShiftsRes = await apiClient.get<PaginatedResponse<OpenShift>>(`${API_ENDPOINTS.ownerOpenShifts}?pharmacy=${firstPharmacyId}&start_date=${startDate}&end_date=${endDate}`);
+          const openShiftsRes = await apiClient.get<PaginatedResponse<OpenShift>>(`${API_ENDPOINTS.ownerOpenShifts}?pharmacy=${defaultPharmacyId}&start_date=${startDate}&end_date=${endDate}`);
           const openShiftData = Array.isArray(openShiftsRes.data) ? openShiftsRes.data : openShiftsRes.data?.results ?? [];
           setOpenShifts(openShiftData as OpenShift[]);
 
@@ -249,7 +277,7 @@ export default function RosterOwnerPage() {
       }
     };
     loadInitialData();
-  }, []); // Note: empty dependency array ensures this runs only once on mount.
+  }, [scopedPharmacyId]);
 
   useEffect(() => {
     if (!isPageLoading && selectedPharmacyId) { 
@@ -662,8 +690,10 @@ export default function RosterOwnerPage() {
     <Container sx={{ py: 4 }}>
       <Typography variant="h4" gutterBottom>Internal Roster</Typography>
 
-      <Tabs value={selectedPharmacyId} onChange={(_, val) => setSelectedPharmacyId(val as number)} sx={{ mb: 3 }} textColor="primary" indicatorColor="primary">
-        {pharmacies.map(p => <Tab key={p.id} label={p.name} value={p.id} />)}
+      <Tabs value={selectedPharmacyId ?? false} onChange={handleTabChange} sx={{ mb: 3 }} textColor="primary" indicatorColor="primary">
+        {pharmacies.map(p => (
+          <Tab key={p.id} label={p.name} value={Number(p.id)} />
+        ))}
       </Tabs>
       
       <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2}}>
@@ -986,3 +1016,16 @@ export default function RosterOwnerPage() {
     </Container>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+

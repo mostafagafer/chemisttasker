@@ -16,15 +16,11 @@ import logoPng from "../assets/20250711_1205_Chemisttasker Badge Design_remix_01
 type Props = { userRole: string };
 
 export default function CustomAppTitle({ userRole }: Props) {
-  const { user } = useAuth();
+  const { isAdminUser, activePersona } = useAuth();
   const [verified, setVerified] = React.useState<boolean>(false);
   const { workspace, setWorkspace } = useWorkspace();
 
-  // determine pharmacy-admin from backend flag or memberships
-  const isPharmacyAdmin =
-    !!user?.is_pharmacy_admin ||
-    (Array.isArray(user?.memberships) &&
-      user.memberships.some((m: any) => m?.role === "PHARMACY_ADMIN"));
+  const isAdminPersona = activePersona === "admin" && isAdminUser;
 
   // Normalize role once
   const rawRole = (userRole || "").trim().toLowerCase().replace(/\s/g, "_");
@@ -32,12 +28,12 @@ export default function CustomAppTitle({ userRole }: Props) {
   const roleKey = rawRole === "other_staff" ? "otherstaff" : rawRole;
   // Visibility: ONLY Pharmacist and Other Staff get the switcher
   const isSwitcherVisible =
-    rawRole === "pharmacist" || rawRole === "other_staff";
+    activePersona === "staff" && (rawRole === "pharmacist" || rawRole === "other_staff");
 
   // Title that reflects role; treat Pharmacy Admin like Owner
   const roleTitle =
-    rawRole === "owner" || isPharmacyAdmin
-      ? "Owner Dashboard"
+    rawRole === "owner" || isAdminPersona
+      ? "Admin Dashboard"
       : rawRole === "otherstaff" || rawRole === "other_staff"
       ? "Staff Dashboard"
       : rawRole === "explorer"
@@ -46,49 +42,67 @@ export default function CustomAppTitle({ userRole }: Props) {
 
 // inside CustomAppTitle.tsx
 
-React.useEffect(() => {
-  let active = true;
-
-  const onboardingKey =
-    rawRole === "owner" || isPharmacyAdmin ? "owner" : roleKey;
-
-  // Try V2 first; fallback to V1 if 404/405 (in case a role hasn't been migrated)
-  const endpoints = [
-    `/client-profile/${onboardingKey}/onboarding-v2/me/`,
-    `/client-profile/${onboardingKey}/onboarding/me/`,
-  ];
-
-  const refetch = async () => {
-    for (const ep of endpoints) {
-      try {
-        const res = await apiClient.get(ep);
-        if (!active) return;
-        const v = !!(res?.data?.verified ?? res?.data?.is_verified ?? false);
-        setVerified(v);
-        return; // success (v2 or v1)
-      } catch (err: any) {
-        const status = err?.response?.status;
-        // Only fall back on “endpoint missing / method not allowed”
-        if (status === 404 || status === 405) continue;
-        // Any other error: stop and show pending
-        break;
-      }
+  const onboardingKey = React.useMemo(() => {
+    if (rawRole === "owner") {
+      return "owner";
     }
-    if (active) setVerified(false);
-  };
+    if (isAdminPersona) {
+      return null;
+    }
+    return roleKey;
+  }, [rawRole, roleKey, isAdminPersona]);
 
-  // initial load
-  refetch();
+  React.useEffect(() => {
+    let active = true;
 
-  // live refresh when any onboarding save completes (your interceptor dispatches this)
-  const handler = () => refetch();
-  window.addEventListener("onboarding-updated", handler);
+    if (!onboardingKey) {
+      setVerified(true);
+      return () => {
+        active = false;
+      };
+    }
 
-  return () => {
-    active = false;
-    window.removeEventListener("onboarding-updated", handler);
-  };
-}, [roleKey, rawRole, isPharmacyAdmin]);
+    const endpoints = [
+      `/client-profile/${onboardingKey}/onboarding-v2/me/`,
+      `/client-profile/${onboardingKey}/onboarding/me/`,
+    ];
+
+    const refetch = async () => {
+      for (const ep of endpoints) {
+        try {
+          const res = await apiClient.get(ep);
+          if (!active) {
+            return;
+          }
+          const v = !!(res?.data?.verified ?? res?.data?.is_verified ?? false);
+          setVerified(v);
+          return; // success (v2 or v1)
+        } catch (err: any) {
+          const status = err?.response?.status;
+          // Only fall back on "endpoint missing / method not allowed"
+          if (status === 404 || status === 405) {
+            continue;
+          }
+          break;
+        }
+      }
+      if (active) {
+        setVerified(false);
+      }
+    };
+
+    void refetch();
+
+    const handler = () => {
+      void refetch();
+    };
+    window.addEventListener("onboarding-updated", handler);
+
+    return () => {
+      active = false;
+      window.removeEventListener("onboarding-updated", handler);
+    };
+  }, [onboardingKey]);
 
   return (
     <Box
@@ -164,3 +178,4 @@ React.useEffect(() => {
     </Box>
   );
 }
+

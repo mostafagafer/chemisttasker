@@ -4,9 +4,10 @@ import PeopleIcon from "@mui/icons-material/People";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import StarOutlineIcon from "@mui/icons-material/StarOutline";
 import ManageAccountsIcon from "@mui/icons-material/ManageAccounts";
+import { useAuth } from '../../../../contexts/AuthContext';
 import ListAltIcon from "@mui/icons-material/ListAlt";
 import SettingsIcon from "@mui/icons-material/Settings";
-import { MembershipDTO, PharmacyDTO, surface } from "./types";
+import { MembershipDTO, PharmacyAdminDTO, PharmacyDTO, surface } from "./types";
 import { useTheme } from "@mui/material/styles";
 import StaffManager from "./StaffManager";
 import LocumManager from "./LocumManager";
@@ -53,26 +54,36 @@ function IconButtonCard({
   );
 }
 
+interface OwnerPharmacyDetailPageProps {
+  pharmacy: PharmacyDTO;
+  staffMemberships: MembershipDTO[];
+  locumMemberships: MembershipDTO[];
+  adminAssignments: PharmacyAdminDTO[];
+  onMembershipsChanged: () => void;
+  onEditPharmacy?: (pharmacy: PharmacyDTO) => void;
+  membershipsLoading?: boolean;
+}
+
 export default function OwnerPharmacyDetailPage({
   pharmacy,
   staffMemberships,
   locumMemberships,
-  adminMemberships,
+  adminAssignments,
   onMembershipsChanged,
   onEditPharmacy,
   membershipsLoading = false,
-}: {
-  pharmacy: PharmacyDTO;
-  staffMemberships: MembershipDTO[];
-  locumMemberships: MembershipDTO[];
-  adminMemberships: MembershipDTO[];
-  onMembershipsChanged: () => void;
-  onEditPharmacy?: (pharmacy: PharmacyDTO) => void;
-  membershipsLoading?: boolean;
-}) {
+}: OwnerPharmacyDetailPageProps) {
   const theme = useTheme();
   const tokens = surface(theme);
   const navigate = useNavigate();
+  const { activePersona, activeAdminPharmacyId } = useAuth();
+  const scopedPharmacyId =
+    activePersona === "admin" && typeof activeAdminPharmacyId === "number"
+      ? activeAdminPharmacyId
+      : null;
+  const adminBasePath = scopedPharmacyId != null ? `/dashboard/admin/${scopedPharmacyId}` : null;
+  const resolvePath = (suffix: string) =>
+    adminBasePath ? `${adminBasePath}/${suffix}` : `/dashboard/owner/${suffix}`;
   const staffSectionRef = useRef<HTMLDivElement>(null);
   const locumSectionRef = useRef<HTMLDivElement>(null);
   const adminsSectionRef = useRef<HTMLDivElement>(null);
@@ -84,15 +95,15 @@ export default function OwnerPharmacyDetailPage({
   const handleManageStaff = () => scrollTo(staffSectionRef);
   const handleManageLocums = () => scrollTo(locumSectionRef);
   const handleManageAdmins = () => scrollTo(adminsSectionRef);
-  const handleCheckShifts = () => navigate("/dashboard/owner/shifts/active");
-  const handlePostShift = () => navigate("/dashboard/owner/post-shift");
+  const handleCheckShifts = () => navigate(resolvePath("shifts/active"));
+  const handlePostShift = () => navigate(resolvePath("post-shift"));
   const handleFavouriteLocums = () => handleManageLocums();
   const handleConfigurations = () => {
     if (onEditPharmacy) {
       onEditPharmacy(pharmacy);
       return;
     }
-    navigate("/dashboard/owner/manage-pharmacies/my-pharmacies");
+    navigate(resolvePath("manage-pharmacies/my-pharmacies"));
   };
 
   return (
@@ -115,7 +126,7 @@ export default function OwnerPharmacyDetailPage({
           </Typography>
         </Box>
         <Box sx={{ display: "flex", gap: 1 }}>
-          <Button variant="outlined" onClick={() => (onEditPharmacy ? onEditPharmacy(pharmacy) : navigate("/dashboard/owner/manage-pharmacies/my-pharmacies"))}>Edit</Button>
+          <Button variant="outlined" onClick={() => (onEditPharmacy ? onEditPharmacy(pharmacy) : navigate(resolvePath("manage-pharmacies/my-pharmacies")))}>Edit</Button>
         </Box>
       </Box>
 
@@ -163,11 +174,13 @@ export default function OwnerPharmacyDetailPage({
       <Box sx={{ mt: 3 }} ref={adminsSectionRef}>
         <PharmacyAdmins
           pharmacyId={pharmacy.id}
-          admins={adminMemberships}
-          onMembershipsChanged={onMembershipsChanged}
+          admins={adminAssignments}
+          onAdminsChanged={onMembershipsChanged}
           loading={membershipsLoading}
         />
       </Box>
     </Box>
   );
 }
+
+

@@ -42,6 +42,15 @@ import RosterWorkerPage from './pages/dashboard/sidebar/RosterWorkerPage';
 
 import ProtectedRoute from './components/ProtectedRoute';
 import OwnerDashboardWrapper from './layouts/ownerDashboard';
+import AdminOverview from './pages/dashboard/admin/AdminOverview';
+import AdminManagePharmaciesPage from './pages/dashboard/admin/AdminManagePharmaciesPage';
+import AdminRosterPage from './pages/dashboard/admin/AdminRosterPage';
+import AdminPostShiftPage from './pages/dashboard/admin/AdminPostShiftPage';
+import AdminActiveShiftsPage from './pages/dashboard/admin/AdminActiveShiftsPage';
+import AdminConfirmedShiftsPage from './pages/dashboard/admin/AdminConfirmedShiftsPage';
+import AdminHistoryShiftsPage from './pages/dashboard/admin/AdminHistoryShiftsPage';
+import AdminPosterShiftDetailPage from './pages/dashboard/admin/AdminPosterShiftDetailPage';
+import AdminDashboardWrapper from './layouts/adminDashboard';
 import PharmacistDashboardWrapper from './layouts/pharmacistDashboard';
 import OtherstaffDashboardWrapper from './layouts/otherStaffDashboard';
 import ExplorerDashboardWrapper from './layouts/explorerDashboard';
@@ -157,6 +166,38 @@ const router = createBrowserRouter([
           { path: 'learning',     element: <LearningMaterialsPage /> },
           { path: 'logout',       element: <LogoutPage /> },
 
+        ],
+      },
+
+      // Admin 
+      {
+        path: 'dashboard/admin/:pharmacyId',
+        Component: () => (
+          <ProtectedRoute requireAdmin>
+            <AdminDashboardWrapper />
+          </ProtectedRoute>
+        ),
+        children: [
+          { index: true, element: <AdminOverview /> },
+          { path: 'overview', element: <AdminOverview /> },
+          { path: 'manage-pharmacies', element: <AdminManagePharmaciesPage /> },
+          { path: 'manage-pharmacies/my-pharmacies', element: <AdminManagePharmaciesPage /> },
+          { path: 'manage-pharmacies/roster', element: <AdminRosterPage /> },
+          { path: 'post-shift', element: <AdminPostShiftPage /> },
+          {
+            path: 'shifts',
+            children: [
+              { index: true, element: <AdminActiveShiftsPage /> },
+              { path: 'active', element: <AdminActiveShiftsPage /> },
+              { path: 'confirmed', element: <AdminConfirmedShiftsPage /> },
+              { path: 'history', element: <AdminHistoryShiftsPage /> },
+              { path: ':id', element: <AdminPosterShiftDetailPage /> },
+            ],
+          },
+          { path: 'chat', element: <ChatPage /> },
+          { path: 'community-groups', element: <CommunityGroupsPage /> },
+          { path: 'pharmacy-hub', element: <PharmacyHubPage /> },
+          { path: 'logout', element: <LogoutPage /> },
         ],
       },
 
@@ -378,3 +419,4 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </AuthProvider>
   </React.StrictMode>
 );
+

@@ -8,6 +8,7 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.crypto import get_random_string
 from rest_framework.response import Response
 from .models import OrganizationMembership
+from client_profile.admin_helpers import admin_assignments_for
 from .serializers import InviteOrgUserSerializer
 from .permissions import OrganizationRolePermission
 from django.conf import settings
@@ -145,7 +146,23 @@ class VerifyOTPView(APIView):
                 'pharmacy_name': pm.pharmacy.name if pm.pharmacy else None,
                 'role':          pm.role,
             }
-            for pm in pharm_memberships
+              for pm in pharm_memberships
+          ]
+
+        admin_assignments = (
+            admin_assignments_for(user)
+            .select_related("pharmacy")
+        )
+        admin_payload = [
+            {
+                "pharmacy_id": assignment.pharmacy_id,
+                "pharmacy_name": assignment.pharmacy.name if assignment.pharmacy else None,
+                "admin_level": assignment.admin_level,
+                "capabilities": sorted(list(assignment.capabilities)),
+                "staff_role": assignment.staff_role,
+                "job_title": assignment.job_title,
+            }
+            for assignment in admin_assignments
         ]
 
         return Response({
@@ -157,7 +174,8 @@ class VerifyOTPView(APIView):
                 "email": user.email,
                 "role": user.role,
                 "memberships": org_payload + pharm_payload,
-                "is_pharmacy_admin": any(pm.role == 'PHARMACY_ADMIN' for pm in pharm_memberships),
+                "admin_assignments": admin_payload,
+                "is_pharmacy_admin": bool(admin_payload),
                 # helpful flags for frontend:
                 "is_otp_verified": True,
                 "is_mobile_verified": bool(getattr(user, "is_mobile_verified", False)),

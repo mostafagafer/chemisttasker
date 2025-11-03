@@ -48,6 +48,7 @@ import { useTheme } from "@mui/material/styles";
 import apiClient from "../../../../utils/apiClient";
 import { API_BASE_URL, API_ENDPOINTS } from "../../../../constants/api";
 import MembershipApplicationsPanel from "./MembershipApplicationsPanel";
+import { useAuth } from "../../../../contexts/AuthContext";
 
 const EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "CASUAL"] as const;
 
@@ -93,8 +94,6 @@ const getRoleChipColor = (role: Role) => {
       return "default";
     case "CONTACT":
       return "default";
-    case "PHARMACY_ADMIN":
-      return "primary";
     default:
       return "default";
   }
@@ -125,9 +124,24 @@ export default function StaffManager({
 }: StaffManagerProps) {
   const theme = useTheme();
   const tokens = surface(theme);
+  const { user } = useAuth();
 
   const derivedStaff: Staff[] = useMemo(() => {
-    return (memberships || []).map((m) => {
+    const currentUserId = typeof user?.id === "number" ? user.id : null;
+    const currentEmail = normalizeEmail(user?.email || "");
+    return (memberships || [])
+      .filter((m) => {
+        if (m.is_pharmacy_owner) {
+          return false;
+        }
+        const membershipUserId = typeof m.user === "number" ? m.user : null;
+        const membershipEmail = normalizeEmail(m.user_details?.email || m.email || "");
+        const isSelf =
+          (currentUserId !== null && membershipUserId === currentUserId) ||
+          (!!currentEmail && currentEmail === membershipEmail);
+        return !isSelf;
+      })
+      .map((m) => {
       const fullName =
         m.invited_name ||
         m.name ||
@@ -142,7 +156,7 @@ export default function StaffManager({
         workType: coerceWorkType(m.employment_type),
       };
     });
-  }, [memberships]);
+  }, [memberships, user?.id, user?.email]);
 
   const [list, setList] = useState<Staff[]>(derivedStaff);
   useEffect(() => setList(derivedStaff), [derivedStaff]);

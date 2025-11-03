@@ -701,7 +701,6 @@ STUDENT_YEAR_CHOICES = [
 # Membership Model - Manages the user roles within each pharmacy
 class Membership(models.Model):
     ROLE_CHOICES = [
-        ('PHARMACY_ADMIN', 'Pharmacy Admin'),
         ("PHARMACIST", "Pharmacist"),
         ("INTERN", "Intern Pharmacist"),
         ("TECHNICIAN", "Dispensary Technician"),
@@ -796,7 +795,14 @@ class Membership(models.Model):
 
     @property
     def is_pharmacy_admin(self):
-        return self.role == 'PHARMACY_ADMIN'
+        assignment = getattr(self, "admin_assignment", None)
+        if assignment:
+            return assignment.is_active
+        return PharmacyAdmin.objects.filter(
+            user=self.user,
+            pharmacy=self.pharmacy,
+            is_active=True,
+        ).exists()
 
 
     @property
@@ -816,6 +822,140 @@ class Membership(models.Model):
             return f"{self.user.email} in {self.pharmacy.name} ({self.role})"
         return self.user.email
 
+
+class PharmacyAdmin(models.Model):
+    class AdminLevel(models.TextChoices):
+        OWNER = "OWNER", "Owner"
+        MANAGER = "MANAGER", "Manager"
+        ROSTER_MANAGER = "ROSTER_MANAGER", "Roster Manager"
+        COMMUNICATION_MANAGER = "COMMUNICATION_MANAGER", "Communication Manager"
+
+    CAPABILITY_MANAGE_ADMINS = "MANAGE_ADMINS"
+    CAPABILITY_MANAGE_STAFF = "MANAGE_STAFF"
+    CAPABILITY_MANAGE_ROSTER = "MANAGE_ROSTER"
+    CAPABILITY_MANAGE_COMMS = "MANAGE_COMMUNICATIONS"
+
+    CAPABILITY_MATRIX = {
+        AdminLevel.OWNER: {
+            CAPABILITY_MANAGE_ADMINS,
+            CAPABILITY_MANAGE_STAFF,
+            CAPABILITY_MANAGE_ROSTER,
+            CAPABILITY_MANAGE_COMMS,
+        },
+        AdminLevel.MANAGER: {
+            CAPABILITY_MANAGE_ADMINS,
+            CAPABILITY_MANAGE_STAFF,
+            CAPABILITY_MANAGE_ROSTER,
+            CAPABILITY_MANAGE_COMMS,
+        },
+        AdminLevel.ROSTER_MANAGER: {
+            CAPABILITY_MANAGE_ROSTER,
+            CAPABILITY_MANAGE_COMMS,
+        },
+        AdminLevel.COMMUNICATION_MANAGER: {
+            CAPABILITY_MANAGE_COMMS,
+        },
+    }
+
+    ADMIN_STAFF_ROLE_CHOICES = [
+        ("PHARMACIST", "Pharmacist"),
+        ("INTERN", "Intern Pharmacist"),
+        ("TECHNICIAN", "Dispensary Technician"),
+        ("ASSISTANT", "Pharmacy Assistant"),
+        ("STUDENT", "Pharmacy Student"),
+    ]
+
+    id = models.BigAutoField(primary_key=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="pharmacy_admin_assignments",
+    )
+    pharmacy = models.ForeignKey(
+        "client_profile.Pharmacy",
+        on_delete=models.CASCADE,
+        related_name="admin_assignments",
+    )
+    membership = models.OneToOneField(
+        "client_profile.Membership",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="admin_assignment",
+    )
+    admin_level = models.CharField(
+        max_length=32,
+        choices=AdminLevel.choices,
+        default=AdminLevel.MANAGER,
+    )
+    staff_role = models.CharField(
+        max_length=32,
+        choices=ADMIN_STAFF_ROLE_CHOICES,
+        blank=True,
+        null=True,
+    )
+    job_title = models.CharField(max_length=255, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pharmacy_admins_created",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("user", "pharmacy")
+        indexes = [
+            models.Index(fields=["user"], name="pharm_admin_user_idx"),
+            models.Index(fields=["pharmacy"], name="pharm_admin_pharmacy_idx"),
+            models.Index(fields=["pharmacy", "admin_level"], name="pharm_admin_pharmacy_level_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.user.email} @ {self.pharmacy.name} [{self.admin_level}]"
+
+    @property
+    def capabilities(self) -> set[str]:
+        return self.CAPABILITY_MATRIX.get(self.admin_level, set())
+
+    def has_capability(self, capability: str) -> bool:
+        return capability in self.capabilities
+
+    def clean(self):
+        # Prevent demoting the pharmacy owner record
+        if (
+            self.admin_level != self.AdminLevel.OWNER
+            and getattr(self.pharmacy.owner, "user_id", None) == self.user_id
+        ):
+            raise ValidationError("Pharmacy owner must remain an OWNER level admin.")
+
+    def can_be_removed_by(self, acting_user) -> bool:
+        """
+        Enforce that Owners cannot be removed by other admins,
+        and Managers cannot remove Owners.
+        """
+        if getattr(self.pharmacy.owner, "user_id", None) == self.user_id:
+            return False
+        if acting_user and acting_user == getattr(self.pharmacy.owner, "user", None):
+            return True
+        acting_assignment = PharmacyAdmin.objects.filter(
+            user=acting_user,
+            pharmacy=self.pharmacy,
+            is_active=True,
+        ).first()
+        if not acting_assignment:
+            return False
+        if self.admin_level == self.AdminLevel.OWNER:
+            return False
+        if (
+            acting_assignment.admin_level in {self.AdminLevel.OWNER, self.AdminLevel.MANAGER}
+            and acting_assignment.has_capability(self.CAPABILITY_MANAGE_ADMINS)
+        ):
+            return True
+        return False
 
 class MembershipInviteLink(models.Model):
     """

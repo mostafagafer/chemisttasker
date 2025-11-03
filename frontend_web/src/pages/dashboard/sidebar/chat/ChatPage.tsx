@@ -68,7 +68,7 @@ type ChatPageProps = {
 };
 
 const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
-  const { user, refreshUnreadCount } = useAuth(); 
+  const { user, refreshUnreadCount, isAdminUser } = useAuth(); 
   const [isLoading, setIsLoading] = useState(true);
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
@@ -165,10 +165,9 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
 
   const canCreateChat = useMemo(() => {
     if (!user) return false;
-    const isGlobalAdmin = ['OWNER', 'ORG_ADMIN'].includes(user.role);
-  const isPharmacyAdmin = myMemberships.some(m => m.role === 'PHARMACY_ADMIN' || m.role === 'OWNER');
-    return isGlobalAdmin || isPharmacyAdmin;
-  }, [user, myMemberships]);
+    if (['OWNER', 'ORG_ADMIN'].includes(user.role)) return true;
+    return isAdminUser;
+  }, [user, isAdminUser]);
 
   useEffect(() => {
     const loadInitial = async () => {

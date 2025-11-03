@@ -117,18 +117,26 @@ const describeRecurringDays = (days: number[]) => {
 };
 
 const PostShiftPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, activePersona, activeAdminPharmacyId } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   if (!user) return null; // FIX: Added null check for user
 
+  const scopedPharmacyId =
+    activePersona === "admin" && typeof activeAdminPharmacyId === "number"
+      ? activeAdminPharmacyId
+      : null;
+
   const params = new URLSearchParams(location.search);
+  const adminRedirectBase = scopedPharmacyId != null ? `/dashboard/admin/${scopedPharmacyId}` : null;
   const editingShiftId = params.get('edit');
 
   // --- Form State ---
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
-  const [pharmacyId, setPharmacyId] = useState<number | ''>('');
+  const [pharmacyId, setPharmacyId] = useState<number | ''>(() =>
+    scopedPharmacyId ?? ''
+  );
   const [employmentType, setEmploymentType] = useState<string>('LOCUM');
   const [roleNeeded, setRoleNeeded] = useState<string>('');
   const [description, setDescription] = useState<string>('');
@@ -168,14 +176,34 @@ const PostShiftPage: React.FC = () => {
   // --- Data Loading ---
   useEffect(() => {
     apiClient.get(API_ENDPOINTS.pharmacies)
-      .then(res => setPharmacies(res.data.results || res.data))
+      .then((res) => {
+        const payload = Array.isArray(res.data?.results)
+          ? res.data.results
+          : Array.isArray(res.data)
+          ? res.data
+          : [];
+        const filtered =
+          scopedPharmacyId != null
+            ? payload.filter(
+                (item: any) =>
+                  Number(item.id ?? item.pharmacy_id ?? item.pk ?? item.pharmacy) ===
+                  scopedPharmacyId
+              )
+            : payload;
+        setPharmacies(filtered);
+      })
       .catch(() => showSnackbar('Failed to load pharmacies', 'error'));
 
     if (editingShiftId) {
       apiClient.get(`${API_ENDPOINTS.getActiveShifts}${editingShiftId}/`)
         .then(res => {
           const data = res.data;
-          setPharmacyId(data.pharmacy);
+          if (scopedPharmacyId != null && data.pharmacy !== scopedPharmacyId) {
+            showSnackbar('You do not have access to this shift.', 'error');
+            navigate(-1);
+            return;
+          }
+          setPharmacyId(scopedPharmacyId ?? data.pharmacy);
           setEmploymentType(data.employment_type);
           setRoleNeeded(data.role_needed);
           setDescription(data.description || '');
@@ -200,8 +228,14 @@ const PostShiftPage: React.FC = () => {
         })
         .catch(() => showSnackbar('Failed to load shift for editing', 'error'));
     }
-  }, [editingShiftId]);
+  }, [editingShiftId, scopedPharmacyId, navigate]);
 
+
+  useEffect(() => {
+    if (scopedPharmacyId != null) {
+      setPharmacyId(scopedPharmacyId);
+    }
+  }, [scopedPharmacyId]);
   const allowedVis = useMemo(() => {
     const p = pharmacies.find(x => x.id === pharmacyId);
     if (!p) return [];
@@ -423,7 +457,13 @@ const handleAddSlot = () => {
         await apiClient.post(API_ENDPOINTS.getActiveShifts, payload);
         showSnackbar('Shift posted successfully!');
       }
-      setTimeout(() => navigate('/dashboard/owner/shifts/active'), 1500);
+      setTimeout(
+        () =>
+          navigate(
+            adminRedirectBase ? `${adminRedirectBase}/shifts/active` : '/dashboard/owner/shifts/active'
+          ),
+        1500
+      );
     } catch (err: any) {
       showSnackbar(err.response?.data?.detail || 'An error occurred.', 'error');
     } finally {
@@ -446,6 +486,7 @@ const handleAddSlot = () => {
                   value={pharmacyId}
                   label="Pharmacy *"
                   onChange={e => setPharmacyId(Number(e.target.value))}
+                  disabled={scopedPharmacyId != null}
                 >
                   {pharmacies.map(p => (
                     <MenuItem key={p.id} value={p.id}>
@@ -1167,3 +1208,6 @@ const handleAddSlot = () => {
 };
 
 export default PostShiftPage;
+
+
+

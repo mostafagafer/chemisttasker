@@ -93,8 +93,6 @@ const getRoleChipColor = (role: Role) => {
       return "default";
     case "CONTACT":
       return "default";
-    case "PHARMACY_ADMIN":
-      return "primary";
     default:
       return "default";
   }

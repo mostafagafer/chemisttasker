@@ -1,5 +1,5 @@
 ﻿// src/navigation.tsx
-import  { Navigation } from '@toolpad/core'
+import { Navigation } from "@toolpad/core";
 import DashboardIcon           from '@mui/icons-material/Dashboard'
 import MedicationLiquidIcon    from '@mui/icons-material/MedicationLiquid'
 import CorporateFareIcon       from '@mui/icons-material/CorporateFare'
@@ -20,6 +20,13 @@ import HistoryIcon      from '@mui/icons-material/History';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import Chip from "@mui/material/Chip";
+import type { AdminAssignment } from "./contexts/AuthContext";
+import {
+  ADMIN_CAPABILITY_MANAGE_ADMINS,
+  ADMIN_CAPABILITY_MANAGE_COMMUNICATIONS,
+  ADMIN_CAPABILITY_MANAGE_ROSTER,
+  ADMIN_CAPABILITY_MANAGE_STAFF,
+} from "./constants/adminCapabilities";
 
 // Helper component for the "NEW" badge
 const NewMessagesChip = () => (
@@ -75,60 +82,176 @@ export function getOrganizationNav(hasUnreadMessages: boolean): Navigation {
   ]
 }
 
-export function getOwnerNav(progress_percent: number, hasUnreadMessages: boolean) {
+export function getOwnerNav(progressPercent: number, hasUnreadMessages: boolean): Navigation {
   return [
-    { kind: 'header' as const, title: 'Profile Settings' },
-    { segment: 'dashboard/owner/overview', title: 'Overview', icon: <DashboardIcon /> },
+    { kind: "header" as const, title: "Profile Settings" },
+    { segment: "dashboard/owner/overview", title: "Overview", icon: <DashboardIcon /> },
     {
-      segment: 'dashboard/owner/onboarding',
-      title: 'Profile',
+      segment: "dashboard/owner/onboarding",
+      title: "Profile",
       icon: <ManageAccountsSharpIcon />,
       action: (
         <Chip
           size="small"
-          label={`${progress_percent}%`}
-          color={progress_percent === 100 ? "success" : "default"}
+          label={`${progressPercent}%`}
+          color={progressPercent === 100 ? "success" : "default"}
           sx={{ ml: 0.5, fontWeight: 700 }}
         />
       ),
     },
-    { 
-      segment: 'dashboard/owner/chat', 
-      title: 'Chat', 
+    {
+      segment: "dashboard/owner/chat",
+      title: "Chat",
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
-    { segment: 'dashboard/owner/community-groups', title: 'Community Groups', icon: <GroupsIcon /> },
-    { segment: 'dashboard/owner/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
-    { segment: 'dashboard/owner/claim-requests', title: 'Claim Requests', icon: <NotificationsActiveIcon /> },
-    { kind: 'divider' as const },
-    { kind: 'header' as const, title: 'Manage Pharmacies and Shifts' },
-    { segment: 'dashboard/owner/manage-pharmacies',
-      title: 'Manage Pharmacies',
+    { segment: "dashboard/owner/community-groups", title: "Community Groups", icon: <GroupsIcon /> },
+    { segment: "dashboard/owner/pharmacy-hub", title: "Pharmacy Hub", icon: <ForumIcon /> },
+    { segment: "dashboard/owner/claim-requests", title: "Claim Requests", icon: <NotificationsActiveIcon /> },
+    { kind: "divider" as const },
+    { kind: "header" as const, title: "Manage Pharmacies and Shifts" },
+    {
+      segment: "dashboard/owner/manage-pharmacies",
+      title: "Manage Pharmacies",
       icon: <MedicationLiquidIcon />,
       children: [
-        { segment: 'my-pharmacies', title: 'My Pharmacies', icon: <StoreIcon /> },
-        { segment: 'my-chain',      title: 'My Chain',      icon: <CorporateFareIcon /> },
-        { segment: 'roster', title: 'Internal Roster', icon: <EventAvailableIcon /> },
+        { segment: "my-pharmacies", title: "My Pharmacies", icon: <StoreIcon /> },
+        { segment: "my-chain", title: "My Chain", icon: <CorporateFareIcon /> },
+        { segment: "roster", title: "Internal Roster", icon: <EventAvailableIcon /> },
       ],
     },
-    { segment: 'dashboard/owner/post-shift',     title: 'Post Shift',        icon: <PostAddIcon /> },
-    { segment: 'dashboard/owner/shifts',
-      title: 'Shifts',
+    { segment: "dashboard/owner/post-shift", title: "Post Shift", icon: <PostAddIcon /> },
+    {
+      segment: "dashboard/owner/shifts",
+      title: "Shifts",
       icon: <AccessTimeIcon />,
       children: [
-        { segment: 'active',    title: 'Active Shifts',    icon: <PlayArrowIcon /> },
-        { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
-        { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
+        { segment: "active", title: "Active Shifts", icon: <PlayArrowIcon /> },
+        { segment: "confirmed", title: "Confirmed Shifts", icon: <CheckCircleIcon /> },
+        { segment: "history", title: "Shifts History", icon: <HistoryIcon /> },
       ],
     },
-    { kind: 'divider' as const },
-    { kind: 'header' as const, title: 'Learning & Explorer Hub' },
-    { segment: 'dashboard/owner/interests',     title: 'Explore Interests', icon: <FavoriteIcon /> },
-    { segment: 'dashboard/owner/learning',      title: 'Learning Materials',icon: <SchoolIcon /> },
-    { kind: 'divider' as const },
-    { segment: 'dashboard/owner/logout',        title: 'Logout',            icon: <LogoutIcon /> },
-  ]
+    { kind: "divider" as const },
+    { kind: "header" as const, title: "Learning & Explorer Hub" },
+    { segment: "dashboard/owner/interests", title: "Explore Interests", icon: <FavoriteIcon /> },
+    { segment: "dashboard/owner/learning", title: "Learning Materials", icon: <SchoolIcon /> },
+    { kind: "divider" as const },
+    { segment: "dashboard/owner/logout", title: "Logout", icon: <LogoutIcon /> },
+  ];
+}
+
+type AdminNavParams = {
+  assignments: AdminAssignment[];
+  hasUnreadMessages: boolean;
+  userRole: string;
+  activeAssignment: AdminAssignment | null;
+  activePharmacyId?: number | null;
+};
+
+export function getAdminNav({
+  assignments,
+  hasUnreadMessages,
+  userRole,
+  activeAssignment,
+  activePharmacyId,
+}: AdminNavParams): Navigation {
+  const allAssignments = Array.isArray(assignments) ? assignments : [];
+  const hasAnyAssignments = allAssignments.length > 0;
+  const capabilitySources =
+    activeAssignment && activeAssignment.capabilities?.length
+      ? [activeAssignment]
+      : allAssignments;
+  const capabilitySet = new Set<string>();
+
+  capabilitySources.forEach((assignment) => {
+    if (!assignment?.capabilities) return;
+    assignment.capabilities.forEach((cap) => capabilitySet.add(cap));
+  });
+
+  const scopedPharmacyId =
+    typeof activePharmacyId === "number"
+      ? activePharmacyId
+      : activeAssignment?.pharmacy_id ?? null;
+
+  const adminBase =
+    scopedPharmacyId != null ? `dashboard/admin/${scopedPharmacyId}` : "dashboard/admin";
+
+  const buildPath = (suffix: string) => `${adminBase}/${suffix}`.replace(/\/+/g, "/");
+
+  const isOwner = userRole === "OWNER";
+  const canManageAdmins =
+    capabilitySet.has(ADMIN_CAPABILITY_MANAGE_ADMINS) || isOwner || !hasAnyAssignments;
+  const canManageStaff =
+    capabilitySet.has(ADMIN_CAPABILITY_MANAGE_STAFF) || isOwner || !hasAnyAssignments;
+  const canManageRoster =
+    capabilitySet.has(ADMIN_CAPABILITY_MANAGE_ROSTER) || isOwner || !hasAnyAssignments;
+  const canManageComms =
+    capabilitySet.has(ADMIN_CAPABILITY_MANAGE_COMMUNICATIONS) ||
+    canManageStaff ||
+    canManageRoster ||
+    isOwner ||
+    !hasAnyAssignments;
+
+  const navigation: Navigation = [
+    { kind: "header" as const, title: "Profile Settings" },
+    { segment: buildPath("overview"), title: "Overview", icon: <DashboardIcon /> },
+    {
+      segment: buildPath("chat"),
+      title: "Chat",
+      icon: <GroupsIcon />,
+      action: hasUnreadMessages ? <NewMessagesChip /> : null,
+    },
+  ];
+
+  if (canManageComms) {
+    navigation.push(
+      { segment: buildPath("community-groups"), title: "Community Groups", icon: <GroupsIcon /> },
+      { segment: buildPath("pharmacy-hub"), title: "Pharmacy Hub", icon: <ForumIcon /> }
+    );
+  }
+
+  if (canManageAdmins) {
+    navigation.push({ segment: buildPath("claim-requests"), title: "Claim Requests", icon: <NotificationsActiveIcon /> });
+  }
+
+  navigation.push({ kind: "divider" as const });
+
+  if (canManageStaff || canManageRoster) {
+    navigation.push({ kind: "header" as const, title: "Manage Pharmacies and Shifts" });
+    if (canManageStaff) {
+      navigation.push({
+        segment: buildPath("manage-pharmacies"),
+        title: "Manage Pharmacies",
+        icon: <MedicationLiquidIcon />,
+        children: [
+          { segment: "my-pharmacies", title: "My Pharmacies", icon: <StoreIcon /> },
+          { segment: "roster", title: "Internal Roster", icon: <EventAvailableIcon /> },
+        ],
+      });
+    }
+    if (canManageRoster) {
+      navigation.push(
+        { segment: buildPath("post-shift"), title: "Post Shift", icon: <PostAddIcon /> },
+        {
+          segment: buildPath("shifts"),
+          title: "Shifts",
+          icon: <AccessTimeIcon />,
+          children: [
+            { segment: "active", title: "Active Shifts", icon: <PlayArrowIcon /> },
+            { segment: "confirmed", title: "Confirmed Shifts", icon: <CheckCircleIcon /> },
+            { segment: "history", title: "Shifts History", icon: <HistoryIcon /> },
+          ],
+        }
+      );
+    }
+    navigation.push({ kind: "divider" as const });
+  }
+
+  navigation.push(
+    { segment: buildPath("logout"), title: "Logout", icon: <LogoutIcon /> }
+  );
+
+  return navigation;
 }
 
 

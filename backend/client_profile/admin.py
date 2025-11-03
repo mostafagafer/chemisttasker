@@ -182,7 +182,7 @@ class ChainAdmin(admin.ModelAdmin):
     )
 
 @admin.register(Pharmacy)
-class PharmacyAdmin(admin.ModelAdmin):
+class PharmacyModelAdmin(admin.ModelAdmin):
     list_display = (
         'name',
         'owner',
@@ -234,6 +234,38 @@ class MembershipAdmin(admin.ModelAdmin):
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
+        }),
+    )
+
+@admin.register(PharmacyAdmin)
+class PharmacyAdminAssignmentAdmin(admin.ModelAdmin):
+    list_display = (
+        'user',
+        'pharmacy',
+        'admin_level',
+        'staff_role',
+        'is_active',
+        'created_by',
+        'created_at',
+    )
+    list_filter = ('admin_level', 'staff_role', 'is_active', 'pharmacy')
+    search_fields = ('user__email', 'user__username', 'pharmacy__name')
+    autocomplete_fields = ('user', 'pharmacy', 'membership', 'created_by')
+    readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        (None, {
+            'fields': (
+                'user',
+                'pharmacy',
+                'membership',
+                'admin_level',
+                'staff_role',
+                'job_title',
+                'is_active',
+            ),
+        }),
+        ('Audit', {
+            'fields': ('created_by', 'created_at', 'updated_at'),
         }),
     )
 
@@ -300,5 +332,6 @@ admin.site.register(RefereeResponse)
 admin.site.register(MembershipApplication)
 
 admin.site.register(Message)
+
 
 

@@ -93,9 +93,9 @@ const ownerOptions: SearchOption[] = [
       description: "Browse and edit your pharmacy locations",
     },
     {
-      label: "My Pharmacies",
-      path: "/dashboard/owner/manage-pharmacies/my-pharmacies",
-      keywords: ["locations", "branches", "pharmacy list"],
+      label: "Claim Requests",
+      path: "/dashboard/owner/manage-pharmacies?claim=open",
+      keywords: ["claim", "requests", "organization"],
     },
     {
       label: "My Chain",
@@ -124,17 +124,17 @@ const ownerOptions: SearchOption[] = [
     },
     {
       label: "Active Shifts",
-      path: "/dashboard/owner/shifts/active",
+      path: "/dashboard/owner/shift-center/active",
       keywords: ["active shifts", "current shifts"],
     },
     {
       label: "Confirmed Shifts",
-      path: "/dashboard/owner/shifts/confirmed",
+      path: "/dashboard/owner/shift-center/confirmed",
       keywords: ["confirmed", "booked shifts"],
     },
     {
       label: "Shift History",
-      path: "/dashboard/owner/shifts/history",
+      path: "/dashboard/owner/shift-center/history",
       keywords: ["past shifts", "history"],
     },
     {
@@ -173,7 +173,7 @@ const organizationOptions: SearchOption[] = [
     },
     {
       label: "Claim Pharmacies",
-      path: "/dashboard/organization/claim",
+      path: "/dashboard/organization/manage-pharmacies?claim=open",
       keywords: ["claim", "pharmacies", "organization"],
     },
     {
@@ -213,17 +213,17 @@ const organizationOptions: SearchOption[] = [
     },
     {
       label: "Active Shifts",
-      path: "/dashboard/organization/shifts/active",
+      path: "/dashboard/organization/shift-center/active",
       keywords: ["active shifts", "current"],
     },
     {
       label: "Confirmed Shifts",
-      path: "/dashboard/organization/shifts/confirmed",
+      path: "/dashboard/organization/shift-center/confirmed",
       keywords: ["confirmed", "booked"],
     },
     {
       label: "Shift History",
-      path: "/dashboard/organization/shifts/history",
+      path: "/dashboard/organization/shift-center/history",
       keywords: ["history", "past shifts"],
     },
     {

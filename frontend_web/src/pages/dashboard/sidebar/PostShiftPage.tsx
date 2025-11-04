@@ -460,7 +460,7 @@ const handleAddSlot = () => {
       setTimeout(
         () =>
           navigate(
-            adminRedirectBase ? `${adminRedirectBase}/shifts/active` : '/dashboard/owner/shifts/active'
+            adminRedirectBase ? `${adminRedirectBase}/shift-center` : '/dashboard/owner/shift-center'
           ),
         1500
       );

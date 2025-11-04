@@ -138,9 +138,6 @@ export default function OwnerOverviewContainer() {
 
   const goHome = () => setViewParam("overview");
   const openPharmacies = (options?: { replace?: boolean }) => setViewParam("pharmacies", { replace: options?.replace });
-  const goToAdminsOverview = () => {
-    openPharmacies();
-  };
   const openPharmacy = (id: string) => {
     setViewParam("pharmacy", { pharmacyId: id });
     void reloadPharmacyMemberships(id);
@@ -156,11 +153,12 @@ export default function OwnerOverviewContainer() {
     adminBasePath ? `${adminBasePath}/${suffix}` : buildOwnerPath(suffix);
 
   const goToRoster = () => navigate(resolvePath("manage-pharmacies/roster"));
-  const goToShifts = () => navigate(resolvePath("shifts/active"));
+  const goToShifts = () => navigate(resolvePath("shift-center"));
   const goToPostShift = () => navigate(resolvePath("post-shift"));
   const goToProfile = () => navigate(resolvePath("onboarding"));
   const goToInterests = () => navigate(resolvePath("interests"));
-  const goToSettings = () => navigate(resolvePath("manage-pharmacies/my-pharmacies"));
+  const goToManagePharmacies = () => navigate(resolvePath("manage-pharmacies/my-pharmacies"));
+  const goToSettings = () => undefined;
   const goToPharmacyManager = (query: string) =>
     navigate(`${resolvePath("manage-pharmacies/my-pharmacies")}${query}`);
   const handleEditPharmacy = (pharmacy: PharmacyDTO) => {
@@ -187,8 +185,7 @@ export default function OwnerOverviewContainer() {
           <TopBar breadcrumb={["Overview"]} />
           <OwnerOverviewHome
             totalPharmacies={pharmacies.length}
-            onOpenPharmacies={openPharmacies}
-            onOpenAdmins={goToAdminsOverview}
+            onOpenManage={goToManagePharmacies}
             onOpenRoster={goToRoster}
             onOpenShifts={goToShifts}
             onPostShift={goToPostShift}

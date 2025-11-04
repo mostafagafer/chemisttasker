@@ -13,9 +13,17 @@ import { useAuth } from "../contexts/AuthContext";
 // 👉 Use your PNG logo file here
 import logoPng from "../assets/20250711_1205_Chemisttasker Badge Design_remix_01jzwbh9q5ez49phsbaz65h9cd.png";
 
-type Props = { userRole: string };
+type Props = {
+  userRole: string;
+  titleOverride?: string | null;
+  showVerificationChip?: boolean;
+};
 
-export default function CustomAppTitle({ userRole }: Props) {
+export default function CustomAppTitle({
+  userRole,
+  titleOverride,
+  showVerificationChip = true,
+}: Props) {
   const { isAdminUser, activePersona } = useAuth();
   const [verified, setVerified] = React.useState<boolean>(false);
   const { workspace, setWorkspace } = useWorkspace();
@@ -32,17 +40,23 @@ export default function CustomAppTitle({ userRole }: Props) {
 
   // Title that reflects role; treat Pharmacy Admin like Owner
   const roleTitle =
-    rawRole === "owner" || isAdminPersona
+    isAdminPersona
       ? "Admin Dashboard"
+      : rawRole === "owner"
+      ? "Owner Dashboard"
       : rawRole === "otherstaff" || rawRole === "other_staff"
       ? "Staff Dashboard"
       : rawRole === "explorer"
       ? "Explorer"
       : "Pharmacist Dashboard";
+  const displayTitle = titleOverride && titleOverride.trim().length > 0 ? titleOverride : roleTitle;
 
 // inside CustomAppTitle.tsx
 
   const onboardingKey = React.useMemo(() => {
+    if (!showVerificationChip) {
+      return null;
+    }
     if (rawRole === "owner") {
       return "owner";
     }
@@ -50,9 +64,13 @@ export default function CustomAppTitle({ userRole }: Props) {
       return null;
     }
     return roleKey;
-  }, [rawRole, roleKey, isAdminPersona]);
+  }, [rawRole, roleKey, isAdminPersona, showVerificationChip]);
 
   React.useEffect(() => {
+    if (!showVerificationChip) {
+      setVerified(false);
+      return;
+    }
     let active = true;
 
     if (!onboardingKey) {
@@ -102,7 +120,7 @@ export default function CustomAppTitle({ userRole }: Props) {
       active = false;
       window.removeEventListener("onboarding-updated", handler);
     };
-  }, [onboardingKey]);
+  }, [onboardingKey, showVerificationChip]);
 
   return (
     <Box
@@ -156,21 +174,22 @@ export default function CustomAppTitle({ userRole }: Props) {
             variant="subtitle1"
             fontWeight={800}
             noWrap
-            title={roleTitle}
+            title={displayTitle}
             sx={{ maxWidth: 280 }}
           >
-            {roleTitle}
+            {displayTitle}
           </Typography>
         </Box>
       </Stack>
 
       {/* Right: Status + workspace */}
       <Stack direction="row" spacing={1.25} sx={{ ml: "auto" }} alignItems="center">
-        {verified ? (
-          <Chip size="small" variant="outlined" color="success" label="Verified" />
-        ) : (
-          <Chip size="small" variant="outlined" label="Pending" />
-        )}
+        {showVerificationChip &&
+          (verified ? (
+            <Chip size="small" variant="outlined" color="success" label="Verified" />
+          ) : (
+            <Chip size="small" variant="outlined" label="Pending" />
+          ))}
         {isSwitcherVisible && (
           <WorkspaceSwitcher workspace={workspace} setWorkspace={setWorkspace} />
         )}

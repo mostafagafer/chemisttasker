@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { ReactRouterAppProvider } from "@toolpad/core/react-router";
 import { useAuth } from "./contexts/AuthContext";
 import { useWorkspace } from "./contexts/WorkspaceContext";
@@ -60,6 +60,7 @@ export default function App() {
   } = useAuth();
   const { workspace } = useWorkspace();
   const navigate = useNavigate();
+  const location = useLocation();
   const prevPersonaRef = useRef<string | null>(null);
   const prevAdminPharmacyRef = useRef<number | null>(null);
   
@@ -83,23 +84,39 @@ export default function App() {
       prevAdminPharmacyRef.current = null;
       return;
     }
+
     if (
       user.role !== "OWNER" &&
       activePersona === "admin" &&
       scopedAdminPharmacyId != null
     ) {
+      const adminBase = `/dashboard/admin/${scopedAdminPharmacyId}`;
+      const pathname = location.pathname;
+      const isOnCurrentAdminRoute =
+        pathname === adminBase ||
+        pathname === `${adminBase}/` ||
+        pathname.startsWith(`${adminBase}/`);
+
+      const isExactlyAdminBase =
+        pathname === adminBase || pathname === `${adminBase}/`;
+
       const previousPersona = prevPersonaRef.current;
       const previousPharmacy = prevAdminPharmacyRef.current;
+
+      const personaOrPharmacyChanged =
+        previousPersona !== "admin" || previousPharmacy !== scopedAdminPharmacyId;
+
       if (
-        previousPersona !== "admin" ||
-        previousPharmacy !== scopedAdminPharmacyId
+        personaOrPharmacyChanged &&
+        (!isOnCurrentAdminRoute || isExactlyAdminBase)
       ) {
-        navigate(`/dashboard/admin/${scopedAdminPharmacyId}/overview`, { replace: true });
+        navigate(`${adminBase}/overview`, { replace: true });
       }
     }
+
     prevPersonaRef.current = activePersona;
     prevAdminPharmacyRef.current = scopedAdminPharmacyId;
-  }, [activePersona, scopedAdminPharmacyId, navigate, user]);
+  }, [activePersona, scopedAdminPharmacyId, navigate, user, location.pathname]);
   
   const nav = useMemo(() => {
     if (!user) return [];

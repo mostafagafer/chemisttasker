@@ -18,6 +18,8 @@ import { ORG_ROLES } from '../constants/roles';
 import { useAuth } from '../contexts/AuthContext';
 import AuthLayout from '../layouts/AuthLayout';
 
+const PERSONA_KEY_PREFIX = 'ct-active-persona';
+
 export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
@@ -60,30 +62,66 @@ export default function Login() {
         return;
       }
 
-      const hasAdminAccess =
-        (Array.isArray(userInfo?.admin_assignments) && userInfo.admin_assignments.length > 0) ||
-        userInfo.role === 'OWNER';
-      if (hasAdminAccess) {
-        navigate('/dashboard/owner/overview');
-        return;
+      const resolveStaffPath = (role: string | undefined | null) => {
+        switch (role) {
+          case 'OWNER':
+            return '/dashboard/owner/overview';
+          case 'PHARMACIST':
+            return '/dashboard/pharmacist/overview';
+          case 'OTHER_STAFF':
+            return '/dashboard/otherstaff/overview';
+          case 'EXPLORER':
+            return '/dashboard/explorer/overview';
+          default:
+            return '/';
+        }
+      };
+
+      const personaKey =
+        typeof userInfo?.id === 'number'
+          ? `${PERSONA_KEY_PREFIX}:${userInfo.id}`
+          : PERSONA_KEY_PREFIX;
+      const storedPersona = personaKey ? localStorage.getItem(personaKey) : null;
+      const adminAssignments = Array.isArray(userInfo?.admin_assignments)
+        ? userInfo.admin_assignments
+        : [];
+
+      const findAssignmentById = (assignmentId: number) =>
+        adminAssignments.find((assignment: any) => assignment?.id === assignmentId);
+
+      let redirectPath: string | null = null;
+
+      if (storedPersona?.startsWith('ADMIN:')) {
+        const storedId = Number(storedPersona.split(':')[1]);
+        const matchedAssignment = Number.isFinite(storedId) ? findAssignmentById(storedId) : null;
+        const fallbackAssignment = adminAssignments.find(
+          (assignment: any) => typeof assignment?.pharmacy_id === 'number'
+        );
+        const targetAssignment = matchedAssignment ?? fallbackAssignment ?? null;
+
+        if (targetAssignment?.pharmacy_id != null) {
+          redirectPath = `/dashboard/admin/${targetAssignment.pharmacy_id}/overview`;
+        } else if (personaKey) {
+          localStorage.removeItem(personaKey);
+        }
+      } else if (storedPersona?.startsWith('ROLE:')) {
+        const storedRole = storedPersona.split(':')[1];
+        if (storedRole === 'PHARMACIST' && userInfo.role === 'PHARMACIST') {
+          redirectPath = '/dashboard/pharmacist/overview';
+        } else if (storedRole === 'OTHER_STAFF' && userInfo.role === 'OTHER_STAFF') {
+          redirectPath = '/dashboard/otherstaff/overview';
+        } else if (storedRole === 'OWNER' && userInfo.role === 'OWNER') {
+          redirectPath = '/dashboard/owner/overview';
+        } else if (personaKey) {
+          localStorage.removeItem(personaKey);
+        }
       }
 
-      switch (userInfo.role) {
-        case 'OWNER':
-          navigate('/dashboard/owner/overview');
-          break;
-        case 'PHARMACIST':
-          navigate('/dashboard/pharmacist/overview');
-          break;
-        case 'OTHER_STAFF':
-          navigate('/dashboard/otherstaff/overview');
-          break;
-        case 'EXPLORER':
-          navigate('/dashboard/explorer/overview');
-          break;
-        default:
-          navigate('/');
+      if (!redirectPath) {
+        redirectPath = resolveStaffPath(userInfo.role);
       }
+
+      navigate(redirectPath);
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const msg =

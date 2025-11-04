@@ -95,7 +95,7 @@ export default function OwnerPharmacyDetailPage({
   const handleManageStaff = () => scrollTo(staffSectionRef);
   const handleManageLocums = () => scrollTo(locumSectionRef);
   const handleManageAdmins = () => scrollTo(adminsSectionRef);
-  const handleCheckShifts = () => navigate(resolvePath("shifts/active"));
+  const handleCheckShifts = () => navigate(resolvePath("shift-center"));
   const handlePostShift = () => navigate(resolvePath("post-shift"));
   const handleFavouriteLocums = () => handleManageLocums();
   const handleConfigurations = () => {

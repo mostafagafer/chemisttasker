@@ -2,10 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Button,
   Checkbox,
+  Chip,
+  CircularProgress,
+  Paper,
   Dialog,
   DialogActions,
   DialogContent,
@@ -21,12 +27,19 @@ import {
   Select,
   Skeleton,
   Snackbar,
+  Stack,
   Tab,
   Tabs,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
   TextField,
   Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/AddCircleOutline";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { AxiosError, AxiosResponse } from "axios";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useJsApiLoader, Autocomplete } from "@react-google-maps/api";
@@ -98,6 +111,60 @@ const toOwnerPharmacyDTO = (pharmacy: Pharmacy): OwnerPharmacyDTO => ({
   postcode: pharmacy.postcode,
 });
 
+type ClaimStatus = "PENDING" | "ACCEPTED" | "REJECTED";
+
+type OrganizationClaimItem = {
+  id: number;
+  status: ClaimStatus;
+  status_display?: string;
+  pharmacy: {
+    id: number;
+    name?: string | null;
+    email?: string | null;
+  } | null;
+  message?: string | null;
+  response_message?: string | null;
+  created_at?: string | null;
+  responded_at?: string | null;
+};
+
+type OwnerClaimRequest = {
+  id: number;
+  status: ClaimStatus;
+  status_display?: string;
+  message?: string | null;
+  response_message?: string | null;
+  pharmacy: {
+    id: number;
+    name: string;
+    email: string | null;
+  };
+  organization: {
+    id: number;
+    name?: string | null;
+  } | null;
+  created_at: string;
+  responded_at: string | null;
+};
+
+type OwnerClaimDialogState = {
+  open: boolean;
+  claim: OwnerClaimRequest | null;
+  action: ClaimStatus | null;
+  note: string;
+};
+
+const initialOwnerDialogState: OwnerClaimDialogState = { open: false, claim: null, action: null, note: "" };
+
+const CLAIM_STATUS_COLORS: Record<ClaimStatus, "success" | "warning" | "error"> = {
+  ACCEPTED: "success",
+  PENDING: "warning",
+  REJECTED: "error",
+};
+
+const formatDateTime = (value?: string | null) =>
+  value ? new Date(value).toLocaleString() : "-";
+
 const tabLabels = ["Basic", "Regulatory", "Docs", "Employment", "Hours", "Rate", "About"];
 const EMPLOYMENT_TYPE_OPTIONS = ["PART_TIME", "FULL_TIME", "LOCUMS"];
 const ROLE_OPTIONS = ["PHARMACIST", "INTERN", "ASSISTANT", "TECHNICIAN", "STUDENT", "ADMIN", "DRIVER"];
@@ -111,11 +178,37 @@ const PHARMACY_CACHE_KEY = "pharmacyPage.cache.v1";
 export default function PharmacyPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user, isAdminUser, activePersona, activeAdminPharmacyId } = useAuth();
+  const { user, isAdminUser, activePersona, activeAdminPharmacyId, activeAdminAssignment } = useAuth();
   const scopedPharmacyId =
     activePersona === "admin" && typeof activeAdminPharmacyId === "number"
       ? activeAdminPharmacyId
       : null;
+
+  const orgMembership = useMemo(() => {
+    const memberships = Array.isArray(user?.memberships) ? user!.memberships : [];
+    for (const membership of memberships) {
+      if (!membership || typeof membership !== "object") {
+        continue;
+      }
+      const rawRole = String((membership as any).role ?? "").toUpperCase();
+      if (
+        ["ORG_ADMIN", "ORG_OWNER", "ORG_STAFF", "ORGANIZATION"].includes(rawRole) &&
+        (membership as any).organization_id != null
+      ) {
+        return membership as OrgMembership;
+      }
+    }
+    return null;
+  }, [user?.memberships]);
+
+  const organizationId = orgMembership?.organization_id ?? null;
+  const isOrganizationUser = organizationId != null;
+  const canRespondToClaims = useMemo(() => {
+    if (user?.role === "OWNER") {
+      return true;
+    }
+    return activePersona === "admin" && activeAdminAssignment?.admin_level === "OWNER";
+  }, [user?.role, activePersona, activeAdminAssignment?.admin_level]);
 
   const scopePharmacies = useCallback(
     (input: Pharmacy[]): Pharmacy[] => {
@@ -189,6 +282,20 @@ export default function PharmacyPage() {
   const [about, setAbout] = useState("");
   const [autoPublishWorkerRequests, setAutoPublishWorkerRequests] = useState(false);
 
+  const [claimEmail, setClaimEmail] = useState("");
+  const [claimSubmitting, setClaimSubmitting] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [claimItems, setClaimItems] = useState<OrganizationClaimItem[]>([]);
+  const [claimsLoading, setClaimsLoading] = useState(false);
+  const [claimAccordionOpen, setClaimAccordionOpen] = useState(false);
+
+  const [ownerClaims, setOwnerClaims] = useState<OwnerClaimRequest[]>([]);
+  const [ownerClaimsLoading, setOwnerClaimsLoading] = useState(false);
+  const [ownerClaimError, setOwnerClaimError] = useState<string | null>(null);
+  const [ownerDialog, setOwnerDialog] = useState<OwnerClaimDialogState>(initialOwnerDialogState);
+  const [ownerResponding, setOwnerResponding] = useState(false);
+  const [ownerAccordionOpen, setOwnerAccordionOpen] = useState(true);
+
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarState, setSnackbarState] = useState<{ message: string; severity: "success" | "error" | "info" } | null>(null);
 
@@ -230,9 +337,22 @@ export default function PharmacyPage() {
     [activePharmacyId, adminAssignmentsByPharmacy]
   );
 
+  const claimCounts = useMemo(() => {
+    const pending = claimItems.filter((item) => item.status === "PENDING").length;
+    const accepted = claimItems.filter((item) => item.status === "ACCEPTED").length;
+    return { pending, accepted };
+  }, [claimItems]);
+
+  const ownerClaimCounts = useMemo(() => {
+    const pending = ownerClaims.filter((item) => item.status === "PENDING").length;
+    const accepted = ownerClaims.filter((item) => item.status === "ACCEPTED").length;
+    return { pending, accepted };
+  }, [ownerClaims]);
+
   useEffect(() => {
     const viewParam = searchParams.get("view");
     const idParam = searchParams.get("pharmacyId");
+    const claimParam = searchParams.get("claim");
     if (viewParam === "detail" && idParam) {
       setView((prev) => (prev === "detail" ? prev : "detail"));
       setActivePharmacyId((prev) => (prev === idParam ? prev : idParam));
@@ -240,7 +360,17 @@ export default function PharmacyPage() {
       setView((prev) => (prev === "list" ? prev : "list"));
       setActivePharmacyId((prev) => (prev === null ? prev : null));
     }
-  }, [searchParams]);
+    if (claimParam === "open") {
+      if (isOrganizationUser) {
+        setClaimAccordionOpen(true);
+      } else {
+        setOwnerAccordionOpen(true);
+      }
+      const params = new URLSearchParams(searchParams);
+      params.delete("claim");
+      setSearchParams(params, { replace: true });
+    }
+  }, [searchParams, isOrganizationUser, setSearchParams]);
 
   const setViewWithHistory = useCallback(
     (nextView: "list" | "detail", options?: { pharmacyId?: string | null; replace?: boolean }) => {
@@ -280,6 +410,114 @@ export default function PharmacyPage() {
   const showSnackbar = (message: string, severity: "success" | "error" | "info" = "info") => {
     setSnackbarState({ message, severity });
     setSnackbarOpen(true);
+  };
+
+  const loadOrganizationClaims = useCallback(async () => {
+    if (!isOrganizationUser || organizationId == null) {
+      return;
+    }
+    setClaimsLoading(true);
+    setClaimError(null);
+    try {
+      const res = await apiClient.get(API_ENDPOINTS.organizationDashboard(organizationId));
+      const payload = Array.isArray(res.data?.pharmacy_claims) ? res.data.pharmacy_claims : [];
+      setClaimItems(payload);
+      setClaimError(null);
+    } catch (err) {
+      console.error(err);
+      setClaimError("Failed to load claim requests.");
+    } finally {
+      setClaimsLoading(false);
+    }
+  }, [isOrganizationUser, organizationId]);
+
+  const loadOwnerClaims = useCallback(async () => {
+    if (isOrganizationUser) {
+      return;
+    }
+    setOwnerClaimsLoading(true);
+    setOwnerClaimError(null);
+    try {
+      const res = await apiClient.get(API_ENDPOINTS.pharmacyClaims, {
+        params: { owned_by_me: true },
+      });
+      const data = Array.isArray(res.data?.results)
+        ? res.data.results
+        : Array.isArray(res.data)
+        ? res.data
+        : [];
+      setOwnerClaims(data);
+      setOwnerClaimError(null);
+    } catch (err: any) {
+      const message = err?.response?.data?.detail ?? "Failed to load claim requests.";
+      setOwnerClaimError(message);
+    } finally {
+      setOwnerClaimsLoading(false);
+    }
+  }, [isOrganizationUser]);
+
+  const handleSubmitClaim = async () => {
+    if (!claimEmail.trim()) {
+      setClaimError("Please enter a pharmacy email.");
+      return;
+    }
+    setClaimError(null);
+    setClaimSubmitting(true);
+    try {
+      await apiClient.post(API_ENDPOINTS.claimOnboarding, {
+        pharmacy_email: claimEmail.trim(),
+      });
+      setClaimEmail("");
+      showSnackbar("Claim submitted!", "success");
+      await loadOrganizationClaims();
+      if (!claimAccordionOpen) {
+        setClaimAccordionOpen(true);
+      }
+    } catch (err: any) {
+      const message =
+        err?.response?.data?.detail ??
+        (Array.isArray(err?.response?.data?.pharmacy_email)
+          ? err.response.data.pharmacy_email[0]
+          : "Claim failed. Please confirm you have organization access.");
+      setClaimError(message);
+    } finally {
+      setClaimSubmitting(false);
+    }
+  };
+
+  const openOwnerClaimDialog = (claim: OwnerClaimRequest, action: ClaimStatus) => {
+    setOwnerDialog({ open: true, claim, action, note: "" });
+  };
+
+  const closeOwnerDialog = () => {
+    if (ownerResponding) {
+      return;
+    }
+    setOwnerDialog(initialOwnerDialogState);
+  };
+
+  const handleOwnerRespond = async () => {
+    if (!ownerDialog.claim || !ownerDialog.action || !canRespondToClaims) {
+      return;
+    }
+    setOwnerResponding(true);
+    try {
+      await apiClient.patch(API_ENDPOINTS.pharmacyClaimDetail(ownerDialog.claim.id), {
+        status: ownerDialog.action,
+        response_message: ownerDialog.note.trim() || undefined,
+      });
+      showSnackbar(
+        ownerDialog.action === "ACCEPTED" ? "Claim accepted." : "Claim rejected.",
+        "success"
+      );
+      setOwnerDialog(initialOwnerDialogState);
+      await loadOwnerClaims();
+    } catch (err: any) {
+      const message = err?.response?.data?.detail ?? "Failed to update the claim.";
+      setOwnerClaimError(message);
+    } finally {
+      setOwnerResponding(false);
+    }
   };
 
   useEffect(() => {
@@ -396,6 +634,18 @@ export default function PharmacyPage() {
         setIsFetching(false);
       });
   }, [user, loadPharmacies]);
+
+  useEffect(() => {
+    if (isOrganizationUser) {
+      void loadOrganizationClaims();
+    }
+  }, [isOrganizationUser, loadOrganizationClaims]);
+
+  useEffect(() => {
+    if (!isOrganizationUser) {
+      void loadOwnerClaims();
+    }
+  }, [isOrganizationUser, loadOwnerClaims]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -742,6 +992,289 @@ export default function PharmacyPage() {
         onBack={view === "detail" ? goBackToList : undefined}
       />
 
+      {view === "list" && isOrganizationUser && (
+        <Box
+          sx={{
+            maxWidth: 1200,
+            mx: "auto",
+            px: 3,
+            pt: 3,
+          }}
+        >
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1.5}
+            alignItems={{ xs: "flex-start", sm: "center" }}
+          >
+            <Box>
+              <Typography variant="h5" fontWeight={700}>
+                Claim Pharmacies & Requests
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Link new pharmacies to your organization and track pending claim activity.
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              sx={{ ml: { sm: "auto" } }}
+              onClick={() => setClaimAccordionOpen((prev) => !prev)}
+            >
+              {claimAccordionOpen ? "Hide Claim Form" : "Claim Pharmacy"}
+            </Button>
+          </Stack>
+
+          <Accordion
+            expanded={claimAccordionOpen}
+            onChange={(_, expanded) => setClaimAccordionOpen(expanded)}
+            sx={{ mt: 2 }}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={{ xs: 1, sm: 3 }}
+                alignItems={{ xs: "flex-start", sm: "center" }}
+                justifyContent="space-between"
+                sx={{ width: "100%" }}
+              >
+                <Typography fontWeight={600}>Submit a claim by email</Typography>
+                <Stack direction="row" spacing={3}>
+                  <Typography variant="body2">
+                    Pending: <strong>{claimCounts.pending}</strong>
+                  </Typography>
+                  <Typography variant="body2">
+                    Accepted: <strong>{claimCounts.accepted}</strong>
+                  </Typography>
+                </Stack>
+              </Stack>
+            </AccordionSummary>
+            <AccordionDetails>
+              {claimError && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {claimError}
+                </Alert>
+              )}
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={2}
+                alignItems={{ xs: "stretch", sm: "flex-end" }}
+              >
+                <TextField
+                  fullWidth
+                  label="Pharmacy Email"
+                  value={claimEmail}
+                  onChange={(event) => setClaimEmail(event.target.value)}
+                />
+                <Button
+                  variant="contained"
+                  onClick={handleSubmitClaim}
+                  disabled={claimSubmitting}
+                  sx={{ minWidth: 160 }}
+                >
+                  {claimSubmitting ? <CircularProgress size={20} color="inherit" /> : "Submit Claim"}
+                </Button>
+              </Stack>
+
+              {claimsLoading ? (
+                <Box sx={{ display: "flex", justifyContent: "center", mt: 3 }}>
+                  <CircularProgress size={28} />
+                </Box>
+              ) : claimItems.length === 0 ? (
+                <Typography sx={{ mt: 3 }} color="text.secondary">
+                  No claim activity yet.
+                </Typography>
+              ) : (
+                <Table sx={{ mt: 3 }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Pharmacy</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell>Requested</TableCell>
+                      <TableCell>Responded</TableCell>
+                      <TableCell>Response Note</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {claimItems.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell>
+                          <Typography fontWeight={600}>{item.pharmacy?.name ?? "Untitled Pharmacy"}</Typography>
+                          {item.pharmacy?.email && (
+                            <Typography variant="body2" color="text.secondary">
+                              {item.pharmacy.email}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={item.status_display ?? item.status}
+                            color={CLAIM_STATUS_COLORS[item.status]}
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell>{formatDateTime(item.created_at)}</TableCell>
+                        <TableCell>{formatDateTime(item.responded_at)}</TableCell>
+                        <TableCell sx={{ maxWidth: 280 }}>
+                          {item.response_message ? (
+                            <Typography variant="body2">{item.response_message}</Typography>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              {item.status === "PENDING" ? "Awaiting owner decision" : "-"}
+                            </Typography>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </AccordionDetails>
+          </Accordion>
+        </Box>
+      )}
+
+      {view === "list" && !isOrganizationUser && (
+        <Box
+          sx={{
+            maxWidth: 1200,
+            mx: "auto",
+            px: 3,
+            pt: 3,
+          }}
+        >
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1.5}
+            alignItems={{ xs: "flex-start", sm: "center" }}
+          >
+            <Box>
+              <Typography variant="h5" fontWeight={700}>
+                Claim Requests
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Organizations can request access to manage your pharmacies. Review and respond to requests below.
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              sx={{ ml: { sm: "auto" } }}
+              onClick={() => setOwnerAccordionOpen((prev) => !prev)}
+            >
+              {ownerAccordionOpen ? "Hide Requests" : "View Requests"}
+            </Button>
+          </Stack>
+
+          <Accordion
+            expanded={ownerAccordionOpen}
+            onChange={(_, expanded) => setOwnerAccordionOpen(expanded)}
+            sx={{ mt: 2 }}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={{ xs: 1, sm: 3 }}
+                alignItems={{ xs: "flex-start", sm: "center" }}
+                justifyContent="space-between"
+                sx={{ width: "100%" }}
+              >
+                <Typography fontWeight={600}>Organization claim requests</Typography>
+                <Stack direction="row" spacing={3}>
+                  <Typography variant="body2">
+                    Pending: <strong>{ownerClaimCounts.pending}</strong>
+                  </Typography>
+                  <Typography variant="body2">
+                    Accepted: <strong>{ownerClaimCounts.accepted}</strong>
+                  </Typography>
+                </Stack>
+              </Stack>
+            </AccordionSummary>
+            <AccordionDetails>
+              {ownerClaimError && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {ownerClaimError}
+                </Alert>
+              )}
+
+              {ownerClaimsLoading ? (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+                  <CircularProgress size={32} />
+                </Box>
+              ) : ownerClaims.length === 0 ? (
+                <Alert severity="info">No claim requests at the moment.</Alert>
+              ) : (
+                <Stack spacing={2.5}>
+                  {ownerClaims.map((claim) => (
+                    <Paper key={claim.id} variant="outlined" sx={{ borderRadius: 3, p: 2.5 }}>
+                      <Stack spacing={1.5}>
+                        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                          <Box>
+                            <Typography variant="h6">{claim.pharmacy?.name ?? "Untitled Pharmacy"}</Typography>
+                            {claim.pharmacy?.email && (
+                              <Typography variant="body2" color="text.secondary">
+                                {claim.pharmacy.email}
+                              </Typography>
+                            )}
+                          </Box>
+                          <Chip
+                            label={claim.status_display ?? claim.status}
+                            color={CLAIM_STATUS_COLORS[claim.status]}
+                            variant={claim.status === "PENDING" ? "outlined" : "filled"}
+                            size="small"
+                          />
+                        </Stack>
+
+                        <Typography variant="body2" color="text.secondary">
+                          Requested by <strong>{claim.organization?.name ?? "Unknown organization"}</strong>
+                          {" on "}
+                          {formatDateTime(claim.created_at)}
+                        </Typography>
+
+                        {claim.message && (
+                          <Box sx={{ p: 2, borderRadius: 2, bgcolor: "grey.100", fontStyle: "italic" }}>
+                            "{claim.message}"
+                          </Box>
+                        )}
+
+                        {claim.status !== "PENDING" && claim.response_message && (
+                          <Typography variant="body2" color="text.secondary">
+                            Your response: {claim.response_message}
+                          </Typography>
+                        )}
+
+                        {claim.status === "PENDING" && (
+                          <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                            <Button
+                              variant="contained"
+                              color="success"
+                              disabled={!canRespondToClaims}
+                              onClick={() => canRespondToClaims && openOwnerClaimDialog(claim, "ACCEPTED")}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              variant="outlined"
+                              color="error"
+                              disabled={!canRespondToClaims}
+                              onClick={() => canRespondToClaims && openOwnerClaimDialog(claim, "REJECTED")}
+                            >
+                              Reject
+                            </Button>
+                            {!canRespondToClaims && (
+                              <Typography variant="body2" color="text.secondary">
+                                Only owner-level administrators can respond to requests.
+                              </Typography>
+                            )}
+                          </Stack>
+                        )}
+                      </Stack>
+                    </Paper>
+                  ))}
+                </Stack>
+              )}
+            </AccordionDetails>
+          </Accordion>
+        </Box>
+      )}
+
       {view === "list" && (
         <Box
           sx={{
@@ -844,6 +1377,47 @@ export default function PharmacyPage() {
           </Alert>
         </Snackbar>
       )}
+
+      <Dialog
+        open={ownerDialog.open}
+        onClose={closeOwnerDialog}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>
+          {ownerDialog.action === "ACCEPTED" ? "Approve claim request" : "Reject claim request"}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Organization: <strong>{ownerDialog.claim?.organization?.name ?? "Unknown organization"}</strong>
+          </Typography>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Pharmacy: <strong>{ownerDialog.claim?.pharmacy?.name ?? "Untitled pharmacy"}</strong>
+          </Typography>
+          <TextField
+            label={ownerDialog.action === "ACCEPTED" ? "Optional note to the organization" : "Reason (optional)"}
+            multiline
+            minRows={3}
+            fullWidth
+            value={ownerDialog.note}
+            onChange={(event) => setOwnerDialog((prev) => ({ ...prev, note: event.target.value }))}
+            placeholder={ownerDialog.action === "ACCEPTED" ? "Add a short note (optional)." : "Explain why you are rejecting (optional)."}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeOwnerDialog} disabled={ownerResponding}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color={ownerDialog.action === "ACCEPTED" ? "success" : "error"}
+            onClick={handleOwnerRespond}
+            disabled={ownerResponding || !canRespondToClaims}
+          >
+            {ownerResponding ? <CircularProgress size={18} color="inherit" /> : ownerDialog.action === "ACCEPTED" ? "Approve" : "Reject"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={Boolean(pendingDeletePharmacy)}

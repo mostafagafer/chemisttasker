@@ -11,8 +11,6 @@ import {
   useTheme,
 } from "@mui/material";
 import StoreIcon from "@mui/icons-material/Store";
-import DomainIcon from "@mui/icons-material/Domain";
-import ManageAccountsIcon from "@mui/icons-material/ManageAccounts";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import ListAltIcon from "@mui/icons-material/ListAlt";
 import WorkOutlineIcon from "@mui/icons-material/WorkOutline";
@@ -36,8 +34,7 @@ type StatItem = {
 
 export default function OwnerOverviewHome({
   totalPharmacies,
-  onOpenPharmacies,
-  onOpenAdmins,
+  onOpenManage,
   onOpenRoster,
   onOpenShifts,
   onPostShift,
@@ -46,8 +43,7 @@ export default function OwnerOverviewHome({
   onOpenSettings,
 }: {
   totalPharmacies: number;
-  onOpenPharmacies: () => void;
-  onOpenAdmins: () => void;
+  onOpenManage: () => void;
   onOpenRoster: () => void;
   onOpenShifts: () => void;
   onPostShift: () => void;
@@ -63,19 +59,7 @@ export default function OwnerOverviewHome({
       title: "Manage Pharmacies",
       description: "Create, edit and configure stores",
       icon: <StoreIcon />,
-      onClick: onOpenPharmacies,
-    },
-    {
-      title: "My Pharmacies",
-      description: "View your entire network",
-      icon: <DomainIcon />,
-      onClick: onOpenPharmacies,
-    },
-    {
-      title: "Assign Admins",
-      description: "Manage pharmacy-level access",
-      icon: <ManageAccountsIcon />,
-      onClick: onOpenAdmins,
+      onClick: onOpenManage,
     },
     {
       title: "Internal Roster",
@@ -173,7 +157,7 @@ export default function OwnerOverviewHome({
               <Button
                 variant="outlined"
                 color="inherit"
-                onClick={onOpenPharmacies}
+                onClick={onOpenManage}
                 sx={{ borderColor: alpha("#ffffff", 0.4), color: "#fff" }}
               >
                 Manage pharmacies

@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { Outlet } from 'react-router-dom';
+import { Outlet, Navigate } from 'react-router-dom';
 import { WorkspaceProvider } from './contexts/WorkspaceContext'; // Add this import
 
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
@@ -19,12 +19,10 @@ import MobileOTPVerify from './pages/MobileOTPVerify';
 import PublicJobBoardPage from './pages/PublicJobBoardPage';
 import SharedShiftLandingPage from './pages/SharedShiftLandingPage';
 import MembershipApplyPage from './pages/MembershipApplyPage';
-import OwnerClaimRequestsPage from './pages/OwnerClaimRequestsPage';
 
 // Orgnization
 import OrganizationOverviewPage from './pages/dashboard/organization/OrganizationOverviewPage';
 import InviteStaffPage          from './pages/dashboard/organization/InviteStaffPage';
-import ClaimPharmaciesPage      from './pages/dashboard/organization/ClaimPharmaciesPage';
 import OrganizationDashboardWrapper from './layouts/OrganizationDashboardWrapper';
 
 // Other users types
@@ -54,6 +52,7 @@ import AdminDashboardWrapper from './layouts/adminDashboard';
 import PharmacistDashboardWrapper from './layouts/pharmacistDashboard';
 import OtherstaffDashboardWrapper from './layouts/otherStaffDashboard';
 import ExplorerDashboardWrapper from './layouts/explorerDashboard';
+import { OwnerShiftCenterPage, OrganizationShiftCenterPage, AdminShiftCenterPage } from './pages/dashboard/shiftCenter/ShiftCenterPage';
 
 
 
@@ -134,7 +133,6 @@ const router = createBrowserRouter([
           { index: true, element: <OrganizationOverviewPage /> },
           { path: 'overview', element: <OrganizationOverviewPage /> },
           { path: 'invite',   element: <InviteStaffPage /> },
-          { path: 'claim',    element: <ClaimPharmaciesPage /> },
           { path: 'chat', element: <ChatPage /> },
           { path: 'community-groups', element: <CommunityGroupsPage /> },
           { path: 'organization-hub', element: <OrganizationHubPage /> },
@@ -149,6 +147,8 @@ const router = createBrowserRouter([
             ],
           },
           { path: 'post-shift', element: <PostShiftPage /> },
+          { path: 'shift-center', element: <Navigate to="active" replace /> },
+          { path: 'shift-center/:section', element: <OrganizationShiftCenterPage /> },
           {
             path: 'shifts',
             children: [
@@ -184,6 +184,8 @@ const router = createBrowserRouter([
           { path: 'manage-pharmacies/my-pharmacies', element: <AdminManagePharmaciesPage /> },
           { path: 'manage-pharmacies/roster', element: <AdminRosterPage /> },
           { path: 'post-shift', element: <AdminPostShiftPage /> },
+          { path: 'shift-center', element: <Navigate to="active" replace /> },
+          { path: 'shift-center/:section', element: <AdminShiftCenterPage /> },
           {
             path: 'shifts',
             children: [
@@ -250,8 +252,6 @@ const router = createBrowserRouter([
           { path: 'chat', element: <ChatPage /> },
           { path: 'community-groups', element: <CommunityGroupsPage /> },
           { path: 'pharmacy-hub', element: <PharmacyHubPage /> },
-          { path: 'claim-requests', element: <OwnerClaimRequestsPage /> },
-          { path: 'claim-requests', element: <OwnerClaimRequestsPage /> },
           {
             path: 'manage-pharmacies',
             children: [
@@ -262,6 +262,8 @@ const router = createBrowserRouter([
             ],
           },
           { path: 'post-shift', element: <PostShiftPage /> },
+          { path: 'shift-center', element: <Navigate to="active" replace /> },
+          { path: 'shift-center/:section', element: <OwnerShiftCenterPage /> },
           {
             path: 'shifts',
             children: [
@@ -299,7 +301,6 @@ const router = createBrowserRouter([
           { path: 'chat', element: <ChatPage /> },
           { path: 'community-groups', element: <CommunityGroupsPage /> },
           { path: 'pharmacy-hub', element: <PharmacyHubPage /> },
-          { path: 'claim-requests', element: <OwnerClaimRequestsPage /> },
 
  
           {
@@ -347,7 +348,6 @@ const router = createBrowserRouter([
           { path: 'chat', element: <ChatPage /> },
           { path: 'community-groups', element: <CommunityGroupsPage /> },
           { path: 'pharmacy-hub', element: <PharmacyHubPage /> },
-          { path: 'claim-requests', element: <OwnerClaimRequestsPage /> },
           {
             path: 'shifts',
             children: [

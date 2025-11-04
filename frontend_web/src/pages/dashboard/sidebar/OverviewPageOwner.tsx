@@ -265,7 +265,7 @@ export default function OverviewPageOwner() {
           </Box>
           <Button
             component={RouterLink}
-            to="/dashboard/owner/shifts/active"
+            to="/dashboard/owner/shift-center/active"
             endIcon={<ArrowForwardIcon />}
           >
             Manage shifts

@@ -1,4 +1,4 @@
-﻿// src/navigation.tsx
+// src/navigation.tsx
 import { Navigation } from "@toolpad/core";
 import DashboardIcon           from '@mui/icons-material/Dashboard'
 import MedicationLiquidIcon    from '@mui/icons-material/MedicationLiquid'
@@ -43,7 +43,6 @@ export function getOrganizationNav(hasUnreadMessages: boolean): Navigation {
     { kind: 'header' as const, title: 'Organization Management' },
     { segment: 'dashboard/organization/overview', title: 'Overview',        icon: <GroupsIcon /> },
     { segment: 'dashboard/organization/invite',   title: 'Invite Staff',    icon: <ManageAccountsSharpIcon /> },
-    { segment: 'dashboard/organization/claim',    title: 'Claim Pharmacies',icon: <StoreIcon /> },
     { 
       segment: 'dashboard/organization/chat', 
       title: 'Chat', 
@@ -64,8 +63,8 @@ export function getOrganizationNav(hasUnreadMessages: boolean): Navigation {
       ],
     },
     { segment: 'dashboard/organization/post-shift', title: 'Post Shift', icon: <PostAddIcon /> },
-    { segment: 'dashboard/organization/shifts',
-      title: 'Shifts',
+    { segment: 'dashboard/organization/shift-center',
+      title: 'Shift Centre',
       icon: <AccessTimeIcon />,
       children: [
         { segment: 'active',    title: 'Active Shifts',    icon: <PlayArrowIcon /> },
@@ -107,8 +106,7 @@ export function getOwnerNav(progressPercent: number, hasUnreadMessages: boolean)
     },
     { segment: "dashboard/owner/community-groups", title: "Community Groups", icon: <GroupsIcon /> },
     { segment: "dashboard/owner/pharmacy-hub", title: "Pharmacy Hub", icon: <ForumIcon /> },
-    { segment: "dashboard/owner/claim-requests", title: "Claim Requests", icon: <NotificationsActiveIcon /> },
-    { kind: "divider" as const },
+        { kind: "divider" as const },
     { kind: "header" as const, title: "Manage Pharmacies and Shifts" },
     {
       segment: "dashboard/owner/manage-pharmacies",
@@ -122,8 +120,8 @@ export function getOwnerNav(progressPercent: number, hasUnreadMessages: boolean)
     },
     { segment: "dashboard/owner/post-shift", title: "Post Shift", icon: <PostAddIcon /> },
     {
-      segment: "dashboard/owner/shifts",
-      title: "Shifts",
+      segment: "dashboard/owner/shift-center",
+      title: "Shift Centre",
       icon: <AccessTimeIcon />,
       children: [
         { segment: "active", title: "Active Shifts", icon: <PlayArrowIcon /> },
@@ -211,7 +209,6 @@ export function getAdminNav({
   }
 
   if (canManageAdmins) {
-    navigation.push({ segment: buildPath("claim-requests"), title: "Claim Requests", icon: <NotificationsActiveIcon /> });
   }
 
   navigation.push({ kind: "divider" as const });
@@ -233,8 +230,8 @@ export function getAdminNav({
       navigation.push(
         { segment: buildPath("post-shift"), title: "Post Shift", icon: <PostAddIcon /> },
         {
-          segment: buildPath("shifts"),
-          title: "Shifts",
+          segment: buildPath("shift-center"),
+          title: "Shift Centre",
           icon: <AccessTimeIcon />,
           children: [
             { segment: "active", title: "Active Shifts", icon: <PlayArrowIcon /> },
@@ -316,7 +313,7 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
     { kind: 'header' as const, title: 'Shifts & Invoices' },
     {
       segment: 'dashboard/otherstaff/shifts',
-      title: 'Shifts',
+      title: 'Shift Centre',
       icon: <AccessTimeIcon />,
       children: shiftsChildren,  // <-- Use the dynamic children defined above
     },
@@ -353,7 +350,7 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
   return [
     { kind: 'header' as const, title: 'Profile and Availability' },
     { segment: 'dashboard/pharmacist/overview', title: 'Overview', icon: <DashboardIcon /> },
-    // NEW: V2 onboarding — single sidebar item (tabs live inside the page)
+    // NEW: V2 onboarding � single sidebar item (tabs live inside the page)
     {
       segment: 'dashboard/pharmacist/onboarding-v2',
       title: 'Profile',
@@ -385,7 +382,7 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
     { kind: 'header' as const, title: 'Shifts & Invoices' },
     { 
       segment: 'dashboard/pharmacist/shifts',
-      title: 'Shifts',
+      title: 'Shift Centre',
       icon: <AccessTimeIcon />,
       children: shiftsChildren,
     },

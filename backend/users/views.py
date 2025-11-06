@@ -1,21 +1,29 @@
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView  
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
-from rest_framework import viewsets, permissions, filters, generics, status
+from rest_framework import viewsets, permissions, filters, generics, status, mixins
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from django.utils.crypto import get_random_string
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 from .models import OrganizationMembership
 from client_profile.admin_helpers import admin_assignments_for
 from .serializers import InviteOrgUserSerializer
 from .permissions import OrganizationRolePermission
+from .org_roles import (
+    ADMIN_LEVEL_DEFINITIONS,
+    ROLE_DEFINITIONS,
+    ROLE_DESCRIPTION_SUMMARY,
+    OrgCapability,
+    membership_capabilities,
+)
 from django.conf import settings
 from django_q.tasks import async_task
 from rest_framework.views import APIView
 from users.tasks import send_async_email
-from users.utils import get_frontend_onboarding_url
+from users.utils import get_frontend_onboarding_url, build_org_invite_context
 from datetime import timedelta
 from django.utils import timezone
 import random
@@ -24,11 +32,13 @@ from .serializers import (
     UserRegistrationSerializer,
     CustomTokenObtainPairSerializer,
     UserProfileSerializer,
-    CustomTokenRefreshSerializer
+    CustomTokenRefreshSerializer,
+    OrganizationMembershipDetailSerializer,
 )
 User = get_user_model()
 import requests
 from requests.auth import HTTPBasicAuth
+from django.db.models import Q
 
 
 def verify_recaptcha(token):
@@ -475,12 +485,19 @@ class InviteOrgUserView(generics.CreateAPIView):
     """
     serializer_class   = InviteOrgUserSerializer
 
-    # ← only users holding ORG_ADMIN on the target org get through
-    required_roles     = ['ORG_ADMIN']
+    # Allow role-based access; capability checks enforce fine-grained control.
+    required_roles     = ['ORG_ADMIN', 'CHIEF_ADMIN', 'REGION_ADMIN']
     permission_classes = [permissions.IsAuthenticated, OrganizationRolePermission]
 
     def perform_create(self, serializer):
         data = serializer.validated_data
+        organization = data['organization']
+
+        actor_membership = self.request.user.organization_memberships.filter(
+            organization=organization
+        ).first()
+        if not actor_membership or OrgCapability.INVITE_STAFF not in membership_capabilities(actor_membership):
+            raise PermissionDenied("You do not have permission to invite staff for this organization.")
 
         # 1) Find or create the User
         try:
@@ -491,22 +508,36 @@ class InviteOrgUserView(generics.CreateAPIView):
             user = User.objects.create_user(
                 email    = data['email'],
                 password = temp_password,
-                role     = 'OTHER_STAFF'
+                role     = 'ORG_STAFF'
             )
 
+        if user.role != 'ORG_STAFF':
+            user.role = 'ORG_STAFF'
+            user.save(update_fields=['role'])
+
         # 2) Find or create the membership; update if it already exists
-        membership, created = OrganizationMembership.objects.get_or_create(
+        invitee_membership, created = OrganizationMembership.objects.get_or_create(
             user         = user,
-            organization = data['organization'],
+            organization = organization,
             defaults     = {
-                'role':   data['role'],
-                'region': data.get('region', '')
+                'role':        data['role'],
+                'region':      data.get('region', ''),
+                'job_title':   data.get('job_title', ''),
+                'admin_level': data['admin_level'],
             }
         )
-        if not created:
-            membership.role   = data['role']
-            membership.region = data.get('region', '')
-            membership.save(update_fields=['role', 'region'])
+        update_fields = {'role', 'region', 'job_title', 'admin_level'}
+        invitee_membership.role = data['role']
+        invitee_membership.region = data.get('region', '')
+        invitee_membership.job_title = data.get('job_title', '')
+        invitee_membership.admin_level = data['admin_level']
+        invitee_membership.save(update_fields=sorted(update_fields))
+
+        pharmacies = data.get('pharmacies') or []
+        if pharmacies:
+            invitee_membership.pharmacies.set(pharmacies)
+        else:
+            invitee_membership.pharmacies.clear()
 
         # 3) Build the front-end reset link
         uid   = urlsafe_base64_encode(force_bytes(user.pk))
@@ -514,18 +545,23 @@ class InviteOrgUserView(generics.CreateAPIView):
         frontend_url = settings.FRONTEND_BASE_URL
         front_end_link = f"{frontend_url}/reset-password/{uid}/{token}/"
 
+        invitee_membership = OrganizationMembership.objects.select_related(
+            "organization"
+        ).prefetch_related("pharmacies").get(pk=invitee_membership.pk)
+
         # 4) Prepare async email context and send
-        context = {
-            "org_name": data['organization'].name,
-            "role": data['role'].title(),
-            "magic_link": front_end_link,
-            "inviter": self.request.user.get_full_name() or self.request.user.email or "A ChemistTasker admin",
-        }
+        context = build_org_invite_context(
+            membership=invitee_membership,
+            inviter=self.request.user,
+            magic_link=front_end_link,
+            dashboard_link=f"{frontend_url}/dashboard/organization/overview",
+            temp_password=temp_password,
+        )
         recipient_list = [user.email]
 
         async_task(
             'users.tasks.send_async_email',
-            subject=f"You've been invited to join {data['organization'].name} on ChemistTasker",
+            subject=f"You've been invited to join {organization.name} on ChemistTasker",
             recipient_list=recipient_list,
             template_name="emails/org_invite_new_user.html",
             context=context,
@@ -534,3 +570,123 @@ class InviteOrgUserView(generics.CreateAPIView):
 
         # 5) Return success
         return Response({'detail': 'Invitation sent.'}, status=status.HTTP_201_CREATED)
+
+
+class OrganizationMembershipViewSet(mixins.ListModelMixin,
+                                    mixins.RetrieveModelMixin,
+                                    mixins.UpdateModelMixin,
+                                    mixins.DestroyModelMixin,
+                                    viewsets.GenericViewSet):
+    serializer_class = OrganizationMembershipDetailSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _user_org_admin_ids(self, user):
+        org_ids = set()
+        memberships = user.organization_memberships.select_related('organization').prefetch_related('pharmacies')
+        for membership in memberships:
+            caps = membership_capabilities(membership)
+            if OrgCapability.MANAGE_ADMINS in caps or OrgCapability.MANAGE_STAFF in caps:
+                org_ids.add(membership.organization_id)
+        return org_ids
+
+    def get_queryset(self):
+        user = self.request.user
+        org_ids = self._user_org_admin_ids(user)
+        if not org_ids:
+            return OrganizationMembership.objects.none()
+        queryset = OrganizationMembership.objects.filter(
+            organization_id__in=org_ids
+        ).select_related('user', 'organization').prefetch_related('pharmacies')
+
+        organization_param = self.request.query_params.get('organization')
+        if organization_param:
+            try:
+                organization_id = int(organization_param)
+            except (TypeError, ValueError):
+                raise PermissionDenied("Invalid organization id.")
+            if organization_id not in org_ids:
+                raise PermissionDenied("Not allowed to manage this organization.")
+            queryset = queryset.filter(organization_id=organization_id)
+
+        search = self.request.query_params.get('search')
+        if search:
+            search = search.strip()
+            if search:
+                queryset = queryset.filter(
+                    Q(user__first_name__icontains=search) |
+                    Q(user__last_name__icontains=search) |
+                    Q(user__email__icontains=search) |
+                    Q(job_title__icontains=search)
+                )
+        return queryset
+
+    def get_object(self):
+        obj = super().get_object()
+        if obj.organization_id not in self._user_org_admin_ids(self.request.user):
+            raise PermissionDenied("Not allowed to access this membership.")
+        return obj
+
+    def perform_destroy(self, instance):
+        request_user = self.request.user
+        if instance.user_id == request_user.id:
+            raise PermissionDenied("You cannot remove your own organization membership.")
+        if instance.role == 'ORG_ADMIN':
+            remaining = OrganizationMembership.objects.filter(
+                organization=instance.organization,
+                role='ORG_ADMIN'
+            ).exclude(pk=instance.pk).count()
+            if remaining == 0:
+                raise PermissionDenied("Each organization must retain at least one Org Admin.")
+        instance.delete()
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        new_role = serializer.validated_data.get('role', instance.role)
+        if instance.role == 'ORG_ADMIN' and new_role != 'ORG_ADMIN':
+            remaining = OrganizationMembership.objects.filter(
+                organization=instance.organization,
+                role='ORG_ADMIN'
+            ).exclude(pk=instance.pk).count()
+            if remaining == 0:
+                raise PermissionDenied("Each organization must retain at least one Org Admin.")
+        serializer.save()
+
+
+class OrganizationRoleDefinitionView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        role_payload = []
+        for definition in ROLE_DEFINITIONS.values():
+            role_payload.append(
+                {
+                    'key': definition.key,
+                    'label': definition.label,
+                    'description': definition.description,
+                    'default_admin_level': definition.default_admin_level,
+                    'allowed_admin_levels': list(definition.allowed_admin_levels),
+                    'requires_job_title': definition.requires_job_title,
+                    'requires_region': definition.requires_region,
+                    'requires_pharmacies': definition.requires_pharmacies,
+                    'capabilities': sorted(definition.consolidated_capabilities()),
+                }
+            )
+
+        admin_payload = []
+        for definition in ADMIN_LEVEL_DEFINITIONS.values():
+            admin_payload.append(
+                {
+                    'key': definition.key,
+                    'label': definition.label,
+                    'description': definition.description,
+                    'capabilities': list(definition.pharmacy_capabilities),
+                }
+            )
+
+        return Response(
+            {
+                'roles': role_payload,
+                'admin_levels': admin_payload,
+                'documentation': ROLE_DESCRIPTION_SUMMARY.strip(),
+            }
+        )

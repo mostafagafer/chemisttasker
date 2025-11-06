@@ -10,6 +10,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from decimal import Decimal
 from client_profile.utils import q6, send_referee_emails, clean_email, enforce_public_shift_daily_limit
+from client_profile.admin_helpers import has_admin_capability, CAPABILITY_MANAGE_ROSTER
 from datetime import date, timedelta
 from django.utils import timezone
 from django_q.tasks import async_task
@@ -65,6 +66,62 @@ class RemoveOldFilesMixin:
                 if old_file:
                     old_file.delete(save=False)
         return super().update(instance, validated_data)
+
+
+def user_can_view_full_pharmacy(user, pharmacy) -> bool:
+    """
+    Mirrors BaseShiftViewSet._user_can_manage_pharmacy so serializers can reuse it.
+    """
+    if not user or not getattr(user, "is_authenticated", False) or pharmacy is None:
+        return False
+
+    owner = getattr(pharmacy, "owner", None)
+    if owner and getattr(owner, "user", None) == user:
+        return True
+
+    if OrganizationMembership.objects.filter(
+        user=user,
+        role='ORG_ADMIN',
+        organization_id=pharmacy.organization_id,
+    ).exists():
+        return True
+
+    if OrganizationMembership.objects.filter(
+        user=user,
+        role__in=['CHIEF_ADMIN', 'REGION_ADMIN'],
+        pharmacies=pharmacy,
+    ).exists():
+        return True
+
+    if has_admin_capability(user, pharmacy, CAPABILITY_MANAGE_ROSTER):
+        return True
+
+    return False
+
+
+def anonymize_pharmacy_detail(detail: dict | None) -> dict | None:
+    """
+    Strip sensitive pharmacy fields. Keep only the suburb-level context.
+    """
+    if not isinstance(detail, dict):
+        return detail
+
+    suburb = detail.get('suburb')
+    state = detail.get('state')
+    postcode = detail.get('postcode')
+
+    masked = {
+        'id': detail.get('id'),
+        'name': 'Anonymous Pharmacy',
+        'suburb': suburb,
+    }
+    if state is not None:
+        masked['state'] = state
+    if postcode is not None:
+        masked['postcode'] = postcode
+
+    return masked
+
 
 class SyncUserMixin:
     USER_FIELDS = ['username', 'first_name', 'last_name']
@@ -4035,6 +4092,7 @@ class ShiftSerializer(serializers.ModelSerializer):
             'id', 'created_by','created_at', 'pharmacy',  'pharmacy_detail','role_needed', 'employment_type', 'visibility',
             'escalation_level', 'escalate_to_owner_chain', 'escalate_to_org_chain', 'escalate_to_platform',
             'must_have', 'nice_to_have', 'rate_type', 'fixed_rate', 'owner_adjusted_rate','slots','single_user_only',
+            'post_anonymously',
             'escalate_to_locum_casual',
             'interested_users_count', 'reveal_quota', 'reveal_count', 'workload_tags','slot_assignments',
             'allowed_escalation_levels','is_single_user', 'description' ]
@@ -4062,6 +4120,14 @@ class ShiftSerializer(serializers.ModelSerializer):
                 fields.pop('rate_type', None)
 
         return fields
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        if instance.post_anonymously and not user_can_view_full_pharmacy(user, instance.pharmacy):
+            data['pharmacy_detail'] = anonymize_pharmacy_detail(data.get('pharmacy_detail'))
+        return data
 
     @staticmethod
     def build_allowed_tiers(pharmacy):
@@ -4357,8 +4423,17 @@ class SharedShiftSerializer(serializers.ModelSerializer):
             'slots',
             'created_at',
             'single_user_only',
+            'post_anonymously',
             'description',
         ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        if instance.post_anonymously and not user_can_view_full_pharmacy(user, instance.pharmacy):
+            data['pharmacy_detail'] = anonymize_pharmacy_detail(data.get('pharmacy_detail'))
+        return data
 
 class LeaveRequestSerializer(serializers.ModelSerializer):
     class Meta:

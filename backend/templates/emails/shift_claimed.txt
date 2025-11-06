@@ -1,0 +1,15 @@
+Your shift has been claimed!
+
+Hi {{ user_first_name|default:"there" }},
+
+{{ claimer_name }} has claimed the shift at {{ pharmacy_name }} (role: {{ role_needed }}) scheduled for {{ shift_date|date:"F j, Y" }}.
+
+View the shift: {{ shift_link }}
+
+We’ll keep you posted on any further updates.
+
+The ChemistTasker Team
+
+
+
+

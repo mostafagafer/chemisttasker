@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Your shift has been claimed!</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 520px; margin: 40px auto; }
+        .btn {
+            display: inline-block;
+            background: #23b59c;
+            color: #fff;
+            padding: 12px 28px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.05rem;
+            margin: 16px 0;
+            box-shadow: 0 1px 3px #e0e0e0;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #199982; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Your shift has been claimed!</h2>
+        <p>
+            Hi {{ user_first_name|default:"there" }},
+        </p>
+        <p>
+            <strong>{{ claimer_name }}</strong> has just claimed the shift at <strong>{{ pharmacy_name }}</strong>
+            (role: {{ role_needed }}) scheduled for {{ shift_date|date:"F j, Y" }}.
+        </p>
+        <p>
+            Click below to review the assignment details and make any adjustments if needed.
+        </p>
+        <a class="btn" href="{{ shift_link }}">View Shift</a>
+        <p>
+            We’ll keep you notified of any further updates.<br/>
+            Thanks for using ChemistTasker!
+        </p>
+        <p>The ChemistTasker Team</p>
+    </div>
+</body>
+</html>

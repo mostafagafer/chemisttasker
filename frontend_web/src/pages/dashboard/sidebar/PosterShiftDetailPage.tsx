@@ -108,6 +108,7 @@ interface Shift {
   allowed_escalation_levels: string[];
   created_at: string;
   created_by?: number;
+  post_anonymously?: boolean;
 }
 
 interface MemberStatus {
@@ -863,6 +864,18 @@ const PosterShiftDetailPage: React.FC = () => {
                     letterSpacing: 0.4,
                   }}
                 />
+                {shift.post_anonymously && (
+                  <Chip
+                    label="Anonymous listing"
+                    size="small"
+                    variant="outlined"
+                    sx={{
+                      borderColor: cardBorderColor,
+                      color: cardBorderColor,
+                      fontWeight: 600,
+                    }}
+                  />
+                )}
                 {effectiveLevelMeta && (
                   <Typography variant="body2" color="text.secondary">
                     Current escalation: <strong>{effectiveLevelMeta.label}</strong>

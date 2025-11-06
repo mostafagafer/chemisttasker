@@ -19,7 +19,7 @@ export default function OrganizationDashboardWrapper() {
         continue;
       }
       const role = String((record as any).role ?? "").toUpperCase();
-      if (!["ORG_ADMIN", "ORG_OWNER", "ORG_STAFF"].includes(role)) {
+      if (!["ORG_ADMIN", "ORG_OWNER", "ORG_STAFF", "CHIEF_ADMIN", "REGION_ADMIN"].includes(role)) {
         continue;
       }
       const name = (record as any).organization_name;

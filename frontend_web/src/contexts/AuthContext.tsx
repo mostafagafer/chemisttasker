@@ -17,9 +17,15 @@ import { AdminCapability, ALL_ADMIN_CAPABILITIES } from "../constants/adminCapab
 
 export interface OrgMembership {
   organization_id: number;
-  organization_name: string;
+  organization_name?: string;
   role: string;
-  region: string;
+  role_label?: string;
+  admin_level?: string;
+  admin_level_label?: string;
+  job_title?: string;
+  region?: string | null;
+  pharmacies?: { id: number; name: string }[];
+  capabilities?: string[];
 }
 
 export interface PharmacyMembership {

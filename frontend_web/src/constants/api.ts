@@ -51,6 +51,8 @@ export const API_ENDPOINTS = {
 
   // invite & claim
   inviteOrgUser: '/users/invite-org-user/',
+  organizationMemberships: '/users/organization-memberships/',
+  organizationRoleDefinitions: '/users/organization-role-definitions/',
   passwordReset: '/users/password-reset/', 
   passwordResetConfirm: '/users/password-reset-confirm/',
   claimOnboarding: '/client-profile/owner-onboarding/claim/',
@@ -254,3 +256,4 @@ export const API_ENDPOINTS = {
   pharmacyAdminDetail: (adminId: string | number) => `/client-profile/pharmacy-admins/${adminId}/`,
 
 };
+

@@ -125,7 +125,7 @@ export default function App() {
 
     const memberships = Array.isArray(user.memberships) ? user.memberships : [];
     const hasOrgRole = memberships.some(
-      (m: any) => m?.role && ["ORG_ADMIN", "ORG_OWNER", "ORG_STAFF"].includes(m.role)
+      (m: any) => m?.role && ["ORG_ADMIN", "ORG_OWNER", "ORG_STAFF", "CHIEF_ADMIN", "REGION_ADMIN"].includes(m.role)
     );
 
     if (hasOrgRole) {

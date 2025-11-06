@@ -70,6 +70,8 @@ export default function Login() {
             return '/dashboard/pharmacist/overview';
           case 'OTHER_STAFF':
             return '/dashboard/otherstaff/overview';
+          case 'ORG_STAFF':
+            return '/dashboard/organization/overview';
           case 'EXPLORER':
             return '/dashboard/explorer/overview';
           default:

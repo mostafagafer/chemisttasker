@@ -2,7 +2,7 @@
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
-from client_profile.models import Organization
+from client_profile.models import Organization, PharmacyAdmin
 
 class CustomUserManager(BaseUserManager):
     use_in_migrations = True
@@ -40,6 +40,7 @@ class User(AbstractUser):
         ('OWNER',       'Pharmacy Owner'),
         ('PHARMACIST',  'Pharmacist'),
         ('OTHER_STAFF', 'Other Staff'),
+        ('ORG_STAFF',   'Organization Staff'),
         ('EXPLORER',    'Explorer'),
     )
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
@@ -55,6 +56,8 @@ class User(AbstractUser):
         return self.role == 'PHARMACIST'
     def is_otherstaff(self):
         return self.role == 'OTHER_STAFF'
+    def is_org_staff(self):
+        return self.role == 'ORG_STAFF'
     def is_explorer(self):
         return self.role == 'EXPLORER'
     
@@ -72,21 +75,32 @@ class User(AbstractUser):
 
 class OrganizationMembership(models.Model):
     """
-    Assigns users to an Organization with one of three roles.
+    Assigns users to an organisation with an explicit role and admin level.
     """
     ROLE_CHOICES = (
-        ('ORG_ADMIN',    'Organization Admin'),   # can claim, create pharmacies, invite users
-        ('REGION_ADMIN', 'Region Admin'),         # can manage pharmacies in their region
-        ('SHIFT_MANAGER','Shift Manager'),        # can post & accept shifts
+        ('ORG_ADMIN',    'Organization Admin'),
+        ('CHIEF_ADMIN',  'Chief Admin'),
+        ('REGION_ADMIN', 'Region Admin'),
     )
 
     user         = models.ForeignKey(User, on_delete=models.CASCADE, related_name='organization_memberships')
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='memberships')
     role         = models.CharField(max_length=30, choices=ROLE_CHOICES)
     region       = models.CharField(max_length=255, blank=True, null=True)
+    job_title    = models.CharField(max_length=255, blank=True)
+    admin_level  = models.CharField(
+        max_length=32,
+        choices=PharmacyAdmin.AdminLevel.choices,
+        default=PharmacyAdmin.AdminLevel.MANAGER,
+    )
+    pharmacies   = models.ManyToManyField(
+        'client_profile.Pharmacy',
+        related_name='organization_scoped_memberships',
+        blank=True,
+    )
 
     class Meta:
-        unique_together = ('user','organization')
+        unique_together = ('user', 'organization')
 
     def __str__(self):
-        return f"{self.user.email} – {self.role} @ {self.organization.name}"
+        return f"{self.user.email} ({self.role}) @ {self.organization.name}"

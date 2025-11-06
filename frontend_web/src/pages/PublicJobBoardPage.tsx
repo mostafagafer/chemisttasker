@@ -21,6 +21,7 @@ interface Shift {
   description?: string;
   role_needed: string;
   created_at: string;
+  post_anonymously?: boolean;
 }
 
 const PublicJobBoardPage: React.FC = () => {
@@ -54,12 +55,23 @@ const PublicJobBoardPage: React.FC = () => {
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <Box>
-                  <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {[shift.pharmacy_detail.street_address, shift.pharmacy_detail.suburb, shift.pharmacy_detail.state, shift.pharmacy_detail.postcode]
-                    .filter(Boolean)
-                    .join(', ')}    
+                  <Typography variant="h6">
+                    {shift.post_anonymously
+                      ? (shift.pharmacy_detail.suburb
+                          ? `Shift in ${shift.pharmacy_detail.suburb}`
+                          : 'Anonymous Shift')
+                      : shift.pharmacy_detail.name}
                   </Typography>
+                  {(!shift.post_anonymously ||
+                    (shift.post_anonymously && shift.pharmacy_detail.suburb)) && (
+                    <Typography variant="body2" color="text.secondary">
+                      {shift.post_anonymously
+                        ? shift.pharmacy_detail.suburb
+                        : [shift.pharmacy_detail.street_address, shift.pharmacy_detail.suburb, shift.pharmacy_detail.state, shift.pharmacy_detail.postcode]
+                            .filter(Boolean)
+                            .join(', ')}
+                    </Typography>
+                  )}
                   <Divider sx={{ my: 1 }} />
 
                   <Chip label={shift.role_needed} color="primary" size="small" sx={{ mt: 1 }}/>

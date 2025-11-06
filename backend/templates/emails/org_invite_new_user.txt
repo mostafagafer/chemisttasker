@@ -1,13 +1,31 @@
-👥💌  You’ve Been Invited to Join {{ org_name }}!
+You're invited to join {{ org_name }}!
 
-Hi there,
+{{ inviter }} has invited you to work with the organisation as a {{ role_label }}.
 
-{{ inviter }} has invited you to join the organization {{ org_name }} as a {{ role }} on ChemistTasker.
-To get started, just set your password using the link below:
+Role details
+------------
+Admin level: {{ admin_level_label }}
+{% if job_title %}Job title: {{ job_title }}
+{% endif %}
+{% if region %}Region: {{ region }}
+{% endif %}
+{% if admin_level_description %}{{ admin_level_description }}
+{% endif %}{% if role_description %}{{ role_description }}
+{% endif %}{% if scope_message %}
+{{ scope_message }}
+{% endif %}{% if has_pharmacies %}
+Pharmacies in your scope:
+{% for pharmacy in pharmacies %}- {{ pharmacy }}
+{% endfor %}{% endif %}{% if capability_descriptions %}
+You'll be able to:
+{% for item in capability_descriptions %}- {{ item }}
+{% endfor %}{% endif %}
 
-Set your password: {{ magic_link }}
+Set your password and get started:
+{{ magic_link }}
 
-After you set your password, you’ll have immediate access to your new organization.
-Welcome to the ChemistTasker community!
+{% if temporary_password %}Temporary password: {{ temporary_password }}
+{% endif %}After you sign in you'll land on your ChemistTasker dashboard and can begin right away.
 
-— The ChemistTasker Team 💚
+See you inside,
+The ChemistTasker team

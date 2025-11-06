@@ -75,6 +75,7 @@ interface Shift {
   single_user_only: boolean;
   slot_assignments: { slot_id: number; user_id: number }[];
   description?: string;
+  post_anonymously?: boolean;
   }
 
 interface Interest {
@@ -124,6 +125,27 @@ export default function PublicShiftsPage() {
   // helper to pick whichever field exists
   const getPharmacyData = (shift: Shift) =>
     shift.pharmacy ?? shift.pharmacy_detail;
+
+  const getPharmacyHeading = (shift: Shift) => {
+    const pharm = getPharmacyData(shift);
+    if (shift.post_anonymously) {
+      const suburb = pharm?.suburb?.trim();
+      return suburb && suburb.length > 0 ? `Shift in ${suburb}` : 'Anonymous Shift';
+    }
+    return pharm?.name ?? 'Unknown Pharmacy';
+  };
+
+  const getPharmacyLocationLine = (shift: Shift) => {
+    const pharm = getPharmacyData(shift);
+    if (!pharm) return null;
+    if (shift.post_anonymously) {
+      return pharm.suburb ?? null;
+    }
+    const parts = [pharm.street_address, pharm.suburb, pharm.state, pharm.postcode]
+      .filter((part): part is string => Boolean(part && part.toString().trim().length));
+    if (parts.length === 0) return null;
+    return parts.join(', ');
+  };
 
   // load shifts + my interests
   useEffect(() => {
@@ -304,10 +326,12 @@ export default function PublicShiftsPage() {
       ) : (
         displayedShifts.map(shift => {
           const pharm = getPharmacyData(shift);
+          const heading = getPharmacyHeading(shift);
+          const locationLine = getPharmacyLocationLine(shift);
           // determine rate display
           let rateLabel = 'N/A';
           if (shift.rate_type === 'FIXED') {
-            rateLabel = `Fixed – ${shift.fixed_rate} AUD/hr`;
+            rateLabel = `Fixed - ${shift.fixed_rate} AUD/hr`;
           } else if (shift.rate_type === 'FLEXIBLE') {
             rateLabel = 'Flexible';
           } else if (shift.rate_type === 'PHARMACIST_PROVIDED') {
@@ -319,7 +343,7 @@ export default function PublicShiftsPage() {
                 {/* Pharmacy name + rating summary */}
                 <Box display="flex" alignItems="center" justifyContent="space-between">
                   <Typography variant="h6">
-                    {pharm?.name ?? 'Unknown Pharmacy'}
+                    {heading}
                   </Typography>
 
                   {pharm?.id != null && pharmacySummaries[pharm.id] && (
@@ -339,11 +363,9 @@ export default function PublicShiftsPage() {
                 <Divider sx={{ my: 1 }} />
                 
                 {/* THIS IS THE UPDATED DISPLAY LOGIC */}
-                {pharm && (
+                {locationLine && (
                   <Typography variant="body2" color="textSecondary">
-                    {[pharm.street_address, pharm.suburb, pharm.state, pharm.postcode]
-                      .filter(Boolean)
-                      .join(', ')}    
+                    {locationLine}
                   </Typography>
                 )}
                 {/* Shift description*/}

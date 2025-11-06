@@ -29,6 +29,7 @@ interface Shift {
   description?: string;
   role_needed: string;
   slots: { date: string; start_time: string; end_time: string }[];
+  post_anonymously?: boolean;
 }
 
 const SharedShiftLandingPage: React.FC = () => {
@@ -108,13 +109,24 @@ const SharedShiftLandingPage: React.FC = () => {
             <Typography variant="h4" gutterBottom>Shift Opportunity</Typography>
             <Card>
                 <CardContent>
-                    <Typography variant="h5">{shift.pharmacy_detail.name}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {[shift.pharmacy_detail.street_address, shift.pharmacy_detail.suburb, shift.pharmacy_detail.state, shift.pharmacy_detail.postcode]
-                      .filter(Boolean)
-                      .join(', ')}    
+                    <Typography variant="h5">
+                      {shift.post_anonymously
+                        ? (shift.pharmacy_detail.suburb
+                            ? `Shift in ${shift.pharmacy_detail.suburb}`
+                            : 'Anonymous Shift')
+                        : shift.pharmacy_detail.name}
                     </Typography>
-  
+                    {(!shift.post_anonymously ||
+                      (shift.post_anonymously && shift.pharmacy_detail.suburb)) && (
+                      <Typography variant="body2" color="text.secondary">
+                        {shift.post_anonymously
+                          ? shift.pharmacy_detail.suburb
+                          : [shift.pharmacy_detail.street_address, shift.pharmacy_detail.suburb, shift.pharmacy_detail.state, shift.pharmacy_detail.postcode]
+                              .filter(Boolean)
+                              .join(', ')}
+                      </Typography>
+                    )}
+
                     <Chip label={shift.role_needed} color="primary" sx={{ my: 2 }} />
                     <Divider sx={{ mb: 2 }} />
                     <Typography variant="h6">Slots:</Typography>

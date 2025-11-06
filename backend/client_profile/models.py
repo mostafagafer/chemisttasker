@@ -1183,6 +1183,10 @@ class Shift(models.Model):
         default=False,
         help_text="If true, only one user may take the entire shift (all slots)."
     )
+    post_anonymously = models.BooleanField(
+        default=False,
+        help_text="Hide pharmacy identity from applicants; only suburb is shown."
+    )
     share_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, null=True)
 
     description = models.TextField(

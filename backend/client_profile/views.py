@@ -56,9 +56,17 @@ from decimal import Decimal                      # used in manual_assign
 import uuid                                      # used in generate_share_link
 from django.contrib.auth import get_user_model   # used in ChainViewSet.add_user
 from users.models import User, OrganizationMembership                    # referenced throughout (accept_user, etc.)
+from users.utils import build_org_invite_context
+from users.org_roles import (
+    OrgCapability,
+    membership_capabilities,
+    membership_visible_pharmacies,
+    membership_visible_pharmacy_ids,
+)
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import mimetypes
+import re
 # import logging
 # logger = logging.getLogger("roster.debug")
 
@@ -81,6 +89,48 @@ def _count_active_memberships(user, exclude_membership_id=None):
         qs = qs.exclude(pk=exclude_membership_id)
     return qs.count()
 
+
+def _collect_org_access_scope(user):
+    """
+    Determine which organisations the user can fully access and which pharmacies they are scoped to.
+    Returns a tuple of (full_access_org_ids, scoped_pharmacies_by_org).
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return set(), {}
+
+    memberships = user.organization_memberships.select_related('organization').prefetch_related('pharmacies')
+    full_access_org_ids = set()
+    scoped_by_org = {}
+
+    for membership in memberships:
+        caps = membership_capabilities(membership)
+        if OrgCapability.VIEW_ALL_PHARMACIES in caps:
+            full_access_org_ids.add(membership.organization_id)
+            continue
+
+        visible_ids = membership_visible_pharmacy_ids(membership)
+        if visible_ids:
+            scoped = scoped_by_org.setdefault(membership.organization_id, set())
+            scoped.update(visible_ids)
+
+    return full_access_org_ids, scoped_by_org
+
+
+def _get_org_pharmacies_queryset(user):
+    full_access_org_ids, scoped_by_org = _collect_org_access_scope(user)
+    qs = Pharmacy.objects.none()
+
+    if full_access_org_ids:
+        qs = qs | Pharmacy.objects.filter(organization_id__in=full_access_org_ids)
+
+    scoped_ids = set()
+    for ids in scoped_by_org.values():
+        scoped_ids.update(ids)
+    if scoped_ids:
+        qs = qs | Pharmacy.objects.filter(id__in=scoped_ids)
+
+    return qs.distinct()
+
 # Onboardings
 class OrganizationViewSet(viewsets.ModelViewSet):
     """
@@ -98,7 +148,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         if self.action == 'create':
             return [permissions.IsAdminUser()]
         # update, partial_update, destroy
-        self.required_roles = ['ORG_ADMIN']
+        self.required_roles = ['ORG_ADMIN', 'CHIEF_ADMIN', 'REGION_ADMIN']
         return [permissions.IsAuthenticated(), OrganizationRolePermission()]
 
 class OwnerOnboardingCreate(generics.CreateAPIView):
@@ -230,6 +280,125 @@ class OwnerOnboardingClaim(APIView):
     """
     permission_classes = [permissions.IsAuthenticated]
 
+    def _generate_placeholder_name(self, email: str) -> str:
+        local_part = (email.split('@')[0] if email else '').strip()
+        cleaned = re.sub(r'[^A-Za-z0-9]+', ' ', local_part).strip()
+        if not cleaned:
+            cleaned = 'New'
+        name = f"{cleaned.title()} Pharmacy"
+        return name[:120]
+
+    def _ensure_org_user_account(self, email: str):
+        user, created = User.objects.get_or_create(
+            email=email,
+            defaults={'role': 'ORG_STAFF'}
+        )
+        temp_password = None
+        if created:
+            temp_password = get_random_string(length=12)
+            user.set_password(temp_password)
+            user.role = 'ORG_STAFF'
+            user.save(update_fields=['password', 'role'])
+        return user, temp_password
+
+    def _ensure_scoped_chief_admin_membership(self, user, organization, pharmacy):
+        membership_defaults = {
+            'role': 'CHIEF_ADMIN',
+            'admin_level': PharmacyAdmin.AdminLevel.MANAGER,
+            'job_title': 'Pharmacy Onboarding Admin',
+        }
+        membership, _created = OrganizationMembership.objects.get_or_create(
+            user=user,
+            organization=organization,
+            defaults=membership_defaults,
+        )
+        update_fields = set()
+        if membership.role != 'CHIEF_ADMIN':
+            membership.role = 'CHIEF_ADMIN'
+            update_fields.add('role')
+        if membership.admin_level != PharmacyAdmin.AdminLevel.MANAGER:
+            membership.admin_level = PharmacyAdmin.AdminLevel.MANAGER
+            update_fields.add('admin_level')
+        if not membership.job_title:
+            membership.job_title = 'Pharmacy Onboarding Admin'
+            update_fields.add('job_title')
+        if update_fields:
+            membership.save(update_fields=list(update_fields))
+        if not membership.pharmacies.filter(pk=pharmacy.pk).exists():
+            membership.pharmacies.add(pharmacy)
+        return membership
+
+    def _send_org_invite_email(self, user, organization, pharmacy, inviter, temp_password=None):
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        frontend_url = settings.FRONTEND_BASE_URL
+        magic_link = f"{frontend_url}/reset-password/{uid}/{token}/"
+
+        membership = (
+            OrganizationMembership.objects.select_related("organization")
+            .prefetch_related("pharmacies")
+            .filter(user=user, organization=organization)
+            .first()
+        )
+
+        invitation_context = build_org_invite_context(
+            membership=membership,
+            inviter=inviter,
+            magic_link=magic_link,
+            dashboard_link=f"{frontend_url}/dashboard/organization/overview",
+            temp_password=temp_password,
+        )
+
+        async_task(
+            'users.tasks.send_async_email',
+            subject=f"You've been invited to join {organization.name} on ChemistTasker",
+            recipient_list=[user.email],
+            template_name="emails/org_invite_new_user.html",
+            context=invitation_context,
+            text_template="emails/org_invite_new_user.txt",
+        )
+
+    def _bootstrap_pharmacy_for_email(self, email, organization, request):
+        placeholder_name = self._generate_placeholder_name(email)
+        with transaction.atomic():
+            pharmacy = Pharmacy.objects.create(
+                name=placeholder_name,
+                email=email,
+                organization=organization,
+                verified=False,
+            )
+            user, temp_password = self._ensure_org_user_account(email)
+            membership = self._ensure_scoped_chief_admin_membership(user, organization, pharmacy)
+            pharmacy_membership, _ = Membership.objects.get_or_create(
+                user=user,
+                pharmacy=pharmacy,
+                defaults={
+                    'role': 'OWNER',
+                    'employment_type': 'FULL_TIME',
+                    'is_active': True,
+                    'invited_by': request.user,
+                }
+            )
+            PharmacyAdmin.objects.update_or_create(
+                user=user,
+                pharmacy=pharmacy,
+                defaults={
+                    'membership': pharmacy_membership,
+                    'admin_level': PharmacyAdmin.AdminLevel.OWNER,
+                    'staff_role': 'OTHER',
+                    'is_active': True,
+                    'created_by': request.user,
+                }
+            )
+        self._send_org_invite_email(user, organization, pharmacy, request.user, temp_password=temp_password)
+        serialized = PharmacySerializer(pharmacy, context={'request': request}).data
+        return {
+            'detail': 'Pharmacy created and invitation sent.',
+            'pharmacy': serialized,
+            'user_id': user.id,
+            'membership_id': membership.id,
+        }
+
     def post(self, request):
         membership = request.user.organization_memberships.filter(
             role='ORG_ADMIN'
@@ -246,6 +415,7 @@ class OwnerOnboardingClaim(APIView):
 
         message = validated.get('message') or ''
         pharmacy = None
+        org = membership.organization
 
         if validated.get('pharmacy_id'):
             pharmacy = Pharmacy.objects.select_related('owner__user').filter(pk=validated['pharmacy_id']).first()
@@ -258,12 +428,11 @@ class OwnerOnboardingClaim(APIView):
             try:
                 pharmacy = Pharmacy.objects.select_related('owner__user').get(email__iexact=cleaned)
             except Pharmacy.DoesNotExist:
-                return Response({'detail': 'No pharmacy found with that email.'}, status=status.HTTP_404_NOT_FOUND)
+                payload = self._bootstrap_pharmacy_for_email(cleaned, org, request)
+                return Response(payload, status=status.HTTP_201_CREATED)
 
         if not pharmacy.owner_id:
             return Response({'detail': 'Pharmacy does not have an owner profile yet.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        org = membership.organization
 
         if pharmacy.organization_id and pharmacy.organization_id != org.id:
             return Response(
@@ -627,15 +796,19 @@ class OrganizationDashboardView(APIView):
     """
     Any org-level member may view this dashboard.
     """
-    required_roles     = ['ORG_ADMIN', 'REGION_ADMIN', 'SHIFT_MANAGER']
+    required_roles     = ['ORG_ADMIN', 'CHIEF_ADMIN', 'REGION_ADMIN']
     permission_classes = [permissions.IsAuthenticated, OrganizationRolePermission]
 
     def get(self, request, organization_pk):
-        # pick the first membership with one of the allowed roles
         membership = request.user.organization_memberships.filter(
-            role__in=self.required_roles
-        ).first()
+            organization_id=organization_pk,
+            role__in=self.required_roles,
+        ).select_related('organization').prefetch_related('pharmacies').first()
+        if not membership:
+            raise PermissionDenied("You are not a member of this organization.")
+
         org = membership.organization
+        scoped_pharmacy_ids = membership_visible_pharmacy_ids(membership)
 
         claims_qs = PharmacyClaim.objects.filter(
             organization=org
@@ -646,6 +819,12 @@ class OrganizationDashboardView(APIView):
             'requested_by',
             'responded_by',
         ).order_by('-created_at')
+
+        if membership.role == 'REGION_ADMIN':
+            if scoped_pharmacy_ids:
+                claims_qs = claims_qs.filter(pharmacy_id__in=scoped_pharmacy_ids)
+            else:
+                claims_qs = claims_qs.none()
 
         claims_data = PharmacyClaimSerializer(
             claims_qs,
@@ -668,6 +847,11 @@ class OrganizationDashboardView(APIView):
         shifts_qs = Shift.objects.filter(
             pharmacy__organization=org
         )
+        if membership.role == 'REGION_ADMIN':
+            if scoped_pharmacy_ids:
+                shifts_qs = shifts_qs.filter(pharmacy_id__in=scoped_pharmacy_ids)
+            else:
+                shifts_qs = shifts_qs.none()
         shifts = ShiftSerializer(shifts_qs, many=True).data
 
         return Response({
@@ -675,6 +859,9 @@ class OrganizationDashboardView(APIView):
                 'id':   org.id,
                 'name': org.name,
                 'role': membership.role,
+                'admin_level': membership.admin_level,
+                'job_title': membership.job_title,
+                'region': membership.region,
             },
             'claimed_pharmacies': accepted_data,
             'pharmacy_claims': claims_data,
@@ -698,9 +885,17 @@ class PharmacyClaimViewSet(mixins.ListModelMixin,
             'requested_by',
             'responded_by',
         )
-        org_ids = list(
-            user.organization_memberships.filter(role='ORG_ADMIN').values_list('organization_id', flat=True)
-        )
+        full_org_ids, scoped_org_map = _collect_org_access_scope(user)
+        scoped_pharmacy_ids = set()
+        for ids in scoped_org_map.values():
+            scoped_pharmacy_ids.update(ids)
+
+        accessible_filter = Q()
+        if full_org_ids:
+            accessible_filter |= Q(organization_id__in=full_org_ids)
+        for org_id, pharmacy_ids in scoped_org_map.items():
+            if pharmacy_ids:
+                accessible_filter |= Q(organization_id=org_id, pharmacy_id__in=pharmacy_ids)
         owner_profile = OwnerOnboarding.objects.filter(user=user).first()
 
         params = self.request.query_params
@@ -713,8 +908,8 @@ class PharmacyClaimViewSet(mixins.ListModelMixin,
             if owner_profile:
                 filters |= Q(pharmacy__owner_id=owner_profile.id)
         else:
-            if org_ids:
-                filters |= Q(organization_id__in=org_ids)
+            if accessible_filter:
+                filters |= accessible_filter
             if owner_profile:
                 filters |= Q(pharmacy__owner_id=owner_profile.id)
 
@@ -738,11 +933,46 @@ class PharmacyClaimViewSet(mixins.ListModelMixin,
 
         org_filter = params.get('organization')
         if org_filter:
-            qs = qs.filter(organization_id=org_filter)
+            try:
+                org_filter_id = int(org_filter)
+            except (TypeError, ValueError):
+                qs = qs.none()
+            else:
+                if org_filter_id in full_org_ids:
+                    qs = qs.filter(organization_id=org_filter_id)
+                elif org_filter_id in scoped_org_map:
+                    allowed_ids = scoped_org_map.get(org_filter_id, set())
+                    if allowed_ids:
+                        qs = qs.filter(organization_id=org_filter_id, pharmacy_id__in=allowed_ids)
+                    else:
+                        qs = qs.none()
+                else:
+                    qs = qs.none()
 
         pharmacy_filter = params.get('pharmacy')
         if pharmacy_filter:
-            qs = qs.filter(pharmacy_id=pharmacy_filter)
+            try:
+                pharmacy_id = int(pharmacy_filter)
+            except (TypeError, ValueError):
+                qs = qs.none()
+            else:
+                pharmacy = Pharmacy.objects.filter(id=pharmacy_id).only('organization_id').first()
+                if not pharmacy:
+                    qs = qs.none()
+                else:
+                    org_id = pharmacy.organization_id
+                    allowed = False
+                    if org_id in full_org_ids:
+                        allowed = True
+                    elif org_id in scoped_org_map and pharmacy_id in scoped_org_map[org_id]:
+                        allowed = True
+                    elif owner_profile and Pharmacy.objects.filter(owner=owner_profile, id=pharmacy_id).exists():
+                        allowed = True
+
+                    if allowed:
+                        qs = qs.filter(pharmacy_id=pharmacy_id)
+                    else:
+                        qs = qs.none()
 
         return qs.order_by('-created_at')
 
@@ -817,10 +1047,6 @@ class PharmacyClaimViewSet(mixins.ListModelMixin,
             pharmacy.organization = claim.organization
             pharmacy.save(update_fields=['organization'])
 
-        owner = pharmacy.owner
-        if owner and owner.organization_id != claim.organization_id:
-            owner.organization = claim.organization
-            owner.save(update_fields=['organization'])
         return impacted_ids
 
     def _reject_claim(self, claim, user, response_message):
@@ -833,15 +1059,9 @@ class PharmacyClaimViewSet(mixins.ListModelMixin,
         claim.save(update_fields=['status', 'response_message', 'responded_by', 'responded_at', 'updated_at'])
 
         pharmacy = claim.pharmacy
-        owner = pharmacy.owner
         if pharmacy.organization_id == claim.organization_id:
             pharmacy.organization = None
             pharmacy.save(update_fields=['organization'])
-        if owner:
-            has_other_orgs = owner.pharmacies.filter(organization__isnull=False).exclude(pk=pharmacy.pk).exists()
-            if not has_other_orgs and owner.organization_id:
-                owner.organization = None
-                owner.save(update_fields=['organization'])
         return [claim.id]
 
 class OwnerDashboard(APIView):
@@ -1084,8 +1304,7 @@ class PharmacyViewSet(viewsets.ModelViewSet):
     """
     Pharmacy CRUD:
       - Owners manage their own pharmacies.
-      - ORG_ADMINs manage org-owned pharmacies.
-      - REGION_ADMIN and SHIFT_MANAGER may only view.
+      - Organization members manage pharmacies according to their scope.
     """
     parser_classes = [MultiPartParser, FormParser]
     queryset = Pharmacy.objects.all()
@@ -1108,12 +1327,16 @@ class PharmacyViewSet(viewsets.ModelViewSet):
         # Active pharmacy admin assignment?
         if is_admin_of(user, obj.id):
             return
-        # ORG_ADMIN for this org?
-        self.required_roles = ['ORG_ADMIN']
-        org_pk = obj.organization_id or (obj.owner.organization_id if obj.owner else None)
-        self.kwargs['organization_pk'] = org_pk
-        if OrganizationRolePermission().has_permission(request, self):
-            return
+        org_memberships = request.user.organization_memberships.filter(
+            organization_id=obj.organization_id
+        ).prefetch_related('pharmacies')
+        for membership in org_memberships:
+            caps = membership_capabilities(membership)
+            if OrgCapability.VIEW_ALL_PHARMACIES in caps:
+                return
+            visible_ids = membership_visible_pharmacy_ids(membership)
+            if obj.id in visible_ids:
+                return
         self.permission_denied(request, obj)
 
     def get_queryset(self):
@@ -1124,24 +1347,29 @@ class PharmacyViewSet(viewsets.ModelViewSet):
             admin_assignments__user=user,
             admin_assignments__is_active=True
         )
+        accessible_ids = set(admin_pharmacies.values_list('id', flat=True))
 
-        # ORG_ADMIN sees all org pharmacies + any claimed-owner pharmacies
-        if OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').exists():
-            org = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').first().organization
-            return (
-                Pharmacy.objects.filter(
-                    Q(organization=org) |
-                    Q(owner__organization=org)
-                ) | admin_pharmacies
-            ).distinct()
-        # Otherwise only this user's own
+        org_pharmacies = _get_org_pharmacies_queryset(user)
+        accessible_ids.update(org_pharmacies.values_list('id', flat=True))
+
+        owner_ids = []
         try:
             owner = OwnerOnboarding.objects.get(user=user)
-            return (Pharmacy.objects.filter(owner=owner) | admin_pharmacies).distinct()
         except OwnerOnboarding.DoesNotExist:
-            # Not an owner: show only the pharmacies I admin
+            owner = None
+        if owner:
+            owner_ids = list(Pharmacy.objects.filter(owner=owner).values_list('id', flat=True))
+            accessible_ids.update(owner_ids)
+
+        if accessible_ids:
+            return Pharmacy.objects.filter(id__in=accessible_ids).distinct()
+
+        # Fallback to admin assignments if no other visibility applies
+        if admin_pharmacies.exists():
             return admin_pharmacies
-        return Pharmacy.objects.filter(owner=owner)
+        if owner:
+            return Pharmacy.objects.filter(owner=owner)
+        return Pharmacy.objects.none()
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -1151,12 +1379,13 @@ class PharmacyViewSet(viewsets.ModelViewSet):
         if hasattr(user, 'owneronboarding'):
             owner_onboarding = user.owneronboarding
         
-        org_membership = user.organization_memberships.filter(role='ORG_ADMIN').first()
-        if org_membership:
-            organization = org_membership.organization
+        for membership in user.organization_memberships.select_related('organization').prefetch_related('pharmacies'):
+            if OrgCapability.CLAIM_PHARMACY in membership_capabilities(membership):
+                organization = membership.organization
+                break
 
         if not owner_onboarding and not organization:
-            raise PermissionDenied("You must have an owner profile or be an org admin to create a pharmacy.")
+            raise PermissionDenied("You must have an owner profile or an organization role with creation rights to create a pharmacy.")
         
         # Use a database transaction to ensure both operations succeed or fail together
         with transaction.atomic():
@@ -1208,13 +1437,15 @@ class MembershipViewSet(viewsets.ModelViewSet):
         if hasattr(user, 'owneronboarding'):
             owned_pharmacies = Pharmacy.objects.filter(owner=user.owneronboarding)
 
-        # Pharmacies in their org (if ORG_ADMIN)
+        full_org_ids, scoped_org_map = _collect_org_access_scope(user)
         org_pharmacies = Pharmacy.objects.none()
-        if OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').exists():
-            org_ids = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').values_list('organization', flat=True)
-            org_pharmacies = Pharmacy.objects.filter(
-                Q(organization_id__in=org_ids) | Q(owner__organization_id__in=org_ids)
-            )
+        if full_org_ids:
+            org_pharmacies |= Pharmacy.objects.filter(organization_id__in=full_org_ids)
+        scoped_ids = set()
+        for ids in scoped_org_map.values():
+            scoped_ids.update(ids)
+        if scoped_ids:
+            org_pharmacies |= Pharmacy.objects.filter(id__in=scoped_ids)
 
         # Pharmacies they are a PHARMACY_ADMIN in
         admin_pharmacies = Pharmacy.objects.filter(
@@ -1240,14 +1471,43 @@ class MembershipViewSet(viewsets.ModelViewSet):
         organization_id = self.request.query_params.get('organization')
         
         if pharmacy_id:
-            qs = qs.filter(pharmacy_id=pharmacy_id)
+            try:
+                pharmacy_id_int = int(pharmacy_id)
+            except (TypeError, ValueError):
+                qs = qs.none()
+            else:
+                allowed = False
+                if pharmacy_id_int in scoped_ids:
+                    allowed = True
+                else:
+                    pharmacy = Pharmacy.objects.filter(id=pharmacy_id_int).only('organization_id').first()
+                    if pharmacy and pharmacy.organization_id in full_org_ids:
+                        allowed = True
+                if allowed:
+                    qs = qs.filter(pharmacy_id=pharmacy_id_int)
+                else:
+                    qs = qs.none()
         elif chain_id:
             # --- THIS IS THE FIX ---
             # Correctly filter by pharmacies belonging to a chain using the proper relationship
             qs = qs.filter(pharmacy__chains__id=chain_id)
             # ---------------------
         elif organization_id:
-            qs = qs.filter(pharmacy__organization_id=organization_id)
+            try:
+                organization_id_int = int(organization_id)
+            except (TypeError, ValueError):
+                qs = qs.none()
+            else:
+                if organization_id_int in full_org_ids:
+                    qs = qs.filter(pharmacy__organization_id=organization_id_int)
+                elif organization_id_int in scoped_org_map:
+                    allowed_ids = scoped_org_map.get(organization_id_int, set())
+                    if allowed_ids:
+                        qs = qs.filter(pharmacy_id__in=allowed_ids)
+                    else:
+                        qs = qs.none()
+                else:
+                    qs = qs.none()
 
         return qs.distinct()
 
@@ -1260,13 +1520,17 @@ class MembershipViewSet(viewsets.ModelViewSet):
         if pharm and pharm.owner and pharm.owner.user == user:
             return
 
-        # Org Admin of this pharmacy’s org
-        if pharm and OrganizationMembership.objects.filter(
-            user=user,
-            role='ORG_ADMIN',
-            organization_id=pharm.organization_id
-        ).exists():
-            return
+        if pharm:
+            memberships = user.organization_memberships.filter(
+                organization_id=pharm.organization_id
+            ).prefetch_related('pharmacies')
+            for membership in memberships:
+                caps = membership_capabilities(membership)
+                if OrgCapability.MANAGE_STAFF in caps or OrgCapability.MANAGE_ADMINS in caps:
+                    if OrgCapability.VIEW_ALL_PHARMACIES in caps:
+                        return
+                    if pharm.id in membership_visible_pharmacy_ids(membership):
+                        return
 
         # Pharmacy Admin of THIS pharmacy
         if pharm and has_admin_capability(user, pharm, CAPABILITY_MANAGE_STAFF):
@@ -1591,10 +1855,8 @@ class MembershipInviteLinkViewSet(viewsets.ModelViewSet):
         user = self.request.user
         # Owners see own pharmacies; Org-Admins see org; Pharmacy Admins see their pharmacies
         # mirror visibility logic from MembershipViewSet.get_queryset
-        if OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').exists():
-            org = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').first().organization
-            visible_pharmacies = Pharmacy.objects.filter(Q(organization=org) | Q(owner__organization=org))
-        else:
+        visible_pharmacies = _get_org_pharmacies_queryset(user)
+        if not visible_pharmacies.exists():
             try:
                 owner = OwnerOnboarding.objects.get(user=user)
                 visible_pharmacies = Pharmacy.objects.filter(owner=owner)
@@ -1627,10 +1889,21 @@ class MembershipInviteLinkViewSet(viewsets.ModelViewSet):
         except Pharmacy.DoesNotExist:
             return Response({'detail': 'Pharmacy not found.'}, status=404)
 
-        is_org_admin = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').exists()
         is_owner = getattr(target_pharmacy.owner, "user", None) == user
         can_manage_staff = has_admin_capability(user, target_pharmacy, CAPABILITY_MANAGE_STAFF)
-        if not (is_org_admin or is_owner or can_manage_staff):
+        org_memberships = user.organization_memberships.filter(
+            organization_id=target_pharmacy.organization_id
+        ).prefetch_related('pharmacies')
+        can_invite_through_org = any(
+            OrgCapability.INVITE_STAFF in membership_capabilities(membership)
+            and (
+                OrgCapability.VIEW_ALL_PHARMACIES in membership_capabilities(membership)
+                or target_pharmacy.id in membership_visible_pharmacy_ids(membership)
+            )
+            for membership in org_memberships
+        )
+
+        if not (can_invite_through_org or is_owner or can_manage_staff):
             return Response({'detail': 'Not allowed to generate links for this pharmacy.'}, status=403)
 
         expires_at = timezone.now() + timedelta(days=days)
@@ -1729,9 +2002,11 @@ class MembershipApplicationViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         # visible pharmacies same as above
-        if OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').exists():
-            org = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').first().organization
-            visible_pharmacies = Pharmacy.objects.filter(Q(organization=org) | Q(owner__organization=org))
+        org_ids = list(
+            OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').values_list('organization_id', flat=True)
+        )
+        if org_ids:
+            visible_pharmacies = Pharmacy.objects.filter(organization_id__in=org_ids)
         else:
             try:
                 owner = OwnerOnboarding.objects.get(user=user)
@@ -1855,11 +2130,11 @@ class PharmacyAdminViewSet(viewsets.ModelViewSet):
         org_admin_org_ids = OrganizationMembership.objects.filter(
             user=user, role="ORG_ADMIN"
         ).values_list("organization_id", flat=True)
+        org_admin_org_ids = list(org_admin_org_ids)
         if org_admin_org_ids:
             accessible_ids.update(
                 Pharmacy.objects.filter(
-                    Q(organization_id__in=org_admin_org_ids)
-                    | Q(owner__organization_id__in=org_admin_org_ids)
+                    organization_id__in=org_admin_org_ids
                 ).values_list("id", flat=True)
             )
 
@@ -2065,7 +2340,7 @@ class ChainViewSet(viewsets.ModelViewSet):
         if chain.owner:
             if pharm.owner != chain.owner:
                 raise PermissionDenied("You don’t own that pharmacy.")
-        # Org-chain: pharmacy.organization or pharm.owner.organization must match
+        # Org-chain: pharmacy.organization must match
         elif chain.organization:
             org = chain.organization
             if pharm.organization != org:
@@ -2164,6 +2439,13 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         ).exists():
             return True
 
+        if OrganizationMembership.objects.filter(
+            user=user,
+            role__in=['CHIEF_ADMIN', 'REGION_ADMIN'],
+            pharmacies=pharmacy,
+        ).exists():
+            return True
+
         if has_admin_capability(user, pharmacy, CAPABILITY_MANAGE_ROSTER):
             return True
 
@@ -2190,7 +2472,7 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         )
         if org_ids:
             pharmacies |= Pharmacy.objects.filter(
-                Q(organization_id__in=org_ids) | Q(owner__organization_id__in=org_ids)
+                organization_id__in=org_ids
             )
 
         if user:
@@ -3632,11 +3914,11 @@ class RosterOwnerViewSet(viewsets.ModelViewSet):
             owned_pharmacies |= Pharmacy.objects.filter(owner=user.owneronboarding)
 
         org_pharmacies = Pharmacy.objects.none()
-        if OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').exists():
-            org_ids = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').values_list('organization', flat=True)
-            org_pharmacies |= Pharmacy.objects.filter(
-                Q(organization_id__in=org_ids) | Q(owner__organization_id__in=org_ids)
-            )
+        org_ids = list(
+            OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').values_list('organization', flat=True)
+        )
+        if org_ids:
+            org_pharmacies |= Pharmacy.objects.filter(organization_id__in=org_ids)
 
         admin_pharmacies = Pharmacy.objects.filter(
             admin_assignments__user=user,
@@ -3684,11 +3966,11 @@ class RosterOwnerViewSet(viewsets.ModelViewSet):
         if hasattr(user, 'owneronboarding'):
             controlled_pharmacies_query |= Pharmacy.objects.filter(owner=user.owneronboarding)
 
-        if OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').exists():
-            org_ids = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').values_list('organization', flat=True)
-            controlled_pharmacies_query |= Pharmacy.objects.filter(
-                Q(organization_id__in=org_ids) | Q(owner__organization_id__in=org_ids)
-            )
+        org_ids = list(
+            OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').values_list('organization', flat=True)
+        )
+        if org_ids:
+            controlled_pharmacies_query |= Pharmacy.objects.filter(organization_id__in=org_ids)
         if is_any_admin(user):
             scoped_admin_ids = [
                 pharm.id
@@ -3730,9 +4012,11 @@ class RosterShiftManageViewSet(viewsets.ModelViewSet):
         controlled_pharmacies |= admin_pharmacies
         if hasattr(user, 'owneronboarding'):
             controlled_pharmacies |= Pharmacy.objects.filter(owner=user.owneronboarding)
-        if OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').exists():
-            org_ids = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').values_list('organization', flat=True)
-            controlled_pharmacies |= Pharmacy.objects.filter(Q(organization_id__in=org_ids) | Q(owner__organization_id__in=org_ids))
+        org_ids = list(
+            OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').values_list('organization', flat=True)
+        )
+        if org_ids:
+            controlled_pharmacies |= Pharmacy.objects.filter(organization_id__in=org_ids)
         return Shift.objects.filter(pharmacy__in=controlled_pharmacies)
 
     def update(self, request, *args, **kwargs):
@@ -4492,12 +4776,11 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
             controlled |= Pharmacy.objects.filter(owner=user.owneronboarding)
 
         # Org-admin pharmacies (direct or claimed)
-        org_mem = OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').first()
-        if org_mem:
-            controlled |= Pharmacy.objects.filter(
-                Q(organization=org_mem.organization) |
-                Q(owner__organization=org_mem.organization)
-            )
+        org_ids = list(
+            OrganizationMembership.objects.filter(user=user, role='ORG_ADMIN').values_list('organization_id', flat=True)
+        )
+        if org_ids:
+            controlled |= Pharmacy.objects.filter(organization_id__in=org_ids)
 
         # Pharmacy Admin pharmacies
         admin_pharms = Pharmacy.objects.filter(

@@ -24,7 +24,9 @@ def build_shift_email_context(shift, user=None, extra=None, role=None, shift_typ
     if user:
         if user.role == 'OWNER':
             shift_link = f"{settings.FRONTEND_BASE_URL}/dashboard/owner/shifts/{shift.id}"
-        elif hasattr(user, 'organization_memberships') and user.organization_memberships.filter(role='ORG_ADMIN').exists():
+        elif hasattr(user, 'organization_memberships') and user.organization_memberships.filter(
+            role__in=['ORG_ADMIN', 'CHIEF_ADMIN', 'REGION_ADMIN']
+        ).exists():
             shift_link = f"{settings.FRONTEND_BASE_URL}/dashboard/organization/shifts/{shift.id}"
         elif user.role == 'PHARMACIST':
             shift_link = f"{settings.FRONTEND_BASE_URL}/dashboard/pharmacist/shifts/{shift.id}"
@@ -92,8 +94,10 @@ def build_roster_email_link(user, pharmacy):
         return f"{base}/pharmacist/shifts/roster"
     if user.role == "OWNER":
         return f"{base}/owner/manage-pharmacies/roster"
-    if user.role == "ORG_ADMIN":
-        return f"{base}/org-admin/manage-pharmacies/roster"
+    if hasattr(user, 'organization_memberships') and user.organization_memberships.filter(
+        role__in=['ORG_ADMIN', 'CHIEF_ADMIN', 'REGION_ADMIN']
+    ).exists():
+        return f"{base}/organization/manage-pharmacies/roster"
     if is_admin_of(user, pharmacy.id):
         return f"{base}/owner/manage-pharmacies/roster"
 
@@ -283,7 +287,9 @@ def get_frontend_dashboard_url(user):
     elif role_slug == 'owner':
         # Check for organization admin role first if it influences dashboard path
         # Assuming 'ORGANIZATION' role is handled within the 'owner' dashboard structure or has its own path
-        if hasattr(user, 'organization_memberships') and user.organization_memberships.filter(role='ORG_ADMIN').exists():
+        if hasattr(user, 'organization_memberships') and user.organization_memberships.filter(
+            role__in=['ORG_ADMIN', 'CHIEF_ADMIN', 'REGION_ADMIN']
+        ).exists():
             return f"{settings.FRONTEND_BASE_URL}/dashboard/organization/" # Or whatever your org admin path is
         else:
             return f"{settings.FRONTEND_BASE_URL}/dashboard/owner/"

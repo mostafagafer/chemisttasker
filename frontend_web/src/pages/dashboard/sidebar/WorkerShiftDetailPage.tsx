@@ -68,6 +68,7 @@ interface Shift {
   single_user_only: boolean;
   slot_assignments: { slot_id: number; user_id: number }[];
   description?: string;
+  post_anonymously?: boolean;
 }
 
 interface Interest {
@@ -276,6 +277,14 @@ const WorkerShiftDetailPage: React.FC = () => {
   }
 
   const pharm = shift.pharmacy_detail;
+  const pharmacyHeading = shift.post_anonymously
+    ? (pharm.suburb ? `Shift in ${pharm.suburb}` : 'Anonymous Shift')
+    : pharm.name;
+  const pharmacyLocation = shift.post_anonymously
+    ? pharm.suburb ?? null
+    : [pharm.street_address, pharm.suburb, pharm.state, pharm.postcode]
+        .filter(Boolean)
+        .join(', ');
   const shiftStatus = getShiftStatus(shift.id);
 
   return (
@@ -289,12 +298,12 @@ const WorkerShiftDetailPage: React.FC = () => {
           {/* Flexbox Header - Replaces Grid */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
             <Box sx={{ flexGrow: 1 }}>
-                <Typography variant="h5">{pharm.name}</Typography>
-                <Typography variant="body1" color="text.secondary">
-                    {[pharm.street_address, pharm.suburb, pharm.state, pharm.postcode]
-                      .filter(Boolean)
-                      .join(', ')}    
-                </Typography>
+                <Typography variant="h5">{pharmacyHeading}</Typography>
+                {pharmacyLocation && (
+                  <Typography variant="body1" color="text.secondary">
+                    {pharmacyLocation}
+                  </Typography>
+                )}
             </Box>
             <Box>
                 <Chip label={shift.role_needed} color="primary" />

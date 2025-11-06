@@ -52,12 +52,15 @@ interface Shift {
     name: string;
     address?: string;
     state?: string;
+    suburb?: string;
   };
   pharmacy_detail?: {
     id: number;
     name: string;
     address?: string;
     state?: string;
+    suburb?: string;
+    postcode?: string;
   };
   slots: Slot[];
   employment_type: 'LOCUM' | 'FULL_TIME' | 'PART_TIME';
@@ -71,6 +74,7 @@ interface Shift {
   single_user_only: boolean;
   slot_assignments: { slot_id: number; user_id: number }[];
   description?: string;
+  post_anonymously?: boolean;
 }
 
 interface Interest {
@@ -120,6 +124,27 @@ export default function CommunityShiftsPage() {
   // helper to pick whichever field exists
   const getPharmacyData = (shift: Shift) =>
     shift.pharmacy ?? shift.pharmacy_detail;
+
+  const getPharmacyHeading = (shift: Shift) => {
+    const pharm = getPharmacyData(shift);
+    if (shift.post_anonymously) {
+      const suburb = pharm?.suburb?.trim();
+      return suburb && suburb.length > 0 ? `Shift in ${suburb}` : 'Anonymous Shift';
+    }
+    return pharm?.name ?? 'Unknown Pharmacy';
+  };
+
+  const getPharmacySubheading = (shift: Shift) => {
+    if (shift.post_anonymously) {
+      return null;
+    }
+    const pharm = getPharmacyData(shift);
+    if (!pharm) return null;
+    if (pharm.address) {
+      return pharm.state ? `${pharm.state} | ${pharm.address}` : pharm.address;
+    }
+    return null;
+  };
 
   // load shifts + my interests
   useEffect(() => {
@@ -461,10 +486,11 @@ export default function CommunityShiftsPage() {
         <Typography>No community shifts available.</Typography>
       ) : (
         displayedShifts.map(shift => {
-          const pharm = getPharmacyData(shift);
+          const heading = getPharmacyHeading(shift);
+          const subheading = getPharmacySubheading(shift);
           let rateLabel = 'N/A';
           if (shift.rate_type === 'FIXED') {
-            rateLabel = `Fixed – ${shift.fixed_rate} AUD/hr`;
+            rateLabel = `Fixed — ${shift.fixed_rate} AUD/hr`;
           } else if (shift.rate_type === 'FLEXIBLE') {
             rateLabel = 'Flexible';
           } else if (shift.rate_type === 'PHARMACIST_PROVIDED') {
@@ -477,12 +503,12 @@ export default function CommunityShiftsPage() {
               <CardContent>
                 {/* Pharmacy name & address */}
                 <Typography variant="h6">
-                  {pharm?.name ?? 'Unknown Pharmacy'}
+                  {heading}
                 </Typography>
                 <Divider sx={{ my: 1 }} />
-                {pharm?.address && (
+                {subheading && (
                   <Typography variant="body2" color="textSecondary">
-                    {pharm?.state ? `${pharm.state} | ` : ''}{pharm.address}
+                    {subheading}
                   </Typography>
                 )}
 

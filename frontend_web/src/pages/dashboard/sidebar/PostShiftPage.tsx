@@ -48,6 +48,7 @@ import { Calendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import dayjs from 'dayjs';
+import { ORG_ROLES } from '../../../constants/roles';
 
 // --- Interface Definitions ---
 interface Pharmacy { id: number; name: string; has_chain: boolean; claimed: boolean; }
@@ -116,6 +117,8 @@ const describeRecurringDays = (days: number[]) => {
   return ordered.map((day) => DAY_LABELS_SHORT[day]).join(' • ');
 };
 
+const ORG_ROLE_VALUES = ORG_ROLES as readonly string[];
+
 const PostShiftPage: React.FC = () => {
   const { user, activePersona, activeAdminPharmacyId } = useAuth();
   const navigate = useNavigate();
@@ -131,6 +134,16 @@ const PostShiftPage: React.FC = () => {
   const params = new URLSearchParams(location.search);
   const adminRedirectBase = scopedPharmacyId != null ? `/dashboard/admin/${scopedPharmacyId}` : null;
   const editingShiftId = params.get('edit');
+
+  const orgMembership = useMemo(() => {
+    const memberships = Array.isArray(user?.memberships) ? user.memberships : [];
+    return memberships.find((membership: any) => {
+      if (!membership || typeof membership !== 'object') return false;
+      const role = membership.role;
+      return typeof role === 'string' && ORG_ROLE_VALUES.includes(role);
+    });
+  }, [user?.memberships]);
+  const isOrganizationUser = Boolean(orgMembership);
 
   // --- Form State ---
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
@@ -149,6 +162,7 @@ const PostShiftPage: React.FC = () => {
   const [fixedRate, setFixedRate] = useState<string>('');
   const [ownerAdjustedRate, setOwnerAdjustedRate] = useState('');
   const [singleUserOnly, setSingleUserOnly] = useState(false);
+  const [postAnonymously, setPostAnonymously] = useState(false);
 
   // --- Timetable State ---
   const [slots, setSlots] = useState<SlotEntry[]>([]);
@@ -215,6 +229,7 @@ const PostShiftPage: React.FC = () => {
           setFixedRate(data.fixed_rate || '');
           setOwnerAdjustedRate(data.owner_adjusted_rate || '');
           setSingleUserOnly(data.single_user_only || false);
+          setPostAnonymously(Boolean(data.post_anonymously));
           setEscalationDates({
             LOCUM_CASUAL: toInputDateTimeLocal(data.escalate_to_locum_casual),
             OWNER_CHAIN: toInputDateTimeLocal(data.escalate_to_owner_chain),
@@ -442,6 +457,7 @@ const handleAddSlot = () => {
       fixed_rate: (roleNeeded === 'PHARMACIST' && rateType === 'FIXED' && fixedRate) ? fixedRate : null,
       owner_adjusted_rate: (roleNeeded !== 'PHARMACIST' && ownerAdjustedRate) ? Number(ownerAdjustedRate) : null,
       single_user_only: singleUserOnly,
+      post_anonymously: postAnonymously,
       slots: slots.map(s => ({
         date: s.date, start_time: s.startTime, end_time: s.endTime,
         is_recurring: s.isRecurring, recurring_days: s.recurringDays,
@@ -457,14 +473,16 @@ const handleAddSlot = () => {
         await apiClient.post(API_ENDPOINTS.getActiveShifts, payload);
         showSnackbar('Shift posted successfully!');
       }
-      setTimeout(
-        () =>
-          navigate(
-            adminRedirectBase ? `${adminRedirectBase}/shift-center` : '/dashboard/owner/shift-center'
-          ),
-        1500
-      );
+
+      const targetPath = adminRedirectBase
+        ? `${adminRedirectBase}/shift-center`
+        : isOrganizationUser
+          ? '/dashboard/organization/shift-center/active'
+          : '/dashboard/owner/shift-center';
+
+      setTimeout(() => navigate(targetPath), 1500);
     } catch (err: any) {
+      console.error('Post shift failed', err);
       showSnackbar(err.response?.data?.detail || 'An error occurred.', 'error');
     } finally {
       setSubmitting(false);
@@ -646,6 +664,30 @@ const handleAddSlot = () => {
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
                     Define who sees this shift and when it escalates to wider groups.
                   </Typography>
+                </Grid>
+                <Grid size={12}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={postAnonymously}
+                        onChange={(_, checked) => setPostAnonymously(checked)}
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Typography
+                          variant="body1"
+                          sx={{ display: 'block', fontWeight: 500 }}
+                        >
+                          Hide pharmacy name from applicants
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          When enabled, eligible workers only see the suburb while applying.
+                        </Typography>
+                      </Box>
+                    }
+                    sx={{ alignItems: 'flex-start' }}
+                  />
                 </Grid>
                 <Grid size={12}>
                   <FormControl fullWidth size="small" sx={fieldSx}>

@@ -51,6 +51,7 @@ import OwnerPharmaciesPage from "./owner/OwnerPharmaciesPage";
 import OwnerPharmacyDetailPage from "./owner/OwnerPharmacyDetailPage";
 import TopBar from "./owner/TopBar";
 import type { MembershipDTO, PharmacyAdminDTO, PharmacyDTO as OwnerPharmacyDTO } from "./owner/types";
+import { ORG_ROLES } from "../../../constants/roles";
 
 const GOOGLE_LIBRARIES = ["places"] as Array<"places">;
 
@@ -192,7 +193,7 @@ export default function PharmacyPage() {
       }
       const rawRole = String((membership as any).role ?? "").toUpperCase();
       if (
-        ["ORG_ADMIN", "ORG_OWNER", "ORG_STAFF", "ORGANIZATION"].includes(rawRole) &&
+        ["ORG_ADMIN", "ORG_OWNER", "ORG_STAFF", "CHIEF_ADMIN", "REGION_ADMIN", "ORGANIZATION"].includes(rawRole) &&
         (membership as any).organization_id != null
       ) {
         return membership as OrgMembership;
@@ -203,6 +204,25 @@ export default function PharmacyPage() {
 
   const organizationId = orgMembership?.organization_id ?? null;
   const isOrganizationUser = organizationId != null;
+
+  const scopedOrgPharmacyIds = useMemo(() => {
+    if (!orgMembership?.pharmacies || !Array.isArray(orgMembership.pharmacies)) {
+      return null;
+    }
+    const ids = orgMembership.pharmacies
+      .map((record) => {
+        if (!record || typeof record !== 'object' || !('id' in record)) {
+          return null;
+        }
+        const numeric = Number((record as any).id);
+        return Number.isFinite(numeric) ? numeric : null;
+      })
+      .filter((value): value is number => value != null);
+    if (!ids.length) {
+      return null;
+    }
+    return new Set(ids);
+  }, [orgMembership?.pharmacies]);
   const canRespondToClaims = useMemo(() => {
     if (user?.role === "OWNER") {
       return true;
@@ -595,8 +615,12 @@ export default function PharmacyPage() {
       );
       const data = Array.isArray(res.data?.results) ? res.data.results : [];
       const normalized = data.map(normalizePharmacy);
-      setPharmacies(scopePharmacies(normalized));
-      await Promise.all(normalized.map((p) => loadMembers(p.id)));
+      let accessible = normalized;
+      if (isOrganizationUser && scopedOrgPharmacyIds && scopedOrgPharmacyIds.size > 0 && user?.role !== "ORG_ADMIN") {
+        accessible = normalized.filter((pharmacy) => scopedOrgPharmacyIds.has(Number(pharmacy.id)));
+      }
+      setPharmacies(scopePharmacies(accessible));
+      await Promise.all(accessible.map((p) => loadMembers(p.id)));
       setInitialLoadComplete(true);
     } catch (err) {
       if (err instanceof AxiosError && err.response?.status === 404) {
@@ -608,14 +632,19 @@ export default function PharmacyPage() {
     } finally {
       setIsFetching(false);
     }
-  }, [loadMembers]);
+  }, [isOrganizationUser, loadMembers, scopePharmacies, scopedOrgPharmacyIds, user?.role]);
 
   useEffect(() => {
     if (!user) return;
 
-    const isOrgAdmin =
-      Array.isArray(user?.memberships) && user.memberships.some((m: any) => m?.role === "ORG_ADMIN");
-    if (isOrgAdmin || isAdminUser) {
+    const isOrgRoleUser =
+      Array.isArray(user?.memberships) &&
+      user.memberships.some((m: any) => {
+        const roleSlug = String(m?.role ?? "").toUpperCase();
+        return ORG_ROLES.includes(roleSlug as (typeof ORG_ROLES)[number]);
+      });
+
+    if (isOrgRoleUser || isAdminUser || isOrganizationUser) {
       void loadPharmacies();
       return;
     }

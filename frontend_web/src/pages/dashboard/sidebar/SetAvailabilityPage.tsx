@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import {
+  Alert,
   Box,
   Button,
   TextField,
@@ -62,9 +63,11 @@ export default function SetAvailabilityPage() {
 
   // Load existing slots
   useEffect(() => {
-    apiClient.get(API_ENDPOINTS.userAvailabilityList)
-      .then(res => {
-        const data: AvailabilityEntry[] = res.data.map((a: any) => ({
+    const fetchAvailability = async () => {
+      try {
+        const res = await apiClient.get(API_ENDPOINTS.userAvailabilityList);
+        const rawResults = Array.isArray(res.data) ? res.data : res.data?.results ?? [];
+        const data: AvailabilityEntry[] = rawResults.map((a: any) => ({
           id: a.id,
           date: a.date,
           startTime: a.start_time,
@@ -76,10 +79,12 @@ export default function SetAvailabilityPage() {
           notes: a.notes || '',
         }));
         setAvailabilityEntries(data);
-      })
-      .catch(() => {
+      } catch {
         showSnackbar('Failed to load availability', 'error');
-      });
+      }
+    };
+
+    fetchAvailability();
   }, []);
 
   const showSnackbar = (msg: string, severity: 'success' | 'error') => {
@@ -266,7 +271,7 @@ export default function SetAvailabilityPage() {
             onClick={handleAddEntry}
             disabled={loading}
           >
-            {loading ? 'Adding…' : 'Add Time Slot'}
+            {loading ? 'Adding...' : 'Add Time Slot'}
           </Button>
         </Box>
       </Paper>
@@ -290,7 +295,7 @@ export default function SetAvailabilityPage() {
           >
             <Box>
               <Typography>
-                {e.date} — {e.isAllDay ? 'All Day' : `${e.startTime}–${e.endTime}`}
+                {e.date} - {e.isAllDay ? 'All Day' : `${e.startTime}-${e.endTime}`}
               </Typography>
               {e.isRecurring && (
                 <Typography variant="caption">
@@ -315,13 +320,20 @@ export default function SetAvailabilityPage() {
         autoHideDuration={4000}
         onClose={handleCloseSnackbar}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        message={snackbarMsg}
-        action={
-          <IconButton size="small" color="inherit" onClick={handleCloseSnackbar}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        }
-      />
+      >
+        <Alert
+          onClose={handleCloseSnackbar}
+          severity={snackbarSeverity}
+          sx={{ width: '100%' }}
+          action={
+            <IconButton size="small" color="inherit" onClick={handleCloseSnackbar}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          }
+        >
+          {snackbarMsg}
+        </Alert>
+      </Snackbar>
     </Container>
 );
 }  

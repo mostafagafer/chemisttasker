@@ -374,9 +374,11 @@ CHANNEL_LAYERS = {
         "CONFIG": {
             # channels_redis accepts URLs with redis:// or rediss:// (TLS)
             "hosts": [REDIS_URL],
-            # optional tuning:
-            # "capacity": 1000,  # in-memory queue per channel
-            # "expiry": 60,      # seconds to keep messages when no consumers
+            # Keep queues short so idle rooms disappear instead of piling up in Redis.
+            "capacity": 100,
+            "channel_capacity": {"*": 50},
+            "expiry": 30,
+            "group_expiry": 60,
         },
     }
 }

@@ -1,5 +1,6 @@
 # client_profile/consumers.py
 from typing import Any, Callable, TYPE_CHECKING
+import time
 
 try:
     from channels.generic.websocket import AsyncJsonWebsocketConsumer  # type: ignore
@@ -14,10 +15,14 @@ import logging
 
 log = logging.getLogger("client_profile.ws")
 
+# Keep group naming consistent so HTTP + WS clients share the same Redis keys.
 ROOM_GROUP_FMT = "room.{room_id}"
 USER_GROUP_FMT = "user.{user_id}"
 
+
 class RoomConsumer(AsyncJsonWebsocketConsumer):
+    TYPING_COOLDOWN_SECONDS = 1.0
+
     async def connect(self):
         try:
             self.room_id = int(self.scope["url_route"]["kwargs"]["room_id"])
@@ -46,6 +51,9 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
         else:
             log.error("No channel_layer on consumer!")
 
+        self._last_typing_emit = 0.0
+        self._last_typing_state = None
+
         await self.accept()
         await self.send_json({"type": "ready", "membership": self.membership.id})
         print(f"[WS] JOINED group={self.group_name} membership={self.membership.id}", flush=True)
@@ -65,6 +73,13 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
             is_typing = bool(content.get("is_typing"))
             if not self.channel_layer:
                 return
+            now = time.monotonic()
+            last_emit = getattr(self, "_last_typing_emit", 0.0)
+            last_state = getattr(self, "_last_typing_state", None)
+            if last_state == is_typing and (now - last_emit) < self.TYPING_COOLDOWN_SECONDS:
+                return
+            self._last_typing_emit = now
+            self._last_typing_state = is_typing
             user = getattr(self.membership, "user", None)
             name = ""
             if user:

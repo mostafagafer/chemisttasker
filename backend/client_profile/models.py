@@ -16,6 +16,10 @@ class Organization(models.Model):
     Corporate entity that claims pharmacies and manages org users.
     """
     name = models.CharField(max_length=255)
+    about = models.TextField(blank=True, null=True)
+    cover_image = models.ImageField(
+        upload_to="organization_covers/", blank=True, null=True
+    )
 
     def __str__(self):
         return self.name
@@ -551,6 +555,11 @@ class Pharmacy(models.Model):
                              )
 
     about                  = models.TextField(blank=True)
+    cover_image            = models.ImageField(
+                                upload_to="pharmacy_covers/",
+                                blank=True,
+                                null=True
+                             )
 
     # verfications
     abn_verified = models.BooleanField(default=False, db_index=True)
@@ -2088,11 +2097,30 @@ class PharmacyCommunityGroupMembership(models.Model):
             and self.membership.pharmacy_id
             and self.group
             and self.group.pharmacy_id
-            and self.membership.pharmacy_id != self.group.pharmacy_id
         ):
-            raise ValidationError(
-                "Membership must belong to the same pharmacy as the community group."
-            )
+            member_pharmacy = self.membership.pharmacy
+            group_pharmacy = self.group.pharmacy
+            if not member_pharmacy or not group_pharmacy:
+                return
+            if self.membership.pharmacy_id == self.group.pharmacy_id:
+                return
+            same_owner = False
+            same_org = False
+            if getattr(member_pharmacy, "owner_id", None) and getattr(
+                group_pharmacy, "owner_id", None
+            ):
+                same_owner = member_pharmacy.owner_id == group_pharmacy.owner_id
+            if getattr(member_pharmacy, "organization_id", None) and getattr(
+                group_pharmacy, "organization_id", None
+            ):
+                same_org = (
+                    member_pharmacy.organization_id
+                    == group_pharmacy.organization_id
+                )
+            if not (same_owner or same_org):
+                raise ValidationError(
+                    "Membership must belong to the same owner or organization as the community group."
+                )
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -2148,7 +2176,12 @@ class PharmacyHubPost(models.Model):
         blank=True,
         related_name="pinned_pharmacy_hub_posts",
     )
-
+    tagged_members = models.ManyToManyField(
+        Membership,
+        through="PharmacyHubPostMention",
+        related_name="tagged_pharmacy_hub_posts",
+        blank=True,
+    )
 
     comment_count = models.PositiveIntegerField(default=0)
     reaction_summary = models.JSONField(default=dict, blank=True)
@@ -2209,6 +2242,27 @@ class PharmacyHubPost(models.Model):
                 fields.update({"pharmacy", "organization"})
                 kwargs["update_fields"] = list(fields)
         super().save(*args, **kwargs)
+
+
+class PharmacyHubPostMention(models.Model):
+    post = models.ForeignKey(
+        PharmacyHubPost,
+        on_delete=models.CASCADE,
+        related_name="mentions",
+    )
+    membership = models.ForeignKey(
+        Membership,
+        on_delete=models.CASCADE,
+        related_name="hub_post_mentions",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "client_profile_pharmacyhubpostmention"
+        unique_together = ("post", "membership")
+
+    def __str__(self):
+        return f"HubPostMention#{self.pk} post={self.post_id} membership={self.membership_id}"
 
     def recompute_comment_count(self):
         from django.db.models import Count

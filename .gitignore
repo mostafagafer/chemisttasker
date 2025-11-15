@@ -3,7 +3,7 @@
 venv/
 **/venv/
 Admin_codes
-
+.env.local
 # Bytecode & caches
 __pycache__/
 *.py[cod]

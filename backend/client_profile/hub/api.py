@@ -1,0 +1,1146 @@
+"""Unified Pharmacy/Organization hub API views."""
+
+import mimetypes
+
+from django.conf import settings
+from django.core.mail import send_mail
+from django.db.models import Count, Q
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+
+from rest_framework import mixins, permissions, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError, PermissionDenied
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from users.models import OrganizationMembership
+from client_profile.notifications import notify_users
+
+from ..models import (
+    Membership,
+    Organization,
+    Pharmacy,
+    PharmacyAdmin,
+    PharmacyCommunityGroup,
+    PharmacyCommunityGroupMembership,
+    PharmacyHubAttachment,
+    PharmacyHubComment,
+    PharmacyHubPost,
+    PharmacyHubReaction,
+)
+from ..serializers import (
+    HubCommentSerializer,
+    HubCommunityGroupSerializer,
+    HubOrganizationProfileSerializer,
+    HubOrganizationSerializer,
+    HubPharmacyProfileSerializer,
+    HubPharmacySerializer,
+    HubPostSerializer,
+    HubReactionSerializer,
+)
+
+
+class HubAttachmentMixin:
+    def _attachment_kind(self, uploaded):
+        content_type = getattr(uploaded, "content_type", None)
+        if not content_type:
+            content_type, _ = mimetypes.guess_type(uploaded.name)
+        if content_type:
+            if content_type == "image/gif":
+                return PharmacyHubAttachment.Kind.GIF
+            if content_type.startswith("image/"):
+                return PharmacyHubAttachment.Kind.IMAGE
+        return PharmacyHubAttachment.Kind.FILE
+
+    def _add_attachments(self, post, files):
+        for uploaded in files or []:
+            if not uploaded:
+                continue
+            PharmacyHubAttachment.objects.create(
+                post=post,
+                file=uploaded,
+                kind=self._attachment_kind(uploaded),
+            )
+
+    def _remove_attachments(self, post, request):
+        raw_ids = request.data.get("remove_attachment_ids", [])
+        if isinstance(raw_ids, str):
+            raw_ids = [raw_ids]
+        ids = []
+        for raw in raw_ids:
+            try:
+                ids.append(int(raw))
+            except (TypeError, ValueError):
+                continue
+        if ids:
+            PharmacyHubAttachment.objects.filter(post=post, id__in=ids).delete()
+
+
+def get_user_pharmacy_permissions(user):
+    memberships = (
+        Membership.objects.filter(user=user, is_active=True)
+        .select_related("pharmacy", "pharmacy__organization", "pharmacy__owner__user")
+    )
+    pharmacies = {}
+    permissions = {}
+    membership_by_pharmacy = {}
+
+    def ensure_entry(pharmacy_id):
+        entry = permissions.get(pharmacy_id)
+        if entry is None:
+            entry = {
+                "can_create_post": False,
+                "can_manage_profile": False,
+                "can_create_group": False,
+                "has_admin_permissions": False,
+            }
+            permissions[pharmacy_id] = entry
+        return entry
+
+    for membership in memberships:
+        pharmacy = membership.pharmacy
+        pharmacies[pharmacy.id] = pharmacy
+        membership_by_pharmacy[pharmacy.id] = membership
+        entry = ensure_entry(pharmacy.id)
+        entry["membership_id"] = membership.id
+        entry["can_create_post"] = True
+        if membership.is_pharmacy_admin:
+            entry.update(
+                {
+                    "can_manage_profile": True,
+                    "can_create_group": True,
+                    "has_admin_permissions": True,
+                }
+            )
+
+    owner_pharmacies = (
+        Pharmacy.objects.filter(owner__user_id=user.id)
+        .select_related("organization", "owner__user")
+    )
+    for pharmacy in owner_pharmacies:
+        pharmacies[pharmacy.id] = pharmacy
+        entry = ensure_entry(pharmacy.id)
+        entry.update(
+            {
+                "can_create_post": True,
+                "can_manage_profile": True,
+                "can_create_group": True,
+                "has_admin_permissions": True,
+                "is_owner": True,
+            }
+        )
+
+    org_admin_org_ids = set(
+        OrganizationMembership.objects.filter(
+            user=user,
+            role__in=HubScopeResolver.org_access_roles,
+        ).values_list("organization_id", flat=True)
+    )
+    if org_admin_org_ids:
+        admin_pharmacies = (
+            Pharmacy.objects.filter(organization_id__in=org_admin_org_ids)
+            .select_related("organization", "owner__user")
+        )
+        for pharmacy in admin_pharmacies:
+            pharmacies[pharmacy.id] = pharmacy
+            entry = ensure_entry(pharmacy.id)
+            entry.update(
+                {
+                    "can_create_post": True,
+                    "can_manage_profile": True,
+                    "can_create_group": True,
+                    "has_admin_permissions": True,
+                    "is_org_admin": True,
+                }
+            )
+
+    return pharmacies, permissions, membership_by_pharmacy, org_admin_org_ids
+
+
+class HubScopeResolver:
+    org_access_roles = ("ORG_ADMIN", "REGION_ADMIN", "SHIFT_MANAGER")
+
+    def __init__(self, user):
+        self.user = user
+
+    def pharmacy_scope(self, pharmacy_id, pharmacy=None):
+        pharmacy = pharmacy or get_object_or_404(Pharmacy, pk=pharmacy_id)
+        membership = (
+            Membership.objects.filter(
+                user=self.user,
+                pharmacy=pharmacy,
+                is_active=True,
+            )
+            .select_related("user")
+            .first()
+        )
+        is_owner = bool(pharmacy.owner and pharmacy.owner.user_id == self.user.id)
+        org_admin = False
+        if pharmacy.organization_id:
+            org_admin = OrganizationMembership.objects.filter(
+                user=self.user,
+                organization_id=pharmacy.organization_id,
+                role__in=self.org_access_roles,
+            ).exists()
+        if not any([membership, is_owner, org_admin]):
+            raise PermissionDenied("You do not have access to this pharmacy hub.")
+        has_admin = bool(
+            org_admin
+            or is_owner
+            or (membership and membership.is_pharmacy_admin)
+        )
+        return {
+            "scope_type": "pharmacy",
+            "pharmacy": pharmacy,
+            "organization": pharmacy.organization,
+            "community_group": None,
+            "request_membership": membership,
+            "has_admin_permissions": has_admin,
+            "has_group_admin_permissions": False,
+            "is_owner": is_owner,
+            "is_org_admin": org_admin,
+        }
+
+    def group_scope(self, group_id, group=None):
+        group = group or get_object_or_404(
+            PharmacyCommunityGroup.objects.select_related("pharmacy", "pharmacy__organization"),
+            pk=group_id,
+        )
+        try:
+            scope = self.pharmacy_scope(group.pharmacy_id, pharmacy=group.pharmacy)
+        except PermissionDenied:
+            scope = {
+                "scope_type": "pharmacy",
+                "pharmacy": group.pharmacy,
+                "organization": group.pharmacy.organization,
+                "community_group": None,
+                "request_membership": None,
+                "has_admin_permissions": False,
+                "has_group_admin_permissions": False,
+                "is_owner": False,
+                "is_org_admin": False,
+            }
+        membership = scope.get("request_membership")
+        group_membership = None
+        membership_query = PharmacyCommunityGroupMembership.objects.select_related(
+            "membership",
+            "membership__user",
+            "membership__pharmacy",
+        )
+        if membership:
+            group_membership = membership_query.filter(
+                group=group,
+                membership=membership,
+            ).first()
+        if not group_membership:
+            group_membership = membership_query.filter(
+                group=group,
+                membership__user=self.user,
+            ).first()
+            if group_membership and not membership:
+                scope["request_membership"] = group_membership.membership
+        is_group_creator = bool(group.created_by_id == self.user.id)
+        has_group_admin = bool(
+            scope["has_admin_permissions"]
+            or is_group_creator
+            or (group_membership and group_membership.is_admin)
+        )
+        if (
+            not group_membership
+            and not scope.get("has_admin_permissions")
+            and not is_group_creator
+        ):
+            raise PermissionDenied("You must be a member of this group.")
+        scope.update(
+            {
+                "scope_type": "group",
+                "community_group": group,
+                "group_membership": group_membership,
+                "is_group_creator": is_group_creator,
+                "has_group_admin_permissions": has_group_admin,
+            }
+        )
+        return scope
+
+    def organization_scope(self, organization_id, organization=None):
+        organization = organization or get_object_or_404(Organization, pk=organization_id)
+        memberships = (
+            Membership.objects.filter(
+                user=self.user,
+                is_active=True,
+                pharmacy__organization=organization,
+            )
+            .select_related("pharmacy", "user")
+            .order_by("id")
+        )
+        membership = memberships.first()
+        is_owner = Pharmacy.objects.filter(
+            organization=organization,
+            owner__user_id=self.user.id,
+        ).exists()
+        org_admin = OrganizationMembership.objects.filter(
+            user=self.user,
+            organization=organization,
+            role__in=self.org_access_roles,
+        ).exists()
+        if not any([membership, is_owner, org_admin]):
+            raise PermissionDenied("You do not have access to this organization hub.")
+        has_admin = bool(
+            org_admin
+            or is_owner
+            or (membership and membership.is_pharmacy_admin)
+        )
+        return {
+            "scope_type": "organization",
+            "organization": organization,
+            "pharmacy": None,
+            "community_group": None,
+            "request_membership": membership,
+            "organization_memberships": memberships,
+            "has_admin_permissions": has_admin,
+            "has_group_admin_permissions": False,
+            "is_owner": is_owner,
+            "is_org_admin": org_admin,
+        }
+
+    def from_post(self, post):
+        if post.community_group_id:
+            return self.group_scope(post.community_group_id, group=post.community_group)
+        if post.pharmacy_id:
+            return self.pharmacy_scope(post.pharmacy_id, pharmacy=post.pharmacy)
+        if post.organization_id:
+            return self.organization_scope(post.organization_id, organization=post.organization)
+        raise PermissionDenied("Post scope is not configured.")
+
+    def ensure_author_membership(self, scope):
+        membership = scope.get("request_membership")
+        if membership:
+            return membership
+        if scope["scope_type"] in {"pharmacy", "group"}:
+            return self._ensure_pharmacy_membership(scope)
+        if scope["scope_type"] == "organization":
+            return self._ensure_organization_membership(scope)
+        raise PermissionDenied("Unable to resolve membership for this scope.")
+
+    def _ensure_pharmacy_membership(self, scope):
+        pharmacy = scope.get("pharmacy")
+        if not pharmacy:
+            raise PermissionDenied("Join this pharmacy before posting.")
+        if not (scope.get("is_owner") or scope.get("is_org_admin")):
+            raise PermissionDenied("Join this pharmacy before posting.")
+        membership, _ = Membership.objects.get_or_create(
+            user=self.user,
+            pharmacy=pharmacy,
+            defaults={
+                "role": "CONTACT",
+                "employment_type": "FULL_TIME",
+                "is_active": True,
+            },
+        )
+        if not membership.is_active:
+            membership.is_active = True
+            membership.save(update_fields=["is_active"])
+        PharmacyAdmin.objects.update_or_create(
+            user=self.user,
+            pharmacy=pharmacy,
+            defaults={
+                "membership": membership,
+                "admin_level": PharmacyAdmin.AdminLevel.MANAGER,
+                "staff_role": "OTHER",
+                "is_active": True,
+            },
+        )
+        scope["request_membership"] = membership
+        return membership
+
+    def _ensure_organization_membership(self, scope):
+        organization = scope.get("organization")
+        membership = (
+            Membership.objects.filter(
+                user=self.user,
+                is_active=True,
+                pharmacy__organization=organization,
+            )
+            .select_related("pharmacy")
+            .first()
+        )
+        if membership:
+            scope["request_membership"] = membership
+            return membership
+        primary_pharmacy = organization.pharmacies.order_by("id").first()
+        if not primary_pharmacy:
+            raise PermissionDenied("This organization has no pharmacies configured.")
+        membership, _ = Membership.objects.get_or_create(
+            user=self.user,
+            pharmacy=primary_pharmacy,
+            defaults={
+                "role": "CONTACT",
+                "employment_type": "FULL_TIME",
+                "is_active": True,
+            },
+        )
+        if not membership.is_active:
+            membership.is_active = True
+            membership.save(update_fields=["is_active"])
+        PharmacyAdmin.objects.update_or_create(
+            user=self.user,
+            pharmacy=primary_pharmacy,
+            defaults={
+                "membership": membership,
+                "admin_level": PharmacyAdmin.AdminLevel.MANAGER,
+                "staff_role": "OTHER",
+                "is_active": True,
+            },
+        )
+        scope["request_membership"] = membership
+        return membership
+
+
+class HubContextBuilder:
+    def __init__(self, user):
+        self.user = user
+
+    def build(self, request):
+        (
+            pharmacies,
+            pharmacy_permissions,
+            membership_by_pharmacy,
+            org_admin_org_ids,
+        ) = get_user_pharmacy_permissions(self.user)
+        pharmacy_list = list(pharmacies.values())
+        pharmacy_data = HubPharmacySerializer(
+            pharmacy_list,
+            many=True,
+            context={
+                "request": request,
+                "pharmacy_permissions": pharmacy_permissions,
+            },
+        ).data
+        organizations, organization_permissions = self._organizations(
+            pharmacy_list, pharmacy_permissions, org_admin_org_ids
+        )
+        organization_data = HubOrganizationSerializer(
+            organizations,
+            many=True,
+            context={
+                "request": request,
+                "organization_permissions": organization_permissions,
+            },
+        ).data
+        community_groups, org_groups = self._groups(
+            request,
+            pharmacy_list,
+            pharmacy_permissions,
+            membership_by_pharmacy,
+        )
+        return {
+            "pharmacies": pharmacy_data,
+            "organizations": organization_data,
+            "community_groups": community_groups,
+            "organization_groups": org_groups,
+            "default_pharmacy_id": pharmacy_data[0]["id"] if pharmacy_data else None,
+            "default_organization_id": organization_data[0]["id"] if organization_data else None,
+        }
+
+    def _organizations(self, pharmacy_list, pharmacy_permissions, org_admin_org_ids):
+        lookup = {}
+        for pharmacy in pharmacy_list:
+            if not pharmacy.organization:
+                continue
+            entry = lookup.setdefault(
+                pharmacy.organization.id,
+                {"organization": pharmacy.organization, "can_manage_profile": False},
+            )
+            perms = pharmacy_permissions.get(pharmacy.id, {})
+            if perms.get("is_org_admin") or perms.get("is_owner") or perms.get("has_admin_permissions"):
+                entry["can_manage_profile"] = True
+        for org_id in org_admin_org_ids:
+            if org_id in lookup:
+                lookup[org_id]["can_manage_profile"] = True
+                continue
+            organization = Organization.objects.filter(pk=org_id).first()
+            if not organization:
+                continue
+            lookup[org_id] = {
+                "organization": organization,
+                "can_manage_profile": True,
+            }
+        organizations = [entry["organization"] for entry in lookup.values()]
+        permissions = {
+            org_id: {"can_manage_profile": entry["can_manage_profile"]}
+            for org_id, entry in lookup.items()
+        }
+        return organizations, permissions
+
+    def _groups(self, request, pharmacy_list, pharmacy_permissions, membership_by_pharmacy):
+        pharmacy_ids = [pharmacy.id for pharmacy in pharmacy_list]
+        member_group_ids = list(
+            PharmacyCommunityGroupMembership.objects.filter(
+                membership__user=self.user
+            ).values_list("group_id", flat=True)
+        )
+        filters = Q()
+        if pharmacy_ids:
+            filters |= Q(pharmacy_id__in=pharmacy_ids)
+        if member_group_ids:
+            filters |= Q(id__in=member_group_ids)
+        if not filters:
+            return [], []
+        groups = list(
+            PharmacyCommunityGroup.objects.filter(filters)
+            .select_related("pharmacy", "pharmacy__organization")
+            .prefetch_related("memberships__membership__user")
+            .annotate(member_count=Count("memberships"))
+            .order_by("name")
+            .distinct()
+        )
+        group_ids = [group.id for group in groups]
+        membership_ids = [m.id for m in membership_by_pharmacy.values() if m]
+        member_links = []
+        if group_ids and membership_ids:
+            member_links = list(
+                PharmacyCommunityGroupMembership.objects.filter(
+                    group_id__in=group_ids,
+                    membership_id__in=membership_ids,
+                )
+            )
+        member_map = {link.group_id: True for link in member_links}
+        admin_map = {
+            link.group_id: True
+            for link in member_links
+            if link.is_admin
+        }
+        request_user = getattr(request, "user", None)
+        for group in groups:
+            perms = pharmacy_permissions.get(group.pharmacy_id, {})
+            if perms.get("has_admin_permissions"):
+                admin_map[group.id] = True
+            if request_user and group.created_by_id == request_user.id:
+                admin_map[group.id] = True
+        serializer = HubCommunityGroupSerializer(
+            groups,
+            many=True,
+            context={
+                "request": request,
+                "group_member_map": member_map,
+                "group_admin_map": admin_map,
+                "include_members": False,
+            },
+        )
+        data = serializer.data
+        org_groups = [item for item in data if item.get("organization_id")]
+        return data, org_groups
+
+
+class HubContextView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        builder = HubContextBuilder(request.user)
+        payload = builder.build(request)
+        return Response(payload)
+
+
+class HubCommunityGroupViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    serializer_class = HubCommunityGroupSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _load_permissions(self):
+        if not hasattr(self, "_pharmacy_context"):
+            self._pharmacy_context = get_user_pharmacy_permissions(self.request.user)
+        return self._pharmacy_context
+
+    def get_queryset(self):
+        queryset = (
+            PharmacyCommunityGroup.objects.all()
+            .select_related("pharmacy", "pharmacy__organization")
+            .prefetch_related("memberships__membership__user")
+            .annotate(member_count=Count("memberships"))
+            .order_by("name")
+        )
+        pharmacy_id = self.request.query_params.get("pharmacy_id")
+        if pharmacy_id:
+            resolver = HubScopeResolver(self.request.user)
+            scope = resolver.pharmacy_scope(pharmacy_id)
+            self.scope_context = scope
+            return queryset.filter(pharmacy=scope["pharmacy"])
+        pharmacies, _, _, _ = self._load_permissions()
+        member_group_ids = list(
+            PharmacyCommunityGroupMembership.objects.filter(
+                membership__user=self.request.user
+            ).values_list("group_id", flat=True)
+        )
+        filters = Q()
+        if pharmacies:
+            filters |= Q(pharmacy_id__in=list(pharmacies.keys()))
+        if member_group_ids:
+            filters |= Q(id__in=member_group_ids)
+        if filters:
+            queryset = queryset.filter(filters).distinct()
+        else:
+            queryset = queryset.none()
+        return queryset
+
+    def _hydrate_group_permissions(self, groups):
+        if not groups:
+            self.group_member_map = {}
+            self.group_admin_map = {}
+            return
+        _, pharmacy_permissions, membership_by_pharmacy, _ = self._load_permissions()
+        group_ids = [group.id for group in groups]
+        membership_ids = [
+            membership.id
+            for membership in membership_by_pharmacy.values()
+            if membership is not None
+        ]
+        member_links = []
+        if group_ids and membership_ids:
+            member_links = list(
+                PharmacyCommunityGroupMembership.objects.filter(
+                    group_id__in=group_ids,
+                    membership_id__in=membership_ids,
+                )
+            )
+        member_map = {link.group_id: True for link in member_links}
+        admin_map = {link.group_id: True for link in member_links if link.is_admin}
+        for group in groups:
+            perms = pharmacy_permissions.get(group.pharmacy_id, {})
+            if perms.get("has_admin_permissions"):
+                admin_map[group.id] = True
+        self.group_member_map = member_map
+        self.group_admin_map = admin_map
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        pharmacies, _, _, _ = self._load_permissions()
+        context.update(
+            {
+                "request_membership": getattr(self, "scope_context", {}).get(
+                    "request_membership"
+                ),
+                "group_member_map": getattr(self, "group_member_map", {}),
+                "group_admin_map": getattr(self, "group_admin_map", {}),
+                "include_members": self.request.query_params.get("include_members")
+                == "true",
+                "allowed_pharmacy_ids": list(pharmacies.keys()),
+            }
+        )
+        return context
+
+    def list(self, request, *args, **kwargs):
+        queryset = list(self.filter_queryset(self.get_queryset()))
+        self._hydrate_group_permissions(queryset)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self._hydrate_group_permissions([instance])
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    def create(self, request, *args, **kwargs):
+        pharmacy_id = request.data.get("pharmacy_id") or request.query_params.get(
+            "pharmacy_id"
+        )
+        if not pharmacy_id:
+            raise ValidationError({"pharmacy_id": "This field is required."})
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.pharmacy_scope(pharmacy_id)
+        if not scope.get("has_admin_permissions"):
+            raise PermissionDenied("You cannot create groups for this pharmacy.")
+        self.scope_context = scope
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        group = serializer.save(pharmacy=scope["pharmacy"], created_by=request.user)
+        self._hydrate_group_permissions([group])
+        output = self.get_serializer(group)
+        return Response(output.data, status=status.HTTP_201_CREATED)
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        resolver = HubScopeResolver(self.request.user)
+        scope = resolver.group_scope(instance.id, group=instance)
+        if not scope.get("has_group_admin_permissions"):
+            raise PermissionDenied("You cannot update this group.")
+        self.scope_context = scope
+        serializer.save()
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.group_scope(instance.id, group=instance)
+        if not scope.get("has_group_admin_permissions"):
+            raise PermissionDenied("You cannot delete this group.")
+        instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class HubPostViewSet(HubAttachmentMixin, viewsets.ModelViewSet):
+    serializer_class = HubPostSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_queryset(self):
+        return (
+            PharmacyHubPost.objects.filter(deleted_at__isnull=True)
+            .select_related(
+                "author_membership__user",
+                "pharmacy",
+                "organization",
+                "community_group",
+            )
+            .prefetch_related(
+                "comments__author_membership__user",
+                "reactions",
+                "attachments",
+                "mentions__membership__user",
+            )
+            .order_by("-is_pinned", "-pinned_at", "-created_at")
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context.update(getattr(self, "extra_serializer_context", {}))
+        return context
+
+    def _resolve_scope_from_params(self, params):
+        scope_type = params.get("scope") or params.get("scope_type")
+        if not scope_type:
+            raise ValidationError(
+                {"scope": "Provide a scope (pharmacy, group, or organization)."}
+            )
+        resolver = HubScopeResolver(self.request.user)
+        if scope_type == "pharmacy":
+            pharmacy_id = params.get("pharmacy_id") or params.get("scope_id")
+            if not pharmacy_id:
+                raise ValidationError({"pharmacy_id": "This field is required."})
+            return resolver.pharmacy_scope(pharmacy_id)
+        if scope_type == "group":
+            group_id = params.get("group_id") or params.get("scope_id")
+            if not group_id:
+                raise ValidationError({"group_id": "This field is required."})
+            return resolver.group_scope(group_id)
+        if scope_type == "organization":
+            organization_id = params.get("organization_id") or params.get("scope_id")
+            if not organization_id:
+                raise ValidationError({"organization_id": "This field is required."})
+            return resolver.organization_scope(organization_id)
+        raise ValidationError({"scope": "Invalid scope type."})
+
+    def _apply_scope_filter(self, queryset, scope):
+        if scope["scope_type"] == "group":
+            return queryset.filter(community_group=scope["community_group"])
+        if scope["scope_type"] == "pharmacy":
+            return queryset.filter(
+                pharmacy=scope["pharmacy"], community_group__isnull=True
+            )
+        return queryset.filter(organization=scope["organization"])
+
+    def _prepare_serializer_context(self, scope):
+        self.extra_serializer_context = {
+            "pharmacy": scope.get("pharmacy"),
+            "organization": scope.get("organization"),
+            "community_group": scope.get("community_group"),
+            "request_membership": scope.get("request_membership"),
+            "has_admin_permissions": scope.get("has_admin_permissions", False),
+            "has_group_admin_permissions": scope.get(
+                "has_group_admin_permissions", False
+            ),
+        }
+
+    def _notify_tagged_members(self, post, memberships):
+        if not memberships:
+            return
+        author_user = getattr(getattr(post, "author_membership", None), "user", None)
+        author_name = ""
+        if author_user:
+            author_name = author_user.get_full_name().strip() or author_user.email or ""
+        if not author_name:
+            author_name = "A teammate"
+        if post.community_group_id and post.community_group:
+            context_label = post.community_group.name
+        elif post.pharmacy_id and post.pharmacy:
+            context_label = post.pharmacy.name
+        elif post.organization_id and post.organization:
+            context_label = post.organization.name
+        else:
+            context_label = "Pharmacy Hub"
+        title = f"{author_name} mentioned you in {context_label}"
+        body_preview = (post.body or "").strip()
+        body = body_preview[:280]
+        user_ids = []
+        email_recipients = []
+        for membership in memberships:
+            user = getattr(membership, "user", None)
+            if not user or not user.is_active:
+                continue
+            if author_user and user.id == author_user.id:
+                continue
+            user_ids.append(user.id)
+            if user.email:
+                email_recipients.append(user.email)
+        if user_ids:
+            notify_users(
+                user_ids,
+                title=title,
+                body=body,
+                action_url="/dashboard/pharmacy-hub",
+                payload={"post_id": post.id},
+            )
+        if email_recipients:
+            send_mail(
+                subject=title,
+                message=f"{title}\n\n{body_preview}",
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+                recipient_list=email_recipients,
+                fail_silently=True,
+            )
+
+    def list(self, request, *args, **kwargs):
+        self.scope_context = self._resolve_scope_from_params(request.query_params)
+        queryset = self._apply_scope_filter(self.get_queryset(), self.scope_context)
+        self._prepare_serializer_context(self.scope_context)
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.from_post(instance)
+        self._prepare_serializer_context(scope)
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    def create(self, request, *args, **kwargs):
+        self.scope_context = self._resolve_scope_from_params(request.data)
+        resolver = HubScopeResolver(request.user)
+        membership = resolver.ensure_author_membership(self.scope_context)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        post = serializer.save(
+            pharmacy=self.scope_context.get("pharmacy"),
+            organization=self.scope_context.get("organization"),
+            community_group=self.scope_context.get("community_group"),
+            author_membership=membership,
+            original_body=serializer.validated_data.get("body", ""),
+            is_edited=False,
+            last_edited_at=None,
+            last_edited_by=None,
+        )
+        self._add_attachments(post, request.FILES.getlist("attachments"))
+        self._prepare_serializer_context(self.scope_context)
+        self._notify_tagged_members(post, getattr(serializer, "_newly_tagged_members", []))
+        output = self.get_serializer(post)
+        return Response(output.data, status=status.HTTP_201_CREATED)
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        resolver = HubScopeResolver(self.request.user)
+        scope = resolver.from_post(instance)
+        self._prepare_serializer_context(scope)
+        membership = scope.get("request_membership")
+        can_manage = scope.get("has_admin_permissions") or (
+            scope.get("has_group_admin_permissions") and scope["scope_type"] == "group"
+        )
+        if not can_manage and instance.author_membership_id != getattr(
+            membership, "id", None
+        ):
+            raise PermissionDenied("You cannot edit this post.")
+        if instance.deleted_at:
+            raise PermissionDenied("You cannot edit a deleted post.")
+        extra = {}
+        new_body = serializer.validated_data.get("body")
+        if new_body is not None and new_body != instance.body:
+            extra["is_edited"] = True
+            if not instance.original_body:
+                extra["original_body"] = instance.body
+            extra["last_edited_at"] = timezone.now()
+            extra["last_edited_by"] = self.request.user
+        post = serializer.save(**extra)
+        self._remove_attachments(post, self.request)
+        self._add_attachments(post, self.request.FILES.getlist("attachments"))
+        new_mentions = getattr(serializer, "_newly_tagged_members", [])
+        if new_mentions:
+            self._notify_tagged_members(post, new_mentions)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.from_post(instance)
+        membership = scope.get("request_membership")
+        can_manage = scope.get("has_admin_permissions") or (
+            scope.get("has_group_admin_permissions") and scope["scope_type"] == "group"
+        )
+        if not can_manage and instance.author_membership_id != getattr(
+            membership, "id", None
+        ):
+            raise PermissionDenied("You cannot delete this post.")
+        if not instance.deleted_at:
+            instance.soft_delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="pin")
+    def pin(self, request, pk=None):
+        post = self.get_object()
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.from_post(post)
+        if not (
+            scope.get("has_admin_permissions") or scope.get("has_group_admin_permissions")
+        ):
+            raise PermissionDenied("Only admins can pin posts.")
+        if post.deleted_at:
+            raise PermissionDenied("Cannot pin a deleted post.")
+        if not post.is_pinned:
+            post.is_pinned = True
+            post.pinned_at = timezone.now()
+            post.pinned_by = request.user
+            post.save(update_fields=["is_pinned", "pinned_at", "pinned_by"])
+        self._prepare_serializer_context(scope)
+        serializer = self.get_serializer(post)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="unpin")
+    def unpin(self, request, pk=None):
+        post = self.get_object()
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.from_post(post)
+        if not (
+            scope.get("has_admin_permissions") or scope.get("has_group_admin_permissions")
+        ):
+            raise PermissionDenied("Only admins can unpin posts.")
+        if post.is_pinned:
+            post.is_pinned = False
+            post.pinned_at = None
+            post.pinned_by = None
+            post.save(update_fields=["is_pinned", "pinned_at", "pinned_by"])
+        self._prepare_serializer_context(scope)
+        serializer = self.get_serializer(post)
+        return Response(serializer.data)
+
+
+
+class HubCommentViewSet(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    serializer_class = HubCommentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_post(self):
+        if hasattr(self, "post"):
+            return self.post
+        post = get_object_or_404(
+            PharmacyHubPost.objects.select_related(
+                "pharmacy",
+                "organization",
+                "community_group",
+            ),
+            pk=self.kwargs["post_pk"],
+            deleted_at__isnull=True,
+        )
+        resolver = HubScopeResolver(self.request.user)
+        scope = resolver.from_post(post)
+        self.post = post
+        self.scope_context = scope
+        self.resolver = resolver
+        return post
+
+    def get_queryset(self):
+        post = self._get_post()
+        return (
+            post.comments.filter(deleted_at__isnull=True)
+            .select_related("author_membership__user")
+            .order_by("created_at")
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        scope = getattr(self, "scope_context", {})
+        context.update(
+            {
+                "request_membership": scope.get("request_membership"),
+                "has_admin_permissions": scope.get("has_admin_permissions", False)
+                or scope.get("has_group_admin_permissions", False),
+            }
+        )
+        return context
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def create(self, request, *args, **kwargs):
+        post = self._get_post()
+        if not post.allow_comments:
+            raise ValidationError({"detail": "Comments are disabled for this post."})
+        resolver = getattr(self, "resolver", HubScopeResolver(request.user))
+        membership = resolver.ensure_author_membership(self.scope_context)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        comment = serializer.save(
+            post=post,
+            author_membership=membership,
+            original_body=serializer.validated_data.get("body", ""),
+            is_edited=False,
+            last_edited_at=None,
+            last_edited_by=None,
+        )
+        post.recompute_comment_count()
+        output = self.get_serializer(comment)
+        return Response(output.data, status=status.HTTP_201_CREATED)
+
+    def perform_update(self, serializer):
+        comment = self.get_object()
+        membership = self.scope_context.get("request_membership")
+        can_manage = self.scope_context.get("has_admin_permissions")
+        if not can_manage and comment.author_membership_id != getattr(
+            membership, "id", None
+        ):
+            raise PermissionDenied("You cannot edit this comment.")
+        extra = {}
+        new_body = serializer.validated_data.get("body")
+        if new_body is not None and new_body != comment.body:
+            extra["is_edited"] = True
+            if not comment.original_body:
+                extra["original_body"] = comment.body
+            extra["last_edited_at"] = timezone.now()
+            extra["last_edited_by"] = self.request.user
+        serializer.save(**extra)
+
+    def destroy(self, request, *args, **kwargs):
+        comment = self.get_object()
+        membership = self.scope_context.get("request_membership")
+        can_manage = self.scope_context.get("has_admin_permissions")
+        if not can_manage and comment.author_membership_id != getattr(
+            membership, "id", None
+        ):
+            raise PermissionDenied("You cannot delete this comment.")
+        if not comment.deleted_at:
+            comment.soft_delete()
+            comment.post.recompute_comment_count()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class HubReactionView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, post_pk: int):
+        post = get_object_or_404(
+            PharmacyHubPost.objects.select_related(
+                "pharmacy",
+                "organization",
+                "community_group",
+            ),
+            pk=post_pk,
+            deleted_at__isnull=True,
+        )
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.from_post(post)
+        membership = resolver.ensure_author_membership(scope)
+        serializer = HubReactionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reaction_type = serializer.validated_data["reaction_type"]
+        PharmacyHubReaction.objects.update_or_create(
+            post=post,
+            member=membership,
+            defaults={
+                "reaction_type": reaction_type,
+                "updated_at": timezone.now(),
+            },
+        )
+        post.recompute_reaction_summary()
+        context = {
+            "request": request,
+            "request_membership": membership,
+            "has_admin_permissions": scope.get("has_admin_permissions", False),
+            "has_group_admin_permissions": scope.get(
+                "has_group_admin_permissions", False
+            ),
+        }
+        response = HubPostSerializer(post, context=context)
+        return Response(response.data)
+
+    def delete(self, request, post_pk: int):
+        post = get_object_or_404(
+            PharmacyHubPost,
+            pk=post_pk,
+            deleted_at__isnull=True,
+        )
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.from_post(post)
+        membership = scope.get("request_membership")
+        if membership:
+            PharmacyHubReaction.objects.filter(post=post, member=membership).delete()
+            post.recompute_reaction_summary()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class HubPharmacyProfileView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def patch(self, request, pharmacy_pk: int):
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.pharmacy_scope(pharmacy_pk)
+        if not scope.get("has_admin_permissions"):
+            raise PermissionDenied("You cannot update this pharmacy profile.")
+        serializer = HubPharmacyProfileSerializer(
+            scope["pharmacy"], data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        _, permissions, _, _ = get_user_pharmacy_permissions(request.user)
+        data = HubPharmacySerializer(
+            [scope["pharmacy"]],
+            many=True,
+            context={
+                "request": request,
+                "pharmacy_permissions": permissions,
+            },
+        ).data[0]
+        return Response(data)
+
+
+class HubOrganizationProfileView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def patch(self, request, organization_pk: int):
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.organization_scope(organization_pk)
+        if not scope.get("has_admin_permissions"):
+            raise PermissionDenied("You cannot update this organization profile.")
+        serializer = HubOrganizationProfileSerializer(
+            scope["organization"], data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        data = HubOrganizationSerializer(
+            [scope["organization"]],
+            many=True,
+            context={
+                "request": request,
+                "organization_permissions": {
+                    scope["organization"].id: {"can_manage_profile": True}
+                },
+            },
+        ).data[0]
+        return Response(data)

@@ -78,11 +78,7 @@ import MyHistoryShiftsPage   from './pages/dashboard/sidebar/MyHistoryShiftsPage
 import PosterShiftDetailPage from './pages/dashboard/sidebar/PosterShiftDetailPage';
 import WorkerShiftDetailPage from './pages/dashboard/sidebar/WorkerShiftDetailPage';
 import ChatPage from './pages/dashboard/sidebar/chat/ChatPage';
-import PharmacyHubPage from './pages/dashboard/sidebar/pharmacyHub/PharmacyHubPage';
-import OrganizationHubPage from './pages/dashboard/sidebar/pharmacyHub/OrganizationHubPage';
-import CommunityGroupsPage from './pages/dashboard/sidebar/chat/CommunityGroupsPage';
-
-
+import HubPage from './pages/dashboard/sidebar/hub/HubPage';
 // Invoice
 import InvoiceManagePage   from './pages/dashboard/sidebar/InvoiceManagePage';
 import InvoiceGeneratePage   from './pages/dashboard/sidebar/InvoiceGeneratePage';
@@ -133,9 +129,6 @@ const router = createBrowserRouter([
           { index: true, element: <OrganizationOverviewPage /> },
           { path: 'overview', element: <OrganizationOverviewPage /> },
           { path: 'invite',   element: <InviteStaffPage /> },
-          { path: 'chat', element: <ChatPage /> },
-          { path: 'community-groups', element: <CommunityGroupsPage /> },
-          { path: 'organization-hub', element: <OrganizationHubPage /> },
           {
             path: 'manage-pharmacies',
             children: [
@@ -164,6 +157,8 @@ const router = createBrowserRouter([
           },
           { path: 'interests',    element: <ExplorerInterestsPage /> },
           { path: 'learning',     element: <LearningMaterialsPage /> },
+          { path: 'chat', element: <ChatPage /> },
+          { path: 'pharmacy-hub', element: <HubPage /> },
           { path: 'logout',       element: <LogoutPage /> },
 
         ],
@@ -196,9 +191,6 @@ const router = createBrowserRouter([
               { path: ':id', element: <AdminPosterShiftDetailPage /> },
             ],
           },
-          { path: 'chat', element: <ChatPage /> },
-          { path: 'community-groups', element: <CommunityGroupsPage /> },
-          { path: 'pharmacy-hub', element: <PharmacyHubPage /> },
           { path: 'logout', element: <LogoutPage /> },
         ],
       },
@@ -249,9 +241,6 @@ const router = createBrowserRouter([
           { index: true, element: <OwnerOverviewContainer /> },
           { path: 'overview', element: <OwnerOverviewContainer /> },
           { path: 'onboarding', element: <OwnerOnboarding /> },
-          { path: 'chat', element: <ChatPage /> },
-          { path: 'community-groups', element: <CommunityGroupsPage /> },
-          { path: 'pharmacy-hub', element: <PharmacyHubPage /> },
           {
             path: 'manage-pharmacies',
             children: [
@@ -278,6 +267,8 @@ const router = createBrowserRouter([
           },
           { path: 'interests',    element: <ExplorerInterestsPage /> },
           { path: 'learning',     element: <LearningMaterialsPage /> },
+          { path: 'chat', element: <ChatPage /> },
+          { path: 'pharmacy-hub', element: <HubPage /> },
           { path: 'logout',       element: <LogoutPage /> },
         ],
       },
@@ -298,10 +289,6 @@ const router = createBrowserRouter([
             // NEW: V2 onboarding (tab-per-page layout with nested routes)
           // V2 — single page with its own left-buttons + progress bar
           { path: 'onboarding-v2', element: <PharmacistOnboardingV2Layout  /> },
-          { path: 'chat', element: <ChatPage /> },
-          { path: 'community-groups', element: <CommunityGroupsPage /> },
-          { path: 'pharmacy-hub', element: <PharmacyHubPage /> },
-
  
           {
             path: 'shifts',
@@ -328,6 +315,8 @@ const router = createBrowserRouter([
 
           { path: 'interests',    element: <ExplorerInterestsPage /> },
           { path: 'learning',     element: <LearningMaterialsPage /> },
+          { path: 'chat', element: <ChatPage /> },
+          { path: 'pharmacy-hub', element: <HubPage /> },
           { path: 'logout',       element: <LogoutPage /> },
         ],
       },
@@ -345,9 +334,6 @@ const router = createBrowserRouter([
           { path: 'overview', element: <OverviewPageStaff /> },
           // { path: 'onboarding', element: <OtherStaffOnboarding /> },
           { path: 'onboarding-v2', element: <OtherStaffOnboardingV2Layout   /> },
-          { path: 'chat', element: <ChatPage /> },
-          { path: 'community-groups', element: <CommunityGroupsPage /> },
-          { path: 'pharmacy-hub', element: <PharmacyHubPage /> },
           {
             path: 'shifts',
             children: [
@@ -372,6 +358,8 @@ const router = createBrowserRouter([
           },
           { path: 'interests',    element: <ExplorerInterestsPage /> },
           { path: 'learning',     element: <LearningMaterialsPage /> },
+          { path: 'chat', element: <ChatPage /> },
+          { path: 'pharmacy-hub', element: <HubPage /> },
           { path: 'logout',       element: <LogoutPage /> },
         ],
       },
@@ -390,7 +378,6 @@ const router = createBrowserRouter([
           { path: 'overview', element: <OverviewPageStaff /> },
           // { path: 'onboarding', element: <ExplorerOnboarding /> },
           { path: 'onboarding-v2', element: <ExplorerOnboardingV2Layout  /> },
-          { path: 'chat', element: <ChatPage /> },
           {
             path: 'shifts',
             children: [
@@ -400,6 +387,7 @@ const router = createBrowserRouter([
             ],
           },
           { path: 'interests',    element: <ExplorerInterestsPage /> },
+          { path: 'chat', element: <ChatPage /> },
           { path: 'learning',     element: <LearningMaterialsPage /> },
           { path: 'logout',       element: <LogoutPage /> },
         ],
@@ -419,4 +407,3 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </AuthProvider>
   </React.StrictMode>
 );
-

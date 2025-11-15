@@ -23,13 +23,15 @@ export default function OwnerDashboardWrapper() {
           }}
         >
           <PageContainer
+            maxWidth={false}
+            disableGutters
             slots={{ header: () => null }}
             sx={{
               minHeight: "100%",
               display: "flex",
               flexDirection: "column",
-              px: { xs: 2, md: 4 },
-              py: { xs: 2, md: 4 },
+              px: { xs: 1.5, md: 3 },
+              py: { xs: 2, md: 3 },
               gap: { xs: 2, md: 3 },
             }}
           >

@@ -164,16 +164,10 @@ export default function OrganizationOverviewPage() {
       onClick: () => navigate("/dashboard/organization/chat"),
     },
     {
-      title: "Community Groups",
-      description: "Collaborate with peers across ChemistTasker",
-      icon: <Diversity3Icon />,
-      onClick: () => navigate("/dashboard/organization/community-groups"),
-    },
-    {
-      title: "Organization Hub",
-      description: "Resources and shared collateral",
+      title: "Pharmacy Hub",
+      description: "Community groups, org announcements, and home feeds",
       icon: <HubIcon />,
-      onClick: () => navigate("/dashboard/organization/organization-hub"),
+      onClick: () => navigate("/dashboard/organization/pharmacy-hub"),
     },
   ];
 

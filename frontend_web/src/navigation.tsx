@@ -18,7 +18,7 @@ import PlayArrowIcon    from '@mui/icons-material/PlayArrow';
 import CheckCircleIcon  from '@mui/icons-material/CheckCircle';
 import HistoryIcon      from '@mui/icons-material/History';
 import ReceiptIcon from '@mui/icons-material/Receipt';
-import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
+// import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import Chip from "@mui/material/Chip";
 import type { AdminAssignment } from "./contexts/AuthContext";
 import {
@@ -49,8 +49,7 @@ export function getOrganizationNav(hasUnreadMessages: boolean): Navigation {
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
-    { segment: 'dashboard/organization/community-groups', title: 'Community Groups', icon: <GroupsIcon /> },
-    { segment: 'dashboard/organization/organization-hub', title: 'Organization Hub', icon: <ForumIcon /> },
+    { segment: 'dashboard/organization/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
     { kind: 'divider' as const },
     { kind: 'header' as const, title: 'Manage Pharmacies and Shifts' },
     { segment: 'dashboard/organization/manage-pharmacies',
@@ -104,7 +103,6 @@ export function getOwnerNav(progressPercent: number, hasUnreadMessages: boolean)
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
-    { segment: "dashboard/owner/community-groups", title: "Community Groups", icon: <GroupsIcon /> },
     { segment: "dashboard/owner/pharmacy-hub", title: "Pharmacy Hub", icon: <ForumIcon /> },
         { kind: "divider" as const },
     { kind: "header" as const, title: "Manage Pharmacies and Shifts" },
@@ -203,7 +201,6 @@ export function getAdminNav({
 
   if (canManageComms) {
     navigation.push(
-      { segment: buildPath("community-groups"), title: "Community Groups", icon: <GroupsIcon /> },
       { segment: buildPath("pharmacy-hub"), title: "Pharmacy Hub", icon: <ForumIcon /> }
     );
   }
@@ -304,7 +301,6 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
-    { segment: 'dashboard/otherstaff/community-groups', title: 'Community Groups', icon: <GroupsIcon /> },
     { segment: 'dashboard/otherstaff/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
     { segment: 'dashboard/otherstaff/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
 
@@ -350,7 +346,7 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
   return [
     { kind: 'header' as const, title: 'Profile and Availability' },
     { segment: 'dashboard/pharmacist/overview', title: 'Overview', icon: <DashboardIcon /> },
-    // NEW: V2 onboarding — single sidebar item (tabs live inside the page)
+    // NEW: V2 onboarding ï¿½ single sidebar item (tabs live inside the page)
     {
       segment: 'dashboard/pharmacist/onboarding-v2',
       title: 'Profile',
@@ -370,12 +366,7 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
-    ...(workspace === 'internal'
-      ? [
-          { segment: 'dashboard/pharmacist/community-groups', title: 'Community Groups', icon: <GroupsIcon /> },
-          { segment: 'dashboard/pharmacist/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
-        ]
-      : []),
+    { segment: 'dashboard/pharmacist/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
 
     { segment: 'dashboard/pharmacist/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
     { kind: 'divider' as const },

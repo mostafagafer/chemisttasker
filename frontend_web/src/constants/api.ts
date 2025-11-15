@@ -194,66 +194,19 @@ export const API_ENDPOINTS = {
   ratingsPending: '/client-profile/ratings/pending/',
 
 
-  // Pharmacy Hub
-  pharmacyHubPosts: (pharmacyId: number | string) => `/client-profile/pharmacies/${pharmacyId}/hub/posts/`,
-  pharmacyHubPostDetail: (pharmacyId: number | string, postId: number | string) =>
-    `/client-profile/pharmacies/${pharmacyId}/hub/posts/${postId}/`,
-  pharmacyHubPostPin: (pharmacyId: number | string, postId: number | string) =>
-    `/client-profile/pharmacies/${pharmacyId}/hub/posts/${postId}/pin/`,
-  pharmacyHubPostUnpin: (pharmacyId: number | string, postId: number | string) =>
-    `/client-profile/pharmacies/${pharmacyId}/hub/posts/${postId}/unpin/`,
-  pharmacyHubComments: (pharmacyId: number | string, postId: number | string) =>
-    `/client-profile/pharmacies/${pharmacyId}/hub/posts/${postId}/comments/`,
-  pharmacyHubReaction: (pharmacyId: number | string, postId: number | string) =>
-    `/client-profile/pharmacies/${pharmacyId}/hub/posts/${postId}/reactions/`,
-
-  communityGroups: (pharmacyId: number | string) =>
-    `/client-profile/pharmacies/${pharmacyId}/community-groups/`,
-  communityGroupDetail: (pharmacyId: number | string, groupId: number | string) =>
-    `/client-profile/pharmacies/${pharmacyId}/community-groups/${groupId}/`,
-  communityGroupPosts: (pharmacyId: number | string, groupId: number | string) =>
-    `/client-profile/pharmacies/${pharmacyId}/community-groups/${groupId}/posts/`,
-  communityGroupPostDetail: (
-    pharmacyId: number | string,
-    groupId: number | string,
-    postId: number | string,
-  ) => `/client-profile/pharmacies/${pharmacyId}/community-groups/${groupId}/posts/${postId}/`,
-  communityGroupPostPin: (
-    pharmacyId: number | string,
-    groupId: number | string,
-    postId: number | string,
-  ) => `/client-profile/pharmacies/${pharmacyId}/community-groups/${groupId}/posts/${postId}/pin/`,
-  communityGroupPostUnpin: (
-    pharmacyId: number | string,
-    groupId: number | string,
-    postId: number | string,
-  ) => `/client-profile/pharmacies/${pharmacyId}/community-groups/${groupId}/posts/${postId}/unpin/`,
-  communityGroupComments: (
-    pharmacyId: number | string,
-    groupId: number | string,
-    postId: number | string,
-  ) => `/client-profile/pharmacies/${pharmacyId}/community-groups/${groupId}/posts/${postId}/comments/`,
-  communityGroupReaction: (
-    pharmacyId: number | string,
-    groupId: number | string,
-    postId: number | string,
-  ) => `/client-profile/pharmacies/${pharmacyId}/community-groups/${groupId}/posts/${postId}/reactions/`,
-
-  organizationHubPosts: (organizationId: number | string) =>
-    `/client-profile/organizations/${organizationId}/hub/posts/`,
-  organizationHubPostDetail: (organizationId: number | string, postId: number | string) =>
-    `/client-profile/organizations/${organizationId}/hub/posts/${postId}/`,
-  organizationHubPostPin: (organizationId: number | string, postId: number | string) =>
-    `/client-profile/organizations/${organizationId}/hub/posts/${postId}/pin/`,
-  organizationHubPostUnpin: (organizationId: number | string, postId: number | string) =>
-    `/client-profile/organizations/${organizationId}/hub/posts/${postId}/unpin/`,
-  organizationHubComments: (organizationId: number | string, postId: number | string) =>
-    `/client-profile/organizations/${organizationId}/hub/posts/${postId}/comments/`,
-  organizationHubReaction: (organizationId: number | string, postId: number | string) =>
-    `/client-profile/organizations/${organizationId}/hub/posts/${postId}/reactions/`,
-
   pharmacyAdmins: "/client-profile/pharmacy-admins/",
   pharmacyAdminDetail: (adminId: string | number) => `/client-profile/pharmacy-admins/${adminId}/`,
 
+  // --- Hub ---
+  hubContext: '/client-profile/hub/context/',
+  hubPosts: '/client-profile/hub/posts/',
+  hubPostDetail: (postId: number) => `/client-profile/hub/posts/${postId}/`,
+  hubPostPin: (postId: number) => `/client-profile/hub/posts/${postId}/pin/`,
+  hubPostUnpin: (postId: number) => `/client-profile/hub/posts/${postId}/unpin/`,
+  hubPostComments: (postId: number) => `/client-profile/hub/posts/${postId}/comments/`,
+  hubPostReactions: (postId: number) => `/client-profile/hub/posts/${postId}/react/`,
+  hubGroups: '/client-profile/hub/groups/',
+  hubGroupDetail: (groupId: number) => `/client-profile/hub/groups/${groupId}/`,
+  hubPharmacyProfile: (pharmacyId: number) => `/client-profile/hub/pharmacies/${pharmacyId}/profile/`,
+  hubOrganizationProfile: (orgId: number) => `/client-profile/hub/organizations/${orgId}/profile/`,
 };
-

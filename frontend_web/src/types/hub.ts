@@ -38,6 +38,7 @@ export type HubComment = {
   body: string;
   createdAt: string;
   updatedAt: string;
+  deletedAt: string | null;
   canEdit: boolean;
   author: HubMembership;
   parentCommentId: number | null;
@@ -56,13 +57,16 @@ export type HubPost = {
   communityGroupName: string | null;
   organizationId: number | null;
   organizationName: string | null;
+  scopeType: "pharmacy" | "group" | "organization";
+  scopeTargetId: number | null;
   body: string;
   visibility: "NORMAL" | "ANNOUNCEMENT";
   allowComments: boolean;
   createdAt: string;
   updatedAt: string;
+  deletedAt: string | null;
   commentCount: number;
-  reactionSummary: Record<HubReactionType, number>;
+  reactionSummary: Record<string, number>;
   viewerReaction: HubReactionType | null;
   canManage: boolean;
   author: HubMembership;
@@ -77,6 +81,7 @@ export type HubPost = {
   editedBy: HubUserSummary | null;
   viewerIsAdmin: boolean;
   isDeleted: boolean;
+  taggedMembers: HubTaggedMember[];
 };
 
 export type HubPostPayload = {
@@ -85,6 +90,7 @@ export type HubPostPayload = {
   allowComments?: boolean;
   attachments?: File[];
   removeAttachmentIds?: number[];
+  taggedMemberIds?: number[];
 };
 
 export type HubCommentPayload = {
@@ -92,28 +98,94 @@ export type HubCommentPayload = {
   parentComment?: number | null;
 };
 
-export type CommunityGroupMember = {
+export type HubPharmacy = {
+  id: number;
+  name: string;
+  about: string | null;
+  coverImageUrl: string | null;
+  coverImage?: string | null;
+  organizationId: number | null;
+  organizationName: string | null;
+  canManageProfile: boolean;
+  canCreateGroup: boolean;
+  canCreatePost: boolean;
+};
+
+export type HubOrganization = {
+  id: number;
+  name: string;
+  about: string | null;
+  coverImageUrl: string | null;
+  coverImage?: string | null;
+  canManageProfile: boolean;
+};
+
+export type HubGroup = {
+  id: number;
+  pharmacyId: number;
+  pharmacyName: string;
+  organizationId: number | null;
+  name: string;
+  description: string | null;
+  memberCount: number;
+  isAdmin: boolean;
+  isMember: boolean;
+  isCreator: boolean;
+  members?: HubGroupMember[];
+};
+
+export type HubContext = {
+  pharmacies: HubPharmacy[];
+  organizations: HubOrganization[];
+  communityGroups: HubGroup[];
+  organizationGroups: HubGroup[];
+  defaultPharmacyId: number | null;
+  defaultOrganizationId: number | null;
+};
+
+export type HubScopeType = "pharmacy" | "group" | "organization";
+
+export type HubScopeSelection = {
+  type: HubScopeType;
+  id: number;
+};
+
+export type HubGroupPayload = {
+  pharmacyId: number;
+  name: string;
+  organizationId?: number | null; // Added for organization-scoped groups
+  description?: string | null;
+  memberIds?: number[];
+};
+
+export type HubProfilePayload = {
+  about?: string | null;
+  coverImage?: File | null;
+};
+
+export type HubTaggedMember = {
   membershipId: number;
-  member: HubMembership;
+  fullName: string;
+  email: string | null;
+  role: string | null;
+};
+
+export type HubGroupMember = {
+  membershipId: number;
+  fullName: string;
+  email: string | null;
+  role: string | null;
+  employmentType: string | null;
   isAdmin: boolean;
   joinedAt: string;
 };
 
-export type CommunityGroup = {
-  id: number;
-  pharmacyId: number;
-  name: string;
-  description: string | null;
-  members: CommunityGroupMember[];
-  memberCount: number;
-  isAdmin: boolean;
-  createdAt: string;
-  updatedAt: string;
-  createdBy: HubUserSummary | null;
-};
-
-export type CommunityGroupPayload = {
-  name: string;
-  description?: string | null;
-  memberIds: number[];
+export type HubGroupMemberOption = {
+  membershipId: number;
+  fullName: string;
+  email: string | null;
+  role: string;
+  employmentType: string | null;
+  pharmacyId: number | null;
+  pharmacyName: string | null;
 };

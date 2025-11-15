@@ -258,256 +258,6 @@ class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
         return percent
 
 
-# class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
-#     file_fields = ['government_id', 'gst_file', 'tfn_declaration', 'resume']
-
-#     username   = serializers.CharField(source='user.username',   required=False)
-#     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
-#     last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
-#     progress_percent = serializers.SerializerMethodField()
-
-#     class Meta:
-#         model  = PharmacistOnboarding
-#         fields = [
-#             'username', 'first_name', 'last_name',
-#             'government_id', 'ahpra_number', 'phone_number', 'short_bio', 'resume',
-#             'skills', 'software_experience', 'payment_preference',
-#             'abn', 'gst_registered', 'gst_file',
-#             'tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number',
-
-#             'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
-#             'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
-
-#             'rate_preference', 'verified', 'member_of_chain', 'progress_percent',
-#             'submitted_for_verification',
-#             'gov_id_verified', 'gov_id_verification_note',
-#             'gst_file_verified', 'gst_file_verification_note',
-#             'tfn_declaration_verified', 'tfn_declaration_verification_note',
-#             'abn_verified', 'abn_verification_note',
-#             'ahpra_verified',
-#             'ahpra_registration_status',
-#             'ahpra_registration_type',
-#             'ahpra_expiry_date',
-#             'ahpra_verification_note',
-#         ]
-#         extra_kwargs = {
-#             'verified':        {'read_only': True},
-#             'member_of_chain': {'read_only': True},
-#             'submitted_for_verification': {'required': False},
-#             'first_name': {'required': False, 'allow_blank': True},
-#             'last_name':  {'required': False, 'allow_blank': True},
-#             'government_id': {'required': False, 'allow_null': True},
-#             'ahpra_number': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'payment_preference': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'referee1_name': {'required': False, 'allow_blank': True},
-#             'referee1_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'referee1_email': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'referee1_confirmed': {'required': False},
-#             'referee2_name': {'required': False, 'allow_blank': True},
-#             'referee2_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'referee2_email': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'referee2_confirmed': {'required': False},
-#             'resume': {'required': False, 'allow_null': True},
-#             'short_bio': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'abn': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'gst_file': {'required': False, 'allow_null': True},
-#             'tfn_declaration': {'required': False, 'allow_null': True},
-#             'super_fund_name': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'super_usi': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'super_member_number': {'required': False, 'allow_blank': True, 'allow_null': True},
-#         }
-
-#         read_only_fields = [
-#             'gov_id_verified', 'gov_id_verification_note',
-#             'gst_file_verified', 'gst_file_verification_note',
-#             'tfn_declaration_verified', 'tfn_declaration_verification_note',
-#             'abn_verified', 'abn_verification_note',
-#             'ahpra_verified',
-#             'ahpra_registration_status',
-#             'ahpra_registration_type',
-#             'ahpra_expiry_date',
-#             'ahpra_verification_note',
-#             'verified',
-#             'progress_percent',
-#         ]
-
-#     def _schedule_verification(self, instance):
-#         """Helper to cancel any old tasks and schedule a new one."""
-#         # This is CRITICAL to prevent race conditions from multiple saves.
-#         Schedule.objects.filter(
-#             func='client_profile.tasks.run_all_verifications',
-#             args=f"'{instance._meta.model_name}',{instance.pk}"
-#         ).delete()
-#         Schedule.objects.create(
-#             func='client_profile.tasks.run_all_verifications',
-#             args=f"'{instance._meta.model_name}',{instance.pk}",
-#             schedule_type=Schedule.ONCE,
-#             next_run=timezone.now() + timedelta(seconds=10)
-#         )
-
-#     def create(self, validated_data):
-#         user_data = validated_data.pop('user', {})
-#         user = self.context['request'].user
-#         self.sync_user_fields(user_data, user)
-#         instance = PharmacistOnboarding.objects.create(user=user, **validated_data)
-#         if validated_data.get('submitted_for_verification', False):
-#             self._schedule_verification(instance)
-#         return instance
-
-#     def update(self, instance, validated_data):
-#         user_data = validated_data.pop('user', {})
-#         self.sync_user_fields(user_data, instance.user)
-
-#         # IMPORTANT: Check for changes *before* saving the instance
-#         submitted_before = instance.submitted_for_verification
-        
-#         # Check which specific groups of fields have changed
-#         ahpra_changed = verification_fields_changed(instance, validated_data, ["ahpra_number"])
-#         gov_id_changed = verification_fields_changed(instance, validated_data, ["government_id"])
-#         payment_changed = verification_fields_changed(instance, validated_data, ["payment_preference", "abn", "gst_registered", "gst_file", "tfn_declaration"])
-#         referee1_changed = verification_fields_changed(instance, validated_data, ["referee1_name", "referee1_relation", "referee1_email"])
-#         referee2_changed = verification_fields_changed(instance, validated_data, ["referee2_name", "referee2_relation", "referee2_email"])
-
-#         # Apply the user's changes to the instance
-#         instance = super().update(instance, validated_data)
-
-#         # Now, check if we need to do any resets
-#         submitted_now = instance.submitted_for_verification
-#         needs_reschedule = False
-#         update_fields = []
-
-#         # On first-time submission, reset everything
-#         if not submitted_before and submitted_now:
-#             needs_reschedule = True
-#             # Reset all verification fields
-#             for f in instance._meta.fields:
-#                 if f.name.endswith('_verified') or f.name.endswith('_verification_note'):
-#                     setattr(instance, f.name, False if f.name.endswith('_verified') else "")
-#                     update_fields.append(f.name)
-#             # Reset referee statuses
-#             instance.referee1_confirmed, instance.referee1_rejected = False, False
-#             instance.referee2_confirmed, instance.referee2_rejected = False, False
-#             update_fields.extend(['referee1_confirmed', 'referee1_rejected', 'referee2_confirmed', 'referee2_rejected'])
-#         else: # For subsequent updates, only reset what changed
-#             if ahpra_changed:
-#                 instance.ahpra_verified, instance.ahpra_verification_note = False, ""
-#                 update_fields.extend(['ahpra_verified', 'ahpra_verification_note'])
-#                 needs_reschedule = True
-#             if gov_id_changed:
-#                 instance.gov_id_verified, instance.gov_id_verification_note = False, ""
-#                 update_fields.extend(['gov_id_verified', 'gov_id_verification_note'])
-#                 needs_reschedule = True
-#             if payment_changed:
-#                 instance.abn_verified, instance.abn_verification_note = False, ""
-#                 instance.gst_file_verified, instance.gst_file_verification_note = False, ""
-#                 instance.tfn_declaration_verified, instance.tfn_declaration_verification_note = False, ""
-#                 update_fields.extend(['abn_verified', 'abn_verification_note', 'gst_file_verified', 'gst_file_verification_note', 'tfn_declaration_verified', 'tfn_declaration_verification_note'])
-#                 needs_reschedule = True
-#             if referee1_changed:
-#                 instance.referee1_confirmed, instance.referee1_rejected = False, False
-#                 update_fields.extend(['referee1_confirmed', 'referee1_rejected'])
-#                 needs_reschedule = True
-#             if referee2_changed:
-#                 instance.referee2_confirmed, instance.referee2_rejected = False, False
-#                 update_fields.extend(['referee2_confirmed', 'referee2_rejected'])
-#                 needs_reschedule = True
-
-#         # If any resets were performed, save them
-#         if needs_reschedule:
-#             instance.verified = False
-#             update_fields.append('verified')
-#             instance.save(update_fields=list(set(update_fields)))
-#             self._schedule_verification(instance)
-            
-#         return instance
-
-
-#     def validate(self, data):
-#         submit = data.get('submitted_for_verification') \
-#             or (self.instance and getattr(self.instance, 'submitted_for_verification', False))
-#         errors = {}
-
-#         must_have = [
-#             'username', 'first_name', 'last_name',
-#             'government_id', 'ahpra_number', 'phone_number', 'payment_preference',
-#             'referee1_name', 'referee1_relation', 'referee1_email',
-#             'referee2_name', 'referee2_relation', 'referee2_email',
-#         ]
-
-#         user_data = data.get('user', {})
-
-#         if submit:
-#             for f in must_have:
-#                 if f in ['username', 'first_name', 'last_name']:
-#                     val = (
-#                         user_data.get(f)
-#                         or (self.instance and hasattr(self.instance, 'user') and getattr(self.instance.user, f, None))
-#                     )
-#                     if not val:
-#                         errors[f] = 'This field is required to submit for verification.'
-#                 else:
-#                     value = data.get(f)
-#                     if value is None and self.instance:
-#                         value = getattr(self.instance, f, None)
-#                     if not value:
-#                         errors[f] = 'This field is required to submit for verification.'
-
-#             pay = data.get('payment_preference') or (self.instance and getattr(self.instance, 'payment_preference', None))
-#             if pay:
-#                 if pay.lower() == "abn":
-#                     abn = data.get('abn') or (self.instance and getattr(self.instance, 'abn', None))
-#                     if not abn:
-#                         errors['abn'] = 'ABN required when payment preference is ABN.'
-#                     gst = data.get('gst_registered')
-#                     if gst is None and self.instance:
-#                         gst = getattr(self.instance, 'gst_registered', None)
-#                     if gst:
-#                         gst_file = data.get('gst_file') or (self.instance and getattr(self.instance, 'gst_file', None))
-#                         if not gst_file:
-#                             errors['gst_file'] = 'GST certificate required if GST registered.'
-#                 elif pay.lower() == "tfn":
-#                     for f in ['tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number']:
-#                         val = data.get(f)
-#                         if val is None and self.instance:
-#                             val = getattr(self.instance, f, None)
-#                         if not val:
-#                             errors[f] = f'{f.replace("_", " ").title()} required when payment preference is TFN.'
-
-#         if errors:
-#             raise serializers.ValidationError(errors)
-#         return data
-
-#     def get_progress_percent(self, obj):
-#         required_fields = [
-#             obj.user.username,
-#             obj.user.first_name,
-#             obj.user.last_name,
-#             obj.phone_number,
-#             obj.payment_preference,
-#             obj.resume,
-#             obj.short_bio,
-#             obj.referee1_confirmed,
-#             obj.referee2_confirmed,
-#             obj.gov_id_verified,
-#             obj.ahpra_verified,
-#         ]
-#         # ABN/GST
-#         if obj.payment_preference and obj.payment_preference.lower() == "abn":
-#             required_fields.append(obj.abn_verified)
-#             if obj.gst_registered is True:
-#                 required_fields.append(obj.gst_file_verified)
-#         # TFN
-#         if obj.payment_preference and obj.payment_preference.lower() == "tfn":
-#             required_fields.append(obj.tfn_declaration_verified)
-#             required_fields.append(obj.super_fund_name)
-#             required_fields.append(obj.super_usi)
-#             required_fields.append(obj.super_member_number)
-
-#         filled = sum(bool(field) for field in required_fields)
-#         percent = int(100 * filled / len(required_fields))
-#         return percent
-
 
 class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
     file_fields = [
@@ -5075,7 +4825,100 @@ class NotificationSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-# --- PharmacyHub Serializers --------------------------------------------------------
+# --- Pharmacy Hub Serializers --------------------------------------------------------
+
+def _build_absolute_media_url(request, file_field):
+    if not file_field:
+        return None
+    try:
+        url = file_field.url
+    except Exception:
+        return None
+    if request:
+        try:
+            return request.build_absolute_uri(url)
+        except Exception:
+            return url
+    return url
+
+
+class HubPharmacySerializer(serializers.ModelSerializer):
+    cover_image = serializers.ImageField(read_only=True)
+    cover_image_url = serializers.SerializerMethodField()
+    organization_name = serializers.CharField(source="organization.name", read_only=True)
+    can_manage_profile = serializers.SerializerMethodField()
+    can_create_group = serializers.SerializerMethodField()
+    can_create_post = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Pharmacy
+        fields = [
+            "id",
+            "name",
+            "about",
+            "cover_image",
+            "cover_image_url",
+            "organization_id",
+            "organization_name",
+            "can_manage_profile",
+            "can_create_group",
+            "can_create_post",
+        ]
+        read_only_fields = fields
+
+    def _permission_for(self, obj, key, default=False):
+        perms = self.context.get("pharmacy_permissions", {})
+        return perms.get(obj.id, {}).get(key, default)
+
+    def get_cover_image_url(self, obj):
+        return _build_absolute_media_url(self.context.get("request"), obj.cover_image)
+
+    def get_can_manage_profile(self, obj):
+        return self._permission_for(obj, "can_manage_profile")
+
+    def get_can_create_group(self, obj):
+        return self._permission_for(obj, "can_create_group")
+
+    def get_can_create_post(self, obj):
+        return self._permission_for(obj, "can_create_post", True)
+
+
+class HubOrganizationSerializer(serializers.ModelSerializer):
+    cover_image = serializers.ImageField(read_only=True)
+    cover_image_url = serializers.SerializerMethodField()
+    can_manage_profile = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Organization
+        fields = [
+            "id",
+            "name",
+            "about",
+            "cover_image",
+            "cover_image_url",
+            "can_manage_profile",
+        ]
+        read_only_fields = fields
+
+    def get_cover_image_url(self, obj):
+        return _build_absolute_media_url(self.context.get("request"), obj.cover_image)
+
+    def get_can_manage_profile(self, obj):
+        perms = self.context.get("organization_permissions", {})
+        return perms.get(obj.id, {}).get("can_manage_profile", False)
+
+
+class HubPharmacyProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Pharmacy
+        fields = ["about", "cover_image"]
+
+
+class HubOrganizationProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Organization
+        fields = ["about", "cover_image"]
+
 
 class HubMembershipSerializer(serializers.ModelSerializer):
     user_details = ChatMemberSerializer(source="user", read_only=True)
@@ -5087,7 +4930,7 @@ class HubMembershipSerializer(serializers.ModelSerializer):
 
 
 class PharmacyCommunityGroupMemberSerializer(serializers.ModelSerializer):
-    membership_id = serializers.IntegerField(source="membership_id", read_only=True)
+    membership_id = serializers.IntegerField(read_only=True)
     member = HubMembershipSerializer(source="membership", read_only=True)
 
     class Meta:
@@ -5096,7 +4939,7 @@ class PharmacyCommunityGroupMemberSerializer(serializers.ModelSerializer):
         read_only_fields = ["membership_id", "member", "joined_at"]
 
 
-class PharmacyCommunityGroupSerializer(serializers.ModelSerializer):
+class HubCommunityGroupSerializer(serializers.ModelSerializer):
     members = PharmacyCommunityGroupMemberSerializer(
         source="memberships", many=True, read_only=True
     )
@@ -5104,50 +4947,73 @@ class PharmacyCommunityGroupSerializer(serializers.ModelSerializer):
         child=serializers.IntegerField(), write_only=True, required=False
     )
     member_count = serializers.SerializerMethodField()
-    created_by_user = ChatMemberSerializer(source="created_by", read_only=True)
     is_admin = serializers.SerializerMethodField()
+    is_member = serializers.SerializerMethodField()
+    pharmacy_name = serializers.CharField(source="pharmacy.name", read_only=True)
+    organization_id = serializers.IntegerField(
+        source="pharmacy.organization_id", read_only=True
+    )
+    is_creator = serializers.SerializerMethodField()
 
     class Meta:
         model = PharmacyCommunityGroup
         fields = [
             "id",
             "pharmacy",
+            "pharmacy_name",
+            "organization_id",
             "name",
             "description",
             "created_at",
             "updated_at",
-            "created_by_user",
             "members",
             "member_ids",
             "member_count",
             "is_admin",
+            "is_member",
+            "is_creator",
         ]
         read_only_fields = [
             "id",
             "pharmacy",
+            "pharmacy_name",
+            "organization_id",
             "created_at",
             "updated_at",
-            "created_by_user",
             "members",
             "member_count",
             "is_admin",
+            "is_member",
+            "is_creator",
         ]
 
     def _resolve_memberships(self, pharmacy, member_ids):
         if not member_ids:
             return []
-        memberships = list(
-            Membership.objects.filter(
-                pharmacy=pharmacy,
-                id__in=member_ids,
-                is_active=True,
-            )
+        allowed_pharmacy_ids = set(
+            self.context.get("allowed_pharmacy_ids") or []
         )
+        if pharmacy:
+            allowed_pharmacy_ids.add(pharmacy.id)
+        memberships_qs = Membership.objects.filter(
+            id__in=member_ids,
+            is_active=True,
+        )
+        if allowed_pharmacy_ids:
+            memberships_qs = memberships_qs.filter(
+                pharmacy_id__in=allowed_pharmacy_ids
+            )
+        memberships = list(memberships_qs)
         found_ids = {m.id for m in memberships}
         missing = sorted(set(member_ids) - found_ids)
         if missing:
             raise serializers.ValidationError(
-                {"member_ids": f"Invalid membership IDs for this pharmacy: {missing}"}
+                {
+                    "member_ids": (
+                        "Invalid membership IDs for manageable pharmacies: "
+                        f"{missing}"
+                    )
+                }
             )
         return memberships
 
@@ -5177,107 +5043,78 @@ class PharmacyCommunityGroupSerializer(serializers.ModelSerializer):
         memberships = self._resolve_memberships(pharmacy, member_ids)
         with transaction.atomic():
             group = PharmacyCommunityGroup.objects.create(**validated_data)
-            links = []
-            seen = set()
-            for membership in memberships:
-                if membership.id in seen:
-                    continue
-                seen.add(membership.id)
-                links.append(
-                    PharmacyCommunityGroupMembership(
-                        group=group,
-                        membership=membership,
-                        is_admin=bool(
-                            creator_membership
-                            and membership.id == creator_membership.id
-                        ),
-                    )
+            bulk_links = [
+                PharmacyCommunityGroupMembership(
+                    group=group,
+                    membership=membership,
+                    is_admin=(membership == creator_membership),
                 )
-            if creator_membership and creator_membership.id not in seen:
-                links.append(
-                    PharmacyCommunityGroupMembership(
-                        group=group,
-                        membership=creator_membership,
-                        is_admin=True,
-                    )
-                )
-            if links:
-                PharmacyCommunityGroupMembership.objects.bulk_create(
-                    links, ignore_conflicts=True
-                )
+                for membership in memberships
+            ]
+            PharmacyCommunityGroupMembership.objects.bulk_create(bulk_links)
         return group
 
     def update(self, instance, validated_data):
-        member_ids = validated_data.pop("member_ids", None)
-        instance = super().update(instance, validated_data)
-        if member_ids is None:
-            return instance
-
-        member_ids = set(member_ids)
-        pharmacy = instance.pharmacy
-        creator_membership = self._ensure_creator_membership(pharmacy)
-        if creator_membership:
-            member_ids.add(creator_membership.id)
-        memberships = self._resolve_memberships(pharmacy, member_ids)
-        memberships_by_id = {m.id: m for m in memberships}
-
-        existing_links = {
-            link.membership_id: link
-            for link in instance.memberships.all()
-        }
-
-        new_admin_ids = set()
-        if creator_membership:
-            new_admin_ids.add(creator_membership.id)
-
-        with transaction.atomic():
-            # Add or update memberships
-            for membership_id, membership in memberships_by_id.items():
-                link = existing_links.get(membership_id)
-                if link:
-                    should_be_admin = membership_id in new_admin_ids or link.is_admin
-                    if creator_membership and membership_id == creator_membership.id:
-                        should_be_admin = True
-                    if should_be_admin != link.is_admin:
-                        link.is_admin = should_be_admin
-                        link.save(update_fields=["is_admin"])
-                else:
-                    PharmacyCommunityGroupMembership.objects.create(
+        membership_ids = validated_data.pop("member_ids", None)
+        response = super().update(instance, validated_data)
+        if membership_ids is not None:
+            membership_ids = set(membership_ids)
+            memberships = self._resolve_memberships(instance.pharmacy, membership_ids)
+            desired_ids = {membership.id for membership in memberships}
+            existing_links = {
+                link.membership_id: link
+                for link in PharmacyCommunityGroupMembership.objects.filter(
+                    group=instance
+                )
+            }
+            new_links = []
+            for membership in memberships:
+                if membership.id in existing_links:
+                    continue
+                new_links.append(
+                    PharmacyCommunityGroupMembership(
                         group=instance,
                         membership=membership,
-                        is_admin=membership_id in new_admin_ids,
                     )
-
-            # Remove memberships not in list (except creator/admins that must persist)
-            protected_ids = set(new_admin_ids)
-            for membership_id in list(existing_links.keys()):
-                if (
-                    membership_id not in memberships_by_id
-                    and membership_id not in protected_ids
-                ):
-                    PharmacyCommunityGroupMembership.objects.filter(
-                        group=instance,
-                        membership_id=membership_id,
-                    ).delete()
-
-        return instance
+                )
+            if new_links:
+                PharmacyCommunityGroupMembership.objects.bulk_create(new_links)
+            to_remove = set(existing_links.keys()) - desired_ids
+            if to_remove:
+                PharmacyCommunityGroupMembership.objects.filter(
+                    group=instance, membership_id__in=to_remove
+                ).delete()
+        return response
 
     def get_member_count(self, obj):
-        return obj.memberships.count()
+        return getattr(obj, "member_count", obj.memberships.count())
 
     def get_is_admin(self, obj):
-        if self.context.get("has_admin_permissions"):
-            return True
         request = self.context.get("request")
-        if not request or not request.user.is_authenticated:
-            return False
-        membership_link = obj.memberships.filter(
-            membership__user=request.user
-        ).first()
-        return bool(membership_link and membership_link.is_admin)
+        if request and getattr(request, "user", None):
+            if obj.created_by_id == request.user.id:
+                return True
+        admin_map = self.context.get("group_admin_map", {})
+        return admin_map.get(obj.id, False)
+
+    def get_is_member(self, obj):
+        member_map = self.context.get("group_member_map", {})
+        return member_map.get(obj.id, False)
+
+    def get_is_creator(self, obj):
+        request = self.context.get("request")
+        if request and getattr(request, "user", None):
+            return obj.created_by_id == request.user.id
+        return False
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not self.context.get("include_members", True):
+            data.pop("members", None)
+        return data
 
 
-class PharmacyHubCommentSerializer(serializers.ModelSerializer):
+class HubCommentSerializer(serializers.ModelSerializer):
     author = HubMembershipSerializer(source="author_membership", read_only=True)
     can_edit = serializers.SerializerMethodField()
     is_edited = serializers.BooleanField(read_only=True)
@@ -5346,7 +5183,7 @@ class PharmacyHubCommentSerializer(serializers.ModelSerializer):
         return data
 
 
-class PharmacyHubAttachmentSerializer(serializers.ModelSerializer):
+class HubAttachmentSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
     filename = serializers.SerializerMethodField()
 
@@ -5356,19 +5193,7 @@ class PharmacyHubAttachmentSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_url(self, obj):
-        try:
-            if not obj.file:
-                return None
-            url = obj.file.url
-            request = self.context.get("request")
-            if request:
-                try:
-                    url = request.build_absolute_uri(url)
-                except Exception:
-                    pass
-            return url
-        except Exception:
-            return None
+        return _build_absolute_media_url(self.context.get("request"), obj.file)
 
     def get_filename(self, obj):
         if obj.file and hasattr(obj.file, "name"):
@@ -5378,12 +5203,12 @@ class PharmacyHubAttachmentSerializer(serializers.ModelSerializer):
         return None
 
 
-class PharmacyHubPostSerializer(serializers.ModelSerializer):
+class HubPostSerializer(serializers.ModelSerializer):
     author = HubMembershipSerializer(source="author_membership", read_only=True)
     viewer_reaction = serializers.SerializerMethodField()
     recent_comments = serializers.SerializerMethodField()
     can_manage = serializers.SerializerMethodField()
-    attachments = PharmacyHubAttachmentSerializer(many=True, read_only=True)
+    attachments = HubAttachmentSerializer(many=True, read_only=True)
     is_edited = serializers.BooleanField(read_only=True)
     original_body = serializers.CharField(read_only=True)
     edited_at = serializers.DateTimeField(source="last_edited_at", read_only=True)
@@ -5400,6 +5225,15 @@ class PharmacyHubPostSerializer(serializers.ModelSerializer):
         source="community_group_id", read_only=True
     )
     community_group_name = serializers.SerializerMethodField()
+    scope_type = serializers.SerializerMethodField()
+    scope_target_id = serializers.SerializerMethodField()
+    tagged_members = serializers.SerializerMethodField()
+    tagged_member_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        write_only=True,
+        allow_empty=True,
+    )
 
     class Meta:
         model = PharmacyHubPost
@@ -5411,6 +5245,8 @@ class PharmacyHubPostSerializer(serializers.ModelSerializer):
             "community_group_name",
             "organization",
             "organization_name",
+            "scope_type",
+            "scope_target_id",
             "author",
             "body",
             "visibility",
@@ -5433,6 +5269,8 @@ class PharmacyHubPostSerializer(serializers.ModelSerializer):
             "edited_by",
             "viewer_is_admin",
             "is_deleted",
+            "tagged_members",
+            "tagged_member_ids",
         ]
         read_only_fields = [
             "id",
@@ -5442,6 +5280,8 @@ class PharmacyHubPostSerializer(serializers.ModelSerializer):
             "community_group_name",
             "organization",
             "organization_name",
+            "scope_type",
+            "scope_target_id",
             "author",
             "created_at",
             "updated_at",
@@ -5461,7 +5301,112 @@ class PharmacyHubPostSerializer(serializers.ModelSerializer):
             "edited_by",
             "viewer_is_admin",
             "is_deleted",
+            "tagged_members",
         ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._newly_tagged_members = []
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if "tagged_member_ids" in getattr(self, "initial_data", {}):
+            raw_ids = self.initial_data.get("tagged_member_ids") or []
+            memberships = self._resolve_tagged_memberships(raw_ids)
+            attrs["_tagged_memberships"] = memberships
+        return attrs
+
+    def create(self, validated_data):
+        memberships = validated_data.pop("_tagged_memberships", None)
+        post = super().create(validated_data)
+        self._newly_tagged_members = self._apply_mentions(post, memberships)
+        return post
+
+    def update(self, instance, validated_data):
+        memberships = validated_data.pop("_tagged_memberships", None)
+        post = super().update(instance, validated_data)
+        if memberships is not None:
+            self._newly_tagged_members = self._apply_mentions(post, memberships)
+        return post
+
+    def _resolve_tagged_memberships(self, member_ids):
+        if not isinstance(member_ids, list):
+            raise serializers.ValidationError({"tagged_member_ids": "Provide a list of membership ids."})
+        normalized_ids = []
+        for raw in member_ids:
+            try:
+                normalized_ids.append(int(raw))
+            except (TypeError, ValueError):
+                raise serializers.ValidationError({"tagged_member_ids": f"Invalid membership id: {raw}"})
+        if not normalized_ids:
+            return []
+        memberships = list(
+            Membership.objects.filter(id__in=set(normalized_ids), is_active=True).select_related("pharmacy__organization", "user")
+        )
+        if len(memberships) != len(set(normalized_ids)):
+            found_ids = {m.id for m in memberships}
+            missing = [mid for mid in normalized_ids if mid not in found_ids]
+            raise serializers.ValidationError({"tagged_member_ids": f"Invalid membership ids: {missing}"})
+        context = self.context or {}
+        pharmacy = context.get("pharmacy")
+        organization = context.get("organization")
+        community_group = context.get("community_group")
+        if community_group:
+            allowed = community_group.pharmacy_id
+            invalid = [m.id for m in memberships if m.pharmacy_id != allowed]
+            if invalid:
+                raise serializers.ValidationError({"tagged_member_ids": f"Memberships must belong to pharmacy #{allowed}."})
+        elif pharmacy:
+            invalid = [m.id for m in memberships if m.pharmacy_id != pharmacy.id]
+            if invalid:
+                raise serializers.ValidationError({"tagged_member_ids": f"Memberships must belong to pharmacy #{pharmacy.id}."})
+        elif organization:
+            invalid = [
+                m.id
+                for m in memberships
+                if not m.pharmacy or m.pharmacy.organization_id != organization.id
+            ]
+            if invalid:
+                raise serializers.ValidationError(
+                    {"tagged_member_ids": f"Memberships must belong to organization #{organization.id}."}
+                )
+        else:
+            raise serializers.ValidationError({"tagged_member_ids": "Unable to determine post scope for tagging."})
+        return memberships
+
+    def _apply_mentions(self, post, memberships):
+        if memberships is None:
+            return []
+        desired_ids = {m.id for m in memberships}
+        existing_ids = set(post.mentions.values_list("membership_id", flat=True))
+        to_remove = existing_ids - desired_ids
+        if to_remove:
+            PharmacyHubPostMention.objects.filter(post=post, membership_id__in=to_remove).delete()
+        to_add = desired_ids - existing_ids
+        new_links = [
+            PharmacyHubPostMention(post=post, membership=membership)
+            for membership in memberships
+            if membership.id in to_add
+        ]
+        if new_links:
+            PharmacyHubPostMention.objects.bulk_create(new_links)
+        return [membership for membership in memberships if membership.id in to_add]
+
+    def get_scope_type(self, obj):
+        if obj.community_group_id:
+            return "group"
+        if obj.pharmacy_id:
+            return "pharmacy"
+        if obj.organization_id:
+            return "organization"
+        return None
+
+    def get_scope_target_id(self, obj):
+        if obj.community_group_id:
+            return obj.community_group_id
+        if obj.pharmacy_id:
+            return obj.pharmacy_id
+        return obj.organization_id
 
     def get_viewer_reaction(self, obj):
         membership = self.context.get("request_membership")
@@ -5479,7 +5424,7 @@ class PharmacyHubPostSerializer(serializers.ModelSerializer):
             .select_related("author_membership__user")
             .order_by("-created_at")[:2]
         )
-        serializer = PharmacyHubCommentSerializer(
+        serializer = HubCommentSerializer(
             comments_qs,
             many=True,
             context=self.context,
@@ -5549,8 +5494,281 @@ class PharmacyHubPostSerializer(serializers.ModelSerializer):
             data["attachments"] = []
         return data
 
+    def get_tagged_members(self, obj):
+        tagged = []
+        for mention in obj.mentions.all():
+            membership = mention.membership
+            if not membership:
+                continue
+            user = getattr(membership, "user", None)
+            full_name = ""
+            if user:
+                full_name = user.get_full_name().strip() or user.email or ""
+            if not full_name:
+                full_name = membership.display_name if hasattr(membership, "display_name") else ""
+            tagged.append(
+                {
+                    "membership_id": membership.id,
+                    "full_name": full_name or "(Unnamed)",
+                    "email": user.email if user else None,
+                    "role": membership.role,
+                }
+            )
+        return tagged
 
-class PharmacyHubReactionSerializer(serializers.ModelSerializer):
+
+class HubReactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = PharmacyHubReaction
         fields = ["reaction_type"]
+
+# class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
+#     file_fields = ['government_id', 'gst_file', 'tfn_declaration', 'resume']
+
+#     username   = serializers.CharField(source='user.username',   required=False)
+#     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
+#     last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
+#     progress_percent = serializers.SerializerMethodField()
+
+#     class Meta:
+#         model  = PharmacistOnboarding
+#         fields = [
+#             'username', 'first_name', 'last_name',
+#             'government_id', 'ahpra_number', 'phone_number', 'short_bio', 'resume',
+#             'skills', 'software_experience', 'payment_preference',
+#             'abn', 'gst_registered', 'gst_file',
+#             'tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number',
+
+#             'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
+#             'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
+
+#             'rate_preference', 'verified', 'member_of_chain', 'progress_percent',
+#             'submitted_for_verification',
+#             'gov_id_verified', 'gov_id_verification_note',
+#             'gst_file_verified', 'gst_file_verification_note',
+#             'tfn_declaration_verified', 'tfn_declaration_verification_note',
+#             'abn_verified', 'abn_verification_note',
+#             'ahpra_verified',
+#             'ahpra_registration_status',
+#             'ahpra_registration_type',
+#             'ahpra_expiry_date',
+#             'ahpra_verification_note',
+#         ]
+#         extra_kwargs = {
+#             'verified':        {'read_only': True},
+#             'member_of_chain': {'read_only': True},
+#             'submitted_for_verification': {'required': False},
+#             'first_name': {'required': False, 'allow_blank': True},
+#             'last_name':  {'required': False, 'allow_blank': True},
+#             'government_id': {'required': False, 'allow_null': True},
+#             'ahpra_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'payment_preference': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'referee1_name': {'required': False, 'allow_blank': True},
+#             'referee1_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'referee1_email': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'referee1_confirmed': {'required': False},
+#             'referee2_name': {'required': False, 'allow_blank': True},
+#             'referee2_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'referee2_email': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'referee2_confirmed': {'required': False},
+#             'resume': {'required': False, 'allow_null': True},
+#             'short_bio': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'abn': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'gst_file': {'required': False, 'allow_null': True},
+#             'tfn_declaration': {'required': False, 'allow_null': True},
+#             'super_fund_name': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'super_usi': {'required': False, 'allow_blank': True, 'allow_null': True},
+#             'super_member_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+#         }
+
+#         read_only_fields = [
+#             'gov_id_verified', 'gov_id_verification_note',
+#             'gst_file_verified', 'gst_file_verification_note',
+#             'tfn_declaration_verified', 'tfn_declaration_verification_note',
+#             'abn_verified', 'abn_verification_note',
+#             'ahpra_verified',
+#             'ahpra_registration_status',
+#             'ahpra_registration_type',
+#             'ahpra_expiry_date',
+#             'ahpra_verification_note',
+#             'verified',
+#             'progress_percent',
+#         ]
+
+#     def _schedule_verification(self, instance):
+#         """Helper to cancel any old tasks and schedule a new one."""
+#         # This is CRITICAL to prevent race conditions from multiple saves.
+#         Schedule.objects.filter(
+#             func='client_profile.tasks.run_all_verifications',
+#             args=f"'{instance._meta.model_name}',{instance.pk}"
+#         ).delete()
+#         Schedule.objects.create(
+#             func='client_profile.tasks.run_all_verifications',
+#             args=f"'{instance._meta.model_name}',{instance.pk}",
+#             schedule_type=Schedule.ONCE,
+#             next_run=timezone.now() + timedelta(seconds=10)
+#         )
+
+#     def create(self, validated_data):
+#         user_data = validated_data.pop('user', {})
+#         user = self.context['request'].user
+#         self.sync_user_fields(user_data, user)
+#         instance = PharmacistOnboarding.objects.create(user=user, **validated_data)
+#         if validated_data.get('submitted_for_verification', False):
+#             self._schedule_verification(instance)
+#         return instance
+
+#     def update(self, instance, validated_data):
+#         user_data = validated_data.pop('user', {})
+#         self.sync_user_fields(user_data, instance.user)
+
+#         # IMPORTANT: Check for changes *before* saving the instance
+#         submitted_before = instance.submitted_for_verification
+        
+#         # Check which specific groups of fields have changed
+#         ahpra_changed = verification_fields_changed(instance, validated_data, ["ahpra_number"])
+#         gov_id_changed = verification_fields_changed(instance, validated_data, ["government_id"])
+#         payment_changed = verification_fields_changed(instance, validated_data, ["payment_preference", "abn", "gst_registered", "gst_file", "tfn_declaration"])
+#         referee1_changed = verification_fields_changed(instance, validated_data, ["referee1_name", "referee1_relation", "referee1_email"])
+#         referee2_changed = verification_fields_changed(instance, validated_data, ["referee2_name", "referee2_relation", "referee2_email"])
+
+#         # Apply the user's changes to the instance
+#         instance = super().update(instance, validated_data)
+
+#         # Now, check if we need to do any resets
+#         submitted_now = instance.submitted_for_verification
+#         needs_reschedule = False
+#         update_fields = []
+
+#         # On first-time submission, reset everything
+#         if not submitted_before and submitted_now:
+#             needs_reschedule = True
+#             # Reset all verification fields
+#             for f in instance._meta.fields:
+#                 if f.name.endswith('_verified') or f.name.endswith('_verification_note'):
+#                     setattr(instance, f.name, False if f.name.endswith('_verified') else "")
+#                     update_fields.append(f.name)
+#             # Reset referee statuses
+#             instance.referee1_confirmed, instance.referee1_rejected = False, False
+#             instance.referee2_confirmed, instance.referee2_rejected = False, False
+#             update_fields.extend(['referee1_confirmed', 'referee1_rejected', 'referee2_confirmed', 'referee2_rejected'])
+#         else: # For subsequent updates, only reset what changed
+#             if ahpra_changed:
+#                 instance.ahpra_verified, instance.ahpra_verification_note = False, ""
+#                 update_fields.extend(['ahpra_verified', 'ahpra_verification_note'])
+#                 needs_reschedule = True
+#             if gov_id_changed:
+#                 instance.gov_id_verified, instance.gov_id_verification_note = False, ""
+#                 update_fields.extend(['gov_id_verified', 'gov_id_verification_note'])
+#                 needs_reschedule = True
+#             if payment_changed:
+#                 instance.abn_verified, instance.abn_verification_note = False, ""
+#                 instance.gst_file_verified, instance.gst_file_verification_note = False, ""
+#                 instance.tfn_declaration_verified, instance.tfn_declaration_verification_note = False, ""
+#                 update_fields.extend(['abn_verified', 'abn_verification_note', 'gst_file_verified', 'gst_file_verification_note', 'tfn_declaration_verified', 'tfn_declaration_verification_note'])
+#                 needs_reschedule = True
+#             if referee1_changed:
+#                 instance.referee1_confirmed, instance.referee1_rejected = False, False
+#                 update_fields.extend(['referee1_confirmed', 'referee1_rejected'])
+#                 needs_reschedule = True
+#             if referee2_changed:
+#                 instance.referee2_confirmed, instance.referee2_rejected = False, False
+#                 update_fields.extend(['referee2_confirmed', 'referee2_rejected'])
+#                 needs_reschedule = True
+
+#         # If any resets were performed, save them
+#         if needs_reschedule:
+#             instance.verified = False
+#             update_fields.append('verified')
+#             instance.save(update_fields=list(set(update_fields)))
+#             self._schedule_verification(instance)
+            
+#         return instance
+
+
+#     def validate(self, data):
+#         submit = data.get('submitted_for_verification') \
+#             or (self.instance and getattr(self.instance, 'submitted_for_verification', False))
+#         errors = {}
+
+#         must_have = [
+#             'username', 'first_name', 'last_name',
+#             'government_id', 'ahpra_number', 'phone_number', 'payment_preference',
+#             'referee1_name', 'referee1_relation', 'referee1_email',
+#             'referee2_name', 'referee2_relation', 'referee2_email',
+#         ]
+
+#         user_data = data.get('user', {})
+
+#         if submit:
+#             for f in must_have:
+#                 if f in ['username', 'first_name', 'last_name']:
+#                     val = (
+#                         user_data.get(f)
+#                         or (self.instance and hasattr(self.instance, 'user') and getattr(self.instance.user, f, None))
+#                     )
+#                     if not val:
+#                         errors[f] = 'This field is required to submit for verification.'
+#                 else:
+#                     value = data.get(f)
+#                     if value is None and self.instance:
+#                         value = getattr(self.instance, f, None)
+#                     if not value:
+#                         errors[f] = 'This field is required to submit for verification.'
+
+#             pay = data.get('payment_preference') or (self.instance and getattr(self.instance, 'payment_preference', None))
+#             if pay:
+#                 if pay.lower() == "abn":
+#                     abn = data.get('abn') or (self.instance and getattr(self.instance, 'abn', None))
+#                     if not abn:
+#                         errors['abn'] = 'ABN required when payment preference is ABN.'
+#                     gst = data.get('gst_registered')
+#                     if gst is None and self.instance:
+#                         gst = getattr(self.instance, 'gst_registered', None)
+#                     if gst:
+#                         gst_file = data.get('gst_file') or (self.instance and getattr(self.instance, 'gst_file', None))
+#                         if not gst_file:
+#                             errors['gst_file'] = 'GST certificate required if GST registered.'
+#                 elif pay.lower() == "tfn":
+#                     for f in ['tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number']:
+#                         val = data.get(f)
+#                         if val is None and self.instance:
+#                             val = getattr(self.instance, f, None)
+#                         if not val:
+#                             errors[f] = f'{f.replace("_", " ").title()} required when payment preference is TFN.'
+
+#         if errors:
+#             raise serializers.ValidationError(errors)
+#         return data
+
+#     def get_progress_percent(self, obj):
+#         required_fields = [
+#             obj.user.username,
+#             obj.user.first_name,
+#             obj.user.last_name,
+#             obj.phone_number,
+#             obj.payment_preference,
+#             obj.resume,
+#             obj.short_bio,
+#             obj.referee1_confirmed,
+#             obj.referee2_confirmed,
+#             obj.gov_id_verified,
+#             obj.ahpra_verified,
+#         ]
+#         # ABN/GST
+#         if obj.payment_preference and obj.payment_preference.lower() == "abn":
+#             required_fields.append(obj.abn_verified)
+#             if obj.gst_registered is True:
+#                 required_fields.append(obj.gst_file_verified)
+#         # TFN
+#         if obj.payment_preference and obj.payment_preference.lower() == "tfn":
+#             required_fields.append(obj.tfn_declaration_verified)
+#             required_fields.append(obj.super_fund_name)
+#             required_fields.append(obj.super_usi)
+#             required_fields.append(obj.super_member_number)
+
+#         filled = sum(bool(field) for field in required_fields)
+#         percent = int(100 * filled / len(required_fields))
+#         return percent
+

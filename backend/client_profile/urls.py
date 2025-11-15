@@ -9,6 +9,7 @@ from .hub.api import (
     HubPharmacyProfileView,
     HubPostViewSet,
     HubReactionView,
+    HubPollViewSet,
 )
 from rest_framework.routers import DefaultRouter
 
@@ -73,6 +74,9 @@ hub_comment_list = HubCommentViewSet.as_view({"get": "list", "post": "create"})
 hub_comment_detail = HubCommentViewSet.as_view(
     {"patch": "partial_update", "delete": "destroy"}
 )
+hub_poll_list = HubPollViewSet.as_view({"get": "list", "post": "create"})
+hub_poll_detail = HubPollViewSet.as_view({"get": "retrieve"})
+hub_poll_vote = HubPollViewSet.as_view({"post": "vote"})
 
 urlpatterns = [
     path('owner/onboarding/', OwnerOnboardingCreate.as_view(), name='owner-onboarding-create'),
@@ -138,6 +142,9 @@ urlpatterns = [
     path('hub/posts/<int:pk>/', hub_post_detail, name='hub-post-detail'),
     path('hub/posts/<int:pk>/pin/', hub_post_pin, name='hub-post-pin'),
     path('hub/posts/<int:pk>/unpin/', hub_post_unpin, name='hub-post-unpin'),
+    path('hub/polls/', hub_poll_list, name='hub-poll-list'),
+    path('hub/polls/<int:pk>/', hub_poll_detail, name='hub-poll-detail'),
+    path('hub/polls/<int:pk>/vote/', hub_poll_vote, name='hub-poll-vote'),
     path('hub/posts/<int:post_pk>/comments/', hub_comment_list, name='hub-comment-list'),
     path(
         'hub/posts/<int:post_pk>/comments/<int:pk>/',

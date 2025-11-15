@@ -2243,6 +2243,23 @@ class PharmacyHubPost(models.Model):
                 kwargs["update_fields"] = list(fields)
         super().save(*args, **kwargs)
 
+    def soft_delete(self):
+        if self.deleted_at:
+            return
+        attachments = list(self.attachments.all())
+        for attachment in attachments:
+            try:
+                if attachment.file:
+                    attachment.file.delete(save=False)
+            except Exception:
+                pass
+            attachment.delete()
+        self.deleted_at = timezone.now()
+        self.is_pinned = False
+        self.pinned_at = None
+        self.pinned_by = None
+        self.save(update_fields=["deleted_at", "is_pinned", "pinned_at", "pinned_by"])
+
 
 class PharmacyHubPostMention(models.Model):
     post = models.ForeignKey(
@@ -2288,22 +2305,6 @@ class PharmacyHubPostMention(models.Model):
         if summary != self.reaction_summary:
             self.reaction_summary = summary
             self.save(update_fields=["reaction_summary"])
-
-    def soft_delete(self):
-        if not self.deleted_at:
-            attachments = list(self.attachments.all())
-            for attachment in attachments:
-                try:
-                    if attachment.file:
-                        attachment.file.delete(save=False)
-                except Exception:
-                    pass
-                attachment.delete()
-            self.deleted_at = timezone.now()
-            self.is_pinned = False
-            self.pinned_at = None
-            self.pinned_by = None
-            self.save(update_fields=["deleted_at", "is_pinned", "pinned_at", "pinned_by"])
 
     def __str__(self):
         target = (
@@ -2420,3 +2421,138 @@ class PharmacyHubAttachment(models.Model):
 
     def __str__(self):
         return f"Attachment#{self.pk} for post={self.post_id}"
+
+
+class PharmacyHubPoll(models.Model):
+    pharmacy = models.ForeignKey(
+        "client_profile.Pharmacy",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="hub_polls",
+    )
+    organization = models.ForeignKey(
+        "client_profile.Organization",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="hub_polls",
+    )
+    community_group = models.ForeignKey(
+        PharmacyCommunityGroup,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="hub_polls",
+    )
+    question = models.CharField(max_length=500)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_hub_polls",
+    )
+    created_by_membership = models.ForeignKey(
+        Membership,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_hub_polls",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    closes_at = models.DateTimeField(null=True, blank=True)
+    is_closed = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["pharmacy", "created_at"]),
+            models.Index(fields=["organization", "created_at"]),
+            models.Index(fields=["community_group", "created_at"]),
+            models.Index(fields=["is_closed", "closes_at"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    Q(pharmacy__isnull=False, organization__isnull=True)
+                    | Q(pharmacy__isnull=True, organization__isnull=False)
+                ),
+                name="pharmacy_hub_poll_scope_check",
+            )
+        ]
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        if self.community_group_id:
+            group_pharmacy_id = self.community_group.pharmacy_id
+            if not group_pharmacy_id:
+                raise ValidationError("Community group must be linked to a pharmacy.")
+            self.pharmacy_id = group_pharmacy_id
+            self.organization_id = None
+            if update_fields is not None:
+                fields = set(update_fields)
+                fields.update({"pharmacy", "organization"})
+                kwargs["update_fields"] = list(fields)
+        elif self.pharmacy_id and self.organization_id:
+            # enforce constraint manually to keep validation errors clear
+            raise ValidationError("Poll must target either a pharmacy or organization, not both.")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        if self.community_group_id:
+            return f"HubPoll#{self.pk} group={self.community_group_id}"
+        if self.pharmacy_id:
+            return f"HubPoll#{self.pk} pharmacy={self.pharmacy_id}"
+        return f"HubPoll#{self.pk} organization={self.organization_id}"
+
+
+class PharmacyHubPollOption(models.Model):
+    poll = models.ForeignKey(
+        PharmacyHubPoll,
+        on_delete=models.CASCADE,
+        related_name="options",
+    )
+    label = models.CharField(max_length=255)
+    vote_count = models.PositiveIntegerField(default=0)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+        indexes = [
+            models.Index(fields=["poll", "position"]),
+        ]
+
+    def __str__(self):
+        return f"HubPollOption#{self.pk} poll={self.poll_id}"
+
+
+class PharmacyHubPollVote(models.Model):
+    poll = models.ForeignKey(
+        PharmacyHubPoll,
+        on_delete=models.CASCADE,
+        related_name="votes",
+    )
+    option = models.ForeignKey(
+        PharmacyHubPollOption,
+        on_delete=models.CASCADE,
+        related_name="votes",
+    )
+    membership = models.ForeignKey(
+        Membership,
+        on_delete=models.CASCADE,
+        related_name="hub_poll_votes",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("poll", "membership")
+        indexes = [
+            models.Index(fields=["poll"]),
+            models.Index(fields=["option"]),
+            models.Index(fields=["membership"]),
+        ]
+
+    def __str__(self):
+        return f"HubPollVote#{self.pk} poll={self.poll_id} option={self.option_id} membership={self.membership_id}"

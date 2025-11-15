@@ -84,6 +84,35 @@ export type HubPost = {
   taggedMembers: HubTaggedMember[];
 };
 
+export type HubPollOption = {
+  id: number;
+  label: string;
+  voteCount: number;
+  percentage: number;
+  position: number;
+};
+
+export type HubPoll = {
+  id: number;
+  question: string;
+  createdAt: string;
+  updatedAt: string;
+  closesAt: string | null;
+  isClosed: boolean;
+  scopeType: HubScopeType;
+  scopeTargetId: number | null;
+  options: HubPollOption[];
+  totalVotes: number;
+  hasVoted: boolean;
+  selectedOptionId: number | null;
+  canVote: boolean;
+};
+
+export type HubPollPayload = {
+  question: string;
+  options: string[];
+};
+
 export type HubPostPayload = {
   body: string;
   visibility?: HubPost["visibility"];

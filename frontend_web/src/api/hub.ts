@@ -14,6 +14,8 @@ import {
   HubPharmacy,
   HubPost,
   HubPostPayload,
+  HubPoll,
+  HubPollPayload,
   HubProfilePayload,
   HubReactionType,
   HubScopeSelection,
@@ -107,6 +109,33 @@ type TaggedMemberApi = {
   role: string | null;
 };
 
+type PollOptionApi = {
+  id: number;
+  label: string;
+  vote_count: number;
+  percentage: number;
+  position: number;
+};
+
+type PollApi = {
+  id: number;
+  question: string;
+  pharmacy: number | null;
+  organization: number | null;
+  community_group: number | null;
+  scope_type: "pharmacy" | "group" | "organization" | null;
+  scope_target_id: number | null;
+  created_at: string;
+  updated_at: string;
+  closes_at: string | null;
+  is_closed: boolean;
+  options: PollOptionApi[];
+  total_votes: number;
+  has_voted: boolean;
+  selected_option_id: number | null;
+  can_vote: boolean;
+};
+
 type GroupMemberApi = {
   membership_id: number;
   member: MembershipApi;
@@ -169,15 +198,15 @@ const mapUser = (api: UserSummaryApi | null): HubUserSummary | null => {
   };
 };
 
-const mapMembership = (api: MembershipApi): HubMembership => ({
-  id: api.id,
-  role: api.role,
-  employmentType: api.employment_type,
+const mapMembership = (api: MembershipApi | null | undefined): HubMembership => ({
+  id: api?.id ?? 0,
+  role: api?.role ?? "MEMBER",
+  employmentType: api?.employment_type ?? "",
   user: {
-    id: api.user_details?.id ?? 0,
-    firstName: api.user_details?.first_name ?? null,
-    lastName: api.user_details?.last_name ?? null,
-    email: api.user_details?.email ?? "",
+    id: api?.user_details?.id ?? 0,
+    firstName: api?.user_details?.first_name ?? null,
+    lastName: api?.user_details?.last_name ?? null,
+    email: api?.user_details?.email ?? "",
   },
 });
 
@@ -246,6 +275,30 @@ const mapTaggedMember = (api: TaggedMemberApi): HubTaggedMember => ({
   fullName: api.full_name,
   email: api.email,
   role: api.role,
+});
+
+const mapPollOption = (api: PollOptionApi): HubPollOption => ({
+  id: api.id,
+  label: api.label,
+  voteCount: api.vote_count,
+  percentage: api.percentage,
+  position: api.position,
+});
+
+const mapPoll = (api: PollApi): HubPoll => ({
+  id: api.id,
+  question: api.question,
+  createdAt: api.created_at,
+  updatedAt: api.updated_at,
+  closesAt: api.closes_at,
+  isClosed: api.is_closed,
+  scopeType: (api.scope_type as HubScopeSelection["type"]) ?? "pharmacy",
+  scopeTargetId: api.scope_target_id,
+  options: (api.options ?? []).map(mapPollOption),
+  totalVotes: api.total_votes,
+  hasVoted: api.has_voted,
+  selectedOptionId: api.selected_option_id,
+  canVote: api.can_vote,
 });
 
 const mapPharmacy = (api: PharmacyContextApi): HubPharmacy => ({
@@ -406,6 +459,36 @@ export async function fetchHubPost(postId: number): Promise<HubPost> {
     API_ENDPOINTS.hubPostDetail(postId),
   );
   return mapPost(data);
+}
+
+export async function fetchHubPolls(scope: HubScopeSelection): Promise<HubPoll[]> {
+  const params = buildScopeParams(scope);
+  const { data } = await apiClient.get(API_ENDPOINTS.hubPolls, { params });
+  return asList<PollApi>(data).map(mapPoll);
+}
+
+export async function createHubPoll(
+  scope: HubScopeSelection,
+  payload: HubPollPayload,
+): Promise<HubPoll> {
+  const body: Record<string, unknown> = {
+    question: payload.question,
+    option_labels: payload.options,
+    ...buildScopeParams(scope),
+  };
+  const { data } = await apiClient.post<PollApi>(API_ENDPOINTS.hubPolls, body);
+  return mapPoll(data);
+}
+
+export async function voteHubPoll(
+  pollId: number,
+  optionId: number,
+): Promise<HubPoll> {
+  const { data } = await apiClient.post<PollApi>(
+    API_ENDPOINTS.hubPollVote(pollId),
+    { option_id: optionId },
+  );
+  return mapPoll(data);
 }
 
 export async function createHubPost(

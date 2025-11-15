@@ -5517,6 +5517,189 @@ class HubPostSerializer(serializers.ModelSerializer):
         return tagged
 
 
+class HubPollOptionSerializer(serializers.ModelSerializer):
+    percentage = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PharmacyHubPollOption
+        fields = ["id", "label", "vote_count", "percentage", "position"]
+        read_only_fields = ["id", "vote_count", "percentage", "position"]
+
+    def get_percentage(self, obj):
+        total = self.context.get("total_votes") or 0
+        if total <= 0:
+            return 0
+        return round((obj.vote_count / total) * 100)
+
+
+class HubPollSerializer(serializers.ModelSerializer):
+    options = serializers.SerializerMethodField()
+    option_labels = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        write_only=True,
+        required=True,
+        allow_empty=False,
+    )
+    total_votes = serializers.SerializerMethodField()
+    has_voted = serializers.SerializerMethodField()
+    selected_option_id = serializers.SerializerMethodField()
+    scope_type = serializers.SerializerMethodField()
+    scope_target_id = serializers.SerializerMethodField()
+    created_by = serializers.SerializerMethodField()
+    can_vote = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PharmacyHubPoll
+        fields = [
+            "id",
+            "question",
+            "pharmacy",
+            "organization",
+            "community_group",
+            "scope_type",
+            "scope_target_id",
+            "created_at",
+            "updated_at",
+            "closes_at",
+            "is_closed",
+            "options",
+            "option_labels",
+            "total_votes",
+            "has_voted",
+            "selected_option_id",
+            "created_by",
+            "can_vote",
+        ]
+        read_only_fields = [
+            "id",
+            "pharmacy",
+            "organization",
+            "community_group",
+            "scope_type",
+            "scope_target_id",
+            "created_at",
+            "updated_at",
+            "closes_at",
+            "is_closed",
+            "options",
+            "total_votes",
+            "has_voted",
+            "selected_option_id",
+            "created_by",
+            "can_vote",
+        ]
+
+    def validate_option_labels(self, value):
+        normalized = [label.strip() for label in value if label and label.strip()]
+        if len(normalized) < 2:
+            raise serializers.ValidationError("Provide at least two poll options.")
+        if len(normalized) > 5:
+            raise serializers.ValidationError("You can specify up to five options.")
+        return normalized
+
+    def create(self, validated_data):
+        option_labels = validated_data.pop("option_labels", [])
+        poll = PharmacyHubPoll.objects.create(
+            question=validated_data["question"],
+            pharmacy=self.context.get("pharmacy"),
+            organization=self.context.get("organization"),
+            community_group=self.context.get("community_group"),
+            created_by=self.context.get("request_user"),
+            created_by_membership=self.context.get("request_membership"),
+        )
+        options = [
+            PharmacyHubPollOption(
+                poll=poll,
+                label=label,
+                position=index,
+            )
+            for index, label in enumerate(option_labels)
+        ]
+        PharmacyHubPollOption.objects.bulk_create(options)
+        poll.refresh_from_db()
+        return poll
+
+    def get_scope_type(self, obj):
+        if obj.community_group_id:
+            return "group"
+        if obj.pharmacy_id:
+            return "pharmacy"
+        if obj.organization_id:
+            return "organization"
+        return None
+
+    def get_scope_target_id(self, obj):
+        if obj.community_group_id:
+            return obj.community_group_id
+        if obj.pharmacy_id:
+            return obj.pharmacy_id
+        return obj.organization_id
+
+    def get_total_votes(self, obj):
+        total = getattr(obj, "_total_votes", None)
+        if total is None:
+            total = sum(option.vote_count for option in obj.options.all())
+            obj._total_votes = total
+        return total
+
+    def get_options(self, obj):
+        total = self.get_total_votes(obj)
+        serializer = HubPollOptionSerializer(
+            obj.options.all(),
+            many=True,
+            context={"total_votes": total},
+        )
+        return serializer.data
+
+    def _get_membership(self):
+        return self.context.get("request_membership")
+
+    def get_has_voted(self, obj):
+        membership = self._get_membership()
+        if not membership:
+            return False
+        votes = getattr(obj, "_prefetched_votes", None)
+        if votes is None:
+            return obj.votes.filter(membership=membership).exists()
+        return any(v.membership_id == membership.id for v in votes)
+
+    def get_selected_option_id(self, obj):
+        membership = self._get_membership()
+        if not membership:
+            return None
+        votes = getattr(obj, "_prefetched_votes", None)
+        if votes is None:
+            return (
+                obj.votes.filter(membership=membership)
+                .values_list("option_id", flat=True)
+                .first()
+            )
+        for vote in votes:
+            if vote.membership_id == membership.id:
+                return vote.option_id
+        return None
+
+    def get_created_by(self, obj):
+        membership = getattr(obj, "created_by_membership", None)
+        if membership:
+            return HubMembershipSerializer(membership).data
+        creator = getattr(obj, "created_by", None)
+        if not creator:
+            return None
+        full_name = creator.get_full_name().strip()
+        return {
+            "id": creator.id,
+            "firstName": creator.first_name,
+            "lastName": creator.last_name,
+            "email": creator.email,
+            "fullName": full_name or creator.email,
+        }
+
+    def get_can_vote(self, obj):
+        membership = self._get_membership()
+        return bool(membership) and not obj.is_closed
+
+
 class HubReactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = PharmacyHubReaction

@@ -4,7 +4,8 @@ import mimetypes
 
 from django.conf import settings
 from django.core.mail import send_mail
-from django.db.models import Count, Q
+from django.db import transaction
+from django.db.models import Count, Q, F
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -29,6 +30,9 @@ from ..models import (
     PharmacyHubComment,
     PharmacyHubPost,
     PharmacyHubReaction,
+    PharmacyHubPoll,
+    PharmacyHubPollOption,
+    PharmacyHubPollVote,
 )
 from ..serializers import (
     HubCommentSerializer,
@@ -39,6 +43,7 @@ from ..serializers import (
     HubPharmacySerializer,
     HubPostSerializer,
     HubReactionSerializer,
+    HubPollSerializer,
 )
 
 
@@ -313,6 +318,15 @@ class HubScopeResolver:
         if post.organization_id:
             return self.organization_scope(post.organization_id, organization=post.organization)
         raise PermissionDenied("Post scope is not configured.")
+
+    def from_poll(self, poll):
+        if poll.community_group_id:
+            return self.group_scope(poll.community_group_id, group=poll.community_group)
+        if poll.pharmacy_id:
+            return self.pharmacy_scope(poll.pharmacy_id, pharmacy=poll.pharmacy)
+        if poll.organization_id:
+            return self.organization_scope(poll.organization_id, organization=poll.organization)
+        raise PermissionDenied("Poll scope is not configured.")
 
     def ensure_author_membership(self, scope):
         membership = scope.get("request_membership")
@@ -931,6 +945,167 @@ class HubPostViewSet(HubAttachmentMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(post)
         return Response(serializer.data)
 
+
+class HubPollViewSet(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    serializer_class = HubPollSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return (
+            PharmacyHubPoll.objects.select_related(
+                "pharmacy",
+                "organization",
+                "community_group",
+                "created_by",
+                "created_by_membership__user",
+            )
+            .prefetch_related("options", "votes__membership")
+            .order_by("-created_at")
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context.update(getattr(self, "extra_serializer_context", {}))
+        return context
+
+    def _resolve_scope_from_params(self, params):
+        scope_type = params.get("scope") or params.get("scope_type")
+        if not scope_type:
+            raise ValidationError({"scope": "Provide a scope (pharmacy, group, or organization)."})
+        resolver = HubScopeResolver(self.request.user)
+        if scope_type == "pharmacy":
+            pharmacy_id = params.get("pharmacy_id") or params.get("scope_id")
+            if not pharmacy_id:
+                raise ValidationError({"pharmacy_id": "This field is required."})
+            return resolver.pharmacy_scope(pharmacy_id)
+        if scope_type == "group":
+            group_id = params.get("group_id") or params.get("scope_id")
+            if not group_id:
+                raise ValidationError({"group_id": "This field is required."})
+            return resolver.group_scope(group_id)
+        if scope_type == "organization":
+            organization_id = params.get("organization_id") or params.get("scope_id")
+            if not organization_id:
+                raise ValidationError({"organization_id": "This field is required."})
+            return resolver.organization_scope(organization_id)
+        raise ValidationError({"scope": "Invalid scope type."})
+
+    def _apply_scope_filter(self, queryset, scope):
+        if scope["scope_type"] == "group":
+            return queryset.filter(community_group=scope["community_group"])
+        if scope["scope_type"] == "pharmacy":
+            return queryset.filter(pharmacy=scope["pharmacy"], community_group__isnull=True)
+        return queryset.filter(organization=scope["organization"])
+
+    def _prepare_serializer_context(self, scope):
+        self.extra_serializer_context = {
+            "pharmacy": scope.get("pharmacy"),
+            "organization": scope.get("organization"),
+            "community_group": scope.get("community_group"),
+            "request_membership": scope.get("request_membership"),
+            "has_admin_permissions": scope.get("has_admin_permissions", False),
+            "request_user": self.request.user,
+        }
+
+    def _set_vote_cache(self, polls):
+        if not polls:
+            return
+        for poll in polls:
+            prefetched = getattr(poll, "_prefetched_objects_cache", {})
+            votes = prefetched.get("votes")
+            if votes is not None:
+                poll._prefetched_votes = list(votes)
+
+    def list(self, request, *args, **kwargs):
+        scope = self._resolve_scope_from_params(request.query_params)
+        queryset = self._apply_scope_filter(self.get_queryset(), scope)
+        self._prepare_serializer_context(scope)
+        page = self.paginate_queryset(queryset)
+        polls = page if page is not None else queryset
+        self._set_vote_cache(polls)
+        serializer = self.get_serializer(polls, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    def create(self, request, *args, **kwargs):
+        scope = self._resolve_scope_from_params(request.data)
+        resolver = HubScopeResolver(request.user)
+        membership = scope.get("request_membership") or resolver.ensure_author_membership(scope)
+        scope["request_membership"] = membership
+        self._prepare_serializer_context(scope)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        poll = serializer.save()
+        refreshed = self.get_queryset().get(pk=poll.pk)
+        self._set_vote_cache([refreshed])
+        output = self.get_serializer(refreshed)
+        headers = self.get_success_headers(output.data)
+        return Response(output.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def retrieve(self, request, *args, **kwargs):
+        poll = self.get_object()
+        scope = HubScopeResolver(request.user).from_poll(poll)
+        self._prepare_serializer_context(scope)
+        self._set_vote_cache([poll])
+        serializer = self.get_serializer(poll)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="vote")
+    def vote(self, request, pk=None):
+        poll = self.get_object()
+        option_id = request.data.get("option_id")
+        if not option_id:
+            raise ValidationError({"option_id": "This field is required."})
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.from_poll(poll)
+        membership = scope.get("request_membership") or resolver.ensure_author_membership(scope)
+        try:
+            option_id = int(option_id)
+        except (TypeError, ValueError):
+            raise ValidationError({"option_id": "Invalid option."})
+        with transaction.atomic():
+            option = (
+                PharmacyHubPollOption.objects.select_for_update()
+                .filter(poll=poll, pk=option_id)
+                .first()
+            )
+            if not option:
+                raise ValidationError({"option_id": "Invalid option."})
+            vote = (
+                PharmacyHubPollVote.objects.select_for_update()
+                .filter(poll=poll, membership=membership)
+                .select_related("option")
+                .first()
+            )
+            if vote and vote.option_id == option.id:
+                pass
+            else:
+                if vote:
+                    PharmacyHubPollOption.objects.filter(pk=vote.option_id).update(
+                        vote_count=F("vote_count") - 1
+                    )
+                    vote.option = option
+                    vote.save(update_fields=["option"])
+                else:
+                    PharmacyHubPollVote.objects.create(
+                        poll=poll,
+                        option=option,
+                        membership=membership,
+                    )
+                PharmacyHubPollOption.objects.filter(pk=option.id).update(
+                    vote_count=F("vote_count") + 1
+                )
+        refreshed = self.get_queryset().get(pk=poll.pk)
+        self._prepare_serializer_context(scope)
+        self._set_vote_cache([refreshed])
+        serializer = self.get_serializer(refreshed)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class HubCommentViewSet(

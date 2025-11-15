@@ -200,6 +200,9 @@ export const API_ENDPOINTS = {
   // --- Hub ---
   hubContext: '/client-profile/hub/context/',
   hubPosts: '/client-profile/hub/posts/',
+  hubPolls: '/client-profile/hub/polls/',
+  hubPollDetail: (pollId: number) => `/client-profile/hub/polls/${pollId}/`,
+  hubPollVote: (pollId: number) => `/client-profile/hub/polls/${pollId}/vote/`,
   hubPostDetail: (postId: number) => `/client-profile/hub/posts/${postId}/`,
   hubPostPin: (postId: number) => `/client-profile/hub/posts/${postId}/pin/`,
   hubPostUnpin: (postId: number) => `/client-profile/hub/posts/${postId}/unpin/`,

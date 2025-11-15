@@ -37,6 +37,7 @@ import {
   InputBase,
   Checkbox,
   Autocomplete,
+  LinearProgress,
 } from '@mui/material';
 
 // MUI Icons
@@ -58,6 +59,11 @@ import {
   createHubGroup,
   fetchHubPosts,
   createHubPost,
+  updateHubPost,
+  deleteHubPost,
+  fetchHubPolls,
+  createHubPoll,
+  voteHubPoll,
   reactToHubPost,
   updateHubGroup,
   deleteHubGroup,
@@ -65,6 +71,7 @@ import {
   updateOrganizationHubProfile,
   fetchPharmacyGroupMembers,
   fetchOrganizationGroupMembers,
+  fetchHubGroup,
 } from '../../../../api/hub';
 import {
   HubContext,
@@ -74,6 +81,8 @@ import {
   HubScopeSelection,
   HubPost,
   HubPostPayload,
+  HubAttachment,
+  HubPoll,
   HubReactionType,
   HubGroupMemberOption,
   HubGroupPayload,
@@ -93,6 +102,18 @@ import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 
+type GroupModalScope =
+  | { type: 'pharmacy'; pharmacyId: number }
+  | { type: 'organization'; organizationId: number };
+
+type GroupModalMode = 'create' | 'edit';
+
+type ActiveGroupModal = {
+  title: string;
+  scope: GroupModalScope;
+  mode: GroupModalMode;
+  group?: HubGroup;
+};
 
 // --- Main HubPage Component ---
 export default function HubPage() {
@@ -103,11 +124,9 @@ export default function HubPage() {
   const [selectedPharmacyId, setSelectedPharmacyId] = useState<number | null>(null);
   const [selectedView, setSelectedView] = useState<{ type: 'home' | 'orgHome' | 'group' | 'orgGroup'; id: number | string }>({ type: 'home', id: 'home' });
   const [isInternalSidebarOpen, setIsInternalSidebarOpen] = useState(true);
-  const [groupModal, setGroupModal] = useState<{ title: string; scope: GroupModalScope } | null>(null);
-  const [isPollModalOpen, setIsPollModalOpen] = useState(false);
+  const [groupModal, setGroupModal] = useState<ActiveGroupModal | null>(null);
   const [pharmacyProfileModalOpen, setPharmacyProfileModalOpen] = useState(false);
   const [organizationProfileModalOpen, setOrganizationProfileModalOpen] = useState(false);
-  const [editGroupModal, setEditGroupModal] = useState<HubGroup | null>(null);
 
   // Fetch Hub Context on component mount
   useEffect(() => {
@@ -163,11 +182,6 @@ export default function HubPage() {
     }
     return organizations[0] ?? null;
   }, [organizations, selectedView]);
-
-  const filteredCommunityGroups = useMemo(() => {
-    if (!selectedPharmacyId) return communityGroups;
-    return communityGroups.filter((group) => group.pharmacyId === selectedPharmacyId);
-  }, [communityGroups, selectedPharmacyId]);
 
   const filteredOrganizationGroups = useMemo(() => {
     if (!selectedOrganization) return organizationGroups;
@@ -248,6 +262,7 @@ export default function HubPage() {
     setGroupModal({
       title: 'Create New Community Group',
       scope: { type: 'pharmacy', pharmacyId: selectedPharmacyId },
+      mode: 'create',
     });
   }, [canCreateCommunityGroup, selectedPharmacyId]);
 
@@ -258,12 +273,15 @@ export default function HubPage() {
     setGroupModal({
       title: 'Create New Organization Group',
       scope: { type: 'organization', organizationId: selectedOrganization.id },
+      mode: 'create',
     });
   }, [canCreateOrganizationGroup, selectedOrganization]);
 
-  const handleGroupModalSubmit = useCallback(
-    async (groupName: string, description: string, memberIds: number[], scope: GroupModalScope) => {
-      const trimmedName = groupName.trim();
+  const closeGroupModal = useCallback(() => setGroupModal(null), []);
+
+  const handleCreateGroupSubmit = useCallback(
+    async (values: GroupModalFormValues, scope: GroupModalScope) => {
+      const trimmedName = values.name.trim();
       if (!trimmedName) return;
       try {
         const payload: HubGroupPayload = {
@@ -284,11 +302,12 @@ export default function HubPage() {
         if (scope.type === 'organization') {
           payload.organizationId = scope.organizationId;
         }
-        if (description?.trim()) {
-          payload.description = description.trim();
+        const descriptionValue = values.description.trim();
+        if (descriptionValue) {
+          payload.description = descriptionValue;
         }
-        if (memberIds.length) {
-          payload.memberIds = memberIds;
+        if (values.memberIds.length) {
+          payload.memberIds = values.memberIds;
         }
         const newGroup = await createHubGroup(payload);
         setHubContext((prev) => {
@@ -304,7 +323,7 @@ export default function HubPage() {
             communityGroups: [...prev.communityGroups, newGroup],
           };
         });
-        setGroupModal(null);
+        closeGroupModal();
         setSelectedView(
           scope.type === 'organization'
             ? { type: 'orgGroup', id: newGroup.id }
@@ -319,42 +338,59 @@ export default function HubPage() {
         );
       }
     },
-    [pharmacies],
+    [pharmacies, closeGroupModal, setHubContext, setSelectedView, setError],
   );
 
-  const handleRequestEditGroup = useCallback((group: HubGroup) => {
-    setEditGroupModal(group);
-  }, []);
-
-  const handleSubmitEditGroup = useCallback(
-    async (groupId: number, values: { name: string; description?: string | null }) => {
+  const handleRequestEditGroup = useCallback(
+    async (group: HubGroup) => {
       try {
-        const payload: Partial<HubGroupPayload> = {};
-        if (values.name.trim()) {
-          payload.name = values.name.trim();
-        }
-        payload.description = values.description ?? null;
-        const updatedGroup = await updateHubGroup(groupId, payload);
+        const detailed = await fetchHubGroup(group.id, { includeMembers: true });
+        const scope: GroupModalScope = detailed.organizationId
+          ? { type: 'organization', organizationId: detailed.organizationId }
+          : { type: 'pharmacy', pharmacyId: detailed.pharmacyId };
+        setGroupModal({
+          title: `Edit ${detailed.name}`,
+          scope,
+          mode: 'edit',
+          group: detailed,
+        });
+      } catch (err) {
+        console.error('Failed to load group details:', err);
+        setError('Failed to load group details. Please try again.');
+      }
+    },
+    [setError],
+  );
+
+  const handleEditGroupSubmit = useCallback(
+    async (group: HubGroup, values: GroupModalFormValues) => {
+      try {
+        const payload: Partial<HubGroupPayload> = {
+          name: values.name.trim(),
+          description: values.description.trim() ? values.description.trim() : null,
+          memberIds: values.memberIds,
+        };
+        const updatedGroup = await updateHubGroup(group.id, payload, { includeMembers: true });
         setHubContext((prev) =>
           prev
             ? {
                 ...prev,
-                communityGroups: prev.communityGroups.map((group) =>
-                  group.id === updatedGroup.id ? updatedGroup : group,
+                communityGroups: prev.communityGroups.map((item) =>
+                  item.id === updatedGroup.id ? updatedGroup : item,
                 ),
-                organizationGroups: prev.organizationGroups.map((group) =>
-                  group.id === updatedGroup.id ? updatedGroup : group,
+                organizationGroups: prev.organizationGroups.map((item) =>
+                  item.id === updatedGroup.id ? updatedGroup : item,
                 ),
               }
             : prev,
         );
-        setEditGroupModal(null);
+        closeGroupModal();
       } catch (err) {
         console.error('Failed to update group:', err);
         setError('Failed to update group. Please try again.');
       }
     },
-    [],
+    [closeGroupModal, setError, setHubContext],
   );
 
   const handleDeleteGroup = useCallback(
@@ -372,6 +408,9 @@ export default function HubPage() {
               }
             : prev,
         );
+        if (groupModal?.group?.id === group.id) {
+          closeGroupModal();
+        }
         if (selectedView.type === 'group' && selectedView.id === group.id) {
           setSelectedView({ type: 'home', id: group.pharmacyId });
         } else if (selectedView.type === 'orgGroup' && selectedView.id === group.id) {
@@ -385,7 +424,7 @@ export default function HubPage() {
         setError('Failed to delete group. Please try again.');
       }
     },
-    [organizations, selectedView],
+    [organizations, selectedView, groupModal, closeGroupModal],
   );
 
   const handlePharmacyProfileSaved = useCallback((updatedPharmacy: HubPharmacy) => {
@@ -413,11 +452,6 @@ export default function HubPage() {
         : prev,
     );
   }, []);
-
-  const handleCreatePoll = (pollData: any) => {
-    console.log('Poll Created:', pollData); // Placeholder for actual API call
-    setIsPollModalOpen(false);
-  };
 
   if (loading) {
     return (
@@ -455,7 +489,7 @@ export default function HubPage() {
         pharmacies={pharmacies}
         selectedPharmacyId={selectedPharmacyId}
         onPharmacyChange={handlePharmacyChange}
-        communityGroups={filteredCommunityGroups}
+        communityGroups={communityGroups}
         organizationGroups={filteredOrganizationGroups}
         selectedViewId={selectedView.id}
         onSelectView={setSelectedView}
@@ -503,7 +537,6 @@ export default function HubPage() {
           <GroupContent
             pharmacy={selectedPharmacy}
             group={communityGroups.find((g) => g.id === selectedView.id)}
-            onOpenPollModal={() => setIsPollModalOpen(true)}
             scope={{ type: 'group', id: selectedView.id as number }}
             onEditGroup={handleRequestEditGroup}
             onDeleteGroup={handleDeleteGroup}
@@ -522,32 +555,25 @@ export default function HubPage() {
         )}
       </Box>
 
-      {/* --- Create Group Modal --- */}
+      {/* --- Create/Edit Group Modal --- */}
       {groupModal && (
         <CreateGroupModal
           title={groupModal.title}
           scope={groupModal.scope}
-          onClose={() => setGroupModal(null)}
-          onCreate={handleGroupModalSubmit}
+          mode={groupModal.mode}
+          onClose={closeGroupModal}
+          onSubmit={(values) => {
+            if (groupModal.mode === 'edit' && groupModal.group) {
+              handleEditGroupSubmit(groupModal.group, values);
+            } else {
+              handleCreateGroupSubmit(values, groupModal.scope);
+            }
+          }}
           pharmacies={pharmacies}
+          initialGroup={groupModal.group}
         />
       )}
 
-      {editGroupModal && (
-        <EditGroupModal
-          group={editGroupModal}
-          onClose={() => setEditGroupModal(null)}
-          onSave={handleSubmitEditGroup}
-        />
-      )}
-
-      {/* --- Start Poll Modal --- */}
-      {isPollModalOpen && (
-        <StartPollModal
-          onClose={() => setIsPollModalOpen(false)}
-          onCreate={handleCreatePoll}
-        />
-      )}
       {pharmacyProfileModalOpen && selectedPharmacy && (
         <PharmacyProfileModal
           open={pharmacyProfileModalOpen}
@@ -920,7 +946,13 @@ interface HomePageContentProps {
   membersLoader: () => Promise<HubGroupMemberOption[]>;
 }
 
-function HomePageContent({ details, onOpenSettings, canCreatePost, scope, membersLoader }: HomePageContentProps) {
+function HomePageContent({
+  details,
+  onOpenSettings,
+  canCreatePost,
+  scope,
+  membersLoader,
+}: HomePageContentProps) {
   return (
     <Box sx={{ width: '100%', mx: 'auto' }}>
       <Card sx={{ borderRadius: 2, boxShadow: 3, width: '100%', position: 'relative' }}>
@@ -988,7 +1020,13 @@ interface OrgHomePageContentProps {
   membersLoader: () => Promise<HubGroupMemberOption[]>;
 }
 
-function OrgHomePageContent({ details, onOpenSettings, canCreatePost = false, scope, membersLoader }: OrgHomePageContentProps) {
+function OrgHomePageContent({
+  details,
+  onOpenSettings,
+  canCreatePost = false,
+  scope,
+  membersLoader,
+}: OrgHomePageContentProps) {
   return (
     <Box sx={{ width: '100%', mx: 'auto' }}>
       <Card sx={{ borderRadius: 2, boxShadow: 3, width: '100%', position: 'relative' }}>
@@ -1043,13 +1081,12 @@ function OrgHomePageContent({ details, onOpenSettings, canCreatePost = false, sc
 interface GroupContentProps {
   pharmacy: HubPharmacy | undefined | null;
   group: HubGroup | undefined;
-  onOpenPollModal: () => void;
   scope: HubScopeSelection;
   onEditGroup: (group: HubGroup) => void;
   onDeleteGroup: (group: HubGroup) => void;
 }
 
-function GroupContent({ pharmacy, group, onOpenPollModal, scope, onEditGroup, onDeleteGroup }: GroupContentProps) {
+function GroupContent({ pharmacy, group, scope, onEditGroup, onDeleteGroup }: GroupContentProps) {
   const [actionsAnchorEl, setActionsAnchorEl] = useState<null | HTMLElement>(null);
   const actionsOpen = Boolean(actionsAnchorEl);
 
@@ -1109,7 +1146,6 @@ function GroupContent({ pharmacy, group, onOpenPollModal, scope, onEditGroup, on
         scope={scope}
         canCreatePost
         membersLoader={membersLoader}
-        onOpenPollModal={onOpenPollModal}
         emptyTitle="No updates yet."
         emptyDescription="Start the conversation with your team above."
       />
@@ -1193,28 +1229,49 @@ function OrgGroupContent({ group, scope, onEditGroup, onDeleteGroup }: OrgGroupC
     </Stack>
   );
 }
-// --- Create Group Modal Component ---
-type GroupModalScope =
-  | { type: 'pharmacy'; pharmacyId: number }
-  | { type: 'organization'; organizationId: number };
+interface GroupModalFormValues {
+  name: string;
+  description: string;
+  memberIds: number[];
+}
 
 interface CreateGroupModalProps {
   title: string;
   scope: GroupModalScope;
+  mode: GroupModalMode;
   onClose: () => void;
-  onCreate: (groupName: string, description: string, memberIds: number[], scope: GroupModalScope) => void;
+  onSubmit: (values: GroupModalFormValues) => void;
   pharmacies: HubPharmacy[];
+  initialGroup?: HubGroup;
 }
 
-function CreateGroupModal({ title, scope, onClose, onCreate, pharmacies }: CreateGroupModalProps) {
-  const [groupName, setGroupName] = useState('');
-  const [description, setDescription] = useState('');
+function CreateGroupModal({
+  title,
+  scope,
+  mode,
+  onClose,
+  onSubmit,
+  pharmacies,
+  initialGroup,
+}: CreateGroupModalProps) {
+  const [groupName, setGroupName] = useState(initialGroup?.name ?? '');
+  const [description, setDescription] = useState(initialGroup?.description ?? '');
   const [members, setMembers] = useState<HubGroupMemberOption[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<Set<number>>(new Set());
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [membersError, setMembersError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
+
+  useEffect(() => {
+    setGroupName(initialGroup?.name ?? '');
+    setDescription(initialGroup?.description ?? '');
+    if (initialGroup?.members) {
+      setSelectedMembers(new Set(initialGroup.members.map((member) => member.membershipId)));
+    } else if (mode === 'create') {
+      setSelectedMembers(new Set());
+    }
+  }, [initialGroup, mode]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1399,12 +1456,17 @@ function CreateGroupModal({ title, scope, onClose, onCreate, pharmacies }: Creat
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!groupName.trim()) return;
-    onCreate(groupName.trim(), description.trim(), Array.from(selectedMembers), scope);
+    const trimmedName = groupName.trim();
+    if (!trimmedName) return;
+    onSubmit({
+      name: trimmedName,
+      description: description.trim(),
+      memberIds: Array.from(selectedMembers),
+    });
   };
 
   return (
-    <Dialog open onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open onClose={onClose} maxWidth="md" fullWidth component="form" onSubmit={handleSubmit}>
       <DialogTitle>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6">{title}</Typography>
@@ -1575,12 +1637,12 @@ function CreateGroupModal({ title, scope, onClose, onCreate, pharmacies }: Creat
           Cancel
         </Button>
         <Button
-          onClick={handleSubmit}
+          type="submit"
           variant="contained"
           disabled={!groupName.trim()}
           sx={{ textTransform: 'none', bgcolor: 'primary.main', '&:hover': { bgcolor: 'primary.dark' } }}
         >
-          Create Group
+          {mode === 'edit' ? 'Save Changes' : 'Create Group'}
         </Button>
       </DialogActions>
     </Dialog>
@@ -1599,32 +1661,74 @@ const reactionEmojis: Record<HubReactionType, string> = {
 interface PostCardProps {
   post: HubPost;
   onUpdate: (updatedPost: HubPost) => void;
+  onEdit?: (post: HubPost) => void;
+  onDelete?: (post: HubPost) => void;
 }
 
-function PostCard({ post, onUpdate }: PostCardProps) {
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const open = Boolean(anchorEl);
+function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
+  const [reactionAnchorEl, setReactionAnchorEl] = useState<null | HTMLElement>(null);
+  const [optionsAnchorEl, setOptionsAnchorEl] = useState<null | HTMLElement>(null);
+  const reactionMenuOpen = Boolean(reactionAnchorEl);
+  const optionsMenuOpen = Boolean(optionsAnchorEl);
 
   const handleReactClick = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget);
+    setReactionAnchorEl(event.currentTarget);
   };
 
-  const handleClose = () => {
-    setAnchorEl(null);
+  const handleReactionMenuClose = () => {
+    setReactionAnchorEl(null);
   };
 
   const handleSelectReaction = async (reaction: HubReactionType) => {
-    handleClose();
+    handleReactionMenuClose();
     try {
       const updatedPost = await reactToHubPost(post.id, reaction);
       onUpdate(updatedPost);
     } catch (error) {
-      console.error("Failed to react to post:", error);
+      console.error('Failed to react to post:', error);
     }
   };
 
   const authorName = `${post.author.user.firstName || ''} ${post.author.user.lastName || ''}`.trim() || 'Unknown User';
   const postTimestamp = new Date(post.createdAt).toLocaleString();
+
+  const renderAttachment = (attachment: HubAttachment) => {
+    const src = attachment.url;
+    if (!src) return null;
+    const filename = attachment.filename?.toLowerCase() ?? '';
+    const isImage = attachment.kind === 'IMAGE' || attachment.kind === 'GIF';
+    const videoExtensions = ['.mp4', '.mov', '.webm', '.ogg', '.m4v'];
+    const isVideo = attachment.kind !== 'IMAGE' && attachment.kind !== 'GIF' && videoExtensions.some((ext) => filename.endsWith(ext));
+
+    if (isImage) {
+      return (
+        <Box
+          component="img"
+          src={src}
+          alt={attachment.filename || 'Attachment'}
+          sx={{ width: '100%', borderRadius: 2, maxHeight: 450, objectFit: 'cover' }}
+        />
+      );
+    }
+    if (isVideo) {
+      return (
+        <Box component="video" controls src={src} style={{ width: '100%', borderRadius: 8, backgroundColor: '#000' }} />
+      );
+    }
+    return (
+      <Button
+        component="a"
+        href={src}
+        target="_blank"
+        rel="noopener noreferrer"
+        startIcon={<InsertDriveFileIcon />}
+        variant="outlined"
+        sx={{ justifyContent: 'flex-start', textTransform: 'none', borderColor: 'grey.300', color: 'text.primary' }}
+      >
+        {attachment.filename || 'Download attachment'}
+      </Button>
+    );
+  };
 
   return (
     <Card sx={{ borderRadius: 2, boxShadow: 1 }}>
@@ -1632,15 +1736,45 @@ function PostCard({ post, onUpdate }: PostCardProps) {
         <Stack direction="row" spacing={2} alignItems="flex-start">
           <Avatar sx={{ bgcolor: 'primary.main' }}>{authorName.charAt(0)}</Avatar>
           <Stack spacing={0.5} sx={{ flexGrow: 1 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="subtitle2" component="div" sx={{ fontWeight: 'bold' }}>
-                {authorName}
-              </Typography>
-              <IconButton size="small"><MoreVertIcon /></IconButton>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+              <Box>
+                <Typography variant="subtitle2" component="div" sx={{ fontWeight: 'bold' }}>
+                  {authorName}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {postTimestamp}
+                </Typography>
+              </Box>
+              {post.canManage && (
+                <>
+                  <IconButton size="small" onClick={(event) => setOptionsAnchorEl(event.currentTarget)}>
+                    <MoreVertIcon fontSize="small" />
+                  </IconButton>
+                  <Menu
+                    anchorEl={optionsAnchorEl}
+                    open={optionsMenuOpen}
+                    onClose={() => setOptionsAnchorEl(null)}
+                  >
+                    <MenuItem
+                      onClick={() => {
+                        setOptionsAnchorEl(null);
+                        onEdit?.(post);
+                      }}
+                    >
+                      Edit post
+                    </MenuItem>
+                    <MenuItem
+                      onClick={() => {
+                        setOptionsAnchorEl(null);
+                        onDelete?.(post);
+                      }}
+                    >
+                      Delete post
+                    </MenuItem>
+                  </Menu>
+                </>
+              )}
             </Stack>
-            <Typography variant="caption" color="text.secondary">
-              {postTimestamp}
-            </Typography>
           </Stack>
         </Stack>
 
@@ -1649,21 +1783,18 @@ function PostCard({ post, onUpdate }: PostCardProps) {
         </Typography>
 
         {post.attachments.length > 0 && (
-          <Stack spacing={1} sx={{ mb: 2 }}>
-            {post.attachments.map(att => (
-              <Button
-                key={att.id}
-                component="a"
-                href={att.url || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                startIcon={<InsertDriveFileIcon />}
-                variant="outlined"
-                sx={{ justifyContent: 'flex-start', textTransform: 'none', borderColor: 'grey.300', color: 'text.primary' }}
-              >
-                {att.filename}
-              </Button>
-            ))}
+          <Stack spacing={2} sx={{ mb: 2 }}>
+            {post.attachments.map((attachment) => {
+              const preview = renderAttachment(attachment);
+              if (!preview) {
+                return null;
+              }
+              return (
+                <Box key={attachment.id}>
+                  {preview}
+                </Box>
+              );
+            })}
           </Stack>
         )}
 
@@ -1718,9 +1849,9 @@ function PostCard({ post, onUpdate }: PostCardProps) {
             {post.viewerReaction ? post.viewerReaction : 'React'}
           </Button>
           <Menu
-            anchorEl={anchorEl}
-            open={open}
-            onClose={handleClose}
+            anchorEl={reactionAnchorEl}
+            open={reactionMenuOpen}
+            onClose={handleReactionMenuClose}
           >
             <Stack direction="row" spacing={1} sx={{ p: 1 }}>
               {Object.entries(reactionEmojis).map(([reaction, emoji]) => (
@@ -1737,9 +1868,8 @@ function PostCard({ post, onUpdate }: PostCardProps) {
 
         <Divider sx={{ mt: 1 }} />
 
-        {/* Comments Section */}
         <Stack spacing={2} sx={{ mt: 2 }}>
-          {post.recentComments.map(comment => (
+          {post.recentComments.map((comment) => (
             <Stack key={comment.id} direction="row" spacing={1.5}>
               <Avatar sx={{ width: 32, height: 32, fontSize: '0.875rem', bgcolor: 'secondary.main' }}>
                 {comment.author.user.firstName?.charAt(0)}
@@ -1759,20 +1889,13 @@ function PostCard({ post, onUpdate }: PostCardProps) {
               </Paper>
             </Stack>
           ))}
-          {/* Add Comment Input */}
           <Stack direction="row" spacing={1.5} alignItems="center">
-            <Avatar sx={{ width: 32, height: 32, bgcolor: 'grey.500' }}>
-              {/* Current user initial */}
-              U
-            </Avatar>
+            <Avatar sx={{ width: 32, height: 32, bgcolor: 'grey.500' }}>U</Avatar>
             <Paper
               component="form"
               sx={{ p: '2px 4px', display: 'flex', alignItems: 'center', flexGrow: 1, borderRadius: 5, border: '1px solid', borderColor: 'grey.300', boxShadow: 'none' }}
             >
-              <InputBase
-                sx={{ ml: 1, flex: 1 }}
-                placeholder="Write a comment..."
-              />
+              <InputBase sx={{ ml: 1, flex: 1 }} placeholder="Write a comment..." />
               <IconButton type="submit" sx={{ p: '10px' }} aria-label="send">
                 <SendIcon />
               </IconButton>
@@ -1790,7 +1913,6 @@ interface ScopeFeedProps {
   membersLoader?: () => Promise<HubGroupMemberOption[]>;
   emptyTitle: string;
   emptyDescription: string;
-  onOpenPollModal?: () => void;
 }
 
 function ScopeFeed({
@@ -1799,7 +1921,6 @@ function ScopeFeed({
   membersLoader,
   emptyTitle,
   emptyDescription,
-  onOpenPollModal,
 }: ScopeFeedProps) {
   const [posts, setPosts] = useState<HubPost[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
@@ -1807,6 +1928,16 @@ function ScopeFeed({
   const [postContent, setPostContent] = useState('');
   const [attachments, setAttachments] = useState<File[]>([]);
   const [taggedMembers, setTaggedMembers] = useState<HubGroupMemberOption[]>([]);
+  const [polls, setPolls] = useState<HubPoll[]>([]);
+  const [pollsLoading, setPollsLoading] = useState(true);
+  const [pollsError, setPollsError] = useState<string | null>(null);
+  const [pollSubmitting, setPollSubmitting] = useState(false);
+  const [pollError, setPollError] = useState<string | null>(null);
+  const [isPollModalOpen, setPollModalOpen] = useState(false);
+  const [editingPost, setEditingPost] = useState<HubPost | null>(null);
+  const [editingContent, setEditingContent] = useState('');
+  const [editingError, setEditingError] = useState<string | null>(null);
+  const [editingSaving, setEditingSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1831,6 +1962,33 @@ function ScopeFeed({
       }
     };
     loadPosts();
+    return () => {
+      isMounted = false;
+    };
+  }, [scope]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadPolls = async () => {
+      try {
+        setPollsLoading(true);
+        setPollsError(null);
+        const fetchedPolls = await fetchHubPolls(scope);
+        if (isMounted) {
+          setPolls(fetchedPolls);
+        }
+      } catch (err) {
+        console.error('Failed to fetch polls:', err);
+        if (isMounted) {
+          setPollsError('Failed to load polls. Please try again.');
+        }
+      } finally {
+        if (isMounted) {
+          setPollsLoading(false);
+        }
+      }
+    };
+    loadPolls();
     return () => {
       isMounted = false;
     };
@@ -1870,12 +2028,102 @@ function ScopeFeed({
     setAttachments((prev) => prev.filter((file) => file !== fileToRemove));
   };
 
+  const openPollModal = () => {
+    if (!canCreatePost) return;
+    setPollError(null);
+    setPollModalOpen(true);
+  };
+
+  const closePollModal = () => {
+    setPollModalOpen(false);
+    setPollError(null);
+  };
+
+  const handleCreatePoll = async (pollData: { question: string; options: string[] }) => {
+    if (!canCreatePost) return;
+    const question = pollData.question.trim();
+    const optionLabels = pollData.options.map((opt) => opt.trim()).filter(Boolean);
+    if (!question || optionLabels.length < 2) {
+      setPollError('Please provide a question and at least two options.');
+      return;
+    }
+    setPollSubmitting(true);
+    setPollError(null);
+    try {
+      const created = await createHubPoll(scope, { question, options: optionLabels });
+      setPolls((prev) => [created, ...prev]);
+      setPollModalOpen(false);
+    } catch (err) {
+      console.error('Failed to create poll:', err);
+      setPollError('Failed to create poll. Please try again.');
+    } finally {
+      setPollSubmitting(false);
+    }
+  };
+
+  const handlePollVote = async (pollId: number, optionId: number) => {
+    try {
+      const updated = await voteHubPoll(pollId, optionId);
+      setPolls((prev) => prev.map((poll) => (poll.id === updated.id ? updated : poll)));
+    } catch (err) {
+      console.error('Failed to vote on poll:', err);
+    }
+  };
+
+  const handleStartEditPost = (post: HubPost) => {
+    setEditingPost(post);
+    setEditingContent(post.body);
+    setEditingError(null);
+  };
+
+  const handleCloseEditPost = () => {
+    if (editingSaving) return;
+    setEditingPost(null);
+    setEditingContent('');
+    setEditingError(null);
+  };
+
+  const handleSaveEditPost = async () => {
+    if (!editingPost) return;
+    const trimmed = editingContent.trim();
+    if (!trimmed) {
+      setEditingError('Post content cannot be empty.');
+      return;
+    }
+    setEditingSaving(true);
+    setEditingError(null);
+    try {
+      const updated = await updateHubPost(editingPost.id, { body: trimmed });
+      updatePost(updated);
+      setEditingPost(null);
+      setEditingContent('');
+    } catch (err) {
+      console.error('Failed to update post:', err);
+      setEditingError('Failed to update post. Please try again.');
+    } finally {
+      setEditingSaving(false);
+    }
+  };
+
+  const handleDeletePost = async (post: HubPost) => {
+    const confirmed = window.confirm('Delete this post? This action cannot be undone.');
+    if (!confirmed) return;
+    try {
+      await deleteHubPost(post.id);
+      setPosts((prev) => prev.filter((item) => item.id !== post.id));
+    } catch (err) {
+      console.error('Failed to delete post:', err);
+      setPostsError('Failed to delete post. Please try again.');
+    }
+  };
+
   const updatePost = (updatedPost: HubPost) => {
     setPosts((prev) => prev.map((post) => (post.id === updatedPost.id ? updatedPost : post)));
   };
 
   return (
-    <Stack spacing={3}>
+    <>
+      <Stack spacing={3}>
       {canCreatePost && (
         <Card sx={{ borderRadius: 2, border: '1px solid', borderColor: 'grey.200', boxShadow: 1 }}>
           <Box sx={{ borderBottom: '1px solid', borderColor: 'grey.200', p: 2 }}>
@@ -1951,16 +2199,14 @@ function ScopeFeed({
               </Button>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              {onOpenPollModal && (
-                <Button
-                  onClick={onOpenPollModal}
-                  variant="outlined"
-                  startIcon={<BarChartIcon sx={{ fontSize: 16 }} />}
-                  sx={{ textTransform: 'none', borderColor: 'grey.300', color: 'text.primary', '&:hover': { bgcolor: 'grey.50' } }}
-                >
-                  Start Poll
-                </Button>
-              )}
+              <Button
+                onClick={openPollModal}
+                variant="outlined"
+                startIcon={<BarChartIcon sx={{ fontSize: 16 }} />}
+                sx={{ textTransform: 'none', borderColor: 'grey.300', color: 'text.primary', '&:hover': { bgcolor: 'grey.50' } }}
+              >
+                Start Poll
+              </Button>
               <Button
                 onClick={handleCreatePost}
                 disabled={!postContent.trim() && attachments.length === 0}
@@ -1974,6 +2220,20 @@ function ScopeFeed({
           </Box>
         </Card>
       )}
+
+      {pollsLoading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+          <CircularProgress size={24} />
+        </Box>
+      ) : pollsError ? (
+        <Alert severity="error">{pollsError}</Alert>
+      ) : polls.length > 0 ? (
+        <Stack spacing={2}>
+          {polls.map((poll) => (
+            <PollCard key={poll.id} poll={poll} onVote={handlePollVote} />
+          ))}
+        </Stack>
+      ) : null}
 
       {loadingPosts ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
@@ -1996,11 +2256,37 @@ function ScopeFeed({
       ) : (
         <Stack spacing={2}>
           {posts.map((post) => (
-            <PostCard key={post.id} post={post} onUpdate={updatePost} />
+            <PostCard
+              key={post.id}
+              post={post}
+              onUpdate={updatePost}
+              onEdit={handleStartEditPost}
+              onDelete={handleDeletePost}
+            />
           ))}
         </Stack>
       )}
-    </Stack>
+      </Stack>
+      {isPollModalOpen && (
+        <StartPollModal
+          onClose={closePollModal}
+          onCreate={handleCreatePoll}
+          submitting={pollSubmitting}
+          error={pollError}
+        />
+      )}
+      {editingPost && (
+        <EditPostDialog
+          open={Boolean(editingPost)}
+          value={editingContent}
+          onChange={setEditingContent}
+          onClose={handleCloseEditPost}
+          onSave={handleSaveEditPost}
+          saving={editingSaving}
+          error={editingError}
+        />
+      )}
+    </>
   );
 }
 
@@ -2095,34 +2381,127 @@ function TagMembersSelector({ loadMembers, value, onChange }: TagMembersSelector
   );
 }
 
-interface EditGroupModalProps {
-  group: HubGroup;
-  onClose: () => void;
-  onSave: (groupId: number, values: { name: string; description?: string | null }) => void;
+interface PollCardProps {
+  poll: HubPoll;
+  onVote: (pollId: number, optionId: number) => void;
 }
 
-function EditGroupModal({ group, onClose, onSave }: EditGroupModalProps) {
-  const [name, setName] = useState(group.name);
-  const [description, setDescription] = useState(group.description ?? '');
+function PollCard({ poll, onVote }: PollCardProps) {
+  const totalVotes = poll.totalVotes;
 
-  useEffect(() => {
-    setName(group.name);
-    setDescription(group.description ?? '');
-  }, [group]);
-
-  const handleSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-    onSave(group.id, {
-      name: name.trim(),
-      description: description.trim() ? description.trim() : null,
-    });
+  const handleVote = (optionId: number) => {
+    if (!poll.canVote) return;
+    onVote(poll.id, optionId);
   };
 
   return (
-    <Dialog open onClose={onClose} component="form" onSubmit={handleSubmit} maxWidth="sm" fullWidth>
+    <Card sx={{ borderRadius: 2, boxShadow: 1 }}>
+      <CardContent sx={{ p: 3 }}>
+        <Stack spacing={2}>
+          <Stack spacing={0.5}>
+            <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 1.2 }}>
+              Poll
+            </Typography>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              {poll.question}
+            </Typography>
+          </Stack>
+          <Stack spacing={1.5}>
+            {poll.options
+              .slice()
+              .sort((a, b) => a.position - b.position)
+              .map((option) => {
+                const votes = option.voteCount;
+                const percentage = option.percentage ?? (totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0);
+                const isSelected = poll.selectedOptionId === option.id;
+              return (
+                <Box
+                  key={option.id}
+                  onClick={() => handleVote(option.id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if ((event.key === 'Enter' || event.key === ' ') && poll.canVote) {
+                      event.preventDefault();
+                      handleVote(option.id);
+                    }
+                  }}
+                  sx={{
+                    border: '1px solid',
+                    borderColor: isSelected ? 'primary.main' : 'grey.200',
+                    borderRadius: 2,
+                    p: 1.5,
+                    bgcolor: isSelected ? 'primary.light' : 'grey.50',
+                    cursor: poll.canVote ? 'pointer' : 'default',
+                    transition: 'all 150ms ease',
+                    '&:hover': poll.canVote
+                      ? {
+                          borderColor: 'primary.main',
+                          bgcolor: 'grey.100',
+                        }
+                      : undefined,
+                  }}
+                >
+                  <Stack spacing={1}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                        {option.label}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {percentage}%
+                      </Typography>
+                    </Stack>
+                    <LinearProgress
+                      variant="determinate"
+                      value={percentage}
+                      sx={{
+                        height: 8,
+                        borderRadius: 4,
+                        bgcolor: 'grey.200',
+                        '& .MuiLinearProgress-bar': {
+                          borderRadius: 4,
+                          bgcolor: isSelected ? 'primary.main' : 'primary.light',
+                        },
+                      }}
+                    />
+                    <Typography variant="caption" color="text.secondary">
+                      {votes} {votes === 1 ? 'vote' : 'votes'}
+                    </Typography>
+                  </Stack>
+                </Box>
+              );
+            })}
+          </Stack>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography variant="caption" color="text.secondary">
+              {totalVotes} {totalVotes === 1 ? 'vote' : 'votes'}
+            </Typography>
+            {poll.hasVoted && (
+              <Chip label="You voted" size="small" color="primary" variant="outlined" sx={{ fontWeight: 600 }} />
+            )}
+          </Stack>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface EditPostDialogProps {
+  open: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+  saving: boolean;
+  error?: string | null;
+}
+
+function EditPostDialog({ open, value, onChange, onClose, onSave, saving, error }: EditPostDialogProps) {
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h6">Edit Group</Typography>
+          <Typography variant="h6">Edit Post</Typography>
           <IconButton onClick={onClose} size="small">
             <CloseIcon fontSize="small" />
           </IconButton>
@@ -2130,38 +2509,41 @@ function EditGroupModal({ group, onClose, onSave }: EditGroupModalProps) {
       </DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <TextField
-          label="Group Name"
-          fullWidth
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-        <TextField
-          label="Description"
-          fullWidth
           multiline
-          minRows={3}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
+          minRows={4}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          autoFocus
+          placeholder="Update your post..."
         />
+        {error && <Alert severity="error">{error}</Alert>}
       </DialogContent>
       <DialogActions sx={{ p: 2 }}>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button type="submit" variant="contained" disabled={!name.trim()}>
-          Save
+        <Button onClick={onClose} disabled={saving}>
+          Cancel
+        </Button>
+        <Button
+          onClick={onSave}
+          variant="contained"
+          disabled={saving || !value.trim()}
+        >
+          {saving ? 'Saving...' : 'Save'}
         </Button>
       </DialogActions>
     </Dialog>
   );
 }
 
+
 // --- Start Poll Modal Component ---
 interface StartPollModalProps {
   onClose: () => void;
-  onCreate: (pollData: { question: string; options: string[] }) => void;
+  onCreate: (pollData: { question: string; options: string[] }) => Promise<void> | void;
+  submitting?: boolean;
+  error?: string | null;
 }
 
-function StartPollModal({ onClose, onCreate }: StartPollModalProps) {
+function StartPollModal({ onClose, onCreate, submitting = false, error }: StartPollModalProps) {
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState(['', '']);
 
@@ -2177,14 +2559,16 @@ function StartPollModal({ onClose, onCreate }: StartPollModalProps) {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const pollData = {
       question,
       options: options.filter(opt => opt.trim() !== ''),
     };
     if (pollData.question.trim() && pollData.options.length >= 2) {
-      onCreate(pollData);
+      await onCreate(pollData);
+      setQuestion('');
+      setOptions(['', '']);
     }
   };
 
@@ -2199,6 +2583,11 @@ function StartPollModal({ onClose, onCreate }: StartPollModalProps) {
         </Box>
       </DialogTitle>
       <DialogContent dividers>
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
         <TextField
           autoFocus
           margin="dense"
@@ -2211,6 +2600,7 @@ function StartPollModal({ onClose, onCreate }: StartPollModalProps) {
           onChange={(e) => setQuestion(e.target.value)}
           placeholder="e.g., What's for lunch?"
           sx={{ mb: 3, '& .MuiOutlinedInput-root': { borderRadius: 1 } }}
+          disabled={submitting}
         />
 
         <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Options</Typography>
@@ -2224,6 +2614,7 @@ function StartPollModal({ onClose, onCreate }: StartPollModalProps) {
               onChange={(e) => handleOptionChange(index, e.target.value)}
               placeholder={`Option ${index + 1}`}
               sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1 } }}
+              disabled={submitting}
             />
           ))}
         </Box>
@@ -2232,22 +2623,27 @@ function StartPollModal({ onClose, onCreate }: StartPollModalProps) {
             onClick={addOption}
             startIcon={<AddCircleOutlineIcon sx={{ fontSize: 16 }} />}
             sx={{ mt: 2, textTransform: 'none', color: 'primary.main', '&:hover': { bgcolor: 'primary.light' } }} // Use AddCircleOutlineIcon for PlusCircle
+            disabled={submitting}
           >
             Add Option
           </Button>
         )}
       </DialogContent>
       <DialogActions sx={{ p: 2 }}>
-        <Button onClick={onClose} variant="outlined" sx={{ textTransform: 'none' }}>
+        <Button onClick={onClose} variant="outlined" sx={{ textTransform: 'none' }} disabled={submitting}>
           Cancel
         </Button>
         <Button
           onClick={handleSubmit}
           variant="contained"
-          disabled={!question.trim() || options.filter(opt => opt.trim() !== '').length < 2}
+          disabled={
+            submitting ||
+            !question.trim() ||
+            options.filter(opt => opt.trim() !== '').length < 2
+          }
           sx={{ textTransform: 'none', bgcolor: 'primary.main', '&:hover': { bgcolor: 'primary.dark' } }}
         >
-          Create Poll
+          {submitting ? 'Creating...' : 'Create Poll'}
         </Button>
       </DialogActions>
     </Dialog>

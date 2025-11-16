@@ -94,9 +94,29 @@ const WEEK_DAYS = [
 
 const DAY_LABELS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const toIsoDate = (value: string) => {
-  const [year, month, day] = value.split('-').map(Number);
-  return new Date(year, month - 1, day);
+const toIsoDate = (value: string): Date | null => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const parsed = dayjs(trimmed);
+  if (parsed.isValid()) {
+    return parsed.startOf('day').toDate();
+  }
+
+  const datePortion = trimmed.split('T')[0];
+  if (datePortion) {
+    const [year, month, day] = datePortion.split('-').map((part) => Number.parseInt(part, 10));
+    if ([year, month, day].every((part) => Number.isFinite(part))) {
+      return new Date(year, month - 1, day);
+    }
+  }
+
+  return null;
+};
+
+const isValidDate = (date: Date | null | undefined): date is Date => {
+  return Boolean(date && !Number.isNaN(date.getTime()));
 };
 
 const applyTimeToDate = (date: Date, time: string) => {
@@ -186,6 +206,29 @@ const PostShiftPage: React.FC = () => {
   const minCalendarDate = useMemo(() => todayStart.toDate(), [todayStart]);
   const maxCalendarDate = useMemo(() => todayStart.add(4, 'month').endOf('month').toDate(), [todayStart]);
   const minDateInputValue = useMemo(() => todayStart.format('YYYY-MM-DD'), [todayStart]);
+  const safeCalendarDate = useMemo(
+    () => (isValidDate(calendarDate) ? calendarDate : todayStart.toDate()),
+    [calendarDate, todayStart]
+  );
+
+  const calendarTimeBounds = useMemo(() => {
+    const base = dayjs(safeCalendarDate);
+    if (!base.isValid()) {
+      const fallback = todayStart;
+      return {
+        min: fallback.startOf('day').toDate(),
+        max: fallback.endOf('day').toDate(),
+      };
+    }
+
+    let minBound = base.startOf('day');
+    let maxBound = base.endOf('day');
+
+    return {
+      min: minBound.toDate(),
+      max: maxBound.toDate(),
+    };
+  }, [safeCalendarDate, todayStart]);
 
   // --- Data Loading ---
   useEffect(() => {
@@ -340,8 +383,16 @@ const PostShiftPage: React.FC = () => {
 
     slots.forEach((slot, slotIndex) => {
       const addOccurrence = (date: Date, occurrenceIndex: number) => {
+        if (!isValidDate(date)) {
+          console.warn('Skipping slot with invalid date', slot, date);
+          return;
+        }
         const start = applyTimeToDate(date, slot.startTime);
         const end = applyTimeToDate(date, slot.endTime);
+        if (!isValidDate(start) || !isValidDate(end)) {
+          console.warn('Skipping slot with invalid start/end time', slot, { start, end });
+          return;
+        }
         events.push({
           id: `${slotIndex}-${occurrenceIndex}-${start.toISOString()}`,
           title: `${formatSlotTime(slot.startTime)} – ${formatSlotTime(slot.endTime)}`,
@@ -351,9 +402,20 @@ const PostShiftPage: React.FC = () => {
         });
       };
 
+      const baseDate = toIsoDate(slot.date);
+      if (!isValidDate(baseDate)) {
+        console.warn('Ignoring slot with unparsable date value', slot.date);
+        return;
+      }
+
       if (slot.isRecurring && slot.recurringEndDate && slot.recurringDays.length) {
-        let cursor = toIsoDate(slot.date);
         const endBoundary = toIsoDate(slot.recurringEndDate);
+        if (!isValidDate(endBoundary)) {
+          console.warn('Recurring slot has invalid end date. Falling back to single occurrence.', slot);
+          addOccurrence(baseDate, 0);
+          return;
+        }
+        let cursor: Date = baseDate;
         let occurrenceIndex = 0;
         while (cursor <= endBoundary) {
           if (slot.recurringDays.includes(cursor.getDay())) {
@@ -363,7 +425,7 @@ const PostShiftPage: React.FC = () => {
           cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
         }
       } else {
-        addOccurrence(toIsoDate(slot.date), 0);
+        addOccurrence(baseDate, 0);
       }
     });
 
@@ -371,8 +433,10 @@ const PostShiftPage: React.FC = () => {
   }, [slots]);
 
   useEffect(() => {
-    if (calendarEvents.length > 0 && slots.length > 0) {
-      setCalendarDate(calendarEvents[0].start);
+    if (slots.length === 0) return;
+    const firstValidEvent = calendarEvents.find((event) => !Number.isNaN(event.start.getTime()));
+    if (firstValidEvent && isValidDate(firstValidEvent.start)) {
+      setCalendarDate(firstValidEvent.start);
     }
   }, [calendarEvents, slots.length]);
 
@@ -1022,7 +1086,7 @@ const handleAddSlot = () => {
                     longPressThrottle={50}
                     localizer={localizer}
                     events={calendarEvents}
-                    date={calendarDate}
+                    date={safeCalendarDate}
                     view={calendarView}
                     views={CALENDAR_VIEWS}
                     step={calendarView === 'week' || calendarView === 'day' ? 15 : 30}
@@ -1033,6 +1097,10 @@ const handleAddSlot = () => {
                     endAccessor="end"
                     popup
                     onNavigate={(newDate: Date) => {
+                      if (!isValidDate(newDate)) {
+                        console.warn('Ignoring calendar navigation to invalid date', newDate);
+                        return;
+                      }
                       const next = dayjs(newDate);
                       if (next.isBefore(todayStart, 'day')) {
                         setCalendarDate(minCalendarDate);
@@ -1048,8 +1116,8 @@ const handleAddSlot = () => {
                         : 'month';
                       setCalendarView(nextView);
                     }}
-                    min={dayjs(calendarDate).startOf('day').subtract(2, 'hour').toDate()}
-                    max={dayjs(calendarDate).startOf('day').add(1, 'day').add(2, 'hour').toDate()}
+                    min={calendarTimeBounds.min}
+                    max={calendarTimeBounds.max}
                     onSelectSlot={({ start, end, slots }: CalendarSlotSelection) => {
                       const startMoment = dayjs(start as Date);
                       const endMoment = dayjs(end as Date);

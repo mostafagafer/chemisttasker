@@ -204,7 +204,7 @@ if (loading) {
   const secondaryCta = isExplorer
     ? {
         label: "Complete profile",
-        to: `/dashboard/${roleSegment}/onboarding-v2`,
+        to: `/dashboard/${roleSegment}/onboarding`,
         variant: "outlined" as const,
       }
     : {

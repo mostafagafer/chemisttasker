@@ -55,7 +55,7 @@ export default function OtherStaffOnboardingV2Layout() {
 
   // Load real progress from backend on mount
   React.useEffect(() => {
-    const url = API_ENDPOINTS.onboardingV2Detail("otherstaff");
+    const url = API_ENDPOINTS.onboardingDetail("otherstaff");
     apiClient
       .get(url)
       .then((res) => {

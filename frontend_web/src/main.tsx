@@ -27,9 +27,6 @@ import OrganizationDashboardWrapper from './layouts/OrganizationDashboardWrapper
 
 // Other users types
 import OwnerOnboarding from './pages/onboarding/OwnerOnboarding';
-import PharmacistOnboarding from './pages/onboarding/PharmacistOnboarding';
-import OtherStaffOnboarding from './pages/onboarding/OtherStaffOnboarding';
-import ExplorerOnboarding from './pages/onboarding/ExplorerOnboarding';
 import RefereeQuestionnairePage from './pages/onboarding/RefereeQuestionnairePage';
 import RefereeRejectPage from './pages/onboarding/RefereeRejectPage';
 import RosterOwnerPage from './pages/dashboard/sidebar/RosterOwnerPage';
@@ -219,7 +216,7 @@ const router = createBrowserRouter([
         path: 'onboarding/pharmacist',
         element: (
           <ProtectedRoute requiredRole="PHARMACIST">
-            <PharmacistOnboarding />
+            <PharmacistOnboardingV2Layout />
           </ProtectedRoute>
         ),
       },
@@ -227,7 +224,7 @@ const router = createBrowserRouter([
         path: 'onboarding/otherstaff',
         element: (
           <ProtectedRoute requiredRole="OTHER_STAFF">
-            <OtherStaffOnboarding />
+            <OtherStaffOnboardingV2Layout />
           </ProtectedRoute>
         ),
       },
@@ -235,7 +232,7 @@ const router = createBrowserRouter([
         path: 'onboarding/explorer',
         element: (
           <ProtectedRoute requiredRole="EXPLORER">
-            <ExplorerOnboarding />
+            <ExplorerOnboardingV2Layout />
           </ProtectedRoute>
         ),
       },
@@ -295,11 +292,10 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <OverviewPageStaff /> },
           { path: 'overview', element: <OverviewPageStaff /> },
-          // { path: 'onboarding', element: <PharmacistOnboarding /> },
           
             // NEW: V2 onboarding (tab-per-page layout with nested routes)
           // V2 — single page with its own left-buttons + progress bar
-          { path: 'onboarding-v2', element: <PharmacistOnboardingV2Layout  /> },
+          { path: 'onboarding', element: <PharmacistOnboardingV2Layout  /> },
  
           {
             path: 'shifts',
@@ -343,8 +339,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <OverviewPageStaff /> },
           { path: 'overview', element: <OverviewPageStaff /> },
-          // { path: 'onboarding', element: <OtherStaffOnboarding /> },
-          { path: 'onboarding-v2', element: <OtherStaffOnboardingV2Layout   /> },
+          { path: 'onboarding', element: <OtherStaffOnboardingV2Layout   /> },
           {
             path: 'shifts',
             children: [
@@ -387,8 +382,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <OverviewPageStaff /> },
           { path: 'overview', element: <OverviewPageStaff /> },
-          // { path: 'onboarding', element: <ExplorerOnboarding /> },
-          { path: 'onboarding-v2', element: <ExplorerOnboardingV2Layout  /> },
+          { path: 'onboarding', element: <ExplorerOnboardingV2Layout  /> },
           {
             path: 'shifts',
             children: [

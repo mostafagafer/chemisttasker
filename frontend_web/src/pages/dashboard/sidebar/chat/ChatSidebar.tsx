@@ -1,5 +1,5 @@
 import { FC, useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { Box, Typography, Button, Divider, IconButton, Tooltip, TextField, InputAdornment } from '@mui/material';
+import { Box, Typography, Button, Divider, IconButton, Tooltip, TextField, InputAdornment, Avatar } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
@@ -40,6 +40,23 @@ interface ChatSidebarProps {
   initialFilter?: SidebarFilter;
 
 }
+
+const initialsFromParts = (first?: string | null, last?: string | null, fallback?: string | null) => {
+  const safeFirst = (first || '').trim();
+  const safeLast = (last || '').trim();
+  if (safeFirst || safeLast) {
+    return `${safeFirst.charAt(0)}${safeLast.charAt(0) || safeFirst.charAt(1) || ''}`.toUpperCase();
+  }
+  const alt = (fallback || '').trim();
+  if (!alt) {
+    return '?';
+  }
+  const parts = alt.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase() || '?';
+  }
+  return `${parts[0].charAt(0)}${parts[1].charAt(0)}`.toUpperCase();
+};
 
 export const ChatSidebar: FC<ChatSidebarProps> = ({
   rooms,
@@ -140,6 +157,20 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
     return false;
   }, [myMemberships, participantCache, currentUserId, canManageCommunications]);
 
+  const resolveParticipants = useCallback(
+    (room: ChatRoom): { myMembershipId: number | null; partnerMembershipId: number | null } => {
+      let myMembershipId = room.my_membership_id ?? null;
+      if (!myMembershipId && Array.isArray(room.participant_ids) && room.participant_ids.length) {
+        const mine = myMemberships.find((m) => room.participant_ids?.includes(m.id));
+        myMembershipId = mine?.id ?? null;
+      }
+      const partnerMembershipId =
+        room.participant_ids?.find((id) => id !== myMembershipId) ?? null;
+      return { myMembershipId, partnerMembershipId };
+    },
+    [myMemberships],
+  );
+
   const getDisplayName = useCallback((room: ChatRoom): string => {
     if (room.type === 'GROUP') {
         if (room.pharmacy) {
@@ -148,14 +179,16 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
         }
         return room.title || 'Group Chat';
     }
-const myMembershipInRoom = myMemberships.find(myMem => room.participant_ids?.includes(myMem.id));
-if (!myMembershipInRoom) {
+    const { myMembershipId, partnerMembershipId } = resolveParticipants(room);
+    const myMembershipInRoom = myMembershipId
+      ? myMemberships.find((m) => m.id === myMembershipId)
+      : null;
+    if (!myMembershipInRoom) {
   const t = (room.title || '').trim();
   return !t || /^group\s*chat$/i.test(t) ? 'Direct Message' : t;
 }
 
 // Primary: via participants
-const partnerMembershipId = room.participant_ids?.find(pId => pId !== myMembershipInRoom.id);
 if (partnerMembershipId) {
   // 1) participantCache (fast path)
   const pc = participantCache[partnerMembershipId]?.details;
@@ -176,7 +209,7 @@ if (partnerMembershipId) {
 
 // 3) Fallback from latest message sender (has user_details once messages were fetched)
 const last = getLatestMessage(room.id);
-if (last && last.sender?.user_details && last.sender.id !== myMembershipInRoom.id) {
+if (last && last.sender?.user_details && last.sender.id !== myMembershipId) {
   const u = last.sender.user_details;
   const full = `${u.first_name || ''} ${u.last_name || ''}`.trim();
   return full || u.email || 'Direct Message';
@@ -184,7 +217,59 @@ if (last && last.sender?.user_details && last.sender.id !== myMembershipInRoom.i
 
 // Final fallback
 return 'Direct Message';
-  }, [pharmacies, myMemberships, participantCache]);
+  }, [pharmacies, myMemberships, participantCache, memberCache, getLatestMessage]);
+
+  const findMemberDetails = useCallback(
+    (membershipId: number | null) => {
+      if (!membershipId) return null;
+      const participant = participantCache[membershipId]?.details;
+      if (participant) return participant;
+      for (const pid in memberCache) {
+        const candidate = memberCache[Number(pid)]?.[membershipId]?.details;
+        if (candidate) {
+          return candidate;
+        }
+      }
+      return null;
+    },
+    [participantCache, memberCache],
+  );
+
+  const getRoomAvatar = useCallback(
+    (room: ChatRoom, fallbackName: string): { url: string | null; label: string } => {
+      if (room.type === 'GROUP') {
+        return {
+          url: null,
+          label: initialsFromParts(undefined, undefined, fallbackName || room.title || 'Group Chat'),
+        };
+      }
+      const { myMembershipId, partnerMembershipId } = resolveParticipants(room);
+      const memberDetails = findMemberDetails(partnerMembershipId);
+      if (memberDetails) {
+        return {
+          url: memberDetails.profile_photo_url ?? null,
+          label: initialsFromParts(
+            memberDetails.first_name,
+            memberDetails.last_name,
+            memberDetails.email || fallbackName,
+          ),
+        };
+      }
+      const last = getLatestMessage(room.id);
+      if (last && last.sender?.user_details && last.sender.id !== myMembershipId) {
+        const details = last.sender.user_details;
+        return {
+          url: details.profile_photo_url ?? null,
+          label: initialsFromParts(details.first_name, details.last_name, details.email || fallbackName),
+        };
+      }
+      return {
+        url: null,
+        label: initialsFromParts(undefined, undefined, fallbackName || 'Direct Message'),
+      };
+    },
+    [findMemberDetails, resolveParticipants, getLatestMessage],
+  );
 
   const roomCategory = useCallback((room: ChatRoom): SidebarFilter => {
     if (room.type === 'DM') return 'dm';
@@ -414,81 +499,104 @@ return 'Direct Message';
         {chatsToDisplay.pinnedChats.length > 0 && (
           <>
             {!isCollapsed && <Box className="sidebar-section-label">PINNED</Box>}
-            {chatsToDisplay.pinnedChats.map(room => (
-              <ChatListItem
-                key={`pinned-${room.id}`}
-                room={room}
-                isActive={activeRoomId === room.id}
-                onSelect={(roomId) => onSelectRoom({ type: room.type.toLowerCase() as 'group' | 'dm', id: roomId })}
-                previewOverride={getLatestMessage(room.id)?.body}
-                displayName={getDisplayName(room)}
-                isCollapsed={isCollapsed}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                canEditDelete={isRoomAdmin(room)}
-              />
-            ))}
+            {chatsToDisplay.pinnedChats.map(room => {
+              const displayName = getDisplayName(room);
+              const avatar = getRoomAvatar(room, displayName);
+              return (
+                <ChatListItem
+                  key={`pinned-${room.id}`}
+                  room={room}
+                  isActive={activeRoomId === room.id}
+                  onSelect={(roomId) => onSelectRoom({ type: room.type.toLowerCase() as 'group' | 'dm', id: roomId })}
+                  previewOverride={getLatestMessage(room.id)?.body}
+                  displayName={displayName}
+                  avatarUrl={avatar.url}
+                  avatarLabel={avatar.label}
+                  isCollapsed={isCollapsed}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  canEditDelete={isRoomAdmin(room)}
+                />
+              );
+            })}
             {!isCollapsed && <Divider sx={{ my: 1 }} />}
           </>
         )}
         {chatsToDisplay.shiftChats.length > 0 && (
           <>
             {!isCollapsed && <Box className="sidebar-section-label">SHIFTS</Box>}
-            {chatsToDisplay.shiftChats.map(room => (
-              <ChatListItem
-                key={`shift-${room.id}`}
-                room={room}
-                isActive={activeRoomId === room.id}
-                onSelect={(roomId) => onSelectRoom({ type: 'group', id: roomId })}
-                previewOverride={getLatestMessage(room.id)?.body}
-                displayName={getDisplayName(room)}
-                isCollapsed={isCollapsed}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                canEditDelete={isRoomAdmin(room)}
-              />
-            ))}
+            {chatsToDisplay.shiftChats.map(room => {
+              const displayName = getDisplayName(room);
+              const avatar = getRoomAvatar(room, displayName);
+              return (
+                <ChatListItem
+                  key={`shift-${room.id}`}
+                  room={room}
+                  isActive={activeRoomId === room.id}
+                  onSelect={(roomId) => onSelectRoom({ type: 'group', id: roomId })}
+                  previewOverride={getLatestMessage(room.id)?.body}
+                  displayName={displayName}
+                  avatarUrl={avatar.url}
+                  avatarLabel={avatar.label}
+                  isCollapsed={isCollapsed}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  canEditDelete={isRoomAdmin(room)}
+                />
+              );
+            })}
             {!isCollapsed && <Divider sx={{ my: 1 }} />}
           </>
         )}
         {chatsToDisplay.groupChats.length > 0 && (
           <>
             {!isCollapsed && <Box className="sidebar-section-label">MY COMMUNITY</Box>}
-            {chatsToDisplay.groupChats.map(room => (
-              <ChatListItem
-                key={`group-${room.id}`}
-                room={room}
-                isActive={activeRoomId === room.id}
-                onSelect={(roomId) => onSelectRoom({ type: 'group', id: roomId })}
-                previewOverride={getLatestMessage(room.id)?.body}
-                displayName={getDisplayName(room)}
-                isCollapsed={isCollapsed}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                canEditDelete={isRoomAdmin(room)}
-
-              />
-            ))}
+            {chatsToDisplay.groupChats.map(room => {
+              const displayName = getDisplayName(room);
+              const avatar = getRoomAvatar(room, displayName);
+              return (
+                <ChatListItem
+                  key={`group-${room.id}`}
+                  room={room}
+                  isActive={activeRoomId === room.id}
+                  onSelect={(roomId) => onSelectRoom({ type: 'group', id: roomId })}
+                  previewOverride={getLatestMessage(room.id)?.body}
+                  displayName={displayName}
+                  avatarUrl={avatar.url}
+                  avatarLabel={avatar.label}
+                  isCollapsed={isCollapsed}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  canEditDelete={isRoomAdmin(room)}
+                />
+              );
+            })}
           </>
         )}
         {chatsToDisplay.dmChats.length > 0 && (
           <>
             {filter === 'all' && (chatsToDisplay.groupChats.length > 0 || chatsToDisplay.pinnedChats.length > 0) && !isCollapsed && <Divider sx={{ my: 1 }} />}
             {!isCollapsed && <Box className="sidebar-section-label">DIRECT MESSAGES</Box>}
-            {chatsToDisplay.dmChats.map(room => (
-              <ChatListItem
-                key={`dm-${room.id}`}
-                room={room}
-                isActive={activeRoomId === room.id}
-                onSelect={(roomId) => onSelectRoom({ type: 'dm', id: roomId })}
-                previewOverride={getLatestMessage(room.id)?.body}
-                displayName={getDisplayName(room)}
-                isCollapsed={isCollapsed}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                canEditDelete={isRoomAdmin(room)}
-              />
-            ))}
+            {chatsToDisplay.dmChats.map(room => {
+              const displayName = getDisplayName(room);
+              const avatar = getRoomAvatar(room, displayName);
+              return (
+                <ChatListItem
+                  key={`dm-${room.id}`}
+                  room={room}
+                  isActive={activeRoomId === room.id}
+                  onSelect={(roomId) => onSelectRoom({ type: 'dm', id: roomId })}
+                  previewOverride={getLatestMessage(room.id)?.body}
+                  displayName={displayName}
+                  avatarUrl={avatar.url}
+                  avatarLabel={avatar.label}
+                  isCollapsed={isCollapsed}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  canEditDelete={isRoomAdmin(room)}
+                />
+              );
+            })}
           </>
         )}
       </Box>

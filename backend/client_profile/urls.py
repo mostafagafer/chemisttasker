@@ -79,20 +79,10 @@ hub_poll_detail = HubPollViewSet.as_view({"get": "retrieve"})
 hub_poll_vote = HubPollViewSet.as_view({"post": "vote"})
 
 urlpatterns = [
-    path('owner/onboarding/', OwnerOnboardingCreate.as_view(), name='owner-onboarding-create'),
-    path('owner/onboarding/me/', OwnerOnboardingDetail.as_view(), name='owner-onboarding-detail'),
-    # path('pharmacist/onboarding/', PharmacistOnboardingCreateView.as_view(), name='pharmacist-onboarding-create'),
-    # path('pharmacist/onboarding/me/', PharmacistOnboardingDetailView.as_view(), name='pharmacist-onboarding-detail'),
-    path('otherstaff/onboarding/', OtherStaffOnboardingCreateView.as_view(), name='otherstaff-onboarding-create'),
-    path('otherstaff/onboarding/me/', OtherStaffOnboardingDetailView.as_view(), name='otherstaff-onboarding-detail'),
-    path('explorer/onboarding/', ExplorerOnboardingCreateView.as_view(), name='explorer-onboarding-create'),
-    path('explorer/onboarding/me/', ExplorerOnboardingDetailView.as_view(), name='explorer-onboarding-detail'),
-
-
-    # === New Onboarding ===
-    path('pharmacist/onboarding-v2/me/', PharmacistOnboardingV2MeView.as_view(), name='pharmacist-onboarding-v2-me'),
-    path('otherstaff/onboarding-v2/me/', OtherStaffOnboardingV2MeView.as_view(), name='otherstaff-onboarding-v2-me'),
-    path('explorer/onboarding-v2/me/', ExplorerOnboardingV2MeView.as_view(), name='explorer-onboarding-v2-me'),
+    path('owner/onboarding/me/', OwnerOnboardingV2MeView.as_view(), name='owner-onboarding-me'),
+    path('pharmacist/onboarding/me/', PharmacistOnboardingV2MeView.as_view(), name='pharmacist-onboarding-me'),
+    path('otherstaff/onboarding/me/', OtherStaffOnboardingV2MeView.as_view(), name='otherstaff-onboarding-me'),
+    path('explorer/onboarding/me/', ExplorerOnboardingV2MeView.as_view(), name='explorer-onboarding-me'),
 
     # path('onboarding/referee-confirm/<int:profile_pk>/<int:ref_idx>/', RefereeConfirmView.as_view(), name='referee-confirm'),
     path('onboarding/submit-reference/<str:token>/', RefereeSubmitResponseView.as_view(), name='submit-referee-response'),

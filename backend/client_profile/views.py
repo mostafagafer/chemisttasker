@@ -6,7 +6,7 @@ from .serializers import required_user_role_for_membership
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, SAFE_METHODS
-from rest_framework.generics import CreateAPIView, RetrieveUpdateAPIView
+from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.exceptions import NotFound, APIException, PermissionDenied, ValidationError
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.decorators import action, api_view, permission_classes
@@ -150,23 +150,6 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         # update, partial_update, destroy
         self.required_roles = ['ORG_ADMIN', 'CHIEF_ADMIN', 'REGION_ADMIN']
         return [permissions.IsAuthenticated(), OrganizationRolePermission()]
-
-class OwnerOnboardingCreate(generics.CreateAPIView):
-    serializer_class = OwnerOnboardingSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOwner, IsOTPVerified]
-
-    def perform_create(self, serializer):
-        serializer.save()
-   
-class OwnerOnboardingDetail(generics.RetrieveUpdateAPIView):
-    serializer_class   = OwnerOnboardingSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOwner, IsOTPVerified]
-
-    def get_object(self):
-        try:
-            return OwnerOnboarding.objects.get(user=self.request.user)
-        except OwnerOnboarding.DoesNotExist:
-            raise NotFound("Owner onboarding profile not found.")
 
 def _build_owner_claims_url(owner_user):
     base_url = get_frontend_dashboard_url(owner_user)
@@ -494,44 +477,6 @@ class OwnerOnboardingClaim(APIView):
 #         except PharmacistOnboarding.DoesNotExist:
 #             raise NotFound("Pharmacist onboarding profile not found.")
 
-class OtherStaffOnboardingCreateView(CreateAPIView):
-    parser_classes = [MultiPartParser, FormParser]
-    serializer_class = OtherStaffOnboardingSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOtherstaff, IsOTPVerified]
-
-    def perform_create(self, serializer):
-        serializer.save()
-
-class OtherStaffOnboardingDetailView(RetrieveUpdateAPIView):
-    parser_classes = [MultiPartParser, FormParser]
-    serializer_class = OtherStaffOnboardingSerializer
-    permission_classes = [IsAuthenticated, IsOtherstaff, IsOTPVerified]
-
-    def get_object(self):
-        try:
-            return OtherStaffOnboarding.objects.get(user=self.request.user)
-        except OtherStaffOnboarding.DoesNotExist:
-            raise NotFound("Onboarding profile not found for this user.")
-
-class ExplorerOnboardingCreateView(CreateAPIView):
-    parser_classes = [MultiPartParser, FormParser]
-    serializer_class = ExplorerOnboardingSerializer
-    permission_classes = [permissions.IsAuthenticated, IsExplorer, IsOTPVerified]
-
-    def perform_create(self, serializer):
-        serializer.save()
-
-class ExplorerOnboardingDetailView(RetrieveUpdateAPIView):
-    parser_classes = [MultiPartParser, FormParser]
-    serializer_class = ExplorerOnboardingSerializer
-    permission_classes = [IsAuthenticated, IsExplorer, IsOTPVerified]
-
-    def get_object(self):
-        try:
-            return ExplorerOnboarding.objects.get(user=self.request.user)
-        except ExplorerOnboarding.DoesNotExist:
-            raise NotFound("Onboarding profile not found for this user.")
-
 # class RefereeConfirmView(APIView):
 #     def post(self, request, profile_pk, ref_idx, *args, **kwargs):
 #         onboarding_models = [PharmacistOnboarding, OtherStaffOnboarding, ExplorerOnboarding]
@@ -757,6 +702,22 @@ class RefereeRejectView(APIView):
         return Response({'success': True, 'message': 'Referee rejected.'}, status=200)
 
 # === New Onboarding ===
+class OwnerOnboardingV2MeView(generics.RetrieveUpdateAPIView):
+    permission_classes = [permissions.IsAuthenticated, IsOwner, IsOTPVerified]
+    serializer_class = OwnerOnboardingV2Serializer
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+
+    def get_object(self):
+        obj, _ = OwnerOnboarding.objects.get_or_create(
+            user=self.request.user,
+            defaults={
+                "phone_number": "",
+                "role": OwnerOnboarding.ROLE_CHOICES[0][0],
+                "chain_pharmacy": False,
+            },
+        )
+        return obj
+
 class PharmacistOnboardingV2MeView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated, IsPharmacist, IsOTPVerified]
     serializer_class = PharmacistOnboardingV2Serializer

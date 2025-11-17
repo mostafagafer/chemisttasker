@@ -23,7 +23,7 @@ type ApiData = {
 };
 
 export default function ProfileV2() {
-  const url = API_ENDPOINTS.onboardingV2Detail('pharmacist');
+  const url = API_ENDPOINTS.onboardingDetail('pharmacist');
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);

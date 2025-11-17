@@ -55,7 +55,7 @@ function StatusChip({
 }
 
 export default function RefereesV2() {
-  const url = API_ENDPOINTS.onboardingV2Detail('explorer');
+  const url = API_ENDPOINTS.onboardingDetail('explorer');
 
   const [data, setData] = React.useState<ApiData>({});
   const [loading, setLoading] = React.useState(true);

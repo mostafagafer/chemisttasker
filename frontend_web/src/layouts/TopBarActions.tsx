@@ -277,7 +277,7 @@ const pharmacistOptions: SearchOption[] = [
     },
     {
       label: "Profile & Onboarding",
-      path: "/dashboard/pharmacist/onboarding-v2",
+      path: "/dashboard/pharmacist/onboarding",
       keywords: ["profile", "onboarding", "setup"],
     },
     {
@@ -346,7 +346,7 @@ const otherStaffOptions: SearchOption[] = [
     },
     {
       label: "Profile & Onboarding",
-      path: "/dashboard/otherstaff/onboarding-v2",
+      path: "/dashboard/otherstaff/onboarding",
       keywords: ["profile", "onboarding"],
     },
     {
@@ -385,7 +385,7 @@ const explorerOptions: SearchOption[] = [
     { label: "Overview", path: "/dashboard/explorer/overview", keywords: ["home", "dashboard", "summary"] },
     {
       label: "Profile & Onboarding",
-      path: "/dashboard/explorer/onboarding-v2",
+      path: "/dashboard/explorer/onboarding",
       keywords: ["profile", "onboarding"],
     },
     {

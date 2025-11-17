@@ -283,7 +283,7 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
     //   ),
     // },
       {
-      segment: 'dashboard/otherstaff/onboarding-v2',
+      segment: 'dashboard/otherstaff/onboarding',
       title: 'Profile',
       icon: <ManageAccountsSharpIcon />,
       action: (
@@ -348,7 +348,7 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
     { segment: 'dashboard/pharmacist/overview', title: 'Overview', icon: <DashboardIcon /> },
     // NEW: V2 onboarding � single sidebar item (tabs live inside the page)
     {
-      segment: 'dashboard/pharmacist/onboarding-v2',
+      segment: 'dashboard/pharmacist/onboarding',
       title: 'Profile',
       icon: <ManageAccountsSharpIcon />,
       action: (
@@ -407,7 +407,7 @@ export function getExplorerNav(progress_percent: number, hasUnreadMessages: bool
     },
 
           {
-      segment: 'dashboard/explorer/onboarding-v2',
+      segment: 'dashboard/explorer/onboarding',
       title: 'Profile',
       icon: <ManageAccountsSharpIcon />,
       action: (

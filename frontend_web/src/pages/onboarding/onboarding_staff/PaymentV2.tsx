@@ -57,7 +57,7 @@ const onlyDigits = (s: string) => (s || '').replace(/\D/g, '');
 
 
 export default function PaymentV2() {
-  const url = API_ENDPOINTS.onboardingV2Detail('otherstaff');
+  const url = API_ENDPOINTS.onboardingDetail('otherstaff');
 
   const [data, setData] = React.useState<ApiData>({});
   const [loading, setLoading] = React.useState(true);

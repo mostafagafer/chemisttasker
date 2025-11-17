@@ -1,15 +1,10 @@
 import { FC, useState } from 'react';
-import { Box, Typography, Tooltip, Menu, MenuItem, IconButton, ListItemIcon, ListItemText } from '@mui/material';
+import { Avatar, Box, Typography, Tooltip, Menu, MenuItem, IconButton, ListItemIcon, ListItemText } from '@mui/material';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PushPinIcon from '@mui/icons-material/PushPin';
 import { ChatRoom } from './types';
-
-const initials = (text: string) => {
-  const parts = (text || '').trim().split(/\s+/);
-  return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || '?';
-};
 
 interface ChatListItemProps {
   room: ChatRoom;
@@ -17,6 +12,8 @@ interface ChatListItemProps {
   onSelect: (roomId: number) => void;
   previewOverride?: string;
   displayName: string;
+  avatarUrl?: string | null;
+  avatarLabel: string;
   isCollapsed: boolean;
   onEdit: (room: ChatRoom) => void;
   onDelete: (roomId: number, roomName: string) => void;
@@ -31,6 +28,8 @@ export const ChatListItem: FC<ChatListItemProps> = ({
   onSelect,
   previewOverride,
   displayName,
+  avatarUrl,
+  avatarLabel,
   isCollapsed,
   onEdit,
   onDelete,
@@ -87,32 +86,31 @@ export const ChatListItem: FC<ChatListItemProps> = ({
       }}
       className="sidebar-item"
     >
-      <Box
-        sx={{
-          width: 36,
-          height: 36,
-          borderRadius: '50%',
-          bgcolor: 'primary.main',
-          color: '#fff',
-          fontWeight: 700,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-          position: 'relative',
-        }}
-        className="avatar"
-      >
-        {initials(displayName)}
+      <Box sx={{ position: 'relative', width: 36, height: 36, flexShrink: 0 }}>
+        <Avatar
+          src={avatarUrl || undefined}
+          alt={displayName}
+          sx={{
+            width: 36,
+            height: 36,
+            fontSize: '0.85rem',
+            fontWeight: 700,
+            bgcolor: avatarUrl ? 'transparent' : 'primary.main',
+            color: avatarUrl ? 'text.primary' : '#fff',
+            border: avatarUrl ? '1px solid rgba(15,23,42,0.08)' : undefined,
+          }}
+        >
+          {!avatarUrl ? avatarLabel : null}
+        </Avatar>
         {isCollapsed && (room.unread_count || 0) > 0 && (
           <Box
             sx={{
               position: 'absolute',
-              bottom: 0,
-              right: 0,
+              bottom: -2,
+              right: -2,
               minWidth: '16px',
               height: '16px',
-              padding: '0 4px',
+              px: 0.5,
               borderRadius: '999px',
               bgcolor: '#d32f2f',
               color: '#fff',
@@ -121,7 +119,7 @@ export const ChatListItem: FC<ChatListItemProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              border: '2px solid white'
+              border: '2px solid #fff',
             }}
           >
             {room.unread_count}

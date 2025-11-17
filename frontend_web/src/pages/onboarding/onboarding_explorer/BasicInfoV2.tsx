@@ -11,8 +11,9 @@ import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
 
 import apiClient from '../../../utils/apiClient';
-import {  API_ENDPOINTS } from '../../../constants/api';
+import { API_BASE_URL, API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
+import ProfilePhotoUploader from '../../../components/profilePhoto/ProfilePhotoUploader';
 import type { User } from '../../../contexts/AuthContext';
 
 const EXPLORER_ROLE_CHOICES = [
@@ -28,6 +29,8 @@ type ApiData = {
   username?: string;
   first_name?: string;
   last_name?: string;
+  profile_photo?: string | null;
+  profile_photo_url?: string | null;
 
   phone_number?: string;
   government_id?: string | null;
@@ -54,6 +57,9 @@ export default function BasicInfoV2() {
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [data, setData] = React.useState<ApiData>({});
+  const [profilePhotoFile, setProfilePhotoFile] = React.useState<File | null>(null);
+  const [profilePhotoPreview, setProfilePhotoPreview] = React.useState<string | null>(null);
+  const [profilePhotoCleared, setProfilePhotoCleared] = React.useState(false);
   const [snack, setSnack] = React.useState<string>('');
   const [error, setError] = React.useState<string>('');
   const [addressDisplay, setAddressDisplay] = React.useState<string>('');
@@ -82,7 +88,7 @@ export default function BasicInfoV2() {
   });
   const autocompleteRef = React.useRef<google.maps.places.Autocomplete | null>(null);
 
-  const url = API_ENDPOINTS.onboardingV2Detail('explorer');
+  const url = API_ENDPOINTS.onboardingDetail('explorer');
 
   React.useEffect(() => {
     let mounted = true;
@@ -92,6 +98,12 @@ export default function BasicInfoV2() {
       .then(res => {
         if (!mounted) return;
         setData(res.data);
+        const nextPhoto =
+          res.data.profile_photo_url ||
+          (res.data.profile_photo ? `${API_BASE_URL}${res.data.profile_photo}` : null);
+        setProfilePhotoPreview(nextPhoto);
+        setProfilePhotoFile(null);
+        setProfilePhotoCleared(false);
         // Pre-fill the visible address from parts so it never looks blank
         const s = [res.data.street_address, res.data.suburb, res.data.state, res.data.postcode]
           .filter(Boolean).join(', ');
@@ -176,12 +188,24 @@ export default function BasicInfoV2() {
           if (v != null && v !== '') fd.append(k, String(v));
         });
 
+      if (profilePhotoFile) {
+        fd.append('profile_photo', profilePhotoFile);
+      } else if (profilePhotoCleared) {
+        fd.append('profile_photo_clear', 'true');
+      }
+
       // government id file
 
       const res = await apiClient.patch(url, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setData(res.data);
+      const nextPhoto =
+        res.data.profile_photo_url ||
+        (res.data.profile_photo ? `${API_BASE_URL}${res.data.profile_photo}` : null);
+      setProfilePhotoPreview(nextPhoto);
+      setProfilePhotoFile(null);
+      setProfilePhotoCleared(false);
 
       // refresh the visible address line from saved parts (in case backend normalizes)
       const s = [res.data.street_address, res.data.suburb, res.data.state, res.data.postcode]
@@ -268,6 +292,18 @@ return (
         {error}
       </Alert>
     )}
+
+    <Box sx={{ mb: 3 }}>
+      <ProfilePhotoUploader
+        value={profilePhotoPreview}
+        onChange={(file, previewUrl, cleared) => {
+          setProfilePhotoFile(file);
+          setProfilePhotoPreview(previewUrl);
+          setProfilePhotoCleared(Boolean(cleared) && !file);
+        }}
+        disabled={saving}
+      />
+    </Box>
 
     {/* ROW 1 — names on one row */}
     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>

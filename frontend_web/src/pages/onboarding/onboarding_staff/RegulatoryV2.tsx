@@ -90,7 +90,7 @@ function fileUrl(path?: string) {
 }
 
 export default function RegulatoryV2() {
-  const url = API_ENDPOINTS.onboardingV2Detail("otherstaff");
+  const url = API_ENDPOINTS.onboardingDetail("otherstaff");
   const [loading, setLoading] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [error, setError] = useState<string>("");

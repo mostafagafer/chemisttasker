@@ -55,7 +55,7 @@ export default function PharmacistOnboardingV2Layout() {
 
   // Load real progress from backend on mount
   React.useEffect(() => {
-    const url = API_ENDPOINTS.onboardingV2Detail("pharmacist");
+    const url = API_ENDPOINTS.onboardingDetail("pharmacist");
     apiClient
       .get(url)
       .then((res) => {

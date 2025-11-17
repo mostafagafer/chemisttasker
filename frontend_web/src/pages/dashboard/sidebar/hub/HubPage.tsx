@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useMemo, useEffect, useCallback, useRef, ChangeEvent } from 'react';
+﻿﻿import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 
 // MUI Components
 import {
@@ -101,7 +101,7 @@ import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import CancelIcon from '@mui/icons-material/Cancel';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import SearchIcon from '@mui/icons-material/Search';
-import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import CoverPhotoUploader from '../../../../components/coverPhoto/CoverPhotoUploader';
 
 type GroupModalScope =
   | { type: 'pharmacy'; pharmacyId: number }
@@ -231,6 +231,7 @@ export default function HubPage() {
         name: selectedPharmacy.name,
         canManageProfile: selectedPharmacy.canManageProfile,
         canCreatePost: selectedPharmacy.canCreatePost,
+        profilePhotoUrl: null,
       };
     }
     return null;
@@ -246,6 +247,7 @@ export default function HubPage() {
         id: org.id,
         canManageProfile: org.canManageProfile,
         canCreatePost: true,
+        profilePhotoUrl: null,
       };
     }
     return null;
@@ -973,6 +975,7 @@ interface HomePageContentProps {
     name: string;
     canManageProfile: boolean;
     canCreatePost: boolean;
+    profilePhotoUrl?: string | null;
   };
   onOpenSettings?: () => void;
   canCreatePost: boolean;
@@ -995,19 +998,48 @@ function HomePageContent({
             <IconButton
               onClick={onOpenSettings}
               size="small"
-              sx={{ position: 'absolute', top: 16, right: 16, bgcolor: 'white', boxShadow: 2 }}
+              sx={{ position: 'absolute', top: 16, right: 16, bgcolor: 'white', boxShadow: 2, zIndex: 2 }}
             >
               <SettingsOutlinedIcon fontSize="small" />
             </IconButton>
           </Tooltip>
         )}
-        <CardMedia
-          component="img"
-          height="240"
-          image={details.coverImage}
-          alt="Pharmacy cover"
-          sx={{ objectFit: 'cover' }}
-        />
+        <Box sx={{ position: 'relative', height: { xs: 220, md: 260 }, overflow: 'hidden', borderRadius: '16px 16px 0 0' }}>
+          <CardMedia
+            component="img"
+            height="100%"
+            image={details.coverImage}
+            alt="Pharmacy cover"
+            sx={{ objectFit: 'cover', width: '100%', filter: 'brightness(0.85)' }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              pointerEvents: 'none',
+              background: 'linear-gradient(180deg, rgba(15,23,42,0.15) 0%, rgba(15,23,42,0.8) 100%)',
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 24,
+              left: 24,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 0.5,
+              color: 'common.white',
+              pointerEvents: 'none',
+            }}
+          >
+            <Typography variant="h4" sx={{ fontWeight: 700 }}>
+              {details.name}
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+              Pharmacy Hub Overview
+            </Typography>
+          </Box>
+        </Box>
         <CardContent sx={{ p: { xs: 3, md: 4 }, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
             {details.name}
@@ -1088,6 +1120,10 @@ function MembersPreviewPanel({ loadMembers, title, emptyMessage }: MembersPrevie
 
   const preview = members.slice(0, 12);
   const remaining = members.length - preview.length;
+  const initialsFor = (label: string) => {
+    const parts = label.trim().split(/\s+/);
+    return `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}`.toUpperCase() || 'U';
+  };
 
   return (
     <Card sx={{ borderRadius: 2, border: '1px solid', borderColor: 'grey.200', boxShadow: 0, mt: 3 }}>
@@ -1116,6 +1152,14 @@ function MembersPreviewPanel({ loadMembers, title, emptyMessage }: MembersPrevie
               return (
                 <Chip
                   key={member.membershipId}
+                  avatar={
+                    <Avatar
+                      src={member.profilePhotoUrl || undefined}
+                      sx={{ width: 28, height: 28, fontSize: '0.75rem' }}
+                    >
+                      {initialsFor(baseName)}
+                    </Avatar>
+                  }
                   label={formatMemberLabel(baseName, member.jobTitle)}
                   size="small"
                   variant="outlined"
@@ -1145,6 +1189,7 @@ interface OrgHomePageContentProps {
     about: string;
     canManageProfile: boolean;
     canCreatePost: boolean;
+    profilePhotoUrl?: string | null;
   };
   onOpenSettings?: () => void;
   canCreatePost?: boolean;
@@ -1167,19 +1212,48 @@ function OrgHomePageContent({
             <IconButton
               onClick={onOpenSettings}
               size="small"
-              sx={{ position: 'absolute', top: 16, right: 16, bgcolor: 'white', boxShadow: 2 }}
+              sx={{ position: 'absolute', top: 16, right: 16, bgcolor: 'white', boxShadow: 2, zIndex: 2 }}
             >
               <SettingsOutlinedIcon fontSize="small" />
             </IconButton>
           </Tooltip>
         )}
-        <CardMedia
-          component="img"
-          height="240"
-          image={details.coverImage}
-          alt="Organization cover"
-          sx={{ objectFit: 'cover' }}
-        />
+        <Box sx={{ position: 'relative', height: { xs: 220, md: 260 }, overflow: 'hidden', borderRadius: '16px 16px 0 0' }}>
+          <CardMedia
+            component="img"
+            height="100%"
+            image={details.coverImage}
+            alt="Organization cover"
+            sx={{ objectFit: 'cover', width: '100%', filter: 'brightness(0.85)' }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              pointerEvents: 'none',
+              background: 'linear-gradient(180deg, rgba(2,6,23,0.2) 0%, rgba(2,6,23,0.85) 100%)',
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 24,
+              left: 24,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 0.5,
+              color: 'common.white',
+              pointerEvents: 'none',
+            }}
+          >
+            <Typography variant="h4" sx={{ fontWeight: 700 }}>
+              {details.name}
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+              Organization Workspace
+            </Typography>
+          </Box>
+        </Box>
         <CardContent sx={{ p: { xs: 3, md: 4 }, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <Typography variant="h3" component="h1" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
             {details.name}
@@ -1823,6 +1897,7 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
   };
 
   const authorName = `${post.author.user.firstName || ''} ${post.author.user.lastName || ''}`.trim() || 'Unknown User';
+  const authorAvatar = post.author.user.profilePhotoUrl || null;
   const authorJobTitle = post.author.jobTitle?.trim() || null;
   const postTimestamp = formatHubDate(post.createdAt);
 
@@ -1868,7 +1943,17 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
     <Card sx={{ borderRadius: 2, boxShadow: 1 }}>
       <CardContent sx={{ p: 2 }}>
         <Stack direction="row" spacing={2} alignItems="flex-start">
-          <Avatar sx={{ bgcolor: 'primary.main' }}>{authorName.charAt(0)}</Avatar>
+          <Avatar
+            src={authorAvatar || undefined}
+            alt={authorName}
+            sx={{
+              bgcolor: authorAvatar ? 'transparent' : 'primary.main',
+              color: authorAvatar ? 'inherit' : 'common.white',
+              fontWeight: 700,
+            }}
+          >
+            {!authorAvatar && authorName.charAt(0)}
+          </Avatar>
           <Stack spacing={0.5} sx={{ flexGrow: 1 }}>
             <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
               <Box>
@@ -2012,15 +2097,28 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
         <Divider sx={{ mt: 1 }} />
 
         <Stack spacing={2} sx={{ mt: 2 }}>
-          {post.recentComments.map((comment) => (
+          {post.recentComments.map((comment) => {
+            const commenterName = `${comment.author.user.firstName || ''} ${comment.author.user.lastName || ''}`.trim() || 'Member';
+            const commenterAvatar = comment.author.user.profilePhotoUrl || null;
+            return (
             <Stack key={comment.id} direction="row" spacing={1.5}>
-              <Avatar sx={{ width: 32, height: 32, fontSize: '0.875rem', bgcolor: 'secondary.main' }}>
-                {comment.author.user.firstName?.charAt(0)}
+              <Avatar
+                src={commenterAvatar || undefined}
+                alt={commenterName}
+                sx={{
+                  width: 32,
+                  height: 32,
+                  fontSize: '0.875rem',
+                  bgcolor: commenterAvatar ? 'transparent' : 'secondary.main',
+                  color: commenterAvatar ? 'inherit' : 'common.white',
+                }}
+              >
+                {!commenterAvatar && (comment.author.user.firstName?.charAt(0) || 'U')}
               </Avatar>
               <Paper variant="outlined" sx={{ p: 1.5, flexGrow: 1, bgcolor: 'grey.100', borderRadius: 2 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-                    {comment.author.user.firstName} {comment.author.user.lastName}
+                    {commenterName}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
                     {new Date(comment.createdAt).toLocaleDateString()}
@@ -2031,7 +2129,7 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
                 </Typography>
               </Paper>
             </Stack>
-          ))}
+          )})}
           <Stack direction="row" spacing={1.5} alignItems="center">
             <Avatar sx={{ width: 32, height: 32, bgcolor: 'grey.500' }}>U</Avatar>
             <Paper
@@ -2957,21 +3055,23 @@ interface PharmacyProfileModalProps {
 
 function PharmacyProfileModal({ open, pharmacy, onClose, onSaved }: PharmacyProfileModalProps) {
   const [about, setAbout] = useState(pharmacy.about ?? '');
-  const [coverImage, setCoverImage] = useState<File | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(pharmacy.coverImageUrl ?? null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setAbout(pharmacy.about ?? '');
-      setCoverImage(null);
+      setCoverFile(null);
+      setCoverPreview(pharmacy.coverImageUrl ?? null);
       setError(null);
     }
   }, [open, pharmacy]);
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null;
-    setCoverImage(file);
+  const handleCoverChange = (file: File | null, previewUrl: string | null) => {
+    setCoverFile(file);
+    setCoverPreview(previewUrl);
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -2981,7 +3081,7 @@ function PharmacyProfileModal({ open, pharmacy, onClose, onSaved }: PharmacyProf
     try {
       const updated = await updatePharmacyHubProfile(pharmacy.id, {
         about,
-        coverImage: coverImage ?? undefined,
+        coverImage: coverFile ?? undefined,
       });
       onSaved(updated);
       onClose();
@@ -3012,14 +3112,13 @@ function PharmacyProfileModal({ open, pharmacy, onClose, onSaved }: PharmacyProf
           minRows={4}
           fullWidth
         />
-        <Button
-          variant="outlined"
-          component="label"
-          startIcon={<PhotoCameraIcon />}
-        >
-          {coverImage ? 'Change Cover Image' : 'Upload Cover Image'}
-          <input type="file" hidden accept="image/*" onChange={handleFileChange} />
-        </Button>
+        <CoverPhotoUploader
+          value={coverPreview}
+          onChange={handleCoverChange}
+          disabled={saving}
+          title="Cover photo"
+          helperText="Use a wide image (recommended 1200 x 400 px). Drag to reposition before saving."
+        />
         {error && <Alert severity="error">{error}</Alert>}
       </DialogContent>
       <DialogActions sx={{ p: 2 }}>
@@ -3041,21 +3140,23 @@ interface OrganizationProfileModalProps {
 
 function OrganizationProfileModal({ open, organization, onClose, onSaved }: OrganizationProfileModalProps) {
   const [about, setAbout] = useState(organization.about ?? '');
-  const [coverImage, setCoverImage] = useState<File | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(organization.coverImageUrl ?? null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setAbout(organization.about ?? '');
-      setCoverImage(null);
+      setCoverFile(null);
+      setCoverPreview(organization.coverImageUrl ?? null);
       setError(null);
     }
   }, [open, organization]);
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null;
-    setCoverImage(file);
+  const handleCoverChange = (file: File | null, previewUrl: string | null) => {
+    setCoverFile(file);
+    setCoverPreview(previewUrl);
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -3065,7 +3166,7 @@ function OrganizationProfileModal({ open, organization, onClose, onSaved }: Orga
     try {
       const updated = await updateOrganizationHubProfile(organization.id, {
         about,
-        coverImage: coverImage ?? undefined,
+        coverImage: coverFile ?? undefined,
       });
       onSaved(updated);
       onClose();
@@ -3096,14 +3197,13 @@ function OrganizationProfileModal({ open, organization, onClose, onSaved }: Orga
           minRows={4}
           fullWidth
         />
-        <Button
-          variant="outlined"
-          component="label"
-          startIcon={<PhotoCameraIcon />}
-        >
-          {coverImage ? 'Change Cover Image' : 'Upload Cover Image'}
-          <input type="file" hidden accept="image/*" onChange={handleFileChange} />
-        </Button>
+        <CoverPhotoUploader
+          value={coverPreview}
+          onChange={handleCoverChange}
+          disabled={saving}
+          title="Cover photo"
+          helperText="Use a wide image (recommended 1200 x 400 px). Drag to reposition before saving."
+        />
         {error && <Alert severity="error">{error}</Alert>}
       </DialogContent>
       <DialogActions sx={{ p: 2 }}>

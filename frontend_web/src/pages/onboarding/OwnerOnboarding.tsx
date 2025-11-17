@@ -15,8 +15,9 @@ import {
   InputAdornment,
 } from '@mui/material';
 import apiClient from '../../utils/apiClient';
-import { API_ENDPOINTS } from '../../constants/api';
+import { API_BASE_URL, API_ENDPOINTS } from '../../constants/api';
 import { useNavigate } from 'react-router-dom';
+import ProfilePhotoUploader from '../../components/profilePhoto/ProfilePhotoUploader';
 
 interface FormData {
   username: string;
@@ -26,6 +27,8 @@ interface FormData {
   role: 'MANAGER' | 'PHARMACIST';
   chain_pharmacy: boolean;
   ahpra_number: string;
+  profile_photo?: string | null;
+  profile_photo_url?: string | null;
 }
 
 const ROLE_OPTIONS = [
@@ -35,7 +38,6 @@ const ROLE_OPTIONS = [
 
 export default function OwnerOnboarding() {
   const detailUrl = API_ENDPOINTS.onboardingDetail('owner');
-  const createUrl = API_ENDPOINTS.onboardingCreate('owner');
   const navigate = useNavigate();
 
   const [data, setData] = useState<FormData>({
@@ -48,9 +50,11 @@ export default function OwnerOnboarding() {
     ahpra_number: '',
   });
   const [loading, setLoading] = useState(true);
-  const [profileExists, setProfile] = useState(false);
   const [error, setError] = useState('');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [profilePhotoFile, setProfilePhotoFile] = useState<File | null>(null);
+  const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(null);
+  const [profilePhotoCleared, setProfilePhotoCleared] = useState(false);
 
   useEffect(() => {
     apiClient
@@ -66,7 +70,11 @@ export default function OwnerOnboarding() {
           chain_pharmacy: !!d.chain_pharmacy,
           ahpra_number: d.ahpra_number || '',
         });
-        setProfile(true);
+        const nextPhoto =
+          d.profile_photo_url || (d.profile_photo ? `${API_BASE_URL}${d.profile_photo}` : null);
+        setProfilePhotoPreview(nextPhoto);
+        setProfilePhotoFile(null);
+        setProfilePhotoCleared(false);
       })
       .catch(err => {
         if (err.response?.status !== 404) {
@@ -96,16 +104,23 @@ const handleSubmit = async (e: React.FormEvent) => {
     Object.entries(data).forEach(([k, v]) => {
       payload.append(k, String(v));
     });
+    if (profilePhotoFile) {
+      payload.append('profile_photo', profilePhotoFile);
+    } else if (profilePhotoCleared) {
+      payload.append('profile_photo_clear', 'true');
+    }
 
     await apiClient.request({
-      method: profileExists ? 'put' : 'post',
-      url: profileExists ? detailUrl : createUrl,
+      method: 'put',
+      url: detailUrl,
       data: payload,
       headers: { 'Content-Type': 'multipart/form-data' },
     });
 
     setSnackbarOpen(true);
     setLoading(false);
+    setProfilePhotoFile(null);
+    setProfilePhotoCleared(false);
   } catch (err: any) {
     setError(err.response?.data?.detail || err.message);
     setLoading(false);
@@ -137,8 +152,21 @@ const handleSubmit = async (e: React.FormEvent) => {
 
       <Paper sx={{ p: 4, mt: 4 }} elevation={3}>
         <Typography variant="h5" gutterBottom>
-          {profileExists ? 'Update Profile' : 'Complete Onboarding'}
+          Complete Onboarding
         </Typography>
+
+        <Box sx={{ mb: 3 }}>
+          <ProfilePhotoUploader
+            value={profilePhotoPreview}
+            onChange={(file, previewUrl, cleared) => {
+              setProfilePhotoFile(file);
+              setProfilePhotoPreview(previewUrl);
+              setProfilePhotoCleared(Boolean(cleared) && !file);
+            }}
+            disabled={loading}
+            helperText="This image will appear in chat and Hub for your owner persona."
+          />
+        </Box>
 
         <Box component="form" onSubmit={handleSubmit}>
           <TextField

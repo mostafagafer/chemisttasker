@@ -37,9 +37,6 @@ export const API_ENDPOINTS = {
   },
 
 
-  onboardingV2Detail: (role: 'pharmacist'|'owner'|'otherstaff'|'explorer') =>
-  `/client-profile/${role}/onboarding-v2/me/`,
-
   // refereeConfirm: (pk: string | number, refIndex: string | number) =>
   //   `/client-profile/onboarding/referee-confirm/${pk}/${refIndex}/`,
 

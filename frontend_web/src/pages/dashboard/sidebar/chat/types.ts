@@ -3,7 +3,7 @@ export type UserLite = {
   first_name?: string;
   last_name?: string;
   email?: string;
-  avatar?: string | null;
+  profile_photo_url?: string | null;
 };
 
 export type LastMessageAPI = {

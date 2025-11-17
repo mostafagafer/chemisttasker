@@ -23,7 +23,7 @@ type ApiData = {
 };
 
 export default function ProfileV2() {
-  const url = API_ENDPOINTS.onboardingV2Detail('otherstaff');
+  const url = API_ENDPOINTS.onboardingDetail('otherstaff');
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);

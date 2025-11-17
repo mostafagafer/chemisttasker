@@ -53,6 +53,35 @@ def verification_fields_changed(instance, validated_data, fields):
                 return True
     return False
 
+
+def _file_has_changed(new_file, old_file):
+    return getattr(new_file, "name", None) != getattr(old_file, "name", None)
+
+
+def _resolve_user_profile_photo(user):
+    if not user:
+        return None
+    for attr in (
+        "pharmacistonboarding",
+        "otherstaffonboarding",
+        "exploreronboarding",
+        "owneronboarding",
+    ):
+        profile = getattr(user, attr, None)
+        photo = getattr(profile, "profile_photo", None) if profile else None
+        if photo:
+            return photo
+    return None
+
+
+def _should_clear_flag(initial_data, key):
+    value = initial_data.get(key)
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
 class RemoveOldFilesMixin:
     file_fields: list[str] = []
     def update(self, instance, validated_data):
@@ -180,619 +209,196 @@ class OnboardingVerificationMixin:
         transaction.on_commit(schedule_orchestrator)
 
 
-class OwnerOnboardingSerializer(SyncUserMixin, serializers.ModelSerializer):
-    file_fields = []
+class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
+    """
+    Single-tab onboarding for owners/managers.
+    Mirrors the V2 pattern used by pharmacist/other staff/explorer flows.
+    """
 
-    username   = serializers.CharField(source='user.username',   required=False)
-    first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
-    last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
+    username = serializers.CharField(source="user.username", required=False, allow_blank=True)
+    first_name = serializers.CharField(source="user.first_name", required=False, allow_blank=True)
+    last_name = serializers.CharField(source="user.last_name", required=False, allow_blank=True)
+    phone_number = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    profile_photo = serializers.ImageField(required=False, allow_null=True)
+    profile_photo_url = serializers.SerializerMethodField(read_only=True)
+    tab = serializers.CharField(write_only=True, required=False)
+    submitted_for_verification = serializers.BooleanField(write_only=True, required=False)
     progress_percent = serializers.SerializerMethodField()
 
     class Meta:
-        model  = OwnerOnboarding
+        model = OwnerOnboarding
         fields = [
-            'username', 'first_name', 'last_name',
-            'phone_number', 'role', 'chain_pharmacy',
-            'ahpra_number', 'verified',
-            'organization', 'progress_percent',
-            'ahpra_verified',
-            'ahpra_registration_status',
-            'ahpra_registration_type',
-            'ahpra_expiry_date',
-            'ahpra_verification_note',
+            "username",
+            "first_name",
+            "last_name",
+            "phone_number",
+            "role",
+            "chain_pharmacy",
+            "profile_photo",
+            "profile_photo_url",
+            "ahpra_number",
+            "ahpra_verified",
+            "ahpra_registration_status",
+            "ahpra_registration_type",
+            "ahpra_expiry_date",
+            "ahpra_verification_note",
+            "organization",
+            "verified",
+            "progress_percent",
+            "tab",
+            "submitted_for_verification",
         ]
         extra_kwargs = {
-            'verified': {'read_only': True},
-            'organization': {'read_only': True},
+            "organization": {"read_only": True},
+            "ahpra_verified": {"read_only": True},
+            "ahpra_registration_status": {"read_only": True},
+            "ahpra_registration_type": {"read_only": True},
+            "ahpra_expiry_date": {"read_only": True},
+            "ahpra_verification_note": {"read_only": True},
+            "verified": {"read_only": True},
+            "profile_photo": {"required": False, "allow_null": True},
         }
-        read_only_fields = [
-            'ahpra_verified',
-            'ahpra_registration_status',
-            'ahpra_registration_type',
-            'ahpra_expiry_date',
-            'ahpra_verification_note',
-        ]
-
-    def _schedule_verification(self, instance):
-        Schedule.objects.create(
-            func='client_profile.tasks.run_all_verifications',
-            args=f"'{instance._meta.model_name}',{instance.pk}",
-            schedule_type=Schedule.ONCE,
-            next_run=timezone.now() + timedelta(seconds=10)
-        )
-
-    def create(self, validated_data):
-        user_data = validated_data.pop('user', {})
-        user = self.context['request'].user
-        self.sync_user_fields(user_data, user)
-        instance = OwnerOnboarding.objects.create(user=user, **validated_data)
-        self._schedule_verification(instance)
-        return instance
 
     def update(self, instance, validated_data):
-        user_data = validated_data.pop('user', {})
-        self.sync_user_fields(user_data, instance.user)
+        tab = (self.initial_data.get("tab") or "basic").strip().lower()
+        submit = bool(self.initial_data.get("submitted_for_verification"))
 
-        if verification_fields_changed(instance, validated_data, ["ahpra_number", "role"]):
-            instance.ahpra_verified = False
-            instance.ahpra_verification_note = ""
-            instance.verified = False
-            instance.save(update_fields=['ahpra_verified', 'ahpra_verification_note', 'verified'])
-            self._schedule_verification(instance)
+        if tab != "basic":
+            tab = "basic"
 
+        if tab == "basic":
+            return self._basic_tab(instance, validated_data, submit)
         return super().update(instance, validated_data)
 
-    def get_progress_percent(self, obj):
-        required_fields = [
-            obj.user.username,
-            obj.user.first_name,
-            obj.user.last_name,
-            obj.phone_number,
-            obj.role,
+    def _basic_tab(self, instance: OwnerOnboarding, vdata: dict, submit: bool):
+        user_data = vdata.pop("user", {})
+        update_fields: list[str] = []
+
+        if user_data:
+            changed_user_fields = []
+            for key in ("username", "first_name", "last_name"):
+                if key in user_data:
+                    setattr(instance.user, key, user_data[key])
+                    changed_user_fields.append(key)
+            if changed_user_fields:
+                instance.user.save(update_fields=changed_user_fields)
+
+        clear_photo = _should_clear_flag(self.initial_data, "profile_photo_clear")
+        if "profile_photo" in vdata or clear_photo:
+            new_photo = vdata.pop("profile_photo", None)
+            old_photo = getattr(instance, "profile_photo", None)
+            if new_photo is None and clear_photo:
+                if old_photo:
+                    try:
+                        old_photo.delete(save=False)
+                    except Exception:
+                        pass
+                instance.profile_photo = None
+                update_fields.append("profile_photo")
+            elif new_photo is not None:
+                if old_photo and _file_has_changed(new_photo, old_photo):
+                    try:
+                        old_photo.delete(save=False)
+                    except Exception:
+                        pass
+                instance.profile_photo = new_photo
+                update_fields.append("profile_photo")
+
+        direct_fields = ["phone_number", "role", "chain_pharmacy", "ahpra_number"]
+        role_changed = "role" in vdata and vdata.get("role") != instance.role
+        ahpra_changed = "ahpra_number" in vdata and vdata.get("ahpra_number") != instance.ahpra_number
+
+        for field in direct_fields:
+            if field in vdata:
+                setattr(instance, field, vdata[field])
+                update_fields.append(field)
+
+        reset_ahpra = role_changed or ahpra_changed
+        if reset_ahpra:
+            instance.ahpra_verified = False
+            instance.ahpra_verification_note = ""
+            update_fields.extend(["ahpra_verified", "ahpra_verification_note"])
+
+        first_submit = submit and not instance.submitted_for_verification
+        if first_submit:
+            instance.submitted_for_verification = True
+            update_fields.append("submitted_for_verification")
+            from .utils import notify_superuser_on_onboarding
+
+            try:
+                notify_superuser_on_onboarding(instance)
+            except Exception:
+                pass
+
+        if submit:
+            instance.verified = False
+            update_fields.append("verified")
+
+        if update_fields:
+            instance.save(update_fields=list(set(update_fields)))
+
+        if submit and instance.role == "PHARMACIST":
+            should_verify_ahpra = bool(instance.ahpra_number) and (
+                ahpra_changed or not instance.ahpra_verified
+            )
+            if should_verify_ahpra:
+                async_task(
+                    "client_profile.tasks.verify_ahpra_task",
+                    instance._meta.model_name,
+                    instance.pk,
+                    instance.ahpra_number,
+                    instance.user.first_name or "",
+                    instance.user.last_name or "",
+                    instance.user.email or "",
+                )
+
+        return instance
+
+    def get_progress_percent(self, obj: OwnerOnboarding):
+        user = getattr(obj, "user", None)
+        checks = [
+            bool(getattr(user, "username", None)),
+            bool(getattr(user, "first_name", None)),
+            bool(getattr(user, "last_name", None)),
+            bool(obj.phone_number),
+            bool(obj.role),
+            bool(getattr(obj, "profile_photo")),
         ]
-        # Only count AHPRA verification for pharmacists
         if obj.role == "PHARMACIST":
-            required_fields.append(obj.ahpra_verified)
-        filled = sum(bool(field) for field in required_fields)
-        percent = int(100 * filled / len(required_fields)) if required_fields else 0
-        return percent
+            checks.append(bool(obj.ahpra_number))
+            checks.append(bool(obj.ahpra_verified))
 
+        filled = sum(1 for flag in checks if flag)
+        return int(100 * filled / (len(checks) or 1))
 
+    def get_profile_photo_url(self, obj):
+        return _build_absolute_media_url(self.context.get("request"), getattr(obj, "profile_photo", None))
 
-class OtherStaffOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
-    file_fields = [
-        'government_id', 'ahpra_proof', 'hours_proof',
-        'certificate', 'university_id', 'cpr_certificate', 's8_certificate',
-        'gst_file', 'tfn_declaration', 'resume'
-    ]
-    username   = serializers.CharField(source='user.username',   required=False)
-    first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
-    last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
-    progress_percent = serializers.SerializerMethodField()
-
-    class Meta:
-        model  = OtherStaffOnboarding
-        fields = [
-            'username', 'first_name', 'last_name',
-            'government_id', 'role_type', 'phone_number',
-            'skills', 'years_experience', 'payment_preference',
-            'classification_level', 'student_year', 'intern_half',
-            'ahpra_proof', 'hours_proof', 'certificate', 'university_id',
-            'cpr_certificate', 's8_certificate',
-            'abn', 'gst_registered', 'gst_file', 'tfn_declaration',
-            'super_fund_name', 'super_usi', 'super_member_number',
-            'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
-            'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
-            'short_bio', 'resume',
-            'verified', 'progress_percent',
-            'submitted_for_verification',
-            # verification fields (including new note fields):
-            'gov_id_verified', 'gov_id_verification_note',
-            'ahpra_proof_verified', 'ahpra_proof_verification_note',
-            'hours_proof_verified', 'hours_proof_verification_note',
-            'certificate_verified', 'certificate_verification_note',
-            'university_id_verified', 'university_id_verification_note',
-            'cpr_certificate_verified', 'cpr_certificate_verification_note',
-            's8_certificate_verified', 's8_certificate_verification_note',
-            'gst_file_verified', 'gst_file_verification_note',
-            'tfn_declaration_verified', 'tfn_declaration_verification_note',
-            'abn_verified', 'abn_verification_note',
-            # ahpra_verified and related fields removed from model, so removed from fields too
-        ]
-        extra_kwargs = {
-            'verified': {'read_only': True},
-            'submitted_for_verification': {'required': False},
-            'first_name': {'required': False, 'allow_blank': True},
-            'last_name':  {'required': False, 'allow_blank': True},
-            'government_id': {'required': False, 'allow_null': True},
-            'role_type': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'skills': {'required': False, 'allow_null': True},
-            'years_experience': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'payment_preference': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'classification_level': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'student_year': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'intern_half': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'ahpra_proof': {'required': False, 'allow_null': True},
-            'hours_proof': {'required': False, 'allow_null': True},
-            'certificate': {'required': False, 'allow_null': True},
-            'university_id': {'required': False, 'allow_null': True},
-            'cpr_certificate': {'required': False, 'allow_null': True},
-            's8_certificate': {'required': False, 'allow_null': True},
-            'abn': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'gst_file': {'required': False, 'allow_null': True},
-            'tfn_declaration': {'required': False, 'allow_null': True},
-            'super_fund_name': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'super_usi': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'super_member_number': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee1_name': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee1_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee1_email': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee1_confirmed': {'required': False},
-            'referee2_name': {'required': False, 'allow_blank': True},
-            'referee2_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee2_email': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee2_confirmed': {'required': False},
-            'short_bio': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'resume': {'required': False, 'allow_null': True},
-        }
-
-        read_only_fields = [
-            'gov_id_verified', 'gov_id_verification_note',
-            'ahpra_proof_verified', 'ahpra_proof_verification_note',
-            'hours_proof_verified', 'hours_proof_verification_note',
-            'certificate_verified', 'certificate_verification_note',
-            'university_id_verified', 'university_id_verification_note',
-            'cpr_certificate_verified', 'cpr_certificate_verification_note',
-            's8_certificate_verified', 's8_certificate_verification_note',
-            'gst_file_verified', 'gst_file_verification_note',
-            'tfn_declaration_verified', 'tfn_declaration_verification_note',
-            'abn_verified', 'abn_verification_note',
-            'verified',
-            'progress_percent',
-        ]
-
-    def _schedule_verification(self, instance):
-        Schedule.objects.filter(func='client_profile.tasks.run_all_verifications', args=f"'{instance._meta.model_name}',{instance.pk}").delete()
-        Schedule.objects.create(
-            func='client_profile.tasks.run_all_verifications',
-            args=f"'{instance._meta.model_name}',{instance.pk}",
-            schedule_type=Schedule.ONCE,
-            next_run=timezone.now() + timedelta(seconds=10)
-        )
-
-    def create(self, validated_data):
-        user_data = validated_data.pop('user', {})
-        user = self.context['request'].user
-        self.sync_user_fields(user_data, user)
-        instance = OtherStaffOnboarding.objects.create(user=user, **validated_data)
-        if validated_data.get('submitted_for_verification', False):
-            self._schedule_verification(instance)
-        return instance
-
-    def update(self, instance, validated_data):
-        user_data = validated_data.pop('user', {})
-        self.sync_user_fields(user_data, instance.user)
-
-        submitted_before = instance.submitted_for_verification
-        fields_to_reset = []
-        
-        verifiable_fields = {
-            "gov_id": ["government_id"], "payment": ["payment_preference", "abn", "gst_registered", "gst_file", "tfn_declaration"],
-            "role_docs": ["role_type", "ahpra_proof", "hours_proof", "certificate", "university_id", "cpr_certificate", "s8_certificate"],
-            "referee1": ["referee1_name", "referee1_relation", "referee1_email"], "referee2": ["referee2_name", "referee2_relation", "referee2_email"],
-        }
-        
-        for key, fields in verifiable_fields.items():
-            if verification_fields_changed(instance, validated_data, fields):
-                if key == "gov_id": fields_to_reset.extend(['gov_id_verified', 'gov_id_verification_note'])
-                if key == "payment": fields_to_reset.extend(['abn_verified', 'abn_verification_note', 'gst_file_verified', 'gst_file_verification_note', 'tfn_declaration_verified', 'tfn_declaration_verification_note'])
-                if key == "role_docs": fields_to_reset.extend(['ahpra_proof_verified', 'ahpra_proof_verification_note', 'hours_proof_verified', 'hours_proof_verification_note', 'certificate_verified', 'certificate_verification_note', 'university_id_verified', 'university_id_verification_note', 'cpr_certificate_verified', 'cpr_certificate_verification_note', 's8_certificate_verified', 's8_certificate_verification_note'])
-                if key == "referee1": fields_to_reset.extend(['referee1_confirmed', 'referee1_rejected'])
-                if key == "referee2": fields_to_reset.extend(['referee2_confirmed', 'referee2_rejected'])
-        
-        instance = super().update(instance, validated_data)
-        
-        submitted_now = instance.submitted_for_verification
-        needs_reschedule = bool(fields_to_reset)
-
-        if not submitted_before and submitted_now:
-            for f in instance._meta.fields:
-                if f.name.endswith(('_verified', '_confirmed', '_rejected')):
-                    setattr(instance, f.name, False)
-                    fields_to_reset.append(f.name)
-                elif f.name.endswith('_verification_note'):
-                    setattr(instance, f.name, "")
-                    fields_to_reset.append(f.name)
-            instance.verified = False
-            fields_to_reset.append('verified')
-            needs_reschedule = True
-        elif needs_reschedule:
-            for field in fields_to_reset:
-                setattr(instance, field, False if field.endswith(('_verified', '_confirmed', '_rejected')) else "")
-            instance.verified = False
-            fields_to_reset.append('verified')
-
-        if needs_reschedule:
-            instance.save(update_fields=list(set(fields_to_reset)))
-            self._schedule_verification(instance)
-            
-        return instance
-
-    def validate(self, data):
-        submit = data.get('submitted_for_verification') \
-            or (self.instance and getattr(self.instance, 'submitted_for_verification', False))
-        errors = {}
-
-        must_have = [
-            'username', 'first_name', 'last_name',
-            'government_id', 'role_type', 'phone_number', 'payment_preference',
-            'referee1_name', 'referee1_relation', 'referee1_email',
-            'referee2_name', 'referee2_relation', 'referee2_email',
-        ]
-
-        user_data = data.get('user', {})
-
-        if submit:
-            for f in must_have:
-                if f in ['username', 'first_name', 'last_name']:
-                    val = (
-                        user_data.get(f)
-                        or (self.instance and hasattr(self.instance, 'user') and getattr(self.instance.user, f, None))
-                    )
-                    if not val:
-                        errors[f] = 'This field is required to submit for verification.'
-                else:
-                    value = data.get(f)
-                    if value is None and self.instance:
-                        value = getattr(self.instance, f, None)
-                    if not value:
-                        errors[f] = 'This field is required to submit for verification.'
-
-            pay = data.get('payment_preference') or (self.instance and getattr(self.instance, 'payment_preference', None))
-            if pay:
-                if pay.lower() == "abn":
-                    abn = data.get('abn') or (self.instance and getattr(self.instance, 'abn', None))
-                    if not abn:
-                        errors['abn'] = 'ABN required when payment preference is ABN.'
-                    gst = data.get('gst_registered')
-                    if gst is None and self.instance:
-                        gst = getattr(self.instance, 'gst_registered', None)
-                    if gst:
-                        gst_file = data.get('gst_file') or (self.instance and getattr(self.instance, 'gst_file', None))
-                        if not gst_file:
-                            errors['gst_file'] = 'GST certificate required if GST registered.'
-                elif pay.lower() == "tfn":
-                    for f in ['tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number']:
-                        val = data.get(f)
-                        if val is None and self.instance:
-                            val = getattr(self.instance, f, None)
-                        if not val:
-                            errors[f] = f'{f.replace("_", " ").title()} required when payment preference is TFN.'
-
-            role = data.get('role_type') or (self.instance and getattr(self.instance, 'role_type', None))
-            if role == 'STUDENT':
-                if not (data.get('student_year') or (self.instance and getattr(self.instance, 'student_year', None))):
-                    errors['student_year'] = 'Required for Pharmacy Students.'
-                if not (data.get('university_id') or (self.instance and getattr(self.instance, 'university_id', None))):
-                    errors['university_id'] = 'Required for Pharmacy Students.'
-            if role == 'ASSISTANT':
-                if not (data.get('classification_level') or (self.instance and getattr(self.instance, 'classification_level', None))):
-                    errors['classification_level'] = 'Required for Pharmacy Assistants.'
-                if not (data.get('certificate') or (self.instance and getattr(self.instance, 'certificate', None))):
-                    errors['certificate'] = 'Certificate required for Pharmacy Assistants.'
-            if role == 'TECHNICIAN':
-                if not (data.get('certificate') or (self.instance and getattr(self.instance, 'certificate', None))):
-                    errors['certificate'] = 'Certificate required for Dispensary Technicians.'
-            if role == 'INTERN':
-                if not (data.get('intern_half') or (self.instance and getattr(self.instance, 'intern_half', None))):
-                    errors['intern_half'] = 'Intern half required for Intern Pharmacists.'
-                if not (data.get('ahpra_proof') or (self.instance and getattr(self.instance, 'ahpra_proof', None))):
-                    errors['ahpra_proof'] = 'AHPRA proof required for Intern Pharmacists.'
-                if not (data.get('hours_proof') or (self.instance and getattr(self.instance, 'hours_proof', None))):
-                    errors['hours_proof'] = 'Hours proof required for Intern Pharmacists.'
-
-        if errors:
-            raise serializers.ValidationError(errors)
-        return data
-
-    def get_progress_percent(self, obj):
-        required_fields = [
-            obj.user.username,
-            obj.user.first_name,
-            obj.user.last_name,
-            obj.phone_number,
-            obj.role_type,
-            obj.payment_preference,
-            obj.referee1_confirmed,
-            obj.referee2_confirmed,
-            obj.resume,
-            obj.short_bio,
-            obj.gov_id_verified,
-        ]
-
-        # Student
-        if obj.role_type == "STUDENT":
-            required_fields.append(obj.student_year)
-            required_fields.append(obj.university_id_verified)   # << Use verified field
-        # Assistant
-        if obj.role_type == "ASSISTANT":
-            required_fields.append(obj.classification_level)
-            required_fields.append(obj.certificate_verified)     # << Use verified field
-        # Technician
-        if obj.role_type == "TECHNICIAN":
-            required_fields.append(obj.certificate_verified)     # << Use verified field
-        # Intern
-        if obj.role_type == "INTERN":
-            required_fields.append(obj.intern_half)
-            required_fields.append(obj.ahpra_proof_verified)     # << Use verified field
-            required_fields.append(obj.hours_proof_verified)     # << Use verified field
-
-        # Common certificates if present
-        # If your model logic means all should do these, always append
-        required_fields.append(obj.cpr_certificate_verified)
-        required_fields.append(obj.s8_certificate_verified)
-
-        # ABN is only required if payment_preference is "abn"
-        if obj.payment_preference and obj.payment_preference.lower() == "abn":
-            required_fields.append(obj.abn_verified)            # << Use verified field
-            if obj.gst_registered is True:
-                required_fields.append(obj.gst_file_verified)   # << Use verified field
-
-        # TFN is only required if payment_preference is "TFN"
-        if obj.payment_preference and obj.payment_preference.lower() == "tfn":
-            required_fields.append(obj.tfn_declaration_verified) # << Use verified field
-            required_fields.append(obj.super_fund_name)
-            required_fields.append(obj.super_usi)
-            required_fields.append(obj.super_member_number)
-
-
-        filled = sum(bool(field) for field in required_fields)
-        percent = int(100 * filled / len(required_fields)) if required_fields else 0
-        return percent
-
-
-class ExplorerOnboardingSerializer(OnboardingVerificationMixin, RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
-    file_fields = ['government_id', 'resume']
-
-    username   = serializers.CharField(source='user.username',   required=False)
-    first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
-    last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
-    progress_percent = serializers.SerializerMethodField()
-
-    class Meta:
-        model  = ExplorerOnboarding
-        fields = [
-            'id', 'username', 'first_name', 'last_name',
-            'government_id', 'role_type', 
-            'interests',
-            'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
-            'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
-            'short_bio', 'resume',
-            'verified', 'progress_percent', 'gov_id_verified', 'gov_id_verification_note',
-
-            'submitted_for_verification',
-        ]
-        extra_kwargs = {
-            'id': {'read_only': True},  # <-- optional but nice
-            'verified': {'read_only': True},
-            'submitted_for_verification': {'required': False},
-            'first_name': {'required': False, 'allow_blank': True},
-            'last_name':  {'required': False, 'allow_blank': True},
-            'government_id': {'required': False, 'allow_null': True},
-            'role_type': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'interests': {'required': False, 'allow_null': True},
-            'referee1_name': {'required': False, 'allow_blank': True},
-            'referee1_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee1_email': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee1_confirmed': {'required': False},
-            'referee2_name': {'required': False, 'allow_blank': True},
-            'referee2_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee2_email': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'referee2_confirmed': {'required': False},
-            'short_bio': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'resume': {'required': False, 'allow_null': True},
-        }
-
-        read_only_fields = [
-            'gov_id_verified', 'gov_id_verification_note',
-            'verified',
-            'progress_percent',
-        ]
-
-    def _schedule_verification(self, instance):
-        Schedule.objects.filter(func='client_profile.tasks.run_all_verifications', args=f"'{instance._meta.model_name}',{instance.pk}").delete()
-        Schedule.objects.create(
-            func='client_profile.tasks.run_all_verifications',
-            args=f"'{instance._meta.model_name}',{instance.pk}",
-            schedule_type=Schedule.ONCE,
-            next_run=timezone.now() + timedelta(seconds=10)
-        )
-
-    def create(self, validated_data):
-        user_data = validated_data.pop('user', {})
-        user = self.context['request'].user
-        self.sync_user_fields(user_data, user)
-        instance = ExplorerOnboarding.objects.create(user=user, **validated_data)
-        if validated_data.get('submitted_for_verification', False):
-            self._schedule_verification(instance)
-        return instance
-
-    def update(self, instance, validated_data):
-        user_data = validated_data.pop('user', {})
-        self.sync_user_fields(user_data, instance.user)
-
-        submitted_before = instance.submitted_for_verification
-        fields_to_reset = []
-
-        if verification_fields_changed(instance, validated_data, ["government_id"]):
-            fields_to_reset.extend(['gov_id_verified', 'gov_id_verification_note'])
-        if verification_fields_changed(instance, validated_data, ["referee1_name", "referee1_relation", "referee1_email"]):
-            fields_to_reset.extend(['referee1_confirmed', 'referee1_rejected'])
-        if verification_fields_changed(instance, validated_data, ["referee2_name", "referee2_relation", "referee2_email"]):
-            fields_to_reset.extend(['referee2_confirmed', 'referee2_rejected'])
-
-        instance = super().update(instance, validated_data)
-        
-        submitted_now = instance.submitted_for_verification
-        needs_reschedule = bool(fields_to_reset)
-
-        if not submitted_before and submitted_now:
-            for f in instance._meta.fields:
-                if f.name.endswith(('_verified', '_confirmed', '_rejected')):
-                    setattr(instance, f.name, False)
-                    fields_to_reset.append(f.name)
-                elif f.name.endswith('_verification_note'):
-                    setattr(instance, f.name, "")
-                    fields_to_reset.append(f.name)
-            instance.verified = False
-            fields_to_reset.append('verified')
-            needs_reschedule = True
-        elif needs_reschedule:
-            for field in fields_to_reset:
-                setattr(instance, field, False if field.endswith(('_verified', '_confirmed', '_rejected')) else "")
-            instance.verified = False
-            fields_to_reset.append('verified')
-
-        if needs_reschedule:
-            instance.save(update_fields=list(set(fields_to_reset)))
-            self._schedule_verification(instance)
-            
-        return instance
-
-    def validate(self, data):
-        submit = data.get('submitted_for_verification') \
-            or (self.instance and getattr(self.instance, 'submitted_for_verification', False))
-        errors = {}
-
-        must_have = [
-            'username', 'first_name', 'last_name',
-            'government_id', 'role_type', 'phone_number',
-            'referee1_name', 'referee1_relation', 'referee1_email',
-            'referee2_name', 'referee2_relation', 'referee2_email',
-        ]
-
-        user_data = data.get('user', {})
-
-        if submit:
-            for f in must_have:
-                if f in ['username', 'first_name', 'last_name']:
-                    val = (
-                        user_data.get(f)
-                        or (self.instance and hasattr(self.instance, 'user') and getattr(self.instance.user, f, None))
-                    )
-                    if not val:
-                        errors[f] = 'This field is required to submit for verification.'
-                else:
-                    value = data.get(f)
-                    if value is None and self.instance:
-                        value = getattr(self.instance, f, None)
-                    if not value:
-                        errors[f] = 'This field is required to submit for verification.'
-
-        if errors:
-            raise serializers.ValidationError(errors)
-        return data
-
-    def get_progress_percent(self, obj):
-        required_fields = [
-            obj.user.username,
-            obj.user.first_name,
-            obj.user.last_name,
-            obj.gov_id_verified,        # Only count as complete if verified!
-            obj.role_type,
-            # obj.phone_number,
-            obj.referee1_confirmed,
-            obj.referee2_confirmed,
-            obj.resume,
-            obj.short_bio,
-        ]
-        filled = sum(bool(field) for field in required_fields)
-        percent = int(100 * filled / len(required_fields)) if required_fields else 0
-        return percent
-
-def _canon(value: str, mapping: dict[str, str]) -> str | None:
-    if not value:
-        return None
-    v = value.strip().lower()
-    return mapping.get(v)
 
 class RefereeResponseSerializer(serializers.ModelSerializer):
     class Meta:
         model = RefereeResponse
-        # List all the fields that the referee will fill out in the form
         fields = [
-            'referee_name',
-            'referee_position',
-            'relationship_to_candidate',
-            'association_period',
-            'contact_details',
-            'role_and_responsibilities',
-            'reliability_rating',
-            'professionalism_notes',
-            'skills_rating',
-            'skills_strengths_weaknesses',
-            'teamwork_communication_notes',
-            'feedback_conflict_notes',
-            'conduct_concerns',
-            'conduct_explanation',
-            'compliance_adherence',
-            'compliance_incidents',
-            'would_rehire',
-            'rehire_explanation',
-            'additional_comments',
+            "referee_name",
+            "referee_position",
+            "relationship_to_candidate",
+            "association_period",
+            "contact_details",
+            "role_and_responsibilities",
+            "reliability_rating",
+            "professionalism_notes",
+            "skills_rating",
+            "skills_strengths_weaknesses",
+            "teamwork_communication_notes",
+            "feedback_conflict_notes",
+            "conduct_concerns",
+            "conduct_explanation",
+            "compliance_adherence",
+            "compliance_incidents",
+            "would_rehire",
+            "rehire_explanation",
+            "additional_comments",
         ]
-
-    def validate(self, attrs):
-        # Canonical maps (case-insensitive input -> canonical stored value)
-        reh_map = {'yes': 'Yes', 'no': 'No', 'with reservations': 'With Reservations'}
-        rate_map = {
-            'excellent': 'Excellent',
-            'good': 'Good',
-            'satisfactory': 'Satisfactory',
-            'needs improvement': 'Needs Improvement',
-        }
-        comp_map = {'yes': 'Yes', 'no': 'No', 'unsure': 'Unsure'}
-
-        # Normalize choices if provided
-        would = _canon(attrs.get('would_rehire'), reh_map)
-        if attrs.get('would_rehire') is not None:
-            if not would:
-                raise serializers.ValidationError({'would_rehire': 'Choose Yes / No / With Reservations.'})
-            attrs['would_rehire'] = would
-
-        reliability = _canon(attrs.get('reliability_rating'), rate_map)
-        if attrs.get('reliability_rating') is not None:
-            if not reliability:
-                raise serializers.ValidationError({'reliability_rating': 'Invalid rating.'})
-            attrs['reliability_rating'] = reliability
-
-        skills = _canon(attrs.get('skills_rating'), rate_map)
-        if attrs.get('skills_rating') is not None:
-            if not skills:
-                raise serializers.ValidationError({'skills_rating': 'Invalid rating.'})
-            attrs['skills_rating'] = skills
-
-        compliance = _canon(attrs.get('compliance_adherence'), comp_map)
-        if attrs.get('compliance_adherence') is not None:
-            if not compliance:
-                raise serializers.ValidationError({'compliance_adherence': 'Choose Yes / No / Unsure.'})
-            attrs['compliance_adherence'] = compliance
-
-        # Conditional requireds
-        if would in ('No', 'With Reservations') and not (attrs.get('rehire_explanation') or '').strip():
-            raise serializers.ValidationError({'rehire_explanation': 'Please add a brief explanation.'})
-
-        if attrs.get('conduct_concerns') and not (attrs.get('conduct_explanation') or '').strip():
-            raise serializers.ValidationError({'conduct_explanation': 'Please explain the conduct concern.'})
-
-        return attrs
-
-
-
-
-
-# === New Onboarding ===
 
 class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
     """
@@ -805,6 +411,10 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
     last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
     phone_number = serializers.CharField(source='user.mobile_number', required=False, allow_blank=True, allow_null=True)
+    profile_photo = serializers.ImageField(required=False, allow_null=True)
+    profile_photo_url = serializers.SerializerMethodField(read_only=True)
+    profile_photo = serializers.ImageField(required=False, allow_null=True)
+    profile_photo_url = serializers.SerializerMethodField(read_only=True)
 
 
     latitude  = serializers.DecimalField(max_digits=18, decimal_places=12, required=False, allow_null=True)
@@ -830,7 +440,8 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         model = PharmacistOnboarding
         fields = [
             # ---------- BASIC ----------
-            'username','first_name','last_name','phone_number','date_of_birth',
+            'username','first_name','last_name','phone_number','date_of_birth','profile_photo','profile_photo_url',
+            'profile_photo','profile_photo_url',
             'ahpra_number',
             'street_address','suburb','state','postcode','google_place_id','latitude','longitude',
             'ahpra_verified','ahpra_registration_status','ahpra_registration_type','ahpra_expiry_date',
@@ -897,6 +508,10 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             'google_place_id': {'required': False, 'allow_blank': True, 'allow_null': True},
             'latitude':        {'required': False, 'allow_null': True},
             'longitude':       {'required': False, 'allow_null': True},
+            'profile_photo': {'required': False, 'allow_null': True},
+            'profile_photo_url': {'read_only': True},
+            'profile_photo': {'required': False, 'allow_null': True},
+            'profile_photo_url': {'read_only': True},
 
             # payment (optional – tab decides what’s required)
             'payment_preference': {'required': False, 'allow_blank': True},
@@ -1023,6 +638,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             bool(getattr(user, 'first_name', None)),
             bool(getattr(user, 'last_name', None)),
             bool(getattr(user, 'mobile_number', None)),
+            bool(getattr(obj, 'profile_photo', None)),
             bool(obj.gov_id_verified),
             bool(obj.ahpra_verified),
             bool(getattr(obj, 'referee1_confirmed', False)),
@@ -1132,8 +748,29 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             if changed_user_fields:
                 instance.user.save(update_fields=changed_user_fields)
 
+        clear_photo = _should_clear_flag(self.initial_data, "profile_photo_clear")
+        if "profile_photo" in vdata or clear_photo:
+            new_photo = vdata.pop("profile_photo", None)
+            old_photo = getattr(instance, "profile_photo", None)
+            if new_photo is None and clear_photo:
+                if old_photo:
+                    try:
+                        old_photo.delete(save=False)
+                    except Exception:
+                        pass
+                instance.profile_photo = None
+                update_fields.append("profile_photo")
+            elif new_photo is not None:
+                if old_photo and _file_has_changed(new_photo, old_photo):
+                    try:
+                        old_photo.delete(save=False)
+                    except Exception:
+                        pass
+                instance.profile_photo = new_photo
+                update_fields.append("profile_photo")
+
         # helper to compare file names safely
-        def _fname(f): 
+        def _fname(f):
             return getattr(f, 'name', None) if f else None
 
         # We will handle government_id explicitly (to delete old files safely),
@@ -1188,6 +825,48 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         if 'longitude' in vdata:
             instance.longitude = q6(vdata.get('longitude'))
             update_fields.append('longitude')
+
+        clear_photo = _should_clear_flag(self.initial_data, "profile_photo_clear")
+        if 'profile_photo' in vdata or clear_photo:
+            new_photo = vdata.pop('profile_photo', None)
+            old_photo = getattr(instance, 'profile_photo', None)
+            if new_photo is None and clear_photo:
+                if old_photo:
+                    try:
+                        old_photo.delete(save=False)
+                    except Exception:
+                        pass
+                instance.profile_photo = None
+                update_fields.append('profile_photo')
+            elif new_photo is not None:
+                if old_photo and _file_has_changed(new_photo, old_photo):
+                    try:
+                        old_photo.delete(save=False)
+                    except Exception:
+                        pass
+                instance.profile_photo = new_photo
+                update_fields.append('profile_photo')
+
+        clear_photo = _should_clear_flag(self.initial_data, "profile_photo_clear")
+        if 'profile_photo' in vdata or clear_photo:
+            new_photo = vdata.pop('profile_photo', None)
+            old_photo = getattr(instance, 'profile_photo', None)
+            if new_photo is None and clear_photo:
+                if old_photo:
+                    try:
+                        old_photo.delete(save=False)
+                    except Exception:
+                        pass
+                instance.profile_photo = None
+                update_fields.append('profile_photo')
+            elif new_photo is not None:
+                if old_photo and _file_has_changed(new_photo, old_photo):
+                    try:
+                        old_photo.delete(save=False)
+                    except Exception:
+                        pass
+                instance.profile_photo = new_photo
+                update_fields.append('profile_photo')
 
         # reset only relevant flags when inputs changed
         if ahpra_changed:
@@ -1711,6 +1390,9 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         # stable order
         return sorted(data, key=lambda r: r["skill_code"])
 
+    def get_profile_photo_url(self, obj):
+        return _build_absolute_media_url(self.context.get("request"), getattr(obj, "profile_photo", None))
+
     # ---------------- Rate tab ----------------
     def _rate_tab(self, instance, vdata: dict, submit: bool):
         """
@@ -2053,6 +1735,7 @@ class OtherStaffOnboardingV2Serializer(serializers.ModelSerializer):
             bool(getattr(user, 'first_name', None)),
             bool(getattr(user, 'last_name', None)),
             bool(getattr(user, 'mobile_number', None)),
+            bool(getattr(obj, 'profile_photo', None)),
             bool(obj.gov_id_verified),
             bool(getattr(obj, 'referee1_confirmed', False)),
             bool(getattr(obj, 'referee2_confirmed', False)),
@@ -2704,6 +2387,9 @@ class OtherStaffOnboardingV2Serializer(serializers.ModelSerializer):
             data.append({"skill_code": code, "path": path, "url": url, "uploaded_at": meta.get("uploaded_at")})
         return sorted(data, key=lambda r: r["skill_code"])
 
+    def get_profile_photo_url(self, obj):
+        return _build_absolute_media_url(self.context.get("request"), getattr(obj, "profile_photo", None))
+
 # helpers (reuse from your codebase if they already exist)
 def q6(val):
     if val in (None, ""):
@@ -2727,6 +2413,8 @@ class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
     first_name   = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
     last_name    = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
     phone_number = serializers.CharField(source='user.mobile_number', required=False, allow_blank=True, allow_null=True)
+    profile_photo = serializers.ImageField(required=False, allow_null=True)
+    profile_photo_url = serializers.SerializerMethodField(read_only=True)
 
     latitude  = serializers.DecimalField(max_digits=18, decimal_places=12, required=False, allow_null=True)
     longitude = serializers.DecimalField(max_digits=18, decimal_places=12, required=False, allow_null=True)
@@ -2742,7 +2430,7 @@ class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
         model = ExplorerOnboarding
         fields = [
             # ---------- BASIC ----------
-            'username','first_name','last_name','phone_number',
+            'username','first_name','last_name','phone_number','profile_photo','profile_photo_url',
             'role_type',
             'street_address','suburb','state','postcode','google_place_id','latitude','longitude',
 
@@ -2771,6 +2459,8 @@ class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
             'first_name': {'required': False, 'allow_blank': True},
             'last_name': {'required': False, 'allow_blank': True},
             'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'profile_photo': {'required': False, 'allow_null': True},
+            'profile_photo_url': {'read_only': True},
 
             # basic
             'role_type': {'required': False, 'allow_blank': True, 'allow_null': True},
@@ -2829,6 +2519,7 @@ class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
             bool(getattr(user, 'first_name', None)),
             bool(getattr(user, 'last_name', None)),
             bool(getattr(user, 'mobile_number', None)),
+            bool(getattr(obj, 'profile_photo', None)),
             bool(obj.gov_id_verified),
             bool(getattr(obj, 'referee1_confirmed', False)),
             bool(getattr(obj, 'referee2_confirmed', False)),
@@ -3215,6 +2906,9 @@ class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
         if update_fields:
             instance.save(update_fields=list(set(update_fields)))
         return instance
+
+    def get_profile_photo_url(self, obj):
+        return _build_absolute_media_url(self.context.get("request"), getattr(obj, "profile_photo", None))
 
 # === Dashboards ===
 class ShiftSummarySerializer(serializers.Serializer):
@@ -4598,9 +4292,15 @@ class PendingRatingsSerializer(serializers.Serializer):
 
 # --- Chat Serializers --------------------------------------------------------
 class ChatMemberSerializer(serializers.ModelSerializer):
+    profile_photo_url = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["id", "first_name", "last_name", "email"]
+        fields = ["id", "first_name", "last_name", "email", "profile_photo_url"]
+
+    def get_profile_photo_url(self, obj):
+        photo = _resolve_user_profile_photo(obj)
+        return _build_absolute_media_url(self.context.get("request"), photo)
 
 class ChatMembershipSerializer(serializers.ModelSerializer):
     user_details = ChatMemberSerializer(source='user', read_only=True)
@@ -4866,6 +4566,19 @@ def _build_absolute_media_url(request, file_field):
         except Exception:
             return url
     return url
+
+
+def _serialize_user_summary(user, request):
+    if not user:
+        return None
+    photo = _resolve_user_profile_photo(user)
+    return {
+        "id": user.id,
+        "first_name": getattr(user, "first_name", None),
+        "last_name": getattr(user, "last_name", None),
+        "email": getattr(user, "email", None),
+        "profile_photo_url": _build_absolute_media_url(request, photo),
+    }
 
 
 class HubPharmacySerializer(serializers.ModelSerializer):
@@ -5212,14 +4925,7 @@ class HubCommentSerializer(serializers.ModelSerializer):
 
     def get_edited_by(self, obj):
         user = getattr(obj, "last_edited_by", None)
-        if not user:
-            return None
-        return {
-            "id": user.id,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "email": user.email,
-        }
+        return _serialize_user_summary(user, self.context.get("request"))
 
     def get_is_deleted(self, obj):
         return obj.deleted_at is not None
@@ -5501,28 +5207,14 @@ class HubPostSerializer(serializers.ModelSerializer):
 
     def get_edited_by(self, obj):
         user = getattr(obj, "last_edited_by", None)
-        if not user:
-            return None
-        return {
-            "id": user.id,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "email": user.email,
-        }
+        return _serialize_user_summary(user, self.context.get("request"))
 
     def get_is_deleted(self, obj):
         return obj.deleted_at is not None
 
     def get_pinned_by(self, obj):
         user = getattr(obj, "pinned_by", None)
-        if not user:
-            return None
-        return {
-            "id": user.id,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "email": user.email,
-        }
+        return _serialize_user_summary(user, self.context.get("request"))
 
     def get_viewer_is_admin(self, obj):
         if self.context.get("has_admin_permissions"):
@@ -6015,4 +5707,5 @@ class HubReactionSerializer(serializers.ModelSerializer):
 #         filled = sum(bool(field) for field in required_fields)
 #         percent = int(100 * filled / len(required_fields))
 #         return percent
+
 

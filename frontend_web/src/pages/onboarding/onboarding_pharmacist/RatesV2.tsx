@@ -44,7 +44,7 @@ const emptyRates: RatePref = {
 
 export default function RatesV2() {
   // Keep the same detail endpoint style used in your V2 tabs
-  const url = API_ENDPOINTS.onboardingV2Detail('pharmacist');
+  const url = API_ENDPOINTS.onboardingDetail('pharmacist');
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);

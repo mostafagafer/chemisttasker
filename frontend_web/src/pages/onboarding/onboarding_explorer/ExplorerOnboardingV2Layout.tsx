@@ -52,7 +52,7 @@ export default function ExplorerOnboardingV2Layout() {
 
   // Load real progress from backend on mount
   React.useEffect(() => {
-    const url = API_ENDPOINTS.onboardingV2Detail("explorer");
+    const url = API_ENDPOINTS.onboardingDetail("explorer");
     apiClient
       .get(url)
       .then((res) => {

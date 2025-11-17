@@ -81,7 +81,7 @@ export default function CustomAppTitle({
     }
 
     const endpoints = [
-      `/client-profile/${onboardingKey}/onboarding-v2/me/`,
+      `/client-profile/${onboardingKey}/onboarding/me/`,
       `/client-profile/${onboardingKey}/onboarding/me/`,
     ];
 

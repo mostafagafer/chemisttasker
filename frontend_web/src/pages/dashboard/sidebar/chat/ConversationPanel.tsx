@@ -6,7 +6,7 @@ import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
 import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
 import CancelIcon from '@mui/icons-material/Cancel';
 import { MessageBubble } from './MessageBubble';
-import type { ChatMessage, ChatRoom, MemberCache, PharmacyRef } from './types';
+import type { ChatMessage, ChatRoom, MemberCache, PharmacyRef, UserLite } from './types';
 import './chat.css';
 import PushPinIcon from '@mui/icons-material/PushPin';
 import CloseIcon from '@mui/icons-material/Close';
@@ -132,6 +132,22 @@ export const ConversationPanel: FC<Props> = ({
 
     return Array.from(map.entries()).map(([membershipId, label]) => ({ membershipId, label }));
   }, [activeRoom, memberCache, messages, myMembershipId]);
+
+  const resolveMemberDetails = useCallback(
+    (membershipId: number | null): UserLite | null => {
+      if (!membershipId) {
+        return null;
+      }
+      for (const pharmacyId in memberCache) {
+        const record = memberCache[Number(pharmacyId)]?.[membershipId];
+        if (record?.details) {
+          return record.details;
+        }
+      }
+      return null;
+    },
+    [memberCache],
+  );
 
   const updateMentionState = useCallback(
     (value: string, caretIndex: number) => {
@@ -510,6 +526,7 @@ return 'Direct Message';
               onDelete={onDeleteMessage}
               onReact={onReact}
               onTogglePin={onTogglePin}
+              resolveMemberDetails={resolveMemberDetails}
               innerRef={(el) => {
                 if (el) {
                   messageRefs.current[m.id] = el;

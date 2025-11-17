@@ -15,7 +15,7 @@ type ApiData = {
 };
 
 export default function InterestsV2() {
-  const url = API_ENDPOINTS.onboardingV2Detail('explorer');
+  const url = API_ENDPOINTS.onboardingDetail('explorer');
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);

@@ -28,6 +28,7 @@ type UserSummaryApi = {
   first_name: string | null;
   last_name: string | null;
   email: string | null;
+  profile_photo_url?: string | null;
 };
 
 type MembershipApi = {
@@ -200,6 +201,7 @@ const mapUser = (api: UserSummaryApi | null): HubUserSummary | null => {
     firstName: api.first_name,
     lastName: api.last_name,
     email: api.email,
+    profilePhotoUrl: api.profile_photo_url ?? null,
   };
 };
 
@@ -213,6 +215,7 @@ const mapMembership = (api: MembershipApi | null | undefined): HubMembership => 
     firstName: api?.user_details?.first_name ?? null,
     lastName: api?.user_details?.last_name ?? null,
     email: api?.user_details?.email ?? "",
+    profilePhotoUrl: api?.user_details?.profile_photo_url ?? null,
   },
 });
 
@@ -760,6 +763,7 @@ type MemberOptionSource = {
   pharmacyId: number | null;
   pharmacyName: string | null;
   jobTitle?: string | null;
+  profilePhotoUrl?: string | null;
 };
 
 const mapOptionFromSource = (source: MemberOptionSource): HubGroupMemberOption => ({
@@ -772,6 +776,7 @@ const mapOptionFromSource = (source: MemberOptionSource): HubGroupMemberOption =
   pharmacyId: source.pharmacyId,
   pharmacyName: source.pharmacyName,
   jobTitle: source.jobTitle ?? null,
+  profilePhotoUrl: source.profilePhotoUrl ?? null,
 });
 
 export async function fetchPharmacyGroupMembers(
@@ -800,6 +805,7 @@ export async function fetchPharmacyGroupMembers(
           member?.pharmacy_name ??
           null,
         jobTitle: member?.job_title ?? null,
+        profilePhotoUrl: member?.user_details?.profile_photo_url ?? null,
       }),
     )
     .sort((a, b) => a.fullName.localeCompare(b.fullName));
@@ -831,6 +837,10 @@ export async function fetchOrganizationGroupMembers(
           member?.pharmacy_name ??
           null,
         jobTitle: member?.job_title ?? null,
+        profilePhotoUrl:
+          member?.user?.profile_photo_url ??
+          member?.user_details?.profile_photo_url ??
+          null,
       }),
     )
     .sort((a, b) => a.fullName.localeCompare(b.fullName));
@@ -850,6 +860,7 @@ export async function fetchHubGroupMembers(groupId: number): Promise<HubGroupMem
         pharmacyId: member.pharmacyId ?? group.pharmacyId ?? null,
         pharmacyName: member.pharmacyName ?? group.pharmacyName ?? null,
         jobTitle: member.jobTitle ?? null,
+        profilePhotoUrl: member.profilePhotoUrl ?? null,
       }),
     )
     .sort((a, b) => a.fullName.localeCompare(b.fullName));

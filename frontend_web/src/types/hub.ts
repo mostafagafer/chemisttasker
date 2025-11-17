@@ -10,6 +10,7 @@ export type HubUserSummary = {
   firstName: string | null;
   lastName: string | null;
   email: string | null;
+  profilePhotoUrl: string | null;
 };
 
 export type HubAttachment = {
@@ -30,6 +31,7 @@ export type HubMembership = {
     firstName: string | null;
     lastName: string | null;
     email: string;
+    profilePhotoUrl: string | null;
   };
 };
 
@@ -225,4 +227,5 @@ export type HubGroupMemberOption = {
   pharmacyId: number | null;
   pharmacyName: string | null;
   jobTitle: string | null;
+  profilePhotoUrl: string | null;
 };

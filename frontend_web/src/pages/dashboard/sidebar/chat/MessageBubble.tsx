@@ -1,21 +1,30 @@
 import { FC, useState, useMemo } from 'react';
-import { Box, Typography, Link, Chip, IconButton, Menu, MenuItem, Tooltip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Button, Paper } from '@mui/material';
+import { Avatar, Box, Typography, Link, Chip, IconButton, Menu, MenuItem, Tooltip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Button, Paper } from '@mui/material';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
 import AddReactionOutlinedIcon from '@mui/icons-material/AddReactionOutlined';
-import { ChatMessage } from './types';
+import { ChatMessage, UserLite } from './types';
 import PushPinIcon from '@mui/icons-material/PushPin';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 
 dayjs.extend(utc);
 
-const initialsOf = (first?: string, last?: string) => {
+const initialsOf = (first?: string, last?: string, fallback?: string) => {
   const f = (first || '').trim();
   const l = (last || '').trim();
-  return ((f[0] || '') + (l[0] || '')).toUpperCase() || '?';
+  if (f || l) {
+    return `${f.charAt(0)}${l.charAt(0) || f.charAt(1) || ''}`.toUpperCase();
+  }
+  const alt = (fallback || '').trim();
+  if (!alt) return '?';
+  const parts = alt.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase() || '?';
+  }
+  return `${parts[0].charAt(0)}${parts[1].charAt(0)}`.toUpperCase();
 };
 
 const isImage = (url: string) => {
@@ -34,9 +43,22 @@ type Props = {
   onReact: (messageId: number, reaction: string) => void;
   onTogglePin: (target: 'conversation' | 'message', messageId?: number) => void;
   innerRef?: (node: HTMLDivElement | null) => void;
+  resolveMemberDetails?: (membershipId: number | null) => UserLite | null;
 };
 
-export const MessageBubble: FC<Props> = ({ msg, prevMsg, isMe, onStartDm, roomType, onEdit, onDelete, onReact, onTogglePin, innerRef  }) => {
+export const MessageBubble: FC<Props> = ({
+  msg,
+  prevMsg,
+  isMe,
+  onStartDm,
+  roomType,
+  onEdit,
+  onDelete,
+  onReact,
+  onTogglePin,
+  innerRef,
+  resolveMemberDetails,
+}) => {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -48,8 +70,18 @@ export const MessageBubble: FC<Props> = ({ msg, prevMsg, isMe, onStartDm, roomTy
   if (!user) {
     return null; 
   }
+  const fallbackDetails = !user.profile_photo_url && resolveMemberDetails
+    ? resolveMemberDetails(msg.sender?.id ?? null)
+    : null;
+
+  const effectiveProfilePhoto =
+    user.profile_photo_url || fallbackDetails?.profile_photo_url || null;
+  const effectiveFirstName = user.first_name || fallbackDetails?.first_name;
+  const effectiveLastName = user.last_name || fallbackDetails?.last_name;
+  const effectiveEmail = user.email || fallbackDetails?.email || null;
+  const effectiveFullName = ((effectiveFirstName || '') + (effectiveLastName ? ` ${effectiveLastName}` : '')).trim();
   
-  const fullName = ((user.first_name || '') + (user.last_name ? ' ' + user.last_name : '')).trim();
+  const fullName = effectiveFullName || '';
   const attachmentFilename = msg.attachment_filename || (msg.attachment_url ? msg.attachment_url.split('/').pop() : 'Download');
 
   const isSameSenderAsPrevious = prevMsg?.sender.id === msg.sender.id;
@@ -99,7 +131,25 @@ export const MessageBubble: FC<Props> = ({ msg, prevMsg, isMe, onStartDm, roomTy
       {isSameSenderAsPrevious ? (
         <Box sx={{ width: 36, flexShrink: 0 }} />
       ) : (
-        <Box className="initials">{initialsOf(user.first_name, user.last_name)}</Box>
+        <Box sx={{ width: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Avatar
+            src={effectiveProfilePhoto || undefined}
+            alt={fullName || effectiveEmail || 'Chat member'}
+            sx={{
+              width: 36,
+              height: 36,
+              fontSize: '0.85rem',
+              fontWeight: 700,
+              bgcolor: effectiveProfilePhoto ? 'transparent' : '#dfe3ec',
+              color: effectiveProfilePhoto ? 'inherit' : '#4c5a78',
+              border: effectiveProfilePhoto ? '1px solid rgba(15,23,42,0.08)' : 'none',
+            }}
+          >
+            {!effectiveProfilePhoto
+              ? initialsOf(effectiveFirstName, effectiveLastName, effectiveEmail || fullName)
+              : null}
+          </Avatar>
+        </Box>
       )}
 
       <Box sx={{ minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start' }}>

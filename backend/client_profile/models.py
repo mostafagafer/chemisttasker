@@ -59,11 +59,13 @@ class OwnerOnboarding(models.Model):
     phone_number    = models.CharField(max_length=20)
     role            = models.CharField(max_length=20, choices=ROLE_CHOICES)
     chain_pharmacy  = models.BooleanField(default=False)
+    profile_photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)
 
     # Regulatory Info for pharmacists only
     ahpra_number    = models.CharField(max_length=100, blank=True, null=True)
 
     verified        = models.BooleanField(default=False)
+    submitted_for_verification = models.BooleanField(default=False)
 
     organization        = models.ForeignKey(
                              Organization,
@@ -111,6 +113,7 @@ class PharmacistOnboarding(models.Model):
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
 
+    profile_photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)
     government_id = models.FileField(upload_to='gov_ids/', blank=True, null=True)
     government_id_type = models.CharField(max_length=32, choices=ID_DOC_CHOICES, blank=True, null=True)
     identity_meta = models.JSONField(default=dict, blank=True)  # per-type details: state/country/expiry/visa_type_number/valid_to
@@ -229,6 +232,8 @@ class OtherStaffOnboarding(models.Model):
 
     # --- Core ---
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+
+    profile_photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)
 
     # --- Identity (parity with Pharmacist) ---
     government_id = models.FileField(upload_to='gov_ids/', blank=True, null=True)
@@ -400,6 +405,8 @@ class ExplorerOnboarding(models.Model):
     google_place_id  = models.CharField(max_length=255, blank=True, null=True)
     latitude         = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
     longitude        = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+
+    profile_photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)
 
     # --- Identity  ---
     government_id = models.FileField(upload_to='gov_ids/', blank=True, null=True)

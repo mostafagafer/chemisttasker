@@ -26,6 +26,7 @@ export type MembershipDTO = {
   user?: number;
   role?: string;
   employment_type?: string;
+  job_title?: string | null;
   invited_name?: string;
   name?: string;
   email?: string;

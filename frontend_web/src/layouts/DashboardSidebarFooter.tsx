@@ -11,6 +11,23 @@ export default function DashboardSidebarFooter({ mini }: SidebarFooterProps) {
     }
 
     const drawerElement = footerRef.current?.closest<HTMLElement>(".MuiDrawer-root");
+    if (!drawerElement) {
+      return undefined;
+    }
+
+    drawerElement.setAttribute("data-dashboard-shell-nav", "true");
+
+    return () => {
+      drawerElement.removeAttribute("data-dashboard-shell-nav");
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const drawerElement = footerRef.current?.closest<HTMLElement>(".MuiDrawer-root");
     const shellElement = footerRef.current?.closest<HTMLElement>("[data-dashboard-shell]");
 
     if (!drawerElement || !shellElement) {

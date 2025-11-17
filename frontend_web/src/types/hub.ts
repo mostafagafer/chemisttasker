@@ -24,6 +24,7 @@ export type HubMembership = {
   id: number;
   role: string;
   employmentType: string;
+  jobTitle: string | null;
   user: {
     id: number;
     firstName: string | null;
@@ -197,24 +198,31 @@ export type HubTaggedMember = {
   fullName: string;
   email: string | null;
   role: string | null;
+  jobTitle: string | null;
 };
 
 export type HubGroupMember = {
   membershipId: number;
+  userId: number | null;
   fullName: string;
   email: string | null;
   role: string | null;
   employmentType: string | null;
+  pharmacyId: number | null;
+  pharmacyName: string | null;
+  jobTitle: string | null;
   isAdmin: boolean;
   joinedAt: string;
 };
 
 export type HubGroupMemberOption = {
   membershipId: number;
+  userId: number | null;
   fullName: string;
   email: string | null;
   role: string;
   employmentType: string | null;
   pharmacyId: number | null;
   pharmacyName: string | null;
+  jobTitle: string | null;
 };

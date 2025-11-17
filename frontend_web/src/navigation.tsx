@@ -49,7 +49,7 @@ export function getOrganizationNav(hasUnreadMessages: boolean): Navigation {
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
-    { segment: 'dashboard/organization/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
+    { segment: 'dashboard/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
     { kind: 'divider' as const },
     { kind: 'header' as const, title: 'Manage Pharmacies and Shifts' },
     { segment: 'dashboard/organization/manage-pharmacies',
@@ -103,7 +103,7 @@ export function getOwnerNav(progressPercent: number, hasUnreadMessages: boolean)
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
-    { segment: "dashboard/owner/pharmacy-hub", title: "Pharmacy Hub", icon: <ForumIcon /> },
+    { segment: "dashboard/pharmacy-hub", title: "Pharmacy Hub", icon: <ForumIcon /> },
         { kind: "divider" as const },
     { kind: "header" as const, title: "Manage Pharmacies and Shifts" },
     {
@@ -201,7 +201,7 @@ export function getAdminNav({
 
   if (canManageComms) {
     navigation.push(
-      { segment: buildPath("pharmacy-hub"), title: "Pharmacy Hub", icon: <ForumIcon /> }
+      { segment: "dashboard/pharmacy-hub", title: "Pharmacy Hub", icon: <ForumIcon /> }
     );
   }
 
@@ -301,7 +301,7 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
-    { segment: 'dashboard/otherstaff/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
+    { segment: 'dashboard/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
     { segment: 'dashboard/otherstaff/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
 
     // -- Divider & Shifts Section --
@@ -366,7 +366,7 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
-    { segment: 'dashboard/pharmacist/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
+    { segment: 'dashboard/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
 
     { segment: 'dashboard/pharmacist/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
     { kind: 'divider' as const },

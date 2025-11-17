@@ -196,8 +196,8 @@ if (loading) {
         variant: "contained" as const,
       }
     : {
-        label: "View active shifts",
-        to: `/dashboard/${roleSegment}/shifts/active`,
+        label: "View Public shifts",
+        to: `/dashboard/${roleSegment}/shifts/public`,
         variant: "contained" as const,
       };
 

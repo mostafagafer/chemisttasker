@@ -81,6 +81,7 @@ export default function MembershipApplyPage() {
   const [lastName, setLastName] = useState('');
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState(''); // optional
+  const [jobTitle, setJobTitle] = useState('');
 
   // Role-specific fields
   const [pharmacistLevel, setPharmacistLevel] = useState('');
@@ -159,6 +160,13 @@ const activeLevelField = useMemo(() => {
     setSubmitError(null);
 
     try {
+      const requiresJobTitle = info?.category === 'FULL_PART_TIME';
+      const trimmedJobTitle = jobTitle.trim();
+      if (requiresJobTitle && !trimmedJobTitle) {
+        setSubmitError('Please enter your job title.');
+        setSubmitting(false);
+        return;
+      }
       const payload: any = {
         role,
         first_name: firstName.trim(),
@@ -174,6 +182,10 @@ const activeLevelField = useMemo(() => {
       setSubmitting(false);
       return;
     }
+
+      if (requiresJobTitle) {
+        payload.job_title = trimmedJobTitle;
+      }
 
       // include all role fields (backend allows blanks)
       payload.pharmacist_award_level = pharmacistLevel || null;
@@ -293,6 +305,17 @@ const activeLevelField = useMemo(() => {
               onChange={(e) => setEmail(e.target.value)}
               required
             />
+
+            {info?.category === 'FULL_PART_TIME' && (
+              <TextField
+                fullWidth
+                margin="normal"
+                label="Job Title"
+                value={jobTitle}
+                onChange={(e) => setJobTitle(e.target.value)}
+                required
+              />
+            )}
 
             {/* Role-specific field */}
             {activeLevelField && (

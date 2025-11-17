@@ -3538,6 +3538,7 @@ class MembershipSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'user', 'user_details', 'pharmacy', 'pharmacy_detail', 'invited_by', 'invited_by_details',
             'invited_name', 'role', 'employment_type', 'is_active', 'created_at', 'updated_at',
+            'job_title',
             # All classification fields are included and will be handled automatically
             'pharmacist_award_level',
             'otherstaff_classification_level',
@@ -3638,6 +3639,18 @@ class MembershipSerializer(serializers.ModelSerializer):
                 )
             })
 
+        job_title_value = attrs.get('job_title', getattr(self.instance, 'job_title', '') if self.instance else '')
+        job_title_value = (job_title_value or '').strip()
+        full_staff_types = {'FULL_TIME', 'PART_TIME'}
+        if employment_type in full_staff_types:
+            if not job_title_value:
+                raise serializers.ValidationError({
+                    'job_title': 'Job title is required for full or part-time staff.'
+                })
+            attrs['job_title'] = job_title_value
+        else:
+            attrs['job_title'] = ''
+
         # --- (4) Default employment type for Pharmacy Admin ---
         # --- (5) Role-based cleanup of classification fields ---
         def clear(*fields):
@@ -3703,7 +3716,7 @@ class MembershipApplicationSerializer(serializers.ModelSerializer):
         model = MembershipApplication
         fields = [
             'id', 'invite_link', 'pharmacy', 'pharmacy_name', 'category',
-            'role', 'first_name', 'last_name', 'mobile_number',
+            'role', 'first_name', 'last_name', 'mobile_number', 'job_title',
             'pharmacist_award_level', 'otherstaff_classification_level',
             'intern_half', 'student_year', 'email',
             'submitted_by', 'status', 'submitted_at', 'decided_at', 'decided_by'
@@ -3712,6 +3725,19 @@ class MembershipApplicationSerializer(serializers.ModelSerializer):
             'id', 'pharmacy', 'pharmacy_name', 'category',
             'submitted_by', 'status', 'submitted_at', 'decided_at', 'decided_by'
         ]
+
+    def validate(self, attrs):
+        invite_link = attrs.get('invite_link')
+        job_title_value = (attrs.get('job_title') or '').strip()
+        if invite_link and invite_link.category == 'FULL_PART_TIME':
+            if not job_title_value:
+                raise serializers.ValidationError({
+                    'job_title': 'Job title is required for full/part-time applications.'
+                })
+        else:
+            job_title_value = ''
+        attrs['job_title'] = job_title_value
+        return super().validate(attrs)
 
     def create(self, validated_data):
         request = self.context.get('request')
@@ -4925,18 +4951,40 @@ class HubMembershipSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Membership
-        fields = ["id", "role", "employment_type", "user_details"]
+        fields = ["id", "role", "employment_type", "job_title", "user_details"]
         read_only_fields = fields
 
 
 class PharmacyCommunityGroupMemberSerializer(serializers.ModelSerializer):
     membership_id = serializers.IntegerField(read_only=True)
     member = HubMembershipSerializer(source="membership", read_only=True)
+    pharmacy_id = serializers.IntegerField(source="membership.pharmacy_id", read_only=True)
+    pharmacy_name = serializers.CharField(
+        source="membership.pharmacy.name", read_only=True
+    )
+    job_title = serializers.CharField(
+        source="membership.job_title", read_only=True, allow_blank=True
+    )
 
     class Meta:
         model = PharmacyCommunityGroupMembership
-        fields = ["membership_id", "member", "is_admin", "joined_at"]
-        read_only_fields = ["membership_id", "member", "joined_at"]
+        fields = [
+            "membership_id",
+            "member",
+            "is_admin",
+            "joined_at",
+            "pharmacy_id",
+            "pharmacy_name",
+            "job_title",
+        ]
+        read_only_fields = [
+            "membership_id",
+            "member",
+            "joined_at",
+            "pharmacy_id",
+            "pharmacy_name",
+            "job_title",
+        ]
 
 
 class HubCommunityGroupSerializer(serializers.ModelSerializer):
@@ -5317,12 +5365,14 @@ class HubPostSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        validated_data.pop("tagged_member_ids", None)
         memberships = validated_data.pop("_tagged_memberships", None)
         post = super().create(validated_data)
         self._newly_tagged_members = self._apply_mentions(post, memberships)
         return post
 
     def update(self, instance, validated_data):
+        validated_data.pop("tagged_member_ids", None)
         memberships = validated_data.pop("_tagged_memberships", None)
         post = super().update(instance, validated_data)
         if memberships is not None:
@@ -5352,10 +5402,20 @@ class HubPostSerializer(serializers.ModelSerializer):
         organization = context.get("organization")
         community_group = context.get("community_group")
         if community_group:
-            allowed = community_group.pharmacy_id
-            invalid = [m.id for m in memberships if m.pharmacy_id != allowed]
+            allowed_ids = set(
+                PharmacyCommunityGroupMembership.objects.filter(
+                    group=community_group
+                ).values_list("membership_id", flat=True)
+            )
+            invalid = [m.id for m in memberships if m.id not in allowed_ids]
             if invalid:
-                raise serializers.ValidationError({"tagged_member_ids": f"Memberships must belong to pharmacy #{allowed}."})
+                raise serializers.ValidationError(
+                    {
+                        "tagged_member_ids": (
+                            "Memberships must belong to the selected group."
+                        )
+                    }
+                )
         elif pharmacy:
             invalid = [m.id for m in memberships if m.pharmacy_id != pharmacy.id]
             if invalid:
@@ -5512,6 +5572,7 @@ class HubPostSerializer(serializers.ModelSerializer):
                     "full_name": full_name or "(Unnamed)",
                     "email": user.email if user else None,
                     "role": membership.role,
+                    "job_title": membership.job_title or "",
                 }
             )
         return tagged

@@ -761,6 +761,11 @@ class Membership(models.Model):
         blank=False,
         help_text="Employment type"
     )
+    job_title = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Displayed for full/part-time staff"
+    )
 
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1024,6 +1029,7 @@ class MembershipApplication(models.Model):
     first_name = models.CharField(max_length=150)
     last_name = models.CharField(max_length=150)
     mobile_number = models.CharField(max_length=32)
+    job_title = models.CharField(max_length=255, blank=True)
 
     # LEVEL – we keep your existing per-role fields so approval can map 1:1 into Membership
     pharmacist_award_level = models.CharField(

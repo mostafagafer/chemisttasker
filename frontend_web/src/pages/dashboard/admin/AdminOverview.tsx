@@ -68,7 +68,16 @@ export default function AdminOverview() {
   ];
 
   return (
-    <Stack spacing={{ xs: 3, md: 4 }} sx={{ width: "100%" }}>
+    <Stack
+      spacing={{ xs: 3, md: 4 }}
+      sx={{
+        width: "100%",
+        maxWidth: 1200,
+        mx: "auto",
+        px: { xs: 2, md: 4 },
+        py: { xs: 2, md: 4 },
+      }}
+    >
       <Paper
         sx={{
           position: "relative",

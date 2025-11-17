@@ -72,6 +72,7 @@ import {
   fetchPharmacyGroupMembers,
   fetchOrganizationGroupMembers,
   fetchHubGroup,
+  fetchHubGroupMembers,
 } from '../../../../api/hub';
 import {
   HubContext,
@@ -113,6 +114,39 @@ type ActiveGroupModal = {
   scope: GroupModalScope;
   mode: GroupModalMode;
   group?: HubGroup;
+};
+
+const HUB_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+});
+
+const HUB_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true,
+});
+
+const formatHubDate = (value: string) => {
+  if (!value) {
+    return '';
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  const datePart = HUB_DATE_FORMATTER.format(parsed);
+  const timePart = HUB_TIME_FORMATTER.format(parsed).replace('AM', 'am').replace('PM', 'pm');
+  return `${datePart} ${timePart}`;
+};
+
+const formatMemberLabel = (name: string, jobTitle?: string | null, fallback = 'Member') => {
+  const displayName = name?.trim() || fallback;
+  if (jobTitle) {
+    return `${displayName} • ${jobTitle}`;
+  }
+  return displayName;
 };
 
 // --- Main HubPage Component ---
@@ -984,13 +1018,13 @@ function HomePageContent({
           <Typography variant="body1" sx={{ lineHeight: 1.75, color: 'text.secondary' }}>
             {details.about}
           </Typography>
-          {canCreatePost && (
-            <Alert severity="info" sx={{ mt: 2 }}>
-              Share updates with your entire pharmacy team using the composer below.
-            </Alert>
-          )}
         </CardContent>
       </Card>
+      <MembersPreviewPanel
+        loadMembers={membersLoader}
+        title="Pharmacy Members"
+        emptyMessage={`Invite teammates to ${details.name} to start collaborating.`}
+      />
       <Box sx={{ mt: 3 }}>
         <ScopeFeed
           scope={scope}
@@ -1001,6 +1035,104 @@ function HomePageContent({
         />
       </Box>
     </Box>
+  );
+}
+
+interface MembersPreviewPanelProps {
+  loadMembers?: () => Promise<HubGroupMemberOption[]>;
+  title: string;
+  emptyMessage: string;
+}
+
+function MembersPreviewPanel({ loadMembers, title, emptyMessage }: MembersPreviewPanelProps) {
+  const [members, setMembers] = useState<HubGroupMemberOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!loadMembers) {
+      setMembers([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    let isMounted = true;
+    setLoading(true);
+    setError(null);
+    loadMembers()
+      .then((list) => {
+        if (isMounted) {
+          setMembers(list);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load member preview', err);
+        if (isMounted) {
+          setMembers([]);
+          setError('Unable to load members right now.');
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [loadMembers]);
+
+  if (!loadMembers) {
+    return null;
+  }
+
+  const preview = members.slice(0, 12);
+  const remaining = members.length - preview.length;
+
+  return (
+    <Card sx={{ borderRadius: 2, border: '1px solid', borderColor: 'grey.200', boxShadow: 0, mt: 3 }}>
+      <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Typography variant="h6">{title}</Typography>
+          {loading ? (
+            <CircularProgress size={16} />
+          ) : (
+            <Chip
+              label={`${members.length} member${members.length === 1 ? '' : 's'}`}
+              size="small"
+              color="primary"
+              variant="outlined"
+            />
+          )}
+        </Stack>
+        {error ? (
+          <Alert severity="error">{error}</Alert>
+        ) : loading && !members.length ? (
+          <LinearProgress />
+        ) : members.length ? (
+          <Stack direction="row" flexWrap="wrap" gap={1}>
+            {preview.map((member) => {
+              const baseName = member.fullName || member.email || 'Member';
+              return (
+                <Chip
+                  key={member.membershipId}
+                  label={formatMemberLabel(baseName, member.jobTitle)}
+                  size="small"
+                  variant="outlined"
+                />
+              );
+            })}
+            {remaining > 0 && (
+              <Chip label={`+${remaining} more`} size="small" color="primary" variant="outlined" />
+            )}
+          </Stack>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            {emptyMessage}
+          </Typography>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1058,13 +1190,13 @@ function OrgHomePageContent({
           <Typography variant="body1" sx={{ lineHeight: 1.75, color: 'text.secondary' }}>
             {details.about}
           </Typography>
-          {canCreatePost && (
-            <Alert severity="info" sx={{ mt: 2 }}>
-              Organization posts are visible to everyone linked to this organization.
-            </Alert>
-          )}
         </CardContent>
       </Card>
+      <MembersPreviewPanel
+        loadMembers={membersLoader}
+        title="Organization Members"
+        emptyMessage={`Invite members to ${details.name} to collaborate across pharmacies.`}
+      />
       <Box sx={{ mt: 3 }}>
         <ScopeFeed
           scope={scope}
@@ -1098,7 +1230,7 @@ function GroupContent({ pharmacy, group, scope, onEditGroup, onDeleteGroup }: Gr
     );
   }
 
-  const membersLoader = useCallback(() => fetchPharmacyGroupMembers(group.pharmacyId), [group.pharmacyId]);
+  const membersLoader = useCallback(() => fetchHubGroupMembers(group.id), [group.id]);
 
   return (
     <Stack sx={{ width: '100%' }} spacing={3}>
@@ -1172,12 +1304,7 @@ function OrgGroupContent({ group, scope, onEditGroup, onDeleteGroup }: OrgGroupC
     );
   }
 
-  const membersLoader = useCallback(() => {
-    if (group.organizationId) {
-      return fetchOrganizationGroupMembers(group.organizationId);
-    }
-    return fetchPharmacyGroupMembers(group.pharmacyId);
-  }, [group.organizationId, group.pharmacyId]);
+  const membersLoader = useCallback(() => fetchHubGroupMembers(group.id), [group.id]);
 
   return (
     <Stack sx={{ width: '100%' }} spacing={3}>
@@ -1424,6 +1551,11 @@ function CreateGroupModal({
               <Typography variant="body2" color="text.secondary">
                 {member.email || 'No email provided'}
               </Typography>
+              {member.jobTitle && (
+                <Typography variant="caption" color="text.secondary">
+                  {member.jobTitle}
+                </Typography>
+              )}
               {member.pharmacyName ? (
                 <Typography variant="caption" color="text.secondary">
                   {member.pharmacyName}
@@ -1574,7 +1706,8 @@ function CreateGroupModal({
               }}
             >
               {selectedMemberDetails.map(member => {
-                const chipLabel = member.pharmacyName ? `${member.fullName} - ${member.pharmacyName}` : member.fullName;
+                const nameLabel = formatMemberLabel(member.fullName || member.email || 'Member', member.jobTitle);
+                const chipLabel = member.pharmacyName ? `${nameLabel} — ${member.pharmacyName}` : nameLabel;
                 return (
                   <Chip
                     key={member.membershipId}
@@ -1690,7 +1823,8 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
   };
 
   const authorName = `${post.author.user.firstName || ''} ${post.author.user.lastName || ''}`.trim() || 'Unknown User';
-  const postTimestamp = new Date(post.createdAt).toLocaleString();
+  const authorJobTitle = post.author.jobTitle?.trim() || null;
+  const postTimestamp = formatHubDate(post.createdAt);
 
   const renderAttachment = (attachment: HubAttachment) => {
     const src = attachment.url;
@@ -1741,6 +1875,11 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
                 <Typography variant="subtitle2" component="div" sx={{ fontWeight: 'bold' }}>
                   {authorName}
                 </Typography>
+                {authorJobTitle && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    {authorJobTitle}
+                  </Typography>
+                )}
                 <Typography variant="caption" color="text.secondary">
                   {postTimestamp}
                 </Typography>
@@ -1804,13 +1943,17 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
               Tagged:
             </Typography>
             <Stack direction="row" spacing={0.5} flexWrap="wrap" rowGap={0.5}>
-              {post.taggedMembers.map((member) => (
-                <Chip
-                  key={member.membershipId}
-                  label={member.fullName || member.email || 'Member'}
-                  size="small"
-                />
-              ))}
+              {post.taggedMembers.map((member) => {
+                const baseName = member.fullName || member.email || 'Member';
+                const label = formatMemberLabel(baseName, member.jobTitle);
+                return (
+                  <Chip
+                    key={member.membershipId}
+                    label={label}
+                    size="small"
+                  />
+                );
+              })}
             </Stack>
           </Stack>
         )}
@@ -1939,6 +2082,13 @@ function ScopeFeed({
   const [editingError, setEditingError] = useState<string | null>(null);
   const [editingSaving, setEditingSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const stableScope = useMemo<HubScopeSelection>(
+    () => ({ type: scope.type, id: scope.id }),
+    [scope.id, scope.type],
+  );
+  useEffect(() => {
+    setTaggedMembers([]);
+  }, [stableScope]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1946,7 +2096,7 @@ function ScopeFeed({
       try {
         setLoadingPosts(true);
         setPostsError(null);
-        const fetchedPosts = await fetchHubPosts(scope);
+        const fetchedPosts = await fetchHubPosts(stableScope);
         if (isMounted) {
           setPosts(fetchedPosts.posts);
         }
@@ -1965,7 +2115,7 @@ function ScopeFeed({
     return () => {
       isMounted = false;
     };
-  }, [scope]);
+  }, [stableScope]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1973,7 +2123,7 @@ function ScopeFeed({
       try {
         setPollsLoading(true);
         setPollsError(null);
-        const fetchedPolls = await fetchHubPolls(scope);
+        const fetchedPolls = await fetchHubPolls(stableScope);
         if (isMounted) {
           setPolls(fetchedPolls);
         }
@@ -1992,7 +2142,7 @@ function ScopeFeed({
     return () => {
       isMounted = false;
     };
-  }, [scope]);
+  }, [stableScope]);
 
   const handleCreatePost = async () => {
     if (!canCreatePost) return;
@@ -2002,10 +2152,12 @@ function ScopeFeed({
       payload.attachments = attachments;
     }
     if (taggedMembers.length > 0) {
-      payload.taggedMemberIds = taggedMembers.map((member) => member.membershipId);
+      payload.taggedMemberIds = Array.from(
+        new Set(taggedMembers.map((member) => member.membershipId)),
+      );
     }
     try {
-      const newPost = await createHubPost(scope, payload);
+      const newPost = await createHubPost(stableScope, payload);
       setPosts((prev) => [newPost, ...prev]);
       setPostContent('');
       setAttachments([]);
@@ -2050,7 +2202,7 @@ function ScopeFeed({
     setPollSubmitting(true);
     setPollError(null);
     try {
-      const created = await createHubPoll(scope, { question, options: optionLabels });
+      const created = await createHubPoll(stableScope, { question, options: optionLabels });
       setPolls((prev) => [created, ...prev]);
       setPollModalOpen(false);
     } catch (err) {
@@ -2243,17 +2395,7 @@ function ScopeFeed({
         <Alert severity="error" sx={{ mt: 3 }}>
           {postsError}
         </Alert>
-      ) : posts.length === 0 ? (
-        <Card sx={{ borderRadius: 2, border: '1px solid', borderColor: 'grey.200', bgcolor: 'white', p: 3, textAlign: 'center', boxShadow: 1 }}>
-          <GroupIcon sx={{ fontSize: 40, margin: '0 auto', marginBottom: 1.5, color: 'grey.400' }} />
-          <Typography variant="h6" sx={{ fontWeight: 'semibold', color: 'text.primary' }}>
-            {emptyTitle}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {emptyDescription}
-          </Typography>
-        </Card>
-      ) : (
+      ) : posts.length > 0 ? (
         <Stack spacing={2}>
           {posts.map((post) => (
             <PostCard
@@ -2265,7 +2407,17 @@ function ScopeFeed({
             />
           ))}
         </Stack>
-      )}
+      ) : polls.length === 0 ? (
+        <Card sx={{ borderRadius: 2, border: '1px solid', borderColor: 'grey.200', bgcolor: 'white', p: 3, textAlign: 'center', boxShadow: 1 }}>
+          <GroupIcon sx={{ fontSize: 40, margin: '0 auto', marginBottom: 1.5, color: 'grey.400' }} />
+          <Typography variant="h6" sx={{ fontWeight: 'semibold', color: 'text.primary' }}>
+            {emptyTitle}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {emptyDescription}
+          </Typography>
+        </Card>
+      ) : null}
       </Stack>
       {isPollModalOpen && (
         <StartPollModal
@@ -2295,6 +2447,16 @@ interface TagMembersSelectorProps {
   value: HubGroupMemberOption[];
   onChange: (members: HubGroupMemberOption[]) => void;
 }
+
+type AggregatedMemberOption = {
+  key: string;
+  fullName: string;
+  email: string | null;
+  role: string | null;
+  jobTitle?: string | null;
+  membershipIds: number[];
+  pharmacyNames: string[];
+};
 
 function TagMembersSelector({ loadMembers, value, onChange }: TagMembersSelectorProps) {
   const [options, setOptions] = useState<HubGroupMemberOption[]>([]);
@@ -2333,51 +2495,187 @@ function TagMembersSelector({ loadMembers, value, onChange }: TagMembersSelector
     return null;
   }
 
-  return (
-    <Autocomplete
-      multiple
-      options={options}
-      value={value}
-      onChange={(_, newValue) => onChange(newValue as HubGroupMemberOption[])}
-      disableCloseOnSelect
-      loading={loading}
-      isOptionEqualToValue={(option, selected) => option.membershipId === selected.membershipId}
-      getOptionLabel={(option) => option.fullName || option.email || 'Member'}
-      renderOption={(props, option, { selected }) => (
-        <li {...props}>
-          <Checkbox checked={selected} sx={{ mr: 1 }} />
-          <Box>
-            <Typography variant="body2">{option.fullName || option.email || 'Member'}</Typography>
-            {option.role && (
-              <Typography variant="caption" color="text.secondary">
-                {option.role.replace(/_/g, ' ')}
-              </Typography>
-            )}
-          </Box>
-        </li>
-      )}
-      renderTags={(tagValue, getTagProps) =>
-        tagValue.map((option, index) => (
-          <Chip {...getTagProps({ index })} label={option.fullName || option.email || 'Member'} size="small" />
-        ))
+  const membershipMap = useMemo(() => {
+    const map = new Map<number, HubGroupMemberOption>();
+    options.forEach((member) => {
+      map.set(member.membershipId, member);
+    });
+    return map;
+  }, [options]);
+
+  const aggregatedOptions = useMemo<AggregatedMemberOption[]>(() => {
+    const map = new Map<string, AggregatedMemberOption>();
+    options.forEach((member) => {
+      const key = member.userId ? `user-${member.userId}` : `membership-${member.membershipId}`;
+      const entry = map.get(key);
+      if (entry) {
+        entry.membershipIds.push(member.membershipId);
+        if (member.pharmacyName && !entry.pharmacyNames.includes(member.pharmacyName)) {
+          entry.pharmacyNames.push(member.pharmacyName);
+        }
+        if (!entry.fullName && member.fullName) {
+          entry.fullName = member.fullName;
+        }
+        if (!entry.email && member.email) {
+          entry.email = member.email;
+        }
+        if (!entry.jobTitle && member.jobTitle) {
+          entry.jobTitle = member.jobTitle;
+        }
+      } else {
+        map.set(key, {
+          key,
+          fullName: member.fullName,
+          email: member.email,
+          role: member.role,
+          jobTitle: member.jobTitle ?? null,
+          membershipIds: [member.membershipId],
+          pharmacyNames: member.pharmacyName ? [member.pharmacyName] : [],
+        });
       }
-      renderInput={(params) => (
-        <TextField
-          {...params}
-          label="Tag members"
-          placeholder="@mention"
-          InputProps={{
-            ...params.InputProps,
-            endAdornment: (
-              <>
-                {loading ? <CircularProgress size={16} /> : null}
-                {params.InputProps.endAdornment}
-              </>
-            ),
-          }}
-        />
-      )}
-    />
+    });
+    return Array.from(map.values()).sort((a, b) => {
+      const labelA = (a.fullName || a.email || '').toLowerCase();
+      const labelB = (b.fullName || b.email || '').toLowerCase();
+      return labelA.localeCompare(labelB);
+    });
+  }, [options]);
+
+  const selectedMembershipIds = useMemo(
+    () => new Set(value.map((member) => member.membershipId)),
+    [value],
+  );
+
+  const aggregatedValue = useMemo(
+    () =>
+      aggregatedOptions.filter((option) =>
+        option.membershipIds.every((id) => selectedMembershipIds.has(id)),
+      ),
+    [aggregatedOptions, selectedMembershipIds],
+  );
+
+  const applyAggregatedSelection = (selection: AggregatedMemberOption[]) => {
+    const ids = new Set<number>();
+    selection.forEach((option) => option.membershipIds.forEach((id) => ids.add(id)));
+    const normalized = Array.from(ids)
+      .map((id) => membershipMap.get(id))
+      .filter((member): member is HubGroupMemberOption => Boolean(member));
+    onChange(normalized);
+  };
+
+  const isSelectAll =
+    aggregatedOptions.length > 0 && aggregatedValue.length === aggregatedOptions.length;
+
+  const previewMembers = aggregatedOptions.slice(0, 10);
+
+  const formatRole = (role: string | null | undefined) =>
+    role ? role.replace(/_/g, ' ') : '';
+
+  return (
+    <Stack spacing={1.5}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between">
+        <Typography variant="subtitle2">Tag members</Typography>
+        <Button
+          size="small"
+          onClick={() => (isSelectAll ? onChange([]) : applyAggregatedSelection(aggregatedOptions))}
+          disabled={!aggregatedOptions.length}
+        >
+          {isSelectAll ? 'Clear all' : 'Select all'}
+        </Button>
+      </Stack>
+      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+        {loading && !options.length ? (
+          <LinearProgress />
+        ) : aggregatedOptions.length ? (
+          <Stack direction="row" flexWrap="wrap" gap={1}>
+            {previewMembers.map((member) => {
+              const baseName = member.fullName || member.email || 'Member';
+              return (
+                <Chip
+                  key={member.key}
+                  label={formatMemberLabel(baseName, member.jobTitle)}
+                  size="small"
+                  variant="outlined"
+                />
+              );
+            })}
+            {aggregatedOptions.length > previewMembers.length && (
+              <Chip
+                label={`+${aggregatedOptions.length - previewMembers.length} more`}
+                size="small"
+                color="primary"
+                variant="outlined"
+              />
+            )}
+          </Stack>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            No members available to tag yet.
+          </Typography>
+        )}
+      </Paper>
+      <Autocomplete
+        multiple
+        disableCloseOnSelect
+        options={aggregatedOptions}
+        value={aggregatedValue}
+        loading={loading}
+        openOnFocus
+        onChange={(_, newValue) => applyAggregatedSelection(newValue as AggregatedMemberOption[])}
+        isOptionEqualToValue={(option, selected) => option.key === selected.key}
+        getOptionLabel={(option) => formatMemberLabel(option.fullName || option.email || 'Member', option.jobTitle)}
+        renderOption={(props, option, { selected }) => (
+          <li {...props}>
+            <Checkbox checked={selected} sx={{ mr: 1 }} />
+            <Box>
+              <Typography variant="body2" fontWeight={600}>
+                {option.fullName || option.email || 'Member'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {[
+                  formatRole(option.role),
+                  option.jobTitle,
+                  option.pharmacyNames.join(', '),
+                ]
+                  .filter(Boolean)
+                  .join(' • ')}
+              </Typography>
+            </Box>
+          </li>
+        )}
+        renderTags={(tagValue, getTagProps) =>
+          tagValue.map((option, index) => (
+            <Chip
+              {...getTagProps({ index })}
+              label={formatMemberLabel(option.fullName || option.email || 'Member', option.jobTitle)}
+              size="small"
+            />
+          ))
+        }
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            label="Tag members"
+            placeholder="@mention"
+            InputProps={{
+              ...params.InputProps,
+              endAdornment: (
+                <>
+                  {loading ? <CircularProgress size={16} /> : null}
+                  {params.InputProps.endAdornment}
+                </>
+              ),
+            }}
+          />
+        )}
+        ListboxProps={{ style: { maxHeight: 320 } }}
+      />
+      <FormHelperText>
+        {loading
+          ? 'Loading members…'
+          : `${aggregatedOptions.length} member${aggregatedOptions.length === 1 ? '' : 's'} available`}
+      </FormHelperText>
+    </Stack>
   );
 }
 

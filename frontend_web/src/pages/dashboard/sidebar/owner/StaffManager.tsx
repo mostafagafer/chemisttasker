@@ -51,6 +51,8 @@ import MembershipApplicationsPanel from "./MembershipApplicationsPanel";
 import { useAuth } from "../../../../contexts/AuthContext";
 
 const EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "CASUAL"] as const;
+const employmentNeedsJobTitle = (value: string) =>
+  value === "FULL_TIME" || value === "PART_TIME";
 
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "PHARMACIST", label: "Pharmacist" },
@@ -65,6 +67,7 @@ type InviteRowState = {
   invited_name: string;
   role: Role;
   employment_type: (typeof EMPLOYMENT_TYPES)[number];
+  job_title: string;
   existingUserRole?: UserPortalRole | null;
   checking?: boolean;
   error?: string | null;
@@ -75,6 +78,7 @@ const createInviteRow = (): InviteRowState => ({
   invited_name: "",
   role: "PHARMACIST",
   employment_type: "FULL_TIME",
+  job_title: "",
   existingUserRole: undefined,
   checking: false,
   error: null,
@@ -105,6 +109,7 @@ type Staff = {
   email?: string;
   role: Role;
   workType: WorkType;
+  jobTitle?: string | null;
 };
 
 type StaffManagerProps = {
@@ -154,6 +159,7 @@ export default function StaffManager({
         email,
         role: coerceRole(m.role),
         workType: coerceWorkType(m.employment_type),
+        jobTitle: m.job_title ?? null,
       };
     });
   }, [memberships, user?.id, user?.email]);
@@ -199,7 +205,7 @@ export default function StaffManager({
 
   const handleInviteFieldChange = (
     idx: number,
-    field: "email" | "invited_name" | "role" | "employment_type",
+    field: "email" | "invited_name" | "role" | "employment_type" | "job_title",
     value: string
   ) => {
     setInviteRows((prev) => {
@@ -208,13 +214,16 @@ export default function StaffManager({
       if (!current) {
         return prev;
       }
-      const updated: InviteRowState = { ...current, [field]: value } as InviteRowState;
+      let updated: InviteRowState = { ...current, [field]: value } as InviteRowState;
       if (field === "email") {
         updated.existingUserRole = undefined;
         updated.error = null;
       }
       if (field === "role") {
         updated.error = describeRoleMismatch(value as Role, updated.existingUserRole);
+      }
+      if (field === "employment_type" && !employmentNeedsJobTitle(value)) {
+        updated = { ...updated, job_title: "" };
       }
       next[idx] = updated;
       return next;
@@ -375,6 +384,17 @@ export default function StaffManager({
         hasErrors = true;
       }
 
+      if (employmentNeedsJobTitle(row.employment_type) && !row.job_title.trim()) {
+        rows[idx] = {
+          ...row,
+          checking: false,
+          existingUserRole: userRole ?? null,
+          error: "Job title is required for full or part-time staff.",
+        };
+        hasErrors = true;
+        continue;
+      }
+
       rows[idx] = {
         ...row,
         checking: false,
@@ -401,6 +421,9 @@ export default function StaffManager({
         role: row.role,
         employment_type: row.employment_type,
         pharmacy: pharmacyId,
+        job_title: employmentNeedsJobTitle(row.employment_type)
+          ? row.job_title.trim()
+          : undefined,
       }));
 
     try {
@@ -529,12 +552,9 @@ export default function StaffManager({
                 <Chip label={item.role.replace("_", " ")} color={getRoleChipColor(item.role)} />
                 <Chip label={item.workType.replace("_", " ")} variant="outlined" />
                 <Box sx={{ ml: 1 }}>
-                  <Typography fontWeight={600}>{item.name}</Typography>
-                  {item.email && (
-                    <Typography variant="body2" sx={{ color: tokens.textMuted }}>
-                      {item.email}
-                    </Typography>
-                  )}
+                  <Typography fontWeight={600}>
+                    {[item.name, item.jobTitle, item.email].filter(Boolean).join(" | ")}
+                  </Typography>
                 </Box>
                 <Box sx={{ ml: "auto", display: "flex", gap: 0.5 }}>
                   <Tooltip title="Remove">
@@ -644,6 +664,16 @@ export default function StaffManager({
                   ))}
                 </Select>
               </FormControl>
+              {employmentNeedsJobTitle(row.employment_type) && (
+                <TextField
+                  label="Job Title"
+                  value={row.job_title}
+                  onChange={(e) => handleInviteFieldChange(idx, "job_title", e.target.value)}
+                  required
+                  fullWidth
+                  sx={{ gridColumn: "span 2" }}
+                />
+              )}
               <Box sx={{ gridColumn: "span 2", minHeight: 20 }}>
                 {row.checking ? (
                   <Typography variant="caption" color="text.secondary">

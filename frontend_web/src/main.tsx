@@ -158,10 +158,21 @@ const router = createBrowserRouter([
           { path: 'interests',    element: <ExplorerInterestsPage /> },
           { path: 'learning',     element: <LearningMaterialsPage /> },
           { path: 'chat', element: <ChatPage /> },
-          { path: 'pharmacy-hub', element: <HubPage /> },
+          { path: 'pharmacy-hub', element: <Navigate to="/dashboard/pharmacy-hub" replace /> },
           { path: 'logout',       element: <LogoutPage /> },
 
         ],
+      },
+
+      // dashboard/pharmacy-hub (shared entry point)
+      {
+        path: 'dashboard/pharmacy-hub',
+        Component: () => (
+          <ProtectedRoute>
+            <PharmacistDashboardWrapper />
+          </ProtectedRoute>
+        ),
+        children: [{ index: true, element: <HubPage /> }],
       },
 
       // Admin 
@@ -268,7 +279,7 @@ const router = createBrowserRouter([
           { path: 'interests',    element: <ExplorerInterestsPage /> },
           { path: 'learning',     element: <LearningMaterialsPage /> },
           { path: 'chat', element: <ChatPage /> },
-          { path: 'pharmacy-hub', element: <HubPage /> },
+          { path: 'pharmacy-hub', element: <Navigate to="/dashboard/pharmacy-hub" replace /> },
           { path: 'logout',       element: <LogoutPage /> },
         ],
       },
@@ -316,7 +327,7 @@ const router = createBrowserRouter([
           { path: 'interests',    element: <ExplorerInterestsPage /> },
           { path: 'learning',     element: <LearningMaterialsPage /> },
           { path: 'chat', element: <ChatPage /> },
-          { path: 'pharmacy-hub', element: <HubPage /> },
+          { path: 'pharmacy-hub', element: <Navigate to="/dashboard/pharmacy-hub" replace /> },
           { path: 'logout',       element: <LogoutPage /> },
         ],
       },
@@ -359,7 +370,7 @@ const router = createBrowserRouter([
           { path: 'interests',    element: <ExplorerInterestsPage /> },
           { path: 'learning',     element: <LearningMaterialsPage /> },
           { path: 'chat', element: <ChatPage /> },
-          { path: 'pharmacy-hub', element: <HubPage /> },
+          { path: 'pharmacy-hub', element: <Navigate to="/dashboard/pharmacy-hub" replace /> },
           { path: 'logout',       element: <LogoutPage /> },
         ],
       },

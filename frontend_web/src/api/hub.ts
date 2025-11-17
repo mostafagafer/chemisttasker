@@ -34,6 +34,7 @@ type MembershipApi = {
   id: number;
   role: string;
   employment_type: string;
+  job_title?: string | null;
   user_details: {
     id: number;
     first_name: string | null;
@@ -107,6 +108,7 @@ type TaggedMemberApi = {
   full_name: string;
   email: string | null;
   role: string | null;
+  job_title?: string | null;
 };
 
 type PollOptionApi = {
@@ -141,6 +143,9 @@ type GroupMemberApi = {
   member: MembershipApi;
   is_admin: boolean;
   joined_at: string;
+  pharmacy_id?: number | null;
+  pharmacy_name?: string | null;
+  job_title?: string | null;
 };
 
 type GroupApi = {
@@ -202,6 +207,7 @@ const mapMembership = (api: MembershipApi | null | undefined): HubMembership => 
   id: api?.id ?? 0,
   role: api?.role ?? "MEMBER",
   employmentType: api?.employment_type ?? "",
+  jobTitle: api?.job_title ?? null,
   user: {
     id: api?.user_details?.id ?? 0,
     firstName: api?.user_details?.first_name ?? null,
@@ -275,6 +281,7 @@ const mapTaggedMember = (api: TaggedMemberApi): HubTaggedMember => ({
   fullName: api.full_name,
   email: api.email,
   role: api.role,
+  jobTitle: api.job_title ?? null,
 });
 
 const mapPollOption = (api: PollOptionApi): HubPollOption => ({
@@ -328,12 +335,17 @@ const mapGroupMember = (api: GroupMemberApi): HubGroupMember => {
   const first = userDetails?.first_name ?? "";
   const last = userDetails?.last_name ?? "";
   const fullName = [first, last].join(" ").trim() || userDetails?.email || "Member";
+  const jobTitle = api.member?.job_title ?? api.job_title ?? null;
   return {
     membershipId: api.membership_id,
+    userId: userDetails?.id ?? null,
     fullName,
     email: userDetails?.email ?? null,
     role: api.member?.role ?? null,
     employmentType: api.member?.employment_type ?? null,
+    pharmacyId: api.pharmacy_id ?? null,
+    pharmacyName: api.pharmacy_name ?? null,
+    jobTitle,
     isAdmin: api.is_admin,
     joinedAt: api.joined_at,
   };
@@ -718,6 +730,50 @@ const formatMemberName = (record: any) => {
 const asRole = (value: string | null | undefined) =>
   (value ?? "MEMBER").toUpperCase();
 
+const asUserId = (record: any): number | null => {
+  const candidates = [
+    record?.user,
+    record?.user_id,
+    record?.user_details?.id,
+    record?.membership?.user,
+    record?.membership?.user_id,
+  ];
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined) {
+      continue;
+    }
+    const parsed = Number(candidate);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+};
+
+type MemberOptionSource = {
+  membershipId: number;
+  userId?: number | null;
+  fullName: string;
+  email: string | null;
+  role: string | null;
+  employmentType: string | null;
+  pharmacyId: number | null;
+  pharmacyName: string | null;
+  jobTitle?: string | null;
+};
+
+const mapOptionFromSource = (source: MemberOptionSource): HubGroupMemberOption => ({
+  membershipId: source.membershipId,
+  userId: source.userId ?? null,
+  fullName: source.fullName,
+  email: source.email,
+  role: asRole(source.role),
+  employmentType: source.employmentType ?? null,
+  pharmacyId: source.pharmacyId,
+  pharmacyName: source.pharmacyName,
+  jobTitle: source.jobTitle ?? null,
+});
+
 export async function fetchPharmacyGroupMembers(
   pharmacyId: number,
 ): Promise<HubGroupMemberOption[]> {
@@ -726,22 +782,26 @@ export async function fetchPharmacyGroupMembers(
     { params: { pharmacy_id: pharmacyId, page_size: 500 } },
   );
   return asList<any>(data)
-    .map((member) => ({
-      membershipId: Number(member.id),
-      fullName: formatMemberName(member),
-      email:
-        member?.user_details?.email ??
-        member?.email ??
-        member?.contact_email ??
-        null,
-      role: asRole(member?.role),
-      employmentType: member?.employment_type ?? null,
-      pharmacyId,
-      pharmacyName:
-        member?.pharmacy_detail?.name ??
-        member?.pharmacy_name ??
-        null,
-    }))
+    .map((member) =>
+      mapOptionFromSource({
+        membershipId: Number(member.id),
+        userId: asUserId(member),
+        fullName: formatMemberName(member),
+        email:
+          member?.user_details?.email ??
+          member?.email ??
+          member?.contact_email ??
+          null,
+        role: member?.role ?? null,
+        employmentType: member?.employment_type ?? null,
+        pharmacyId: member?.pharmacy ?? pharmacyId ?? null,
+        pharmacyName:
+          member?.pharmacy_detail?.name ??
+          member?.pharmacy_name ??
+          null,
+        jobTitle: member?.job_title ?? null,
+      }),
+    )
     .sort((a, b) => a.fullName.localeCompare(b.fullName));
 }
 
@@ -753,21 +813,44 @@ export async function fetchOrganizationGroupMembers(
     { params: { organization_id: organizationId, page_size: 500 } },
   );
   return asList<any>(data)
-    .map((member) => ({
-      membershipId: Number(member.id),
-      fullName: formatMemberName(member),
-      email:
-        member?.user?.email ??
-        member?.user_details?.email ??
-        member?.email ??
-        null,
-      role: asRole(member?.role),
-      employmentType: member?.employment_type ?? null,
-      pharmacyId: member?.pharmacy ?? null,
-      pharmacyName:
-        member?.pharmacy_detail?.name ??
-        member?.pharmacy_name ??
-        null,
-    }))
+    .map((member) =>
+      mapOptionFromSource({
+        membershipId: Number(member.id),
+        userId: asUserId(member),
+        fullName: formatMemberName(member),
+        email:
+          member?.user?.email ??
+          member?.user_details?.email ??
+          member?.email ??
+          null,
+        role: member?.role ?? null,
+        employmentType: member?.employment_type ?? null,
+        pharmacyId: member?.pharmacy ?? null,
+        pharmacyName:
+          member?.pharmacy_detail?.name ??
+          member?.pharmacy_name ??
+          null,
+        jobTitle: member?.job_title ?? null,
+      }),
+    )
+    .sort((a, b) => a.fullName.localeCompare(b.fullName));
+}
+
+export async function fetchHubGroupMembers(groupId: number): Promise<HubGroupMemberOption[]> {
+  const group = await fetchHubGroup(groupId, { includeMembers: true });
+  return (group.members ?? [])
+    .map((member) =>
+      mapOptionFromSource({
+        membershipId: member.membershipId,
+        userId: member.userId,
+        fullName: member.fullName,
+        email: member.email,
+        role: member.role,
+        employmentType: member.employmentType,
+        pharmacyId: member.pharmacyId ?? group.pharmacyId ?? null,
+        pharmacyName: member.pharmacyName ?? group.pharmacyName ?? null,
+        jobTitle: member.jobTitle ?? null,
+      }),
+    )
     .sort((a, b) => a.fullName.localeCompare(b.fullName));
 }

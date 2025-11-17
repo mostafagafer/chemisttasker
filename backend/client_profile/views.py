@@ -1633,6 +1633,10 @@ class MembershipViewSet(viewsets.ModelViewSet):
 
             # --- START OF THE FIX ---
             # Prepare data for Membership creation, including new classification fields
+            job_title_value = (data.get('job_title') or '').strip()
+            if employment_type not in {'FULL_TIME', 'PART_TIME'}:
+                job_title_value = ''
+
             membership_data = {
                 'user': user,
                 'pharmacy_id': pharmacy_id,
@@ -1640,6 +1644,7 @@ class MembershipViewSet(viewsets.ModelViewSet):
                 'invited_name': data.get('invited_name', ''),
                 'role': role,
                 'employment_type': employment_type,
+                'job_title': job_title_value,
                 # Add classification fields from the request data
                 'pharmacist_award_level': data.get('pharmacist_award_level', None),
                 'otherstaff_classification_level': data.get('otherstaff_classification_level', None),
@@ -2064,6 +2069,7 @@ class MembershipApplicationViewSet(viewsets.ModelViewSet):
             # set employment type based on link category
             'employment_type': employment_type,
             'invited_name': f'{app.first_name} {app.last_name}',
+            'job_title': app.job_title if app.job_title else '',
             # classification fields:
             'pharmacist_award_level': app.pharmacist_award_level,
             'otherstaff_classification_level': app.otherstaff_classification_level,

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>You were mentioned on ChemistTasker</title>
+  <style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f7f7fb; color: #1e1e2d; margin: 0; padding: 24px; }
+    .card { max-width: 520px; margin: 0 auto; background: #ffffff; border-radius: 16px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08); padding: 32px; }
+    .accent { color: #6c63ff; font-weight: 600; }
+    .cta {
+      display: inline-block;
+      margin-top: 18px;
+      padding: 12px 28px;
+      background: #6c63ff;
+      color: #ffffff;
+      text-decoration: none;
+      border-radius: 999px;
+      font-weight: 600;
+    }
+    blockquote {
+      margin: 18px 0;
+      padding-left: 16px;
+      border-left: 4px solid #ecebfd;
+      color: #55546b;
+    }
+    p { line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <p>Hi {{ recipient_name|default:"there" }},</p>
+    <p><span class="accent">{{ author_name }}</span> mentioned you in <span class="accent">{{ context_label }}</span> on the ChemistTasker Hub.</p>
+    {% if post_body %}
+      <blockquote>
+        {{ post_body|linebreaksbr }}
+      </blockquote>
+    {% endif %}
+    <p>
+      Jump back into the conversation to reply or continue the discussion with your team.
+    </p>
+    <a class="cta" href="{{ hub_url }}">Open Hub</a>
+    <p style="margin-top:28px;">&mdash; The ChemistTasker Team</p>
+  </div>
+</body>
+</html>

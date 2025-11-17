@@ -3,11 +3,11 @@
 import mimetypes
 
 from django.conf import settings
-from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import Count, Q, F
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django_q.tasks import async_task
 
 from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
@@ -505,7 +505,7 @@ class HubContextBuilder:
         groups = list(
             PharmacyCommunityGroup.objects.filter(filters)
             .select_related("pharmacy", "pharmacy__organization")
-            .prefetch_related("memberships__membership__user")
+            .prefetch_related("memberships__membership__user", "memberships__membership__pharmacy")
             .annotate(member_count=Count("memberships"))
             .order_by("name")
             .distinct()
@@ -577,7 +577,7 @@ class HubCommunityGroupViewSet(
         queryset = (
             PharmacyCommunityGroup.objects.all()
             .select_related("pharmacy", "pharmacy__organization")
-            .prefetch_related("memberships__membership__user")
+            .prefetch_related("memberships__membership__user", "memberships__membership__pharmacy")
             .annotate(member_count=Count("memberships"))
             .order_by("name")
         )
@@ -792,33 +792,59 @@ class HubPostViewSet(HubAttachmentMixin, viewsets.ModelViewSet):
         title = f"{author_name} mentioned you in {context_label}"
         body_preview = (post.body or "").strip()
         body = body_preview[:280]
-        user_ids = []
-        email_recipients = []
+        hub_path = "/dashboard/pharmacy-hub"
+        user_payloads = []
         for membership in memberships:
             user = getattr(membership, "user", None)
             if not user or not user.is_active:
                 continue
             if author_user and user.id == author_user.id:
                 continue
-            user_ids.append(user.id)
-            if user.email:
-                email_recipients.append(user.email)
+            user_payloads.append(
+                {
+                    "user_id": user.id,
+                    "email": user.email,
+                    "name": user.get_full_name().strip() or user.email or "",
+                }
+            )
+        user_ids = {payload["user_id"] for payload in user_payloads if payload.get("user_id")}
         if user_ids:
             notify_users(
                 user_ids,
                 title=title,
                 body=body,
-                action_url="/dashboard/pharmacy-hub",
+                action_url=hub_path,
                 payload={"post_id": post.id},
             )
-        if email_recipients:
-            send_mail(
-                subject=title,
-                message=f"{title}\n\n{body_preview}",
-                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-                recipient_list=email_recipients,
-                fail_silently=True,
+        email_targets = {}
+        for payload in user_payloads:
+            email = payload.get("email")
+            if not email:
+                continue
+            if email in email_targets:
+                continue
+            email_targets[email] = payload.get("name") or ""
+        if email_targets:
+            frontend_base = getattr(settings, "FRONTEND_BASE_URL", "").rstrip("/")
+            hub_url = (
+                f"{frontend_base}{hub_path}" if frontend_base else hub_path
             )
+            for email, recipient_name in email_targets.items():
+                context = {
+                    "recipient_name": recipient_name or "there",
+                    "author_name": author_name,
+                    "context_label": context_label,
+                    "post_body": body_preview,
+                    "hub_url": hub_url,
+                }
+                async_task(
+                    "users.tasks.send_async_email",
+                    subject=title,
+                    recipient_list=[email],
+                    template_name="emails/hub_post_tagged.html",
+                    context=context,
+                    text_template="emails/hub_post_tagged.txt",
+                )
 
     def list(self, request, *args, **kwargs):
         self.scope_context = self._resolve_scope_from_params(request.query_params)
@@ -843,6 +869,7 @@ class HubPostViewSet(HubAttachmentMixin, viewsets.ModelViewSet):
         self.scope_context = self._resolve_scope_from_params(request.data)
         resolver = HubScopeResolver(request.user)
         membership = resolver.ensure_author_membership(self.scope_context)
+        self._prepare_serializer_context(self.scope_context)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         post = serializer.save(
@@ -856,7 +883,6 @@ class HubPostViewSet(HubAttachmentMixin, viewsets.ModelViewSet):
             last_edited_by=None,
         )
         self._add_attachments(post, request.FILES.getlist("attachments"))
-        self._prepare_serializer_context(self.scope_context)
         self._notify_tagged_members(post, getattr(serializer, "_newly_tagged_members", []))
         output = self.get_serializer(post)
         return Response(output.data, status=status.HTTP_201_CREATED)

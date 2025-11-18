@@ -8,6 +8,7 @@ from .hub.api import (
     HubOrganizationProfileView,
     HubPharmacyProfileView,
     HubPostViewSet,
+    HubCommentReactionView,
     HubReactionView,
     HubPollViewSet,
 )
@@ -140,6 +141,11 @@ urlpatterns = [
         'hub/posts/<int:post_pk>/comments/<int:pk>/',
         hub_comment_detail,
         name='hub-comment-detail',
+    ),
+    path(
+        'hub/posts/<int:post_pk>/comments/<int:comment_pk>/reactions/',
+        HubCommentReactionView.as_view(),
+        name='hub-comment-reaction',
     ),
     path(
         'hub/posts/<int:post_pk>/reactions/',

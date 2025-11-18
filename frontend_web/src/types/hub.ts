@@ -50,6 +50,8 @@ export type HubComment = {
   editedAt: string | null;
   editedBy: HubUserSummary | null;
   isDeleted: boolean;
+  reactionSummary: Record<string, number>;
+  viewerReaction: HubReactionType | null;
 };
 
 export type HubPost = {
@@ -150,6 +152,7 @@ export type HubOrganization = {
   coverImageUrl: string | null;
   coverImage?: string | null;
   canManageProfile: boolean;
+  isOrgAdmin?: boolean;
 };
 
 export type HubGroup = {
@@ -215,6 +218,7 @@ export type HubGroupMember = {
   jobTitle: string | null;
   isAdmin: boolean;
   joinedAt: string;
+  profilePhotoUrl?: string | null;
 };
 
 export type HubGroupMemberOption = {

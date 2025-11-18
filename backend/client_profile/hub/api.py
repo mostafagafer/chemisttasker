@@ -28,6 +28,7 @@ from ..models import (
     PharmacyCommunityGroupMembership,
     PharmacyHubAttachment,
     PharmacyHubComment,
+    PharmacyHubCommentReaction,
     PharmacyHubPost,
     PharmacyHubReaction,
     PharmacyHubPoll,
@@ -166,6 +167,7 @@ def get_user_pharmacy_permissions(user):
 
 class HubScopeResolver:
     org_access_roles = ("ORG_ADMIN", "REGION_ADMIN", "SHIFT_MANAGER")
+    org_admin_roles = ("ORG_ADMIN",)
 
     def __init__(self, user):
         self.user = user
@@ -1179,6 +1181,7 @@ class HubCommentViewSet(
         return (
             post.comments.filter(deleted_at__isnull=True)
             .select_related("author_membership__user")
+            .prefetch_related("reactions")
             .order_by("created_at")
         )
 
@@ -1303,6 +1306,68 @@ class HubReactionView(APIView):
             PharmacyHubReaction.objects.filter(post=post, member=membership).delete()
             post.recompute_reaction_summary()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class HubCommentReactionView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_comment(self, post_pk: int, comment_pk: int):
+        return get_object_or_404(
+            PharmacyHubComment.objects.select_related(
+                "post",
+                "post__pharmacy",
+                "post__organization",
+                "post__community_group",
+            ),
+            pk=comment_pk,
+            post_id=post_pk,
+            deleted_at__isnull=True,
+            post__deleted_at__isnull=True,
+        )
+
+    def _serializer_context(self, scope, membership):
+        return {
+            "request": self.request,
+            "request_membership": membership,
+            "has_admin_permissions": scope.get("has_admin_permissions", False),
+            "has_group_admin_permissions": scope.get(
+                "has_group_admin_permissions", False
+            ),
+        }
+
+    def post(self, request, post_pk: int, comment_pk: int):
+        comment = self._get_comment(post_pk, comment_pk)
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.from_post(comment.post)
+        membership = resolver.ensure_author_membership(scope)
+        serializer = HubReactionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reaction_type = serializer.validated_data["reaction_type"]
+        PharmacyHubCommentReaction.objects.update_or_create(
+            comment=comment,
+            member=membership,
+            defaults={
+                "reaction_type": reaction_type,
+                "updated_at": timezone.now(),
+            },
+        )
+        comment.recompute_reaction_summary()
+        serializer_context = self._serializer_context(scope, membership)
+        response = HubCommentSerializer(comment, context=serializer_context)
+        return Response(response.data)
+
+    def delete(self, request, post_pk: int, comment_pk: int):
+        comment = self._get_comment(post_pk, comment_pk)
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.from_post(comment.post)
+        membership = resolver.ensure_author_membership(scope)
+        PharmacyHubCommentReaction.objects.filter(
+            comment=comment, member=membership
+        ).delete()
+        comment.recompute_reaction_summary()
+        serializer_context = self._serializer_context(scope, membership)
+        response = HubCommentSerializer(comment, context=serializer_context)
+        return Response(response.data, status=status.HTTP_200_OK)
 
 
 class HubPharmacyProfileView(APIView):

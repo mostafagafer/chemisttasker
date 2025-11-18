@@ -47,6 +47,7 @@ import AdminHistoryShiftsPage from './pages/dashboard/admin/AdminHistoryShiftsPa
 import AdminPosterShiftDetailPage from './pages/dashboard/admin/AdminPosterShiftDetailPage';
 import AdminDashboardWrapper from './layouts/adminDashboard';
 import PharmacistDashboardWrapper from './layouts/pharmacistDashboard';
+import HubDashboardWrapper from './layouts/HubDashboardWrapper';
 import OtherstaffDashboardWrapper from './layouts/otherStaffDashboard';
 import ExplorerDashboardWrapper from './layouts/explorerDashboard';
 import { OwnerShiftCenterPage, OrganizationShiftCenterPage, AdminShiftCenterPage } from './pages/dashboard/shiftCenter/ShiftCenterPage';
@@ -154,7 +155,7 @@ const router = createBrowserRouter([
           },
           { path: 'interests',    element: <ExplorerInterestsPage /> },
           { path: 'learning',     element: <LearningMaterialsPage /> },
-          { path: 'chat', element: <ChatPage /> },
+          { path: 'chat', element: <ChatPage /> },          
           { path: 'pharmacy-hub', element: <Navigate to="/dashboard/pharmacy-hub" replace /> },
           { path: 'logout',       element: <LogoutPage /> },
 
@@ -166,7 +167,7 @@ const router = createBrowserRouter([
         path: 'dashboard/pharmacy-hub',
         Component: () => (
           <ProtectedRoute>
-            <PharmacistDashboardWrapper />
+            <HubDashboardWrapper />
           </ProtectedRoute>
         ),
         children: [{ index: true, element: <HubPage /> }],

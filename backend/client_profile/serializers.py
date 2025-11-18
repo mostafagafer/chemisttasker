@@ -4883,6 +4883,7 @@ class HubCommentSerializer(serializers.ModelSerializer):
     edited_at = serializers.DateTimeField(source="last_edited_at", read_only=True)
     edited_by = serializers.SerializerMethodField()
     is_deleted = serializers.SerializerMethodField()
+    viewer_reaction = serializers.SerializerMethodField()
 
     class Meta:
         model = PharmacyHubComment
@@ -4901,6 +4902,8 @@ class HubCommentSerializer(serializers.ModelSerializer):
             "edited_at",
             "edited_by",
             "is_deleted",
+            "reaction_summary",
+            "viewer_reaction",
         ]
         read_only_fields = [
             "id",
@@ -4915,6 +4918,8 @@ class HubCommentSerializer(serializers.ModelSerializer):
             "edited_at",
             "edited_by",
             "is_deleted",
+            "reaction_summary",
+            "viewer_reaction",
         ]
 
     def get_can_edit(self, obj):
@@ -4929,6 +4934,16 @@ class HubCommentSerializer(serializers.ModelSerializer):
 
     def get_is_deleted(self, obj):
         return obj.deleted_at is not None
+
+    def get_viewer_reaction(self, obj):
+        membership = self.context.get("request_membership")
+        if not membership:
+            return None
+        return (
+            obj.reactions.filter(member=membership)
+            .values_list("reaction_type", flat=True)
+            .first()
+        )
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

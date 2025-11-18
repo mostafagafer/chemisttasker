@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from .models import OrganizationMembership
 from client_profile.admin_helpers import admin_assignments_for
+from client_profile.models import Membership, Pharmacy
 from .serializers import InviteOrgUserSerializer
 from .permissions import OrganizationRolePermission
 from .org_roles import (
@@ -598,7 +599,10 @@ class OrganizationMembershipViewSet(mixins.ListModelMixin,
             organization_id__in=org_ids
         ).select_related('user', 'organization').prefetch_related('pharmacies')
 
-        organization_param = self.request.query_params.get('organization')
+        organization_param = (
+            self.request.query_params.get('organization')
+            or self.request.query_params.get('organization_id')
+        )
         if organization_param:
             try:
                 organization_id = int(organization_param)
@@ -619,6 +623,186 @@ class OrganizationMembershipViewSet(mixins.ListModelMixin,
                     Q(job_title__icontains=search)
                 )
         return queryset
+
+    def _parse_bool_param(self, name: str) -> bool:
+        raw = self.request.query_params.get(name)
+        if raw is None:
+            return False
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _get_requested_org_id(self, org_ids):
+        org_param = (
+            self.request.query_params.get("organization")
+            or self.request.query_params.get("organization_id")
+        )
+        if org_param is not None:
+            try:
+                org_id = int(org_param)
+            except (TypeError, ValueError):
+                raise PermissionDenied("Invalid organization id.")
+            if org_id not in org_ids:
+                raise PermissionDenied("Not allowed to manage this organization.")
+            return org_id
+        if len(org_ids) == 1:
+            return next(iter(org_ids))
+        raise PermissionDenied("Specify an organization id to load members.")
+
+    def _ensure_membership_for_org_user(self, organization, user):
+        membership = (
+            Membership.objects.filter(
+                user=user,
+                is_active=True,
+                pharmacy__organization=organization,
+            )
+            .select_related("pharmacy")
+            .order_by("id")
+            .first()
+        )
+        if membership:
+            return membership
+        primary_pharmacy = (
+            Pharmacy.objects.filter(organization=organization).order_by("id").first()
+        )
+        if not primary_pharmacy:
+            return None
+        membership, _ = Membership.objects.get_or_create(
+            user=user,
+            pharmacy=primary_pharmacy,
+            defaults={
+                "role": "CONTACT",
+                "employment_type": "FULL_TIME",
+                "is_active": True,
+            },
+        )
+        if not membership.is_active:
+            membership.is_active = True
+            membership.save(update_fields=["is_active"])
+        return membership
+
+    def list(self, request, *args, **kwargs):
+        include_pharmacy_members = (
+            self._parse_bool_param("include_pharmacy_members")
+            or self._parse_bool_param("include_pharmacy_staff")
+            or self._parse_bool_param("for_hub")
+        )
+        org_ids = self._user_org_admin_ids(request.user)
+        if not include_pharmacy_members:
+            return super().list(request, *args, **kwargs)
+        if not org_ids:
+            return Response([])
+
+        organization_id = self._get_requested_org_id(org_ids)
+        org_memberships = list(
+            OrganizationMembership.objects.filter(
+                organization_id=organization_id
+            )
+            .select_related("user", "organization")
+            .prefetch_related("pharmacies")
+        )
+        memberships = list(
+            Membership.objects.filter(
+                pharmacy__organization_id=organization_id, is_active=True
+            )
+            .select_related("user", "pharmacy")
+            .order_by("id")
+        )
+        membership_by_user = {}
+        for membership in memberships:
+            membership_by_user.setdefault(membership.user_id, []).append(membership)
+
+        for org_membership in org_memberships:
+            user_memberships = membership_by_user.get(org_membership.user_id, [])
+            if user_memberships:
+                continue
+            ensured = self._ensure_membership_for_org_user(
+                org_membership.organization, org_membership.user
+            )
+            if ensured:
+                memberships.append(ensured)
+                membership_by_user.setdefault(org_membership.user_id, []).append(ensured)
+
+        org_meta_by_membership = {}
+        for org_membership in org_memberships:
+            linked_memberships = membership_by_user.get(org_membership.user_id, [])
+            for membership in linked_memberships:
+                org_meta_by_membership[membership.id] = {
+                    "org_membership_id": org_membership.id,
+                    "org_role": org_membership.role,
+                    "org_job_title": org_membership.job_title,
+                }
+
+        search_term = (request.query_params.get("search") or "").strip().lower()
+        memberships_filtered = memberships
+
+        if search_term:
+            def matches_search(membership):
+                user = membership.user
+                full_name = " ".join(
+                    part for part in [user.first_name, user.last_name] if part
+                ).lower()
+                email = (getattr(user, "email", "") or "").lower()
+                job_title = (membership.job_title or "").lower()
+                pharmacy_name = ""
+                pharmacy = getattr(membership, "pharmacy", None)
+                if pharmacy:
+                    pharmacy_name = (pharmacy.name or "").lower()
+                org_meta = org_meta_by_membership.get(membership.id, {})
+                org_job_title = (org_meta.get("org_job_title") or "").lower()
+                return (
+                    search_term in full_name
+                    or search_term in email
+                    or search_term in job_title
+                    or search_term in pharmacy_name
+                    or (org_meta.get("org_role") and search_term in org_meta["org_role"].lower())
+                    or (org_job_title and search_term in org_job_title)
+                )
+
+            memberships_filtered = [m for m in memberships if matches_search(m)]
+
+        def serialize_membership(membership):
+            user = membership.user
+            user_payload = {
+                "id": user.id,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "email": getattr(user, "email", None),
+                "profile_photo_url": getattr(user, "profile_photo_url", None),
+            }
+            org_meta = org_meta_by_membership.get(membership.id, {})
+            pharmacy = getattr(membership, "pharmacy", None)
+            return {
+                "id": membership.id,
+                "membership_id": membership.id,
+                "organization_membership_id": org_meta.get("org_membership_id"),
+                "organization_role": org_meta.get("org_role"),
+                "role": org_meta.get("org_role") or membership.role,
+                "employment_type": membership.employment_type,
+                "job_title": membership.job_title or org_meta.get("org_job_title"),
+                "pharmacy": pharmacy.id if pharmacy else None,
+                "pharmacy_name": pharmacy.name if pharmacy else None,
+                "user": user_payload,
+                "user_details": user_payload,
+            }
+
+        def sort_key(membership):
+            name = ""
+            user = membership.user
+            if hasattr(user, "get_full_name"):
+                name = (user.get_full_name() or user.email or "").lower()
+            else:
+                name = (getattr(user, "email", "") or "").lower()
+            pharmacy_name = ""
+            pharmacy = getattr(membership, "pharmacy", None)
+            if pharmacy:
+                pharmacy_name = pharmacy.name or ""
+            return (name, pharmacy_name, membership.id)
+
+        memberships_sorted = sorted(memberships_filtered, key=sort_key)
+        data = [serialize_membership(membership) for membership in memberships_sorted]
+        page = self.paginate_queryset(data)
+        if page is not None:
+            return self.get_paginated_response(page)
+        return Response(data)
 
     def get_object(self):
         obj = super().get_object()

@@ -75,6 +75,8 @@ import {
   fetchHubGroupMembers,
   fetchHubComments,
   createHubComment,
+  reactToHubComment,
+  removeHubCommentReaction,
 } from '../../../../api/hub';
 import {
   HubContext,
@@ -146,12 +148,21 @@ const formatHubDate = (value: string) => {
   return `${datePart} ${timePart}`;
 };
 
-const formatMemberLabel = (name: string, jobTitle?: string | null, fallback = 'Member') => {
+const formatMemberLabel = (
+  name: string,
+  role?: string | null,
+  jobTitle?: string | null,
+  fallback = 'Member',
+) => {
   const displayName = name?.trim() || fallback;
-  if (jobTitle) {
-    return `${displayName} • ${jobTitle}`;
+  const parts = [displayName];
+  if (role?.trim()) {
+    parts.push(role.trim());
   }
-  return displayName;
+  if (jobTitle?.trim()) {
+    parts.push(jobTitle.trim());
+  }
+  return parts.join(' | ');
 };
 
 // --- Main HubPage Component ---
@@ -222,6 +233,7 @@ export default function HubPage() {
     return organizations[0] ?? null;
   }, [organizations, selectedView]);
 
+  const isOrganizationContext = selectedView.type === 'orgHome' || selectedView.type === 'orgGroup';
   const filteredOrganizationGroups = useMemo(() => {
     if (!selectedOrganization) return organizationGroups;
     return organizationGroups.filter((group) => group.organizationId === selectedOrganization.id);
@@ -261,7 +273,9 @@ export default function HubPage() {
   const canCreateCommunityGroup = Boolean(selectedPharmacy?.canCreateGroup);
   const canCreateOrganizationGroup = Boolean(selectedOrganization?.canManageProfile);
   const canManagePharmacyProfile = Boolean(selectedPharmacy?.canManageProfile);
-  const canManageOrganizationProfile = Boolean(selectedOrganization?.canManageProfile);
+  const showOrgSettings = Boolean(
+    selectedOrganization?.canManageProfile && isOrganizationContext && selectedOrganization?.isOrgAdmin,
+  );
   const canPharmacyPost = Boolean(selectedPharmacy?.canCreatePost);
 
   const openPharmacyProfileModal = useCallback(() => {
@@ -569,7 +583,7 @@ export default function HubPage() {
         ) : selectedView.type === 'orgHome' && currentOrganizationDetails ? (
           <OrgHomePageContent
             details={currentOrganizationDetails}
-            onOpenSettings={canManageOrganizationProfile ? openOrganizationProfileModal : undefined}
+            onOpenSettings={showOrgSettings ? openOrganizationProfileModal : undefined}
             canCreatePost={currentOrganizationDetails.canCreatePost}
             scope={{ type: 'organization', id: currentOrganizationDetails.id }}
             membersLoader={organizationMembersLoader}
@@ -1165,7 +1179,7 @@ function MembersPreviewPanel({ loadMembers, title, emptyMessage }: MembersPrevie
                       {initialsFor(baseName)}
                     </Avatar>
                   }
-                  label={formatMemberLabel(baseName, member.jobTitle)}
+                  label={formatMemberLabel(baseName, member.role, member.jobTitle)}
                   size="small"
                   variant="outlined"
                 />
@@ -1785,7 +1799,11 @@ function CreateGroupModal({
               }}
             >
               {selectedMemberDetails.map(member => {
-                const nameLabel = formatMemberLabel(member.fullName || member.email || 'Member', member.jobTitle);
+                const nameLabel = formatMemberLabel(
+                  member.fullName || member.email || 'Member',
+                  member.role,
+                  member.jobTitle,
+                );
                 const chipLabel = member.pharmacyName ? `${nameLabel} — ${member.pharmacyName}` : nameLabel;
                 return (
                   <Chip
@@ -1907,6 +1925,8 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
   const [optionsAnchorEl, setOptionsAnchorEl] = useState<null | HTMLElement>(null);
   const reactionMenuOpen = Boolean(reactionAnchorEl);
   const optionsMenuOpen = Boolean(optionsAnchorEl);
+  const [commentReactionMenu, setCommentReactionMenu] = useState<{ commentId: number; anchorEl: HTMLElement } | null>(null);
+  const commentReactionMenuOpen = Boolean(commentReactionMenu);
 
   const [commentCount, setCommentCount] = useState(post.commentCount);
   const [comments, setComments] = useState<HubComment[]>(post.recentComments ?? []);
@@ -1929,10 +1949,22 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
 
   const commentTree = useMemo(() => buildCommentTree(comments), [comments]);
 
+  const replaceComment = (updated: HubComment) => {
+    setComments((prev) => prev.map((comment) => (comment.id === updated.id ? updated : comment)));
+  };
+
   const currentUserInitial = useMemo(() => {
     const source = user?.username || user?.email || '';
     return source ? source.charAt(0).toUpperCase() : 'U';
   }, [user]);
+
+  const activeCommentForReactionMenu = useMemo(
+    () =>
+      commentReactionMenu
+        ? comments.find((comment) => comment.id === commentReactionMenu.commentId) || null
+        : null,
+    [commentReactionMenu, comments],
+  );
 
   const handleReactClick = (event: React.MouseEvent<HTMLElement>) => {
     setReactionAnchorEl(event.currentTarget);
@@ -1940,6 +1972,14 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
 
   const handleReactionMenuClose = () => {
     setReactionAnchorEl(null);
+  };
+
+  const openCommentReactionMenu = (event: React.MouseEvent<HTMLElement>, commentId: number) => {
+    setCommentReactionMenu({ anchorEl: event.currentTarget, commentId });
+  };
+
+  const closeCommentReactionMenu = () => {
+    setCommentReactionMenu(null);
   };
 
   const handleSelectReaction = async (reaction: HubReactionType) => {
@@ -2011,9 +2051,35 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
     submitCommentDraft(key, parentId);
   };
 
+  const handleSelectCommentReaction = async (reaction: HubReactionType) => {
+    const targetCommentId = commentReactionMenu?.commentId;
+    closeCommentReactionMenu();
+    if (!targetCommentId) {
+      return;
+    }
+    try {
+      const updated = await reactToHubComment(post.id, targetCommentId, reaction);
+      replaceComment(updated);
+    } catch (error) {
+      console.error('Failed to react to comment:', error);
+    }
+  };
+
+  const handleRemoveCommentReaction = async (commentId: number) => {
+    closeCommentReactionMenu();
+    try {
+      const updated = await removeHubCommentReaction(post.id, commentId);
+      replaceComment(updated);
+    } catch (error) {
+      console.error('Failed to remove reaction from comment:', error);
+    }
+  };
+
   const authorName = `${post.author.user.firstName || ''} ${post.author.user.lastName || ''}`.trim() || 'Unknown User';
   const authorAvatar = post.author.user.profilePhotoUrl || null;
+  const authorRole = post.author.role?.trim() || null;
   const authorJobTitle = post.author.jobTitle?.trim() || null;
+  const authorLabel = formatMemberLabel(authorName, authorRole, authorJobTitle, 'Unknown User');
   const postTimestamp = formatHubDate(post.createdAt);
 
   const renderAttachment = (attachment: HubAttachment) => {
@@ -2070,6 +2136,11 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
   const renderCommentNode = (node: CommentNode, depth = 0) => {
     const commenterName = `${node.author.user.firstName || ''} ${node.author.user.lastName || ''}`.trim() || 'Member';
     const commenterAvatar = node.author.user.profilePhotoUrl || null;
+    const commenterRole = node.author.role?.trim() || null;
+    const commenterJobTitle = node.author.jobTitle?.trim() || null;
+    const commenterLabel = formatMemberLabel(commenterName, commenterRole, commenterJobTitle, 'Member');
+    const reactionEntries = Object.entries(node.reactionSummary || {}).filter(([, count]) => count > 0);
+    const viewerReaction = node.viewerReaction;
     const replyKey = `reply-${node.id}`;
     const replyDraft = replyDrafts[replyKey] ?? '';
     const replyOpen = activeReplyBox === replyKey;
@@ -2095,7 +2166,7 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
             <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'grey.50' }}>
               <Stack direction="row" justifyContent="space-between" alignItems="center">
                 <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-                  {commenterName}
+                  {commenterLabel}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   {timestamp}
@@ -2108,15 +2179,47 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
               >
                 {node.isDeleted ? 'Comment deleted' : node.body}
               </Typography>
-              {!node.isDeleted && canComment && (
-                <Button
-                  size="small"
-                  variant="text"
-                  sx={{ mt: 1, px: 0 }}
-                  onClick={() => setActiveReplyBox(replyOpen ? null : replyKey)}
+              {(!node.isDeleted || reactionEntries.length > 0) && (
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  alignItems="center"
+                  sx={{ mt: 1, flexWrap: 'wrap', rowGap: 0.5 }}
                 >
-                  Reply
-                </Button>
+                  {!node.isDeleted && (
+                    <IconButton
+                      size="small"
+                      onClick={(event) => openCommentReactionMenu(event, node.id)}
+                      sx={{ p: 0.5 }}
+                    >
+                      <Typography variant="caption">
+                        {viewerReaction ? `${reactionEmojis[viewerReaction]} ${viewerReaction}` : 'React'}
+                      </Typography>
+                    </IconButton>
+                  )}
+                  {reactionEntries.length > 0 && (
+                    <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
+                      {reactionEntries.map(([reaction, count]) => (
+                        <Chip
+                          key={reaction}
+                          label={`${reactionEmojis[reaction as HubReactionType] ?? ''} ${count}`.trim()}
+                          size="small"
+                          sx={{ bgcolor: 'grey.200', height: 24 }}
+                        />
+                      ))}
+                    </Stack>
+                  )}
+                  {!node.isDeleted && canComment && (
+                    <Button
+                      size="small"
+                      variant="text"
+                      sx={{ px: 0 }}
+                      onClick={() => setActiveReplyBox(replyOpen ? null : replyKey)}
+                    >
+                      Reply
+                    </Button>
+                  )}
+                </Stack>
               )}
             </Paper>
           </Box>
@@ -2164,13 +2267,8 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
             <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
               <Box>
                 <Typography variant="subtitle2" component="div" sx={{ fontWeight: 'bold' }}>
-                  {authorName}
+                  {authorLabel}
                 </Typography>
-                {authorJobTitle && (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                    {authorJobTitle}
-                  </Typography>
-                )}
                 <Typography variant="caption" color="text.secondary">
                   {postTimestamp}
                 </Typography>
@@ -2236,7 +2334,7 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
             <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
               {post.taggedMembers.map((member) => {
                 const baseName = member.fullName || member.email || 'Member';
-                const label = formatMemberLabel(baseName, member.jobTitle);
+                const label = formatMemberLabel(baseName, member.role, member.jobTitle);
                 return (
                   <Chip
                     key={member.membershipId}
@@ -2300,6 +2398,28 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
                 </IconButton>
               ))}
             </Stack>
+          </Menu>
+          <Menu
+            anchorEl={commentReactionMenu?.anchorEl ?? null}
+            open={commentReactionMenuOpen}
+            onClose={closeCommentReactionMenu}
+          >
+            <Stack direction="row" spacing={1} sx={{ p: 1 }}>
+              {Object.entries(reactionEmojis).map(([reaction, emoji]) => (
+                <IconButton
+                  key={reaction}
+                  size="small"
+                  onClick={() => handleSelectCommentReaction(reaction as HubReactionType)}
+                >
+                  <Typography variant="body2">{emoji}</Typography>
+                </IconButton>
+              ))}
+            </Stack>
+            {commentReactionMenu?.commentId && activeCommentForReactionMenu?.viewerReaction ? (
+              <MenuItem onClick={() => handleRemoveCommentReaction(commentReactionMenu.commentId)}>
+                Remove reaction
+              </MenuItem>
+            ) : null}
           </Menu>
           <Button
             startIcon={<ChatBubbleOutlineIcon />}
@@ -2915,7 +3035,7 @@ function TagMembersSelector({ loadMembers, value, onChange }: TagMembersSelector
               return (
                 <Chip
                   key={member.key}
-                  label={formatMemberLabel(baseName, member.jobTitle)}
+                  label={formatMemberLabel(baseName, member.role, member.jobTitle)}
                   size="small"
                   variant="outlined"
                 />
@@ -2945,7 +3065,9 @@ function TagMembersSelector({ loadMembers, value, onChange }: TagMembersSelector
         openOnFocus
         onChange={(_, newValue) => applyAggregatedSelection(newValue as AggregatedMemberOption[])}
         isOptionEqualToValue={(option, selected) => option.key === selected.key}
-        getOptionLabel={(option) => formatMemberLabel(option.fullName || option.email || 'Member', option.jobTitle)}
+        getOptionLabel={(option) =>
+          formatMemberLabel(option.fullName || option.email || 'Member', option.role, option.jobTitle)
+        }
         renderOption={(props, option, { selected }) => (
           <li {...props}>
             <Checkbox checked={selected} sx={{ mr: 1 }} />
@@ -2960,7 +3082,7 @@ function TagMembersSelector({ loadMembers, value, onChange }: TagMembersSelector
                   option.pharmacyNames.join(', '),
                 ]
                   .filter(Boolean)
-                  .join(' • ')}
+                  .join(' | ')}
               </Typography>
             </Box>
           </li>
@@ -2969,7 +3091,7 @@ function TagMembersSelector({ loadMembers, value, onChange }: TagMembersSelector
           tagValue.map((option, index) => (
             <Chip
               {...getTagProps({ index })}
-              label={formatMemberLabel(option.fullName || option.email || 'Member', option.jobTitle)}
+              label={formatMemberLabel(option.fullName || option.email || 'Member', option.role, option.jobTitle)}
               size="small"
             />
           ))

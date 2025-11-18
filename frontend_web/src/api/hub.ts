@@ -15,6 +15,7 @@ import {
   HubPost,
   HubPostPayload,
   HubPoll,
+  HubPollOption,
   HubPollPayload,
   HubProfilePayload,
   HubReactionType,
@@ -41,6 +42,7 @@ type MembershipApi = {
     first_name: string | null;
     last_name: string | null;
     email: string;
+    profile_photo_url?: string | null;
   };
 };
 
@@ -67,6 +69,8 @@ type CommentApi = {
   edited_at: string | null;
   edited_by: UserSummaryApi | null;
   is_deleted: boolean;
+  reaction_summary?: Record<string, number>;
+  viewer_reaction?: HubReactionType | null;
 };
 
 type PostApi = {
@@ -183,6 +187,7 @@ type OrganizationContextApi = {
   cover_image: string | null;
   cover_image_url: string | null;
   can_manage_profile: boolean;
+  is_org_admin?: boolean;
 };
 
 type HubContextApi = {
@@ -242,6 +247,8 @@ const mapComment = (api: CommentApi): HubComment => ({
   editedAt: api.edited_at,
   editedBy: mapUser(api.edited_by),
   isDeleted: api.is_deleted,
+  reactionSummary: api.reaction_summary ?? {},
+  viewerReaction: api.viewer_reaction ?? null,
 });
 
 const mapPost = (api: PostApi): HubPost => ({
@@ -331,6 +338,7 @@ const mapOrganization = (api: OrganizationContextApi): HubOrganization => ({
   coverImage: api.cover_image,
   coverImageUrl: api.cover_image_url,
   canManageProfile: api.can_manage_profile,
+  isOrgAdmin: api.is_org_admin ?? undefined,
 });
 
 const mapGroupMember = (api: GroupMemberApi): HubGroupMember => {
@@ -351,6 +359,7 @@ const mapGroupMember = (api: GroupMemberApi): HubGroupMember => {
     jobTitle,
     isAdmin: api.is_admin,
     joinedAt: api.joined_at,
+    profilePhotoUrl: userDetails?.profile_photo_url ?? null,
   };
 };
 
@@ -603,6 +612,28 @@ export async function deleteHubComment(
   );
 }
 
+export async function reactToHubComment(
+  postId: number,
+  commentId: number,
+  reaction: HubReactionType,
+): Promise<HubComment> {
+  const { data } = await apiClient.post<CommentApi>(
+    API_ENDPOINTS.hubCommentReactions(postId, commentId),
+    { reaction_type: reaction },
+  );
+  return mapComment(data);
+}
+
+export async function removeHubCommentReaction(
+  postId: number,
+  commentId: number,
+): Promise<HubComment> {
+  const { data } = await apiClient.delete<CommentApi>(
+    API_ENDPOINTS.hubCommentReactions(postId, commentId),
+  );
+  return mapComment(data);
+}
+
 export async function reactToHubPost(
   postId: number,
   reaction: HubReactionType,
@@ -816,12 +847,21 @@ export async function fetchOrganizationGroupMembers(
 ): Promise<HubGroupMemberOption[]> {
   const { data } = await apiClient.get(
     API_ENDPOINTS.organizationMemberships,
-    { params: { organization_id: organizationId, page_size: 500 } },
+    {
+      params: {
+        organization_id: organizationId,
+        page_size: 500,
+        include_pharmacy_members: true,
+      },
+    },
   );
   return asList<any>(data)
     .map((member) =>
       mapOptionFromSource({
-        membershipId: Number(member.id),
+        membershipId: Number(
+          member?.membership_id ??
+          member?.id,
+        ),
         userId: asUserId(member),
         fullName: formatMemberName(member),
         email:
@@ -829,20 +869,21 @@ export async function fetchOrganizationGroupMembers(
           member?.user_details?.email ??
           member?.email ??
           null,
-        role: member?.role ?? null,
+        role: member?.role ?? member?.organization_role ?? null,
         employmentType: member?.employment_type ?? null,
-        pharmacyId: member?.pharmacy ?? null,
+        pharmacyId: member?.pharmacy ?? member?.pharmacy_id ?? null,
         pharmacyName:
-          member?.pharmacy_detail?.name ??
           member?.pharmacy_name ??
+          member?.pharmacy_detail?.name ??
           null,
-        jobTitle: member?.job_title ?? null,
+        jobTitle: member?.job_title ?? member?.organization_job_title ?? null,
         profilePhotoUrl:
           member?.user?.profile_photo_url ??
           member?.user_details?.profile_photo_url ??
           null,
       }),
     )
+    .filter((member) => Number.isFinite(member.membershipId))
     .sort((a, b) => a.fullName.localeCompare(b.fullName));
 }
 

@@ -2329,6 +2329,7 @@ class PharmacyHubComment(models.Model):
     author_membership = models.ForeignKey(Membership, on_delete=models.SET_NULL, null=True, blank=True)
 
     body = models.TextField()
+    reaction_summary = models.JSONField(default=dict, blank=True)
     parent_comment = models.ForeignKey(
         "self",
         on_delete=models.CASCADE,
@@ -2362,8 +2363,60 @@ class PharmacyHubComment(models.Model):
             self.deleted_at = timezone.now()
             self.save(update_fields=["deleted_at"])
 
+    def recompute_reaction_summary(self):
+        from django.db.models import Count
+
+        summary = {
+            row["reaction_type"]: row["total"]
+            for row in self.reactions.values("reaction_type")
+            .order_by()
+            .annotate(total=Count("id"))
+        }
+        if summary != self.reaction_summary:
+            self.reaction_summary = summary
+            self.save(update_fields=["reaction_summary"])
+
     def __str__(self):
         return f"HubComment#{self.pk} post={self.post_id}"
+
+
+class PharmacyHubCommentReaction(models.Model):
+    class ReactionType(models.TextChoices):
+        LIKE = "LIKE", "Like"
+        CELEBRATE = "CELEBRATE", "Celebrate"
+        SUPPORT = "SUPPORT", "Support"
+        INSIGHTFUL = "INSIGHTFUL", "Insightful"
+        LOVE = "LOVE", "Love"
+
+    comment = models.ForeignKey(
+        PharmacyHubComment,
+        on_delete=models.CASCADE,
+        related_name="reactions",
+    )
+    member = models.ForeignKey(
+        "client_profile.Membership",
+        on_delete=models.CASCADE,
+        related_name="hub_comment_reactions",
+    )
+    reaction_type = models.CharField(
+        max_length=16,
+        choices=ReactionType.choices,
+        default=ReactionType.LIKE,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("comment", "member")
+        indexes = [
+            models.Index(fields=["comment"]),
+            models.Index(fields=["member"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"HubCommentReaction#{self.pk} comment={self.comment_id} member={self.member_id}"
+        )
 
 
 class PharmacyHubReaction(models.Model):

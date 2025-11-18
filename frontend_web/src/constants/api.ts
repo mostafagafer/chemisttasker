@@ -204,6 +204,8 @@ export const API_ENDPOINTS = {
   hubPostPin: (postId: number) => `/client-profile/hub/posts/${postId}/pin/`,
   hubPostUnpin: (postId: number) => `/client-profile/hub/posts/${postId}/unpin/`,
   hubPostComments: (postId: number) => `/client-profile/hub/posts/${postId}/comments/`,
+  hubCommentReactions: (postId: number, commentId: number) =>
+    `/client-profile/hub/posts/${postId}/comments/${commentId}/reactions/`,
   hubPostReactions: (postId: number) => `/client-profile/hub/posts/${postId}/reactions/`,
   hubGroups: '/client-profile/hub/groups/',
   hubGroupDetail: (groupId: number) => `/client-profile/hub/groups/${groupId}/`,

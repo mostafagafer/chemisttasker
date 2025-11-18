@@ -2273,6 +2273,31 @@ class PharmacyHubPost(models.Model):
         self.pinned_by = None
         self.save(update_fields=["deleted_at", "is_pinned", "pinned_at", "pinned_by"])
 
+    def recompute_comment_count(self):
+        from django.db.models import Count
+
+        total = (
+            self.comments.filter(deleted_at__isnull=True)
+            .aggregate(total=Count("id"))
+            .get("total", 0)
+        )
+        if total != self.comment_count:
+            self.comment_count = total
+            self.save(update_fields=["comment_count"])
+
+    def recompute_reaction_summary(self):
+        from django.db.models import Count
+
+        summary = {
+            row["reaction_type"]: row["total"]
+            for row in self.reactions.values("reaction_type")
+            .order_by()
+            .annotate(total=Count("id"))
+        }
+        if summary != self.reaction_summary:
+            self.reaction_summary = summary
+            self.save(update_fields=["reaction_summary"])
+
 
 class PharmacyHubPostMention(models.Model):
     post = models.ForeignKey(
@@ -2293,39 +2318,6 @@ class PharmacyHubPostMention(models.Model):
 
     def __str__(self):
         return f"HubPostMention#{self.pk} post={self.post_id} membership={self.membership_id}"
-
-    def recompute_comment_count(self):
-        from django.db.models import Count
-
-        count = (
-            self.comments.filter(deleted_at__isnull=True)
-            .aggregate(total=Count("id"))
-            .get("total", 0)
-        )
-        if count != self.comment_count:
-            self.comment_count = count
-            self.save(update_fields=["comment_count"])
-
-    def recompute_reaction_summary(self):
-        from django.db.models import Count
-
-        summary = {
-            row["reaction_type"]: row["total"]
-            for row in self.reactions.values("reaction_type")
-            .order_by()
-            .annotate(total=Count("id"))
-        }
-        if summary != self.reaction_summary:
-            self.reaction_summary = summary
-            self.save(update_fields=["reaction_summary"])
-
-    def __str__(self):
-        target = (
-            f"group={self.community_group_id}"
-            if self.community_group_id
-            else f"pharmacy={self.pharmacy_id}"
-        )
-        return f"HubPost#{self.pk} {target}"
 
 
 class PharmacyHubComment(models.Model):

@@ -73,6 +73,8 @@ import {
   fetchOrganizationGroupMembers,
   fetchHubGroup,
   fetchHubGroupMembers,
+  fetchHubComments,
+  createHubComment,
 } from '../../../../api/hub';
 import {
   HubContext,
@@ -87,6 +89,8 @@ import {
   HubReactionType,
   HubGroupMemberOption,
   HubGroupPayload,
+  HubComment,
+  HubCommentPayload,
 } from '../../../../types/hub';
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import SendIcon from '@mui/icons-material/Send';
@@ -102,6 +106,7 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import CoverPhotoUploader from '../../../../components/coverPhoto/CoverPhotoUploader';
+import { useAuth } from '../../../../contexts/AuthContext';
 
 type GroupModalScope =
   | { type: 'pharmacy'; pharmacyId: number }
@@ -1858,11 +1863,34 @@ function CreateGroupModal({
 
 // --- Post Card Component ---
 const reactionEmojis: Record<HubReactionType, string> = {
-  LIKE: '??',
-  CELEBRATE: '??',
-  SUPPORT: '??',
-  INSIGHTFUL: '??',
-  LOVE: '??',
+  LIKE: '👍',
+  CELEBRATE: '🎉',
+  SUPPORT: '🙌',
+  INSIGHTFUL: '💡',
+  LOVE: '❤️',
+};
+
+type CommentNode = HubComment & { replies: CommentNode[] };
+
+const buildCommentTree = (list: HubComment[]): CommentNode[] => {
+  if (!list?.length) {
+    return [];
+  }
+  const sorted = [...list].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+  const nodes = sorted.map((comment) => ({ ...comment, replies: [] as CommentNode[] }));
+  const lookup = new Map<number, CommentNode>();
+  nodes.forEach((node) => lookup.set(node.id, node));
+  const roots: CommentNode[] = [];
+  nodes.forEach((node) => {
+    if (node.parentCommentId && lookup.has(node.parentCommentId)) {
+      lookup.get(node.parentCommentId)!.replies.push(node);
+    } else {
+      roots.push(node);
+    }
+  });
+  return roots;
 };
 
 interface PostCardProps {
@@ -1872,11 +1900,39 @@ interface PostCardProps {
   onDelete?: (post: HubPost) => void;
 }
 
+
 function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
+  const { user } = useAuth();
   const [reactionAnchorEl, setReactionAnchorEl] = useState<null | HTMLElement>(null);
   const [optionsAnchorEl, setOptionsAnchorEl] = useState<null | HTMLElement>(null);
   const reactionMenuOpen = Boolean(reactionAnchorEl);
   const optionsMenuOpen = Boolean(optionsAnchorEl);
+
+  const [commentCount, setCommentCount] = useState(post.commentCount);
+  const [comments, setComments] = useState<HubComment[]>(post.recentComments ?? []);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [hasLoadedAllComments, setHasLoadedAllComments] = useState(false);
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({ root: '' });
+  const [submittingDraftKey, setSubmittingDraftKey] = useState<string | null>(null);
+  const [activeReplyBox, setActiveReplyBox] = useState<string | null>(null);
+  const rootCommentInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    setCommentCount(post.commentCount);
+  }, [post.commentCount]);
+
+  useEffect(() => {
+    if (!hasLoadedAllComments) {
+      setComments(post.recentComments ?? []);
+    }
+  }, [post.recentComments, hasLoadedAllComments]);
+
+  const commentTree = useMemo(() => buildCommentTree(comments), [comments]);
+
+  const currentUserInitial = useMemo(() => {
+    const source = user?.username || user?.email || '';
+    return source ? source.charAt(0).toUpperCase() : 'U';
+  }, [user]);
 
   const handleReactClick = (event: React.MouseEvent<HTMLElement>) => {
     setReactionAnchorEl(event.currentTarget);
@@ -1894,6 +1950,65 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
     } catch (error) {
       console.error('Failed to react to post:', error);
     }
+  };
+
+  const loadAllComments = async () => {
+    if (commentsLoading || hasLoadedAllComments) {
+      return;
+    }
+    setCommentsLoading(true);
+    try {
+      const data = await fetchHubComments(post.id);
+      setComments(data);
+      setHasLoadedAllComments(true);
+    } catch (error) {
+      console.error('Failed to load comments:', error);
+    } finally {
+      setCommentsLoading(false);
+    }
+  };
+
+  const handleDraftChange = (key: string, value: string) => {
+    setReplyDrafts((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const submitCommentDraft = async (key: string, parentId: number | null) => {
+    const draft = (replyDrafts[key] || '').trim();
+    if (!draft) {
+      return;
+    }
+    setSubmittingDraftKey(key);
+    const payload: HubCommentPayload = {
+      body: draft,
+      parentComment: parentId ?? null,
+    };
+    try {
+      const created = await createHubComment(post.id, payload);
+      setComments((prev) => [...prev, created]);
+      setCommentCount((prev) => {
+        const next = prev + 1;
+        onUpdate({ ...post, commentCount: next });
+        return next;
+      });
+      setReplyDrafts((prev) => ({ ...prev, [key]: '' }));
+      if (key !== 'root') {
+        setActiveReplyBox(null);
+      }
+    } catch (error) {
+      console.error('Failed to submit comment:', error);
+    } finally {
+      setSubmittingDraftKey(null);
+    }
+  };
+
+  const handleRootSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    submitCommentDraft('root', null);
+  };
+
+  const handleReplySubmit = (event: React.FormEvent, key: string, parentId: number) => {
+    event.preventDefault();
+    submitCommentDraft(key, parentId);
   };
 
   const authorName = `${post.author.user.firstName || ''} ${post.author.user.lastName || ''}`.trim() || 'Unknown User';
@@ -1936,6 +2051,97 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
       >
         {attachment.filename || 'Download attachment'}
       </Button>
+    );
+  };
+
+  const canComment = post.allowComments !== false;
+
+  const handleFocusComment = () => {
+    if (!canComment) {
+      return;
+    }
+    setActiveReplyBox('root');
+    if (rootCommentInputRef.current) {
+      rootCommentInputRef.current.focus();
+      rootCommentInputRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
+  const renderCommentNode = (node: CommentNode, depth = 0) => {
+    const commenterName = `${node.author.user.firstName || ''} ${node.author.user.lastName || ''}`.trim() || 'Member';
+    const commenterAvatar = node.author.user.profilePhotoUrl || null;
+    const replyKey = `reply-${node.id}`;
+    const replyDraft = replyDrafts[replyKey] ?? '';
+    const replyOpen = activeReplyBox === replyKey;
+    const timestamp = formatHubDate(node.createdAt);
+
+    return (
+      <Box key={node.id} sx={{ mt: 1.5, ml: depth ? depth * 3 : 0 }}>
+        <Stack direction="row" spacing={1.5} alignItems="flex-start">
+          <Avatar
+            src={commenterAvatar || undefined}
+            alt={commenterName}
+            sx={{
+              width: 32,
+              height: 32,
+              fontSize: '0.875rem',
+              bgcolor: commenterAvatar ? 'transparent' : 'secondary.main',
+              color: commenterAvatar ? 'inherit' : 'common.white',
+            }}
+          >
+            {!commenterAvatar && commenterName.charAt(0)}
+          </Avatar>
+          <Box sx={{ flexGrow: 1 }}>
+            <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'grey.50' }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                  {commenterName}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {timestamp}
+                </Typography>
+              </Stack>
+              <Typography
+                variant="body2"
+                sx={{ mt: 0.5, whiteSpace: 'pre-wrap' }}
+                color={node.isDeleted ? 'text.secondary' : 'text.primary'}
+              >
+                {node.isDeleted ? 'Comment deleted' : node.body}
+              </Typography>
+              {!node.isDeleted && canComment && (
+                <Button
+                  size="small"
+                  variant="text"
+                  sx={{ mt: 1, px: 0 }}
+                  onClick={() => setActiveReplyBox(replyOpen ? null : replyKey)}
+                >
+                  Reply
+                </Button>
+              )}
+            </Paper>
+          </Box>
+        </Stack>
+        {replyOpen && (
+          <Box sx={{ ml: depth ? (depth + 1) * 3 : 4, mt: 1 }}>
+            <Paper
+              component="form"
+              onSubmit={(event) => handleReplySubmit(event, replyKey, node.id)}
+              sx={{ p: '2px 4px', display: 'flex', alignItems: 'center', borderRadius: 5, border: '1px solid', borderColor: 'grey.300', boxShadow: 'none' }}
+            >
+              <InputBase
+                sx={{ ml: 1, flex: 1 }}
+                placeholder="Write a reply..."
+                value={replyDraft}
+                onChange={(event) => handleDraftChange(replyKey, event.target.value)}
+              />
+              <IconButton type="submit" sx={{ p: '10px' }} disabled={submittingDraftKey === replyKey || !replyDraft.trim()}>
+                {submittingDraftKey === replyKey ? <CircularProgress size={18} /> : <SendIcon fontSize="small" />}
+              </IconButton>
+            </Paper>
+          </Box>
+        )}
+        {node.replies.map((child) => renderCommentNode(child, depth + 1))}
+      </Box>
     );
   };
 
@@ -2027,7 +2233,7 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
             <Typography variant="caption" color="text.secondary">
               Tagged:
             </Typography>
-            <Stack direction="row" spacing={0.5} flexWrap="wrap" rowGap={0.5}>
+            <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
               {post.taggedMembers.map((member) => {
                 const baseName = member.fullName || member.email || 'Member';
                 const label = formatMemberLabel(baseName, member.jobTitle);
@@ -2043,9 +2249,15 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
           </Stack>
         )}
 
-        {(Object.keys(post.reactionSummary).length > 0 || post.commentCount > 0) && (
-          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-            <Stack direction="row" spacing={0.5}>
+        {(Object.keys(post.reactionSummary).length > 0 || commentCount > 0) && (
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            alignItems={{ xs: 'flex-start', sm: 'center' }}
+            justifyContent="space-between"
+            spacing={1}
+            sx={{ mb: 1 }}
+          >
+            <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
               {Object.entries(post.reactionSummary).map(([reaction, count]) =>
                 count > 0 ? (
                   <Tooltip key={reaction} title={`${count} ${reaction.toLowerCase()}`}>
@@ -2058,23 +2270,23 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
                 ) : null
               )}
             </Stack>
-            {post.commentCount > 0 && (
+            {commentCount > 0 && (
               <Typography variant="body2" color="text.secondary">
-                {post.commentCount} {post.commentCount === 1 ? 'comment' : 'comments'}
+                {commentCount} {commentCount === 1 ? 'comment' : 'comments'}
               </Typography>
             )}
           </Stack>
         )}
 
-        <Divider />
+        <Divider sx={{ mt: 1 }} />
 
-        <Stack direction="row" justifyContent="space-around" sx={{ pt: 1 }}>
+        <Stack direction="row" justifyContent="space-around" sx={{ pt: 1, mb: 2 }}>
           <Button
             startIcon={post.viewerReaction ? <ThumbUpAltIcon color="primary" /> : <ThumbUpAltOutlinedIcon />}
             onClick={handleReactClick}
             sx={{ textTransform: 'none', color: post.viewerReaction ? 'primary.main' : 'text.secondary' }}
           >
-            {post.viewerReaction ? post.viewerReaction : 'React'}
+            {post.viewerReaction ? `${reactionEmojis[post.viewerReaction]} ${post.viewerReaction}` : 'React'}
           </Button>
           <Menu
             anchorEl={reactionAnchorEl}
@@ -2089,65 +2301,77 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
               ))}
             </Stack>
           </Menu>
-          <Button startIcon={<ChatBubbleOutlineIcon />} sx={{ textTransform: 'none', color: 'text.secondary' }}>
+          <Button
+            startIcon={<ChatBubbleOutlineIcon />}
+            sx={{ textTransform: 'none', color: 'text.secondary' }}
+            onClick={handleFocusComment}
+            disabled={!canComment}
+          >
             Comment
           </Button>
         </Stack>
 
-        <Divider sx={{ mt: 1 }} />
+        <Divider sx={{ mb: 2 }} />
 
-        <Stack spacing={2} sx={{ mt: 2 }}>
-          {post.recentComments.map((comment) => {
-            const commenterName = `${comment.author.user.firstName || ''} ${comment.author.user.lastName || ''}`.trim() || 'Member';
-            const commenterAvatar = comment.author.user.profilePhotoUrl || null;
-            return (
-            <Stack key={comment.id} direction="row" spacing={1.5}>
-              <Avatar
-                src={commenterAvatar || undefined}
-                alt={commenterName}
-                sx={{
-                  width: 32,
-                  height: 32,
-                  fontSize: '0.875rem',
-                  bgcolor: commenterAvatar ? 'transparent' : 'secondary.main',
-                  color: commenterAvatar ? 'inherit' : 'common.white',
-                }}
-              >
-                {!commenterAvatar && (comment.author.user.firstName?.charAt(0) || 'U')}
+        <Stack spacing={2}>
+          {commentCount > comments.length && canComment && (
+            <Button
+              size="small"
+              startIcon={<ChatBubbleOutlineIcon fontSize="small" />}
+              sx={{ alignSelf: 'flex-start', textTransform: 'none' }}
+              onClick={loadAllComments}
+              disabled={commentsLoading}
+            >
+              {commentsLoading
+                ? 'Loading comments…'
+                : `View ${commentCount - comments.length} more ${commentCount - comments.length === 1 ? 'comment' : 'comments'}`}
+            </Button>
+          )}
+          {commentsLoading && comments.length === 0 ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : commentTree.length > 0 ? (
+            commentTree.map((node) => renderCommentNode(node))
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              {canComment ? 'Be the first to comment.' : 'Comments are disabled for this post.'}
+            </Typography>
+          )}
+
+          {canComment && (
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <Avatar sx={{ width: 32, height: 32, bgcolor: 'grey.500', color: 'common.white', fontWeight: 600 }}>
+                {currentUserInitial}
               </Avatar>
-              <Paper variant="outlined" sx={{ p: 1.5, flexGrow: 1, bgcolor: 'grey.100', borderRadius: 2 }}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-                    {commenterName}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {new Date(comment.createdAt).toLocaleDateString()}
-                  </Typography>
-                </Stack>
-                <Typography variant="body2" sx={{ mt: 0.5 }}>
-                  {comment.body}
-                </Typography>
+              <Paper
+                component="form"
+                onSubmit={handleRootSubmit}
+                sx={{ p: '2px 4px', display: 'flex', alignItems: 'center', flexGrow: 1, borderRadius: 5, border: '1px solid', borderColor: 'grey.300', boxShadow: 'none' }}
+              >
+                <InputBase
+                  sx={{ ml: 1, flex: 1 }}
+                  placeholder="Write a comment..."
+                  value={replyDrafts.root ?? ''}
+                  onChange={(event) => handleDraftChange('root', event.target.value)}
+                  inputRef={rootCommentInputRef}
+                />
+                <IconButton
+                  type="submit"
+                  sx={{ p: '10px' }}
+                  aria-label="send"
+                  disabled={submittingDraftKey === 'root' || !(replyDrafts.root ?? '').trim()}
+                >
+                  {submittingDraftKey === 'root' ? <CircularProgress size={20} /> : <SendIcon />}
+                </IconButton>
               </Paper>
             </Stack>
-          )})}
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <Avatar sx={{ width: 32, height: 32, bgcolor: 'grey.500' }}>U</Avatar>
-            <Paper
-              component="form"
-              sx={{ p: '2px 4px', display: 'flex', alignItems: 'center', flexGrow: 1, borderRadius: 5, border: '1px solid', borderColor: 'grey.300', boxShadow: 'none' }}
-            >
-              <InputBase sx={{ ml: 1, flex: 1 }} placeholder="Write a comment..." />
-              <IconButton type="submit" sx={{ p: '10px' }} aria-label="send">
-                <SendIcon />
-              </IconButton>
-            </Paper>
-          </Stack>
+          )}
         </Stack>
       </CardContent>
     </Card>
   );
 }
-
 interface ScopeFeedProps {
   scope: HubScopeSelection;
   canCreatePost: boolean;

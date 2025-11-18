@@ -15,7 +15,7 @@ from .permissions import OrganizationRolePermission
 from .org_roles import (
     ADMIN_LEVEL_DEFINITIONS,
     ROLE_DEFINITIONS,
-    ROLE_DESCRIPTION_SUMMARY,
+    # ROLE_DESCRIPTION_SUMMARY,
     OrgCapability,
     membership_capabilities,
 )
@@ -687,6 +687,6 @@ class OrganizationRoleDefinitionView(APIView):
             {
                 'roles': role_payload,
                 'admin_levels': admin_payload,
-                'documentation': ROLE_DESCRIPTION_SUMMARY.strip(),
+                # 'documentation': ROLE_DESCRIPTION_SUMMARY.strip(),
             }
         )

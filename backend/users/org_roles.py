@@ -179,28 +179,28 @@ ROLE_DEFINITIONS: Mapping[str, OrgRoleDefinition] = {
 }
 
 
-ROLE_DESCRIPTION_SUMMARY = """
-Organisation Roles
-==================
+# ROLE_DESCRIPTION_SUMMARY = """
+# Organisation Roles
+# ==================
 
-Organisation Admin
-------------------
-- Full control over the organisation.
-- Can invite staff, manage memberships, assign admins, and claim/create pharmacies.
-- Sees every pharmacy tied to the organisation.
+# Organisation Admin
+# ------------------
+# - Full control over the organisation.
+# - Can invite staff, manage memberships, assign admins, and claim/create pharmacies.
+# - Sees every pharmacy tied to the organisation.
 
-Chief Admin
------------
-- Senior administrator focused on a defined set of pharmacies.
-- Shares pharmacy-level capabilities with the selected admin level (Manager/Roster/Comms).
-- Requires a job title for clarity in directories and an explicit list of pharmacies to manage.
+# Chief Admin
+# -----------
+# - Senior administrator focused on a defined set of pharmacies.
+# - Shares pharmacy-level capabilities with the selected admin level (Manager/Roster/Comms).
+# - Requires a job title for clarity in directories and an explicit list of pharmacies to manage.
 
-Region Admin
-------------
-- Scoped administrator limited to an assigned list of pharmacies.
-- Must provide job title, operating region, and the pharmacies they oversee.
-- Capabilities match the chosen admin level (Manager, Roster Manager, or Communication Manager).
-"""
+# Region Admin
+# ------------
+# - Scoped administrator limited to an assigned list of pharmacies.
+# - Must provide job title, operating region, and the pharmacies they oversee.
+# - Capabilities match the chosen admin level (Manager, Roster Manager, or Communication Manager).
+# """
 
 
 def get_role_definition(role: str) -> OrgRoleDefinition | None:

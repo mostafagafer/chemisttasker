@@ -872,10 +872,21 @@ class HubPostViewSet(HubAttachmentMixin, viewsets.ModelViewSet):
         self._prepare_serializer_context(self.scope_context)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        scope_type = self.scope_context.get("scope_type")
+        pharmacy = None
+        organization = None
+        community_group = None
+        if scope_type == "pharmacy":
+            pharmacy = self.scope_context.get("pharmacy")
+        elif scope_type == "organization":
+            organization = self.scope_context.get("organization")
+        elif scope_type == "group":
+            pharmacy = self.scope_context.get("pharmacy")
+            community_group = self.scope_context.get("community_group")
         post = serializer.save(
-            pharmacy=self.scope_context.get("pharmacy"),
-            organization=self.scope_context.get("organization"),
-            community_group=self.scope_context.get("community_group"),
+            pharmacy=pharmacy,
+            organization=organization,
+            community_group=community_group,
             author_membership=membership,
             original_body=serializer.validated_data.get("body", ""),
             is_edited=False,
@@ -1145,8 +1156,8 @@ class HubCommentViewSet(
     permission_classes = [permissions.IsAuthenticated]
 
     def _get_post(self):
-        if hasattr(self, "post"):
-            return self.post
+        if hasattr(self, "_cached_post"):
+            return self._cached_post
         post = get_object_or_404(
             PharmacyHubPost.objects.select_related(
                 "pharmacy",
@@ -1158,7 +1169,7 @@ class HubCommentViewSet(
         )
         resolver = HubScopeResolver(self.request.user)
         scope = resolver.from_post(post)
-        self.post = post
+        self._cached_post = post
         self.scope_context = scope
         self.resolver = resolver
         return post

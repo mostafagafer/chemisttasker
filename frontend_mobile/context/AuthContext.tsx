@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import apiClient from '../utils/apiClient';
 
-// --- Types (copied from your web code) ---
+// --- Types ---
 export interface OrgMembership {
   organization_id: number;
   organization_name: string;
@@ -17,13 +18,27 @@ export type User = {
   memberships?: OrgMembership[];
 };
 
+interface RegisterData {
+  email: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+  role: string;
+  accepted_terms: boolean;
+}
+
 type AuthContextType = {
   access: string | null;
   token: string | null;
   refresh: string | null;
   user: User | null;
   login: (access: string, refresh: string, user: User) => Promise<void>;
+  loginWithCredentials: (email: string, password: string) => Promise<void>;
+  register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
+  verifyOTP: (code: string) => Promise<void>;
+  resendOTP: () => Promise<void>;
+  refreshUser: () => Promise<void>;
   isLoading: boolean;
 };
 
@@ -32,8 +47,13 @@ const AuthContext = createContext<AuthContextType>({
   token: null,
   refresh: null,
   user: null,
-  login: async () => {},
-  logout: async () => {},
+  login: async () => { },
+  loginWithCredentials: async () => { },
+  register: async () => { },
+  logout: async () => { },
+  verifyOTP: async () => { },
+  resendOTP: async () => { },
+  refreshUser: async () => { },
   isLoading: true,
 });
 
@@ -73,7 +93,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
           }
         }
       } catch {
-        // If anything explodes, clear everything
         await AsyncStorage.multiRemove(['access', 'refresh', 'user']);
         setAccess(null);
         setRefresh(null);
@@ -91,7 +110,60 @@ export function AuthProvider({ children }: AuthProviderProps) {
     await AsyncStorage.setItem('access', newAccess);
     await AsyncStorage.setItem('refresh', newRefresh);
     await AsyncStorage.setItem('user', JSON.stringify(userInfo));
-    console.log('Auth data saved successfully');
+  };
+
+  const loginWithCredentials = async (email: string, password: string) => {
+    try {
+      const response = await apiClient.post('/users/login/', { email, password });
+      const { access: newAccess, refresh: newRefresh, user: userData } = response.data;
+      await login(newAccess, newRefresh, userData);
+      return userData; // Return user data for navigation
+    } catch (error: any) {
+      throw new Error(error.response?.data?.detail || 'Login failed');
+    }
+  };
+
+  const register = async (data: RegisterData) => {
+    try {
+      const response = await apiClient.post('/users/register/', data);
+      const { access: newAccess, refresh: newRefresh, user: userData } = response.data;
+      await login(newAccess, newRefresh, userData);
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.email?.[0] ||
+        error.response?.data?.detail ||
+        'Registration failed';
+      throw new Error(errorMsg);
+    }
+  };
+
+  const verifyOTP = async (code: string) => {
+    try {
+      const response = await apiClient.post('/users/verify-otp/', { otp: code });
+      const updatedUser = response.data.user;
+      setUser(updatedUser);
+      await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+    } catch (error: any) {
+      throw new Error(error.response?.data?.detail || 'OTP verification failed');
+    }
+  };
+
+  const resendOTP = async () => {
+    try {
+      await apiClient.post('/users/resend-otp/');
+    } catch (error: any) {
+      throw new Error(error.response?.data?.detail || 'Failed to resend OTP');
+    }
+  };
+
+  const refreshUser = async () => {
+    try {
+      const response = await apiClient.get('/users/me/');
+      const userData = response.data;
+      setUser(userData);
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
+    } catch (error) {
+      console.error('Error refreshing user:', error);
+    }
   };
 
   const logout = async () => {
@@ -99,7 +171,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setRefresh(null);
     setUser(null);
     await AsyncStorage.multiRemove(['access', 'refresh', 'user']);
-    console.log('Auth data removed successfully');
   };
 
   return (
@@ -110,7 +181,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
         refresh,
         user,
         login,
+        loginWithCredentials,
+        register,
         logout,
+        verifyOTP,
+        resendOTP,
+        refreshUser,
         isLoading,
       }}
     >

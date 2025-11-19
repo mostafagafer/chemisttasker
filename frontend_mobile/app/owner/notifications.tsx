@@ -1,9 +1,232 @@
-import { View, Text } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
+import { Text, Surface, IconButton, Badge, ActivityIndicator } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import apiClient from '../../utils/apiClient';
 
-export default function TabNameScreen() {
+interface Notification {
+  id: number;
+  title: string;
+  message: string;
+  created_at: string;
+  is_read: boolean;
+  type: string; // e.g., 'shift_application', 'message', 'system'
+  related_id?: number; // ID of the related object (shift, message, etc.)
+}
+
+export default function OwnerNotificationsScreen() {
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    fetchNotifications();
+  }, []);
+
+  const fetchNotifications = async () => {
+    try {
+      const response = await apiClient.get('/client-profile/notifications/');
+      setNotifications(response.data.results || response.data);
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchNotifications();
+    setRefreshing(false);
+  };
+
+  const markAsRead = async (id: number) => {
+    try {
+      // Optimistic update
+      setNotifications(prev => prev.map(n =>
+        n.id === id ? { ...n, is_read: true } : n
+      ));
+
+      await apiClient.patch(`/client-profile/notifications/${id}/`, { is_read: true });
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      // Revert on error if needed, but for read status it's usually fine
+    }
+  };
+
+  const getIconForType = (type: string) => {
+    switch (type) {
+      case 'shift_application': return 'briefcase-check';
+      case 'message': return 'message-text';
+      case 'system': return 'information';
+      default: return 'bell';
+    }
+  };
+
+  const renderItem = ({ item }: { item: Notification }) => (
+    <Surface
+      style={[
+        styles.notificationItem,
+        !item.is_read && styles.unreadItem
+      ]}
+      elevation={1}
+    >
+      <View style={styles.iconContainer}>
+        <Surface style={styles.iconSurface} elevation={0}>
+          <IconButton
+            icon={getIconForType(item.type)}
+            size={24}
+            iconColor="#6366F1"
+          />
+        </Surface>
+        {!item.is_read && <Badge size={8} style={styles.unreadDot} />}
+      </View>
+
+      <View style={styles.contentContainer}>
+        <View style={styles.headerRow}>
+          <Text variant="titleSmall" style={styles.title}>{item.title}</Text>
+          <Text variant="bodySmall" style={styles.time}>
+            {new Date(item.created_at).toLocaleDateString()}
+          </Text>
+        </View>
+        <Text variant="bodyMedium" style={styles.message} numberOfLines={2}>
+          {item.message}
+        </Text>
+      </View>
+
+      {!item.is_read && (
+        <IconButton
+          icon="check"
+          size={20}
+          onPress={() => markAsRead(item.id)}
+          iconColor="#6B7280"
+        />
+      )}
+    </Surface>
+  );
+
   return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <Text>Owner - Notifications</Text>
-    </View>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <Text variant="headlineSmall" style={styles.headerTitle}>Notifications</Text>
+        {notifications.filter(n => !n.is_read).length > 0 && (
+          <Badge style={styles.headerBadge}>
+            {notifications.filter(n => !n.is_read).length} new
+          </Badge>
+        )}
+      </View>
+
+      {loading ? (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#6366F1" />
+        </View>
+      ) : (
+        <FlatList
+          data={notifications}
+          renderItem={renderItem}
+          keyExtractor={item => item.id.toString()}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Text variant="titleMedium" style={styles.emptyTitle}>No notifications</Text>
+              <Text variant="bodyMedium" style={styles.emptyText}>
+                You're all caught up!
+              </Text>
+            </View>
+          }
+        />
+      )}
+    </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  header: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerTitle: {
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  headerBadge: {
+    backgroundColor: '#6366F1',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  listContent: {
+    padding: 16,
+  },
+  notificationItem: {
+    flexDirection: 'row',
+    padding: 12,
+    marginBottom: 12,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+  },
+  unreadItem: {
+    backgroundColor: '#F5F7FF',
+    borderLeftWidth: 4,
+    borderLeftColor: '#6366F1',
+  },
+  iconContainer: {
+    position: 'relative',
+    marginRight: 12,
+  },
+  iconSurface: {
+    backgroundColor: '#EEF2FF',
+    borderRadius: 20,
+  },
+  unreadDot: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: '#EF4444',
+  },
+  contentContainer: {
+    flex: 1,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  title: {
+    fontWeight: '600',
+    color: '#111827',
+    flex: 1,
+    marginRight: 8,
+  },
+  time: {
+    color: '#9CA3AF',
+  },
+  message: {
+    color: '#6B7280',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyTitle: {
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#111827',
+  },
+  emptyText: {
+    color: '#6B7280',
+  },
+});

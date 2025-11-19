@@ -1,10 +1,14 @@
 import { Stack } from 'expo-router';
-import { AuthProvider } from '../context/AuthContext'; // Adjust path if needed
+import { PaperProvider } from 'react-native-paper';
+import { AuthProvider } from '../context/AuthContext';
+import { theme } from '../constants/theme';
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <Stack />
-    </AuthProvider>
+    <PaperProvider theme={theme}>
+      <AuthProvider>
+        <Stack screenOptions={{ headerShown: false }} />
+      </AuthProvider>
+    </PaperProvider>
   );
 }

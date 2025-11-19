@@ -1,112 +1,254 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, ActivityIndicator, Alert } from 'react-native';
-import { useAuth } from '../context/AuthContext';
-import { API_BASE_URL, API_ENDPOINTS } from '../constants/api';
-import { ORG_ROLES } from '../constants/roles';
+import {
+  View,
+  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  Image,
+} from 'react-native';
+import { Text, TextInput, Button, Surface } from 'react-native-paper';
 import { useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useAuth } from '../context/AuthContext';
 
 export default function LoginScreen() {
+  const router = useRouter();
+  const { loginWithCredentials } = useAuth();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-
-  const { login } = useAuth();
-  const router = useRouter();
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
+    setError('');
+
     if (!email || !password) {
-      setError('Please enter both email and password');
+      setError('Please enter email and password');
       return;
     }
-    setIsLoading(true);
-    setError('');
+
+    setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.login}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.toLowerCase(), password }),
-      });
-      if (!response.ok) {
-        const data = await response.json();
-        setError(data.detail || 'Login failed');
-        setIsLoading(false);
-        return;
-      }
-      const data = await response.json();
-      const { access, refresh, user: userInfo } = data;
-      await login(access, refresh, userInfo);
+      const userData = await loginWithCredentials(email, password);
 
-      // Org member check (same logic as web)
-      const isOrgMember =
-        Array.isArray(userInfo?.memberships) &&
-        userInfo.memberships.some((m: any) => m?.role && ORG_ROLES.includes(m.role));
-
-      if (isOrgMember) {
-        router.replace('/organization' as any);
-
+      // Navigate directly to appropriate dashboard based on role
+      if (userData.role === 'OWNER') {
+        router.replace('/owner/dashboard');
+      } else if (userData.role === 'PHARMACIST') {
+        router.replace('/pharmacist/dashboard');
       } else {
-        switch (userInfo.role) {
-          case 'OWNER':
-            router.replace('/owner' as any);
-
-            break;
-          case 'PHARMACIST':
-            router.replace('/pharmacist' as any);
-            break;
-          case 'OTHER_STAFF':
-            router.replace('/otherstaff' as any);
-            break;
-          case 'EXPLORER':
-            router.replace('/explorer' as any);
-            break;
-          default:
-            router.replace('/');
-        }
+        router.replace('/dashboard');
       }
-    } catch (e) {
-      setError('Network or server error.');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
-    setIsLoading(false);
   };
 
   return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <Text style={{ fontSize: 24, marginBottom: 16 }}>Login</Text>
-      {error ? <Text style={{ color: 'red', marginBottom: 10 }}>{error}</Text> : null}
-      <TextInput
-        placeholder="Email"
-        value={email}
-        onChangeText={setEmail}
-        keyboardType="email-address"
-        autoCapitalize="none"
-        style={{
-          width: '100%',
-          maxWidth: 300,
-          borderWidth: 1,
-          borderColor: '#ccc',
-          borderRadius: 5,
-          padding: 10,
-          marginBottom: 12,
-        }}
-      />
-      <TextInput
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        style={{
-          width: '100%',
-          maxWidth: 300,
-          borderWidth: 1,
-          borderColor: '#ccc',
-          borderRadius: 5,
-          padding: 10,
-          marginBottom: 20,
-        }}
-      />
-      <Button title={isLoading ? "Logging in..." : "Login"} onPress={handleLogin} disabled={isLoading} />
-      {isLoading && <ActivityIndicator style={{ marginTop: 10 }} />}
-    </View>
+    <SafeAreaView style={styles.container}>
+      <LinearGradient colors={['#f7f9fb', '#eef1f7']} style={styles.gradient} />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardView}
+      >
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Surface style={styles.card} elevation={2}>
+            <View style={styles.logoRow}>
+              <Image
+                source={require('../assets/images/chemisttasker-logo.png')}
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
+              <View style={styles.titleBlock}>
+                <Text variant="bodySmall" style={styles.subtitle}>
+                  Pharmacy workforce, organized.
+                </Text>
+              </View>
+            </View>
+
+            <Text variant="headlineMedium" style={styles.formTitle}>
+              Welcome back
+            </Text>
+            <Text variant="bodyMedium" style={styles.formSubtitle}>
+              Sign in to access your hub.
+            </Text>
+
+            {error ? (
+              <Surface style={styles.errorContainer} elevation={1}>
+                <Text style={styles.errorText}>{error}</Text>
+              </Surface>
+            ) : null}
+
+            <View style={styles.form}>
+              <TextInput
+                label="Work email"
+                value={email}
+                onChangeText={setEmail}
+                mode="outlined"
+                style={styles.input}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+              />
+
+              <TextInput
+                label="Password"
+                value={password}
+                onChangeText={setPassword}
+                mode="outlined"
+                style={styles.input}
+                secureTextEntry={!showPassword}
+                right={
+                  <TextInput.Icon
+                    icon={showPassword ? 'eye-off' : 'eye'}
+                    onPress={() => setShowPassword(!showPassword)}
+                  />
+                }
+              />
+
+              <Button
+                mode="text"
+                onPress={() => {}}
+                style={styles.forgotButton}
+                labelStyle={styles.linkLabel}
+              >
+                Forgot password?
+              </Button>
+
+              <Button
+                mode="contained"
+                onPress={handleLogin}
+                loading={loading}
+                disabled={loading}
+                style={styles.button}
+                contentStyle={styles.buttonContent}
+              >
+                Sign in
+              </Button>
+
+              <View style={styles.signupRow}>
+                <Text style={styles.signupText}>Don&apos;t have an account?</Text>
+                <Button
+                  mode="text"
+                  onPress={() => router.push('/register')}
+                  labelStyle={styles.linkLabel}
+                  compact
+                >
+                  Create account
+                </Button>
+              </View>
+            </View>
+          </Surface>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f7f9fb',
+    position: 'relative',
+  },
+  gradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    padding: 24,
+  },
+  card: {
+    borderRadius: 18,
+    padding: 20,
+    backgroundColor: '#ffffff',
+  },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 10,
+  },
+  logoImage: {
+    width: 140,
+    height: 48,
+  },
+  titleBlock: {
+    flex: 1,
+  },
+  formTitle: {
+    marginTop: 8,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  formSubtitle: {
+    color: '#4b5563',
+    marginBottom: 12,
+  },
+  header: {
+    marginBottom: 32,
+    backgroundColor: 'transparent',
+  },
+  title: {
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  subtitle: {
+    color: '#666',
+  },
+  errorContainer: {
+    backgroundColor: '#ffebee',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: '#c62828',
+  },
+  form: {
+    gap: 16,
+  },
+  input: {
+    backgroundColor: '#fff',
+  },
+  forgotButton: {
+    alignSelf: 'flex-end',
+  },
+  button: {
+    marginTop: 8,
+    borderRadius: 8,
+  },
+  buttonContent: {
+    paddingVertical: 8,
+  },
+  linkLabel: {
+    textTransform: 'none',
+  },
+  signupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  signupText: {
+    color: '#4b5563',
+  },
+});

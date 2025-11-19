@@ -1,55 +1,93 @@
-import { useEffect } from 'react';
-import { useAuth } from '../../context/AuthContext'; // Adjust path if needed
-import { useRouter } from 'expo-router';
+import React from 'react';
 import { Tabs } from 'expo-router';
-import { ActivityIndicator, View } from 'react-native';
+import { IconButton } from 'react-native-paper';
 
-export default function OwnerTabs() {
-  const { user, isLoading } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!isLoading) {
-      if (!user) {
-        router.replace('/login');
-      } else if (user.role !== 'OWNER') {
-        // Redirect to correct tab group
-        switch (user.role) {
-          case 'PHARMACIST':
-            router.replace('/pharmacist' as any);
-
-            break;
-          case 'OTHER_STAFF':
-            router.replace('/otherstaff' as any);
-            break;
-          case 'EXPLORER':
-            router.replace('/explorer' as any);
-            router.replace('/');
-            break;
-          case 'ORGANIZATION':
-            router.replace('/organization' as any);
-            break;
-          default:
-            router.replace('/login');
-        }
-      }
-    }
-  }, [user, isLoading, router]);
-
-  if (isLoading || !user || user.role !== 'OWNER') {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
-
+export default function OwnerLayout() {
   return (
-    <Tabs>
-      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
-      <Tabs.Screen name="shifts" options={{ title: 'Shifts' }} />
-      <Tabs.Screen name="pharmacy" options={{ title: 'pharmacy' }} />
-      <Tabs.Screen name="notifications" options={{ title: 'Notifications' }} />
+    <Tabs
+      screenOptions={{
+        tabBarActiveTintColor: '#6366F1',
+        tabBarInactiveTintColor: '#9CA3AF',
+        tabBarStyle: {
+          backgroundColor: '#FFFFFF',
+          borderTopWidth: 1,
+          borderTopColor: '#E5E7EB',
+          height: 65,
+          paddingBottom: 8,
+          paddingTop: 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+        },
+        headerShown: false,
+      }}
+    >
+      <Tabs.Screen
+        name="dashboard"
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ color, size }) => (
+            <IconButton icon="home" iconColor={color} size={size} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="shifts"
+        options={{
+          title: 'Shifts',
+          tabBarIcon: ({ color, size }) => (
+            <IconButton icon="calendar" iconColor={color} size={size} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="post-shift"
+        options={{
+          title: 'Post',
+          tabBarIcon: ({ color }) => (
+            <IconButton
+              icon="plus-circle"
+              iconColor="#FFFFFF"
+              size={32}
+              style={{
+                backgroundColor: '#6366F1',
+                borderRadius: 24,
+                marginTop: -20,
+              }}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="messages"
+        options={{
+          title: 'Chat',
+          tabBarIcon: ({ color, size }) => (
+            <IconButton icon="message" iconColor={color} size={size} />
+          ),
+        }}
+      />
+
+      {/* Hidden tabs - accessed via navigation */}
+      <Tabs.Screen
+        name="pharmacies"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="onboarding"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

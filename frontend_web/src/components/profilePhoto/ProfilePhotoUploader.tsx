@@ -107,7 +107,7 @@ export default function ProfilePhotoUploader({
     reader.readAsDataURL(file);
   };
 
-  const handleCropComplete = useCallback((_croppedArea, pixels: Area) => {
+  const handleCropComplete = useCallback((_: Area, pixels: Area) => {
     setCroppedAreaPixels(pixels);
   }, []);
 

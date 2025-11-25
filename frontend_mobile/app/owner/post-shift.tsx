@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Text, TextInput, Button, Surface, RadioButton, Divider, Chip, Menu } from 'react-native-paper';
+import { Text, TextInput, Button, Surface, Chip, Menu } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { DatePickerModal, TimePickerModal } from 'react-native-paper-dates';
-import apiClient from '../../utils/apiClient';
+import { DatePickerModal } from 'react-native-paper-dates';
+import { getPharmacies, createShift } from '@chemisttasker/shared-core';
 
 interface Pharmacy {
     id: number;
@@ -28,8 +28,6 @@ export default function PostShiftScreen() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [showDatePicker, setShowDatePicker] = useState(false);
-    const [showStartTimePicker, setShowStartTimePicker] = useState(false);
-    const [showEndTimePicker, setShowEndTimePicker] = useState(false);
     const [showPharmacyMenu, setShowPharmacyMenu] = useState(false);
 
     React.useEffect(() => {
@@ -38,8 +36,13 @@ export default function PostShiftScreen() {
 
     const fetchPharmacies = async () => {
         try {
-            const response = await apiClient.get('/client-profile/pharmacies/');
-            setPharmacies(response.data);
+            const response = await getPharmacies();
+            const list = Array.isArray((response as any)?.results)
+                ? (response as any).results
+                : Array.isArray(response)
+                    ? (response as any)
+                    : [];
+            setPharmacies(list as Pharmacy[]);
         } catch (error) {
             console.error('Error fetching pharmacies:', error);
         }
@@ -65,7 +68,7 @@ export default function PostShiftScreen() {
                 description: formData.description,
             };
 
-            await apiClient.post('/client-profile/shifts/', submitData);
+            await createShift(submitData as any);
 
             Alert.alert('Success', 'Shift posted successfully!', [
                 { text: 'OK', onPress: () => router.back() }

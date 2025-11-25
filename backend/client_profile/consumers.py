@@ -113,7 +113,6 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
     # ---- channel-layer events ----
     async def message_created(self, event):
         payload = event.get("message") or event
-        print(f"[WS] EVENT message.created -> id={payload.get('id')} conv={payload.get('conversation')}", flush=True)
         log.debug("EVENT message.created id=%s", payload.get("id"))
         await self.send_json({"type": "message.created", "message": payload})
 
@@ -229,5 +228,3 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
             "type": "message.read",
             "conversation_id": event.get("conversation_id"),
         })
-
-

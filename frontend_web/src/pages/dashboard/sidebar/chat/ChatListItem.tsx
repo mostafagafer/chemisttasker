@@ -15,9 +15,11 @@ interface ChatListItemProps {
   avatarUrl?: string | null;
   avatarLabel: string;
   isCollapsed: boolean;
+  currentUserId?: number | null;
   onEdit: (room: ChatRoom) => void;
   onDelete: (roomId: number, roomName: string) => void;
   canEditDelete?: boolean;
+  onTogglePin: (roomId: number) => void;
 }
 
 
@@ -31,9 +33,11 @@ export const ChatListItem: FC<ChatListItemProps> = ({
   avatarUrl,
   avatarLabel,
   isCollapsed,
+  currentUserId,
   onEdit,
   onDelete,
   canEditDelete,
+  onTogglePin,
 
 }) => {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
@@ -48,14 +52,66 @@ export const ChatListItem: FC<ChatListItemProps> = ({
   };
 
   const isGroup = room.type === 'GROUP';
+  const resolveCreatorId = (r: any): number | undefined => {
+    const candidates = [
+      r?.created_by_user_id,
+      r?.createdByUserId,
+      r?.created_by,
+      r?.createdBy,
+      r?.created_by_user,
+      r?.createdByUser,
+      r?.created_by_membership_id,
+      r?.createdByMembershipId,
+      r?.created_by_membership,
+      r?.createdByMembership,
+      r?.creator,
+      r?.creator_id,
+      r?.creatorId,
+      r?.owner,
+      r?.owner_id,
+      r?.ownerId,
+    ];
+    const dynamicMatches =
+      r && typeof r === 'object'
+        ? Object.entries(r)
+            .filter(([k]) => {
+              const key = k.toLowerCase();
+              return key.includes('creator') || key.includes('owner') || key.includes('created_by');
+            })
+            .map(([, v]) => v)
+        : [];
+
+    for (const c of [...candidates, ...dynamicMatches]) {
+      if (typeof c === 'number') return c;
+      if (typeof c === 'string' && c.trim() && !Number.isNaN(Number(c))) {
+        return Number(c);
+      }
+      if (c && typeof c === 'object' && 'id' in c && typeof (c as any).id === 'number') {
+        return (c as any).id;
+      }
+      if (c && typeof c === 'object' && 'id' in c && typeof (c as any).id === 'string') {
+        const parsed = Number((c as any).id);
+        if (!Number.isNaN(parsed)) return parsed;
+      }
+    }
+    return undefined;
+  };
+  const creatorUserId = resolveCreatorId(room as any);
+  const isCreator =
+    currentUserId !== null &&
+    currentUserId !== undefined &&
+    creatorUserId !== undefined &&
+    Number(creatorUserId) === Number(currentUserId);
+  const effectiveCanEditDelete = !!(canEditDelete || isCreator);
+
 
   // Show Edit for any GROUP when I'm allowed (admin/creator).
-  const canShowEdit = isGroup && !!canEditDelete;
+  const canShowEdit = isGroup && effectiveCanEditDelete;
 
   // Show Delete for:
   //   - DMs (always),
   //   - any GROUP when I'm allowed (admin/creator).
-  const canShowDelete = isGroup ? !!canEditDelete : room.type === 'DM';
+  const canShowDelete = isGroup ? effectiveCanEditDelete : room.type === 'DM';
 
 
 
@@ -191,9 +247,9 @@ export const ChatListItem: FC<ChatListItemProps> = ({
       )}
       <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={handleCloseMenu}>
         {isPinnable && (
-            <MenuItem onClick={() => {
-                // This will be handled by a function passed from ChatPage
-                // onTogglePin(room.id, 'conversation');
+            <MenuItem onClick={(e) => {
+                e.stopPropagation();
+                onTogglePin(room.id);
                 handleCloseMenu();
             }}>
                 <ListItemIcon><PushPinIcon fontSize="small" /></ListItemIcon>

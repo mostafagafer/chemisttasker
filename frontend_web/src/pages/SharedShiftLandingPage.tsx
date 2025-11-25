@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link as RouterLink } from 'react-router-dom';
 import { Container, Typography, Card, CardContent, Button, Skeleton, Box, Chip, Divider } from '@mui/material';
-import apiClient from '../utils/apiClient';
-import { API_ENDPOINTS } from '../constants/api';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
+import { getViewSharedShift } from '@chemisttasker/shared-core';
 
 const formatClockTime = (value?: string | null) => {
   if (!value) return '';
@@ -19,17 +18,26 @@ const formatClockTime = (value?: string | null) => {
 
 interface Shift {
   id: number;
-  pharmacy_detail: {
+  pharmacy_detail?: {
     name: string;
     street_address?: string;
     suburb?: string;
     postcode?: string;
     state?: string;
   };
+  pharmacyDetail?: {
+    name?: string;
+    streetAddress?: string | null;
+    suburb?: string | null;
+    postcode?: string | null;
+    state?: string | null;
+  } | null;
   description?: string;
-  role_needed: string;
-  slots: { date: string; start_time: string; end_time: string }[];
+  role_needed?: string;
+  roleNeeded?: string;
+  slots?: { date: string; start_time?: string; end_time?: string; startTime?: string; endTime?: string }[];
   post_anonymously?: boolean;
+  postAnonymously?: boolean;
 }
 
 const SharedShiftLandingPage: React.FC = () => {
@@ -49,10 +57,8 @@ const SharedShiftLandingPage: React.FC = () => {
     // The effect will now re-run when the 'user' object changes (e.g., from null to a user object after login check)
     const fetchShift = async () => {
         try {
-            const response = await apiClient.get(API_ENDPOINTS.getViewSharedShift, {
-                params: { token, id }
-            });
-            const fetchedShift = response.data;
+            const response: any = await getViewSharedShift({ token, id });
+            const fetchedShift = response?.data ?? response;
             setShift(fetchedShift);
 
             // If user is logged in, redirect them to the internal dashboard page
@@ -109,32 +115,37 @@ const SharedShiftLandingPage: React.FC = () => {
             <Typography variant="h4" gutterBottom>Shift Opportunity</Typography>
             <Card>
                 <CardContent>
-                    <Typography variant="h5">
-                      {shift.post_anonymously
-                        ? (shift.pharmacy_detail.suburb
-                            ? `Shift in ${shift.pharmacy_detail.suburb}`
+                  <Typography variant="h5">
+                    {shift.post_anonymously ?? shift.postAnonymously
+                        ? ((shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb)
+                            ? `Shift in ${shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb}`
                             : 'Anonymous Shift')
-                        : shift.pharmacy_detail.name}
+                        : (shift.pharmacy_detail?.name ?? shift.pharmacyDetail?.name)}
                     </Typography>
-                    {(!shift.post_anonymously ||
-                      (shift.post_anonymously && shift.pharmacy_detail.suburb)) && (
+                    {(!(shift.post_anonymously ?? shift.postAnonymously) ||
+                      ((shift.post_anonymously ?? shift.postAnonymously) && (shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb))) && (
                       <Typography variant="body2" color="text.secondary">
-                        {shift.post_anonymously
-                          ? shift.pharmacy_detail.suburb
-                          : [shift.pharmacy_detail.street_address, shift.pharmacy_detail.suburb, shift.pharmacy_detail.state, shift.pharmacy_detail.postcode]
+                        {shift.post_anonymously ?? shift.postAnonymously
+                          ? (shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb)
+                          : [
+                              shift.pharmacy_detail?.street_address ?? shift.pharmacyDetail?.streetAddress,
+                              shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb,
+                              shift.pharmacy_detail?.state ?? shift.pharmacyDetail?.state,
+                              shift.pharmacy_detail?.postcode ?? shift.pharmacyDetail?.postcode,
+                            ]
                               .filter(Boolean)
                               .join(', ')}
                       </Typography>
                     )}
 
-                    <Chip label={shift.role_needed} color="primary" sx={{ my: 2 }} />
+                    <Chip label={shift.role_needed ?? shift.roleNeeded} color="primary" sx={{ my: 2 }} />
                     <Divider sx={{ mb: 2 }} />
                     <Typography variant="h6">Slots:</Typography>
-                    {shift.slots.map((slot, index) => (
+                    {(shift.slots ?? []).map((slot, index) => (
                         <Typography key={index}>
                           {dayjs(slot.date).format('MMM D, YYYY')} from{' '}
-                          {formatClockTime(slot.start_time)} to{' '}
-                          {formatClockTime(slot.end_time)}
+                          {formatClockTime(slot.start_time ?? (slot as any).startTime)} to{' '}
+                          {formatClockTime(slot.end_time ?? (slot as any).endTime)}
                         </Typography>
                     ))}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>

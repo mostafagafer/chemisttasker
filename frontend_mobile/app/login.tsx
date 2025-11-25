@@ -37,11 +37,11 @@ export default function LoginScreen() {
 
       // Navigate directly to appropriate dashboard based on role
       if (userData.role === 'OWNER') {
-        router.replace('/owner/dashboard');
+        router.replace('/owner/dashboard' as never);
       } else if (userData.role === 'PHARMACIST') {
-        router.replace('/pharmacist/dashboard');
+        router.replace('/pharmacist/dashboard' as never);
       } else {
-        router.replace('/dashboard');
+        router.replace('/dashboard' as never);
       }
     } catch (err: any) {
       setError(err.message);

@@ -64,10 +64,14 @@ def broadcast_new_message(sender, instance, created, **kwargs):
                     "message": payload,          # keep nested "message" as before
                 },
             )
+            sender_user_id = getattr(msg.sender, "user_id", None)
             for participant in Participant.objects.select_related("membership__user", "conversation").filter(conversation_id=msg.conversation_id):
+                # Skip notifying the sender (membership or user) so they don't get self-badges
                 if participant.membership_id == msg.sender_id:
                     continue
-                broadcast_message_badge(participant)
+                if sender_user_id and getattr(participant.membership, "user_id", None) == sender_user_id:
+                    continue
+                broadcast_message_badge(participant, sender_user_id=sender_user_id)
         except Exception:
             log.exception("Error while broadcasting message.created")
 
@@ -89,4 +93,3 @@ def sync_membership_to_community_chat(sender, instance, created, **kwargs):
             conversation=community_chat,
             membership=instance
         )
-

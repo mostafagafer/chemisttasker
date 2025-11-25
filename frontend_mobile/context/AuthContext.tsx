@@ -1,5 +1,10 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  login as sharedLogin,
+  register as sharedRegister,
+  getCurrentUser,
+} from '@chemisttasker/shared-core';
 import apiClient from '../utils/apiClient';
 
 // --- Types ---
@@ -33,7 +38,7 @@ type AuthContextType = {
   refresh: string | null;
   user: User | null;
   login: (access: string, refresh: string, user: User) => Promise<void>;
-  loginWithCredentials: (email: string, password: string) => Promise<void>;
+  loginWithCredentials: (email: string, password: string) => Promise<User>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
   verifyOTP: (code: string) => Promise<void>;
@@ -48,7 +53,7 @@ const AuthContext = createContext<AuthContextType>({
   refresh: null,
   user: null,
   login: async () => { },
-  loginWithCredentials: async () => { },
+  loginWithCredentials: async () => ({ id: 0, username: '', role: '' }),
   register: async () => { },
   logout: async () => { },
   verifyOTP: async () => { },
@@ -71,12 +76,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     const loadStoredAuth = async () => {
       try {
-        const storedAccess = await AsyncStorage.getItem('access');
-        const storedRefresh = await AsyncStorage.getItem('refresh');
+        const storedAccess = await AsyncStorage.getItem('ACCESS_KEY');
+        const storedRefresh = await AsyncStorage.getItem('REFRESH_KEY');
         const storedUser = await AsyncStorage.getItem('user');
 
         if (!storedAccess || !storedRefresh || !storedUser) {
-          await AsyncStorage.multiRemove(['access', 'refresh', 'user']);
+          await AsyncStorage.multiRemove(['ACCESS_KEY', 'REFRESH_KEY', 'user']);
           setAccess(null);
           setRefresh(null);
           setUser(null);
@@ -93,7 +98,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           }
         }
       } catch {
-        await AsyncStorage.multiRemove(['access', 'refresh', 'user']);
+        await AsyncStorage.multiRemove(['ACCESS_KEY', 'REFRESH_KEY', 'user']);
         setAccess(null);
         setRefresh(null);
         setUser(null);
@@ -107,30 +112,44 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setAccess(newAccess);
     setRefresh(newRefresh);
     setUser(userInfo);
-    await AsyncStorage.setItem('access', newAccess);
-    await AsyncStorage.setItem('refresh', newRefresh);
+    await AsyncStorage.setItem('ACCESS_KEY', newAccess);
+    await AsyncStorage.setItem('REFRESH_KEY', newRefresh);
     await AsyncStorage.setItem('user', JSON.stringify(userInfo));
   };
 
   const loginWithCredentials = async (email: string, password: string) => {
     try {
-      const response = await apiClient.post('/users/login/', { email, password });
-      const { access: newAccess, refresh: newRefresh, user: userData } = response.data;
+      const response: any = await sharedLogin({ email, password });
+      const tokens = response.tokens || {};
+      const newAccess = tokens.access || response.access;
+      const newRefresh = tokens.refresh || response.refresh;
+      const userData = response.user || response.userData || response.profile;
+      if (!newAccess || !newRefresh || !userData) {
+        throw new Error('Unexpected login response');
+      }
       await login(newAccess, newRefresh, userData);
-      return userData; // Return user data for navigation
+      return userData;
     } catch (error: any) {
-      throw new Error(error.response?.data?.detail || 'Login failed');
+      throw new Error(error?.message || 'Login failed');
     }
   };
 
   const register = async (data: RegisterData) => {
     try {
-      const response = await apiClient.post('/users/register/', data);
-      const { access: newAccess, refresh: newRefresh, user: userData } = response.data;
+      const response: any = await sharedRegister(data);
+      const tokens = response.tokens || {};
+      const newAccess = tokens.access || response.access;
+      const newRefresh = tokens.refresh || response.refresh;
+      const userData = response.user || response.userData || response.profile;
+      if (!newAccess || !newRefresh || !userData) {
+        throw new Error('Unexpected registration response');
+      }
       await login(newAccess, newRefresh, userData);
     } catch (error: any) {
-      const errorMsg = error.response?.data?.email?.[0] ||
-        error.response?.data?.detail ||
+      const errorMsg =
+        error?.message ||
+        error?.response?.data?.email?.[0] ||
+        error?.response?.data?.detail ||
         'Registration failed';
       throw new Error(errorMsg);
     }
@@ -157,10 +176,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const refreshUser = async () => {
     try {
-      const response = await apiClient.get('/users/me/');
-      const userData = response.data;
-      setUser(userData);
-      await AsyncStorage.setItem('user', JSON.stringify(userData));
+      const data = await getCurrentUser();
+      setUser(data as User);
+      await AsyncStorage.setItem('user', JSON.stringify(data));
     } catch (error) {
       console.error('Error refreshing user:', error);
     }
@@ -170,7 +188,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setAccess(null);
     setRefresh(null);
     setUser(null);
-    await AsyncStorage.multiRemove(['access', 'refresh', 'user']);
+    await AsyncStorage.multiRemove(['ACCESS_KEY', 'REFRESH_KEY', 'user']);
   };
 
   return (

@@ -11,8 +11,7 @@ import {
   Box,
   Link,
 } from '@mui/material';
-import apiClient from '../utils/apiClient';
-import { API_ENDPOINTS } from '../constants/api';
+import { createOrganization } from '@chemisttasker/shared-core';
 
 export default function OrganizationCreate() {
   const navigate = useNavigate();
@@ -29,7 +28,7 @@ export default function OrganizationCreate() {
     }
     setLoading(true);
     try {
-      await apiClient.post(API_ENDPOINTS.organizations, { name });
+      await createOrganization({ name });
       navigate('/organizations'); // or wherever you list orgs
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to create organization');

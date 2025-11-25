@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
 import { Text, Surface, IconButton, Badge, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import apiClient from '../../utils/apiClient';
+import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared-core';
 
 interface Notification {
   id: number;
@@ -25,8 +25,13 @@ export default function OwnerNotificationsScreen() {
 
   const fetchNotifications = async () => {
     try {
-      const response = await apiClient.get('/client-profile/notifications/');
-      setNotifications(response.data.results || response.data);
+      const response = await getNotifications();
+      const list = Array.isArray((response as any)?.results)
+        ? (response as any).results
+        : Array.isArray(response)
+          ? (response as any)
+          : [];
+      setNotifications(list);
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {
@@ -47,7 +52,7 @@ export default function OwnerNotificationsScreen() {
         n.id === id ? { ...n, is_read: true } : n
       ));
 
-      await apiClient.patch(`/client-profile/notifications/${id}/`, { is_read: true });
+      await markNotificationsAsRead([id]);
     } catch (error) {
       console.error('Error marking notification as read:', error);
       // Revert on error if needed, but for read status it's usually fine
@@ -111,7 +116,7 @@ export default function OwnerNotificationsScreen() {
         <Text variant="headlineSmall" style={styles.headerTitle}>Notifications</Text>
         {notifications.filter(n => !n.is_read).length > 0 && (
           <Badge style={styles.headerBadge}>
-            {notifications.filter(n => !n.is_read).length} new
+            {`${notifications.filter(n => !n.is_read).length} new`}
           </Badge>
         )}
       </View>
@@ -133,7 +138,7 @@ export default function OwnerNotificationsScreen() {
             <View style={styles.emptyState}>
               <Text variant="titleMedium" style={styles.emptyTitle}>No notifications</Text>
               <Text variant="bodyMedium" style={styles.emptyText}>
-                You're all caught up!
+                You&apos;re all caught up!
               </Text>
             </View>
           }

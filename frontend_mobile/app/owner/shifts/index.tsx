@@ -1,24 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import { Text, Card, Chip, Searchbar, Surface, IconButton, Avatar } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import apiClient from '../../../utils/apiClient';
+import { getOwnerOpenShifts } from '@chemisttasker/shared-core';
+
+interface ShiftSlot {
+    id: number;
+    date: string;
+    startTime: string;
+    endTime: string;
+    isRecurring: boolean;
+}
 
 interface Shift {
     id: number;
-    pharmacy_name: string;
-    shift_date: string;
-    start_time: string;
-    end_time: string;
-    role: string;
-    hourly_rate: number;
-    assigned_user?: {
-        name: string;
-        initials: string;
-    };
-    status: string;
+    pharmacyName: string;
+    roleNeeded: string;
+    description?: string;
+    slots: ShiftSlot[];
+    pharmacy?: number;
+    status?: string;
+    hourlyRate?: number;
 }
+
+// Helper functions to get display values from first slot
+const getShiftDate = (shift: Shift): string => shift.slots[0]?.date || '';
+const getStartTime = (shift: Shift): string => shift.slots[0]?.startTime || '';
+const getEndTime = (shift: Shift): string => shift.slots[0]?.endTime || '';
+const getHourlyRate = (shift: Shift): number => shift.hourlyRate ?? 0;
 
 export default function ShiftsListScreen() {
     const router = useRouter();
@@ -27,25 +37,56 @@ export default function ShiftsListScreen() {
     const [searchQuery, setSearchQuery] = useState('');
     const [refreshing, setRefreshing] = useState(false);
     const [shifts, setShifts] = useState<Shift[]>([]);
-    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        fetchShifts();
-    }, [activeTab, pharmacy_id]);
-
-    const fetchShifts = async () => {
+    const fetchShifts = useCallback(async () => {
         try {
-            const params: any = {};
-            if (pharmacy_id) params.pharmacy_id = pharmacy_id;
+            const response = await getOwnerOpenShifts();
+            const rawList = Array.isArray((response as any)?.results)
+                ? (response as any).results
+                : Array.isArray(response)
+                    ? (response as any)
+                    : [];
+            const list: Shift[] = rawList.map((raw: any) => {
+                const slots: ShiftSlot[] = Array.isArray(raw.slots)
+                    ? raw.slots.map((slot: any) => ({
+                        id: slot.id ?? Math.random(),
+                        date: slot.date ?? slot.shift_date ?? raw.shift_date ?? '',
+                        startTime: slot.start_time ?? slot.startTime ?? raw.start_time ?? '',
+                        endTime: slot.end_time ?? slot.endTime ?? raw.end_time ?? '',
+                        isRecurring: slot.is_recurring ?? slot.isRecurring ?? false,
+                    }))
+                    : [{
+                        id: raw.id ?? Math.random(),
+                        date: raw.shift_date ?? '',
+                        startTime: raw.start_time ?? '',
+                        endTime: raw.end_time ?? '',
+                        isRecurring: false,
+                    }];
 
-            const response = await apiClient.get('/client-profile/shifts/owner/', { params });
-            setShifts(response.data);
+                return {
+                    id: raw.id,
+                    pharmacyName: raw.pharmacy_name || raw.pharmacyName || 'Pharmacy',
+                    roleNeeded: raw.role || raw.roleNeeded || 'Role',
+                    description: raw.description,
+                    slots,
+                    pharmacy: raw.pharmacy ?? raw.pharmacy_id,
+                    status: raw.status,
+                    hourlyRate: raw.hourly_rate ?? raw.hourlyRate,
+                };
+            });
+            const filtered = pharmacy_id
+                ? list.filter((s) => String(s.pharmacy ?? s.pharmacy) === String(pharmacy_id))
+                : list;
+            setShifts(filtered as Shift[]);
         } catch (error) {
             console.error('Error fetching shifts:', error);
         } finally {
-            setLoading(false);
         }
-    };
+    }, [pharmacy_id]);
+
+    useEffect(() => {
+        void fetchShifts();
+    }, [fetchShifts, activeTab]);
 
     const onRefresh = async () => {
         setRefreshing(true);
@@ -53,8 +94,9 @@ export default function ShiftsListScreen() {
         setRefreshing(false);
     };
 
-    const getStatusColor = (status: string) => {
-        switch (status.toUpperCase()) {
+    const getStatusColor = (status?: string) => {
+        const normalized = (status || '').toUpperCase();
+        switch (normalized) {
             case 'CONFIRMED': return '#10B981';
             case 'PENDING': return '#F59E0B';
             case 'CANCELLED': return '#EF4444';
@@ -62,8 +104,9 @@ export default function ShiftsListScreen() {
         }
     };
 
-    const getStatusBg = (status: string) => {
-        switch (status.toUpperCase()) {
+    const getStatusBg = (status?: string) => {
+        const normalized = (status || '').toUpperCase();
+        switch (normalized) {
             case 'CONFIRMED': return '#D1FAE5';
             case 'PENDING': return '#FEF3C7';
             case 'CANCELLED': return '#FEE2E2';
@@ -80,13 +123,16 @@ export default function ShiftsListScreen() {
     };
 
     const calculateDuration = (start: string, end: string) => {
-        const [startHour] = start.split(':').map(Number);
-        const [endHour] = end.split(':').map(Number);
-        return endHour - startHour;
+        const [startHour] = (start || '').split(':').map(Number);
+        const [endHour] = (end || '').split(':').map(Number);
+        if (Number.isFinite(startHour) && Number.isFinite(endHour)) {
+            return endHour - startHour;
+        }
+        return 0;
     };
 
     const filteredShifts = shifts.filter(shift =>
-        shift.pharmacy_name.toLowerCase().includes(searchQuery.toLowerCase())
+        (shift.pharmacyName || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     return (
@@ -154,7 +200,7 @@ export default function ShiftsListScreen() {
                                 <View style={styles.pharmacyInfo}>
                                     <IconButton icon="store" size={20} iconColor="#6366F1" style={styles.pharmacyIcon} />
                                     <Text variant="titleMedium" style={styles.pharmacyName}>
-                                        {shift.pharmacy_name}
+                                        {shift.pharmacyName}
                                     </Text>
                                 </View>
                                 <Chip
@@ -162,7 +208,7 @@ export default function ShiftsListScreen() {
                                     textStyle={[styles.statusText, { color: getStatusColor(shift.status) }]}
                                     compact
                                 >
-                                    {shift.status}
+                                    {shift.status || 'Status'}
                                 </Chip>
                             </View>
 
@@ -170,41 +216,30 @@ export default function ShiftsListScreen() {
                             <View style={styles.infoRow}>
                                 <IconButton icon="calendar" size={16} iconColor="#6B7280" style={styles.infoIcon} />
                                 <Text variant="bodyMedium" style={styles.infoText}>
-                                    {formatDate(shift.shift_date)}
+                                    {formatDate(getShiftDate(shift))}
                                 </Text>
                             </View>
 
                             <View style={styles.infoRow}>
                                 <IconButton icon="clock-outline" size={16} iconColor="#6B7280" style={styles.infoIcon} />
                                 <Text variant="bodyMedium" style={styles.infoText}>
-                                    {shift.start_time} - {shift.end_time}
+                                    {getStartTime(shift)} - {getEndTime(shift)}
                                 </Text>
                                 <Chip style={styles.durationChip} textStyle={styles.durationText} compact>
-                                    {calculateDuration(shift.start_time, shift.end_time)}h
+                                    {calculateDuration(getStartTime(shift), getEndTime(shift))}h
                                 </Chip>
                             </View>
 
                             {/* Role & Rate */}
                             <View style={styles.bottomRow}>
                                 <Chip style={styles.roleChip} textStyle={styles.roleText} compact>
-                                    {shift.role}
+                                    {shift.roleNeeded}
                                 </Chip>
-                                <Text variant="titleMedium" style={styles.rate}>
-                                    £{shift.hourly_rate}/hr
-                                </Text>
-                                {shift.assigned_user && (
-                                    <View style={styles.assignedUser}>
-                                        <Avatar.Text
-                                            size={32}
-                                            label={shift.assigned_user.initials}
-                                            style={styles.avatar}
-                                            labelStyle={styles.avatarLabel}
-                                        />
-                                        <Text variant="bodySmall" style={styles.assignedName}>
-                                            {shift.assigned_user.name}
-                                        </Text>
-                                    </View>
-                                )}
+                                {getHourlyRate(shift) ? (
+                                    <Text variant="titleMedium" style={styles.rate}>
+                                        �`�{getHourlyRate(shift)}/hr
+                                    </Text>
+                                ) : null}
                             </View>
                         </Card.Content>
                     </Card>

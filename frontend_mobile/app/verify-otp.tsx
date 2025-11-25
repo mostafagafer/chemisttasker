@@ -62,11 +62,11 @@ export default function VerifyOTPScreen() {
             // Navigate based on user role - for now, replace with appropriate dashboard route
             // After verification, check onboarding status and navigate accordingly
             if (user?.role === 'OWNER') {
-                router.replace('/owner/onboarding/step1');
+                router.replace('/owner/onboarding/step1' as never);
             } else if (user?.role === 'PHARMACIST') {
-                router.replace('/pharmacist/dashboard');
+                router.replace('/pharmacist/dashboard' as never);
             } else {
-                router.replace('/dashboard');
+                router.replace('/dashboard' as never);
             }
         } catch (err: any) {
             setError(err.message);
@@ -102,7 +102,7 @@ export default function VerifyOTPScreen() {
                         Verify Your Email
                     </Text>
                     <Text variant="bodyMedium" style={styles.subtitle}>
-                        We've sent a 6-digit code to {user?.email}
+                        We&apos;ve sent a 6-digit code to {user?.email}
                     </Text>
                 </Surface>
 
@@ -116,7 +116,9 @@ export default function VerifyOTPScreen() {
                     {otp.map((digit, index) => (
                         <TextInput
                             key={index}
-                            ref={(ref) => (inputRefs.current[index] = ref)}
+                            ref={(ref: RNTextInput | null) => {
+                                inputRefs.current[index] = ref;
+                            }}
                             value={digit}
                             onChangeText={(value) => handleOTPChange(index, value)}
                             onKeyPress={({ nativeEvent }) => handleKeyPress(index, nativeEvent.key)}
@@ -141,7 +143,7 @@ export default function VerifyOTPScreen() {
                 </Button>
 
                 <View style={styles.resendContainer}>
-                    <Text variant="bodyMedium">Didn't receive the code?</Text>
+                    <Text variant="bodyMedium">Didn&apos;t receive the code?</Text>
                     {resendCooldown > 0 ? (
                         <Text variant="bodySmall" style={styles.cooldownText}>
                             Resend in {resendCooldown}s

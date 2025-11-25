@@ -22,8 +22,8 @@ import {
   Divider,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import apiClient from '../../utils/apiClient';
-import { API_ENDPOINTS, API_BASE_URL } from '../../constants/api';
+import { API_BASE_URL } from '../../constants/api';
+import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 
 interface FormData {
   first_name: string;
@@ -106,8 +106,7 @@ const labels = ['Basic Info', 'Reg Docs', 'Skills', 'Payment', 'Referees', 'Prof
 
 export default function OtherStaffOnboarding() {
   const navigate = useNavigate();
-  const detailUrl = API_ENDPOINTS.onboardingDetail('otherstaff');
-  const createUrl = API_ENDPOINTS.onboardingCreate('otherstaff');
+  const roleKey = 'otherstaff';
 
   const [data, setData] = useState<FormData>({
     first_name: '',
@@ -160,7 +159,6 @@ export default function OtherStaffOnboarding() {
   const [existingResume, setExistingResume] = useState('');
 
   const [loading, setLoading] = useState(true);
-  const [profileExists, setProfileExists] = useState(false);
   const [error, setError] = useState('');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [tabIndex, setTabIndex] = useState(0);
@@ -169,10 +167,9 @@ export default function OtherStaffOnboarding() {
     path.startsWith('http') ? path : `${API_BASE_URL}${path}`;
 
   useEffect(() => {
-    apiClient
-      .get(detailUrl)
+    getOnboardingDetail(roleKey)
       .then(res => {
-        const d = res.data as any;
+        const d = res as any;
         setData({
           first_name: d.first_name || '',
           last_name: d.last_name || '',
@@ -221,7 +218,6 @@ export default function OtherStaffOnboarding() {
         setExistingGstFile(d.gst_file || '');
         setExistingTfnDeclaration(d.tfn_declaration || '');
         setExistingResume(d.resume || '');
-        setProfileExists(true);
       })
       .catch(err => {
         if (err.response?.status !== 404) {
@@ -229,7 +225,7 @@ export default function OtherStaffOnboarding() {
         }
       })
       .finally(() => setLoading(false));
-  }, [detailUrl]);
+  }, [roleKey]);
 
 const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
   const target = e.target;
@@ -291,13 +287,9 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElemen
         else form.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
       });
 
-      const res = await apiClient.request({
-        method: profileExists ? 'patch' : 'post',
-        url: profileExists ? detailUrl : createUrl,
-        data: form,
-      });
+      const res = await updateOnboardingForm(roleKey, form);
 
-      const d = res.data as any;
+      const d = res as any;
 
       // update each existing-file URL
       setExistingGovernmentId(d.government_id || existingGovernmentId);
@@ -310,8 +302,6 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElemen
       setExistingGstFile(d.gst_file || existingGstFile);
       setExistingTfnDeclaration(d.tfn_declaration || existingTfnDeclaration);
       setExistingResume(d.resume || existingResume);
-
-      setProfileExists(true);
 
       // Only show snackbar if this is NOT an autosave:
       if (eventType !== "autosave") {

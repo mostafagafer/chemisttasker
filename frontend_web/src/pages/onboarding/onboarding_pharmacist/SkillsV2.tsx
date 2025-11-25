@@ -8,8 +8,8 @@ import UploadFileIcon from '@mui/icons-material/UploadFile';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 
-import apiClient from '../../../utils/apiClient';
-import { API_BASE_URL, API_ENDPOINTS } from '../../../constants/api';
+import { API_BASE_URL } from '../../../constants/api';
+import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 
 // ---- Legacy choices (match old codes/labels you used) ----
 // You can extend this with the full set you had historically.
@@ -35,7 +35,7 @@ type ApiData = {
 };
 
 export default function SkillsV2() {
-  const url = API_ENDPOINTS.onboardingDetail('pharmacist');
+  const roleKey = 'pharmacist';
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -57,9 +57,9 @@ export default function SkillsV2() {
       setLoading(true);
       setError('');
       try {
-        const res = await apiClient.get(url);
+        const res = await getOnboardingDetail(roleKey);
         if (!mounted) return;
-        const d: ApiData = res.data || {};
+        const d: ApiData = (res as any) || {};
         setSelected(d.skills || []);
         const byCode: Record<string, CertRow> = {};
         (d.skill_certificates || []).forEach(row => { byCode[row.skill_code] = row; });
@@ -71,7 +71,7 @@ export default function SkillsV2() {
       }
     })();
     return () => { mounted = false; };
-  }, [url]);
+  }, [roleKey]);
 
   // ---------- interactions ----------
   const toggleSkill = (code: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -122,11 +122,9 @@ export default function SkillsV2() {
         if (f) fd.append(code, f); // serializer accepts flat "CBR" or "skill_files[CBR]"
       });
 
-      const res = await apiClient.patch(url, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const res = await updateOnboardingForm(roleKey, fd);
 
-      const d: ApiData = res.data || {};
+      const d: ApiData = (res as any) || {};
       setSelected(d.skills || []);
       const byCode: Record<string, CertRow> = {};
       (d.skill_certificates || []).forEach(row => { byCode[row.skill_code] = row; });

@@ -1,5 +1,4 @@
-import apiClient from "../../../../utils/apiClient";
-import { API_ENDPOINTS } from "../../../../constants/api";
+import { searchUsers } from "@chemisttasker/shared-core";
 import type { Role, UserPortalRole } from "./types";
 import {
   requiredUserRoleForMembership,
@@ -15,10 +14,12 @@ export const fetchUserRoleByEmail = async (rawEmail: string): Promise<UserPortal
     return null;
   }
 
-  const response = await apiClient.get(API_ENDPOINTS.users, {
-    params: { search: email },
-  });
-  const results = Array.isArray(response.data?.results) ? response.data.results : [];
+  const response = await searchUsers(email);
+  const results = Array.isArray((response as any)?.results)
+    ? (response as any).results
+    : Array.isArray(response)
+    ? response
+    : [];
   const match = results.find(
     (user: any) => typeof user?.email === "string" && user.email.toLowerCase() === email
   );

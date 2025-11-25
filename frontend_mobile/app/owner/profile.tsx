@@ -4,7 +4,7 @@ import { Text, Avatar, List, Button, Surface, Divider, Switch } from 'react-nati
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
-import apiClient from '../../utils/apiClient';
+import { getCurrentUser } from '@chemisttasker/shared-core';
 
 interface UserProfile {
   id: number;
@@ -29,8 +29,8 @@ export default function OwnerProfileScreen() {
 
   const fetchProfile = async () => {
     try {
-      const response = await apiClient.get('/users/me/');
-      setProfile(response.data);
+      const response = await getCurrentUser();
+      setProfile(response as UserProfile);
     } catch (error) {
       console.error('Error fetching profile:', error);
       Alert.alert('Error', 'Failed to load profile data');

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, Image, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Image } from 'react-native';
 import { Text, Button, Surface, Divider, List } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ProgressStepper from '../../../components/ProgressStepper';
-import { useOnboarding } from './context';
-import apiClient from '../../../utils/apiClient';
+import { useOnboarding } from './_context';
+import { updateOnboarding } from '@chemisttasker/shared-core';
 
 const ONBOARDING_STEPS = ['Basic Info', 'Role Details', 'Profile Photo', 'Review'];
 
@@ -41,11 +41,7 @@ export default function OwnerOnboardingReview() {
                 } as any);
             }
 
-            await apiClient.patch('/client-profile/owner/onboarding/me/', submitData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            });
+            await updateOnboarding('owner', submitData);
 
             // Navigate to dashboard on success
             router.replace('/owner/dashboard');

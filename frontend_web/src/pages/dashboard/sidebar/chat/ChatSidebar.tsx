@@ -1,5 +1,5 @@
 import { FC, useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { Box, Typography, Button, Divider, IconButton, Tooltip, TextField, InputAdornment, Avatar } from '@mui/material';
+import { Box, Typography, Button, Divider, IconButton, Tooltip, TextField, InputAdornment } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
@@ -7,9 +7,6 @@ import { ChatListItem } from './ChatListItem';
 import type { ChatRoom, PharmacyRef, CachedMember, ChatMessage, MemberCache } from './types';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { useAuth } from '../../../../contexts/AuthContext';
-import { ADMIN_CAPABILITY_MANAGE_COMMUNICATIONS } from '../../../../constants/adminCapabilities';
-
 dayjs.extend(utc);
 
 type Membership = {
@@ -26,6 +23,7 @@ interface ChatSidebarProps {
   pharmacies: PharmacyRef[];
   myMemberships: Membership[];
   activeRoomId: number | null;
+  currentUserId?: number;
   onSelectRoom: (details: { type: 'dm' | 'group'; id: number } | { type: 'pharmacy'; id: number }) => void;
   participantCache: Record<number, CachedMember & { is_admin?: boolean }>;
   memberCache: MemberCache;
@@ -36,9 +34,38 @@ interface ChatSidebarProps {
   onEdit: (room: ChatRoom) => void;
   onDelete: (roomId: number, roomName: string) => void;
   canCreateChat: boolean;
-  currentUserId?: number;   // current user id for admin checks
+  onTogglePinConversation: (roomId: number) => void;
   initialFilter?: SidebarFilter;
-
+  shiftContacts?: Array<{
+    pharmacy_id: number | null;
+    pharmacy_name: string;
+    pharmacies?: Array<{ id: number; name: string }>;
+    shift_id?: number | null;
+    shift_date?: string | null;
+    role: string;
+    user: {
+      id: number;
+      first_name?: string | null;
+      last_name?: string | null;
+      email?: string | null;
+      profile_photo_url?: string | null;
+    };
+  }>;
+  onSelectShiftContact?: (contact: {
+    pharmacy_id: number | null;
+    pharmacy_name: string;
+    pharmacies?: Array<{ id: number; name: string }>;
+    shift_id?: number | null;
+    shift_date?: string | null;
+    role: string;
+    user: {
+      id: number;
+      first_name?: string | null;
+      last_name?: string | null;
+      email?: string | null;
+      profile_photo_url?: string | null;
+    };
+  }) => void;
 }
 
 const initialsFromParts = (first?: string | null, last?: string | null, fallback?: string | null) => {
@@ -73,23 +100,12 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
   onEdit,
   onDelete,
   canCreateChat,
+  onTogglePinConversation,
   currentUserId,
   initialFilter,
+  shiftContacts,
+  onSelectShiftContact,
 }) => {
-  const { hasCapability, user: authUser } = useAuth();
-  const isOwner = authUser?.role === "OWNER";
-  const canManageCommunications = useCallback(
-    (pharmacyId?: number | null) => {
-      if (isOwner) {
-        return true;
-      }
-      return hasCapability(
-        ADMIN_CAPABILITY_MANAGE_COMMUNICATIONS,
-        typeof pharmacyId === "number" ? pharmacyId : undefined
-      );
-    },
-    [hasCapability, isOwner]
-  );
   const [filter, setFilter] = useState<SidebarFilter>(initialFilter ?? 'all');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -120,42 +136,243 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
     return () => window.clearTimeout(handle);
   }, [searchQuery]);
 
-    // Only group admins can edit/delete.
-  // Custom group (no pharmacy): admin iff my participant row has is_admin === true
-  const isRoomAdmin = useCallback((room: ChatRoom): boolean => {
-    if (room.type !== 'GROUP') return true; // DMs unaffected
+  const shiftContactsList = shiftContacts || [];
 
-    // --- Custom group: if I created it, I'm admin (no membership lookup needed) ---
-    if (!room.pharmacy) {
-      const creatorUserId =
-        (room as any).created_by_user_id ??
-        (room as any).created_by_id ??
-        (typeof (room as any).created_by === 'number' ? (room as any).created_by : undefined);
-      if (currentUserId && creatorUserId && Number(creatorUserId) === Number(currentUserId)) {
-        return true; // creator can edit/delete
+  const shiftContactByUserId = useMemo(() => {
+    const map = new Map<number, typeof shiftContactsList[number]>();
+    shiftContactsList.forEach((c) => {
+      if (c?.user?.id) {
+        const existing = map.get(c.user.id);
+        // Prefer entry with profile photo; otherwise keep first
+        if (!existing || (!existing.user.profile_photo_url && c.user.profile_photo_url)) {
+          map.set(c.user.id, c);
+        }
       }
-    }
+    });
+    return map;
+  }, [shiftContactsList]);
 
-    // --- derive my membership id robustly ---
-    let myMemId = room.my_membership_id || null;
-    if (!myMemId && Array.isArray(room.participant_ids) && room.participant_ids.length) {
-      const mine = myMemberships.find(m => room.participant_ids.includes(m.id));
-      myMemId = mine?.id ?? null;
-    }
-    if (!myMemId) return false;
+  const shiftContactByEmail = useMemo(() => {
+    const map = new Map<string, typeof shiftContactsList[number]>();
+    shiftContactsList.forEach((c) => {
+      const email = (c?.user?.email || '').toLowerCase();
+      if (!email) return;
+      const existing = map.get(email);
+      if (!existing || (!existing.user.profile_photo_url && c.user.profile_photo_url)) {
+        map.set(email, c);
+      }
+    });
+    return map;
+  }, [shiftContactsList]);
 
-    // Community (pharmacy) groups: role-based admin (Owner or Admin)
-    if (room.pharmacy) {
-      return canManageCommunications(room.pharmacy);
-    }
+  const unifiedShiftContacts = useMemo(() => {
+    const map = new Map<string, typeof shiftContactsList[number]>();
+    shiftContactsList.forEach((c) => {
+      const email = (c?.user?.email || '').trim().toLowerCase();
+      const key =
+        (c?.user?.id && `id:${c.user.id}`) ||
+        (email && `email:${email}`);
+      if (!key) return;
+      const existing = map.get(key);
+      if (!existing || (!existing.user?.profile_photo_url && c?.user?.profile_photo_url)) {
+        map.set(key, c);
+      }
+    });
+    return Array.from(map.values());
+  }, [shiftContactsList]);
 
-    // --- Custom groups: prefer per-participant admin flag; creator handled above ---
-    const entry = participantCache[myMemId];
-    if (entry && typeof entry.is_admin === 'boolean') {
-      return entry.is_admin;
+  const shiftContactUserMap = useMemo(() => {
+    const map = new Map<number, { first_name?: string | null; last_name?: string | null; email?: string | null; profile_photo_url?: string | null }>();
+    unifiedShiftContacts.forEach((c) => {
+      const u = c?.user;
+      if (u?.id) {
+        const existing = map.get(u.id);
+        if (!existing || (!existing.profile_photo_url && u.profile_photo_url)) {
+          map.set(u.id, {
+            first_name: u.first_name,
+            last_name: u.last_name,
+            email: u.email,
+            profile_photo_url: u.profile_photo_url,
+          });
+        }
+      }
+    });
+    return map;
+  }, [unifiedShiftContacts]);
+
+  const resolveUserDetailsByMembership = useCallback(
+    (membershipId: number | null) => {
+      if (!membershipId) return null;
+      const participant = participantCache[membershipId]?.details;
+      if (participant) return participant;
+      for (const pid in memberCache) {
+        const candidate = memberCache[Number(pid)]?.[membershipId]?.details;
+        if (candidate) {
+          return candidate;
+        }
+      }
+      return null;
+    },
+    [participantCache, memberCache],
+  );
+
+  const resolveUserDetailsByUserId = useCallback(
+    (userId: number | null | undefined) => {
+      if (!userId) return null;
+      for (const mid in participantCache) {
+        const d = participantCache[Number(mid)]?.details;
+        if (d && d.id === userId) return d;
+      }
+      const fromShift = shiftContactUserMap.get(userId);
+      if (fromShift) return fromShift as any;
+      for (const pid in memberCache) {
+        const inner = memberCache[Number(pid)];
+        for (const mid in inner) {
+          const d = inner[Number(mid)]?.details;
+          if (d && d.id === userId) return d;
+        }
+      }
+      return null;
+    },
+    [participantCache, memberCache, shiftContactUserMap],
+  );
+
+  const mergeUserDetails = useCallback(
+    (user: any, userId?: number | null) => {
+      const fallback = userId ? resolveUserDetailsByUserId(userId) : null;
+      if (!fallback) return user;
+      return {
+        ...user,
+        first_name: user?.first_name || fallback.first_name,
+        last_name: user?.last_name || fallback.last_name,
+        email: user?.email || fallback.email,
+        profile_photo_url: user?.profile_photo_url || fallback.profile_photo_url,
+      };
+    },
+    [resolveUserDetailsByUserId],
+  );
+
+  const getMembershipRecord = useCallback(
+    (membershipId: number | null | undefined) => {
+      if (!membershipId) return null;
+      // participantCache does not carry invited_name, so only memberCache helps here
+      for (const pid in memberCache) {
+        const rec = memberCache[Number(pid)]?.[membershipId];
+        if (rec) return rec;
+      }
+      return null;
+    },
+    [memberCache],
+  );
+
+  const formatUserName = useCallback(
+    (details?: { first_name?: string | null; last_name?: string | null; email?: string | null }, invitedName?: string | null) => {
+      const full = `${details?.first_name || ''} ${details?.last_name || ''}`.trim();
+      if (full) return full;
+      const invited = (invitedName || '').trim();
+      if (invited) return invited;
+      return (details?.email || '').trim() || 'Direct Message';
+    },
+    [],
+  );
+
+  // Only group admins can edit/delete.
+  // Custom groups (no pharmacy): creator OR my participant admin flag.
+  const isRoomAdmin = useCallback((room: ChatRoom): boolean => {
+    // No edit/delete for DMs
+    if (room.type !== 'GROUP') return false;
+    // Show for creator OR my participant admin flag (pharmacy or not)
+    const resolveCreatorId = (r: any): number | undefined => {
+      const candidates = [
+        r?.created_by_user_id,
+        r?.createdByUserId,
+        r?.created_by,
+        r?.createdBy,
+        r?.created_by_user,
+        r?.createdByUser,
+        // Some payloads carry membership and not user; try to resolve via cache below
+        r?.created_by_membership_id,
+        r?.createdByMembershipId,
+        r?.created_by_membership,
+        r?.createdByMembership,
+        r?.creator,
+        r?.creator_id,
+        r?.creatorId,
+        r?.owner,
+        r?.owner_id,
+        r?.ownerId,
+      ];
+      const dynamicMatches =
+        r && typeof r === 'object'
+          ? Object.entries(r)
+              .filter(([k]) => {
+                const key = k.toLowerCase();
+                return key.includes('creator') || key.includes('owner') || key.includes('created_by');
+              })
+              .map(([, v]) => v)
+          : [];
+
+      for (const c of [...candidates, ...dynamicMatches]) {
+        if (typeof c === 'number') return c;
+        if (typeof c === 'string' && c.trim() && !Number.isNaN(Number(c))) return Number(c);
+        if (c && typeof c === 'object' && 'id' in c) {
+          const idVal = (c as any).id;
+          if (typeof idVal === 'number') return idVal;
+          if (typeof idVal === 'string' && idVal.trim() && !Number.isNaN(Number(idVal))) {
+            return Number(idVal);
+          }
+        }
+      }
+      return undefined;
+    };
+
+    const creatorUserIdFromRoom = resolveCreatorId(room as any);
+
+    // If creator is stored as membership id, try to translate to user id via caches
+    const resolveMembershipUserId = (membershipId: number | undefined | null): number | undefined => {
+      if (!membershipId) return undefined;
+      const cached = participantCache[membershipId]?.details;
+      if (cached?.id) return cached.id;
+      for (const pid in memberCache) {
+        const rec = memberCache[Number(pid)]?.[membershipId]?.details;
+        if (rec?.id) return rec.id;
+      }
+      return undefined;
+    };
+
+    const creatorUserId =
+      creatorUserIdFromRoom ??
+      resolveMembershipUserId((room as any)?.created_by_membership_id ?? (room as any)?.createdByMembershipId);
+
+    // Fallback: if creator user id is missing, infer from earliest participant membership id.
+    let inferredCreatorMembershipId: number | null = null;
+    if (!creatorUserId && Array.isArray(room.participant_ids) && room.participant_ids.length > 0) {
+      inferredCreatorMembershipId = room.participant_ids.reduce((min, id) => (id < min ? id : min), room.participant_ids[0]);
     }
-    return false;
-  }, [myMemberships, participantCache, currentUserId, canManageCommunications]);
+    const inferredCreatorUserId = creatorUserId ? undefined : resolveMembershipUserId(inferredCreatorMembershipId);
+
+    const isCreator =
+      currentUserId !== null &&
+      currentUserId !== undefined &&
+      creatorUserId !== undefined &&
+      Number(creatorUserId) === Number(currentUserId);
+    const isInferredCreator =
+      currentUserId !== null &&
+      currentUserId !== undefined &&
+      inferredCreatorUserId !== undefined &&
+      Number(inferredCreatorUserId) === Number(currentUserId);
+
+    let myMembershipId: number | null = null;
+    if (typeof room.my_membership_id === 'number') {
+      myMembershipId = room.my_membership_id;
+    } else if (Array.isArray(room.participant_ids) && room.participant_ids.length) {
+      const mine = myMemberships.find((m) => room.participant_ids?.includes(m.id));
+      myMembershipId = mine?.id ?? null;
+    }
+    const amParticipantAdmin = myMembershipId ? participantCache[myMembershipId]?.is_admin === true : false;
+
+    return Boolean(isCreator || isInferredCreator || amParticipantAdmin);
+  }, [currentUserId, myMemberships, participantCache]);
 
   const resolveParticipants = useCallback(
     (room: ChatRoom): { myMembershipId: number | null; partnerMembershipId: number | null } => {
@@ -184,56 +401,61 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
       ? myMemberships.find((m) => m.id === myMembershipId)
       : null;
     if (!myMembershipInRoom) {
-  const t = (room.title || '').trim();
-  return !t || /^group\s*chat$/i.test(t) ? 'Direct Message' : t;
-}
-
-// Primary: via participants
-if (partnerMembershipId) {
-  // 1) participantCache (fast path)
-  const pc = participantCache[partnerMembershipId]?.details;
-  if (pc) {
-    const full = `${pc.first_name || ''} ${pc.last_name || ''}`.trim();
-    return full || pc.email || 'Direct Message';
-  }
-  // 2) memberCache (covers cases where your participant row was deleted)
-  for (const pid in memberCache) {
-    const rec = memberCache[Number(pid)]?.[partnerMembershipId];
-    if (rec?.details) {
-      const u = rec.details;
-      const full = `${u.first_name || ''} ${u.last_name || ''}`.trim();
-      return full || u.email || 'Direct Message';
+      const t = (room.title || '').trim();
+      return !t || /^group\s*chat$/i.test(t) ? 'Direct Message' : t;
     }
-  }
-}
 
-// 3) Fallback from latest message sender (has user_details once messages were fetched)
-const last = getLatestMessage(room.id);
-if (last && last.sender?.user_details && last.sender.id !== myMembershipId) {
-  const u = last.sender.user_details;
-  const full = `${u.first_name || ''} ${u.last_name || ''}`.trim();
-  return full || u.email || 'Direct Message';
-}
-
-// Final fallback
-return 'Direct Message';
-  }, [pharmacies, myMemberships, participantCache, memberCache, getLatestMessage]);
-
-  const findMemberDetails = useCallback(
-    (membershipId: number | null) => {
-      if (!membershipId) return null;
-      const participant = participantCache[membershipId]?.details;
-      if (participant) return participant;
-      for (const pid in memberCache) {
-        const candidate = memberCache[Number(pid)]?.[membershipId]?.details;
-        if (candidate) {
-          return candidate;
-        }
+    if (partnerMembershipId) {
+      const partnerRecord = getMembershipRecord(partnerMembershipId);
+      const userDetails = partnerRecord?.details || resolveUserDetailsByMembership(partnerMembershipId);
+      if (userDetails) {
+        const merged = mergeUserDetails(userDetails, userDetails.id);
+        const name = formatUserName(merged, partnerRecord?.invited_name);
+        return name;
       }
-      return null;
-    },
-    [participantCache, memberCache],
-  );
+      const partnerUserId = resolveUserDetailsByMembership(partnerMembershipId)?.id;
+      if (partnerUserId) {
+        const d = resolveUserDetailsByUserId(partnerUserId);
+        if (d) return formatUserName(d);
+      }
+    }
+
+    // Fallback from latest message sender (has user_details once messages were fetched)
+    const last = getLatestMessage(room.id);
+    if (last && last.sender?.user_details && last.sender.id !== myMembershipId) {
+      const u = last.sender.user_details;
+      return formatUserName(u);
+    }
+
+    // Fallback: use shift contact data if available for this user
+    const partnerUserId = partnerMembershipId
+      ? resolveUserDetailsByMembership(partnerMembershipId)?.id
+      : undefined;
+    if (partnerUserId) {
+      const contact = shiftContactByUserId.get(partnerUserId);
+      if (contact?.user) {
+        const merged = mergeUserDetails(contact.user, partnerUserId);
+        const name = formatUserName(merged);
+        return name;
+      }
+      const byUserId = resolveUserDetailsByUserId(partnerUserId);
+      if (byUserId) {
+        const merged = mergeUserDetails(byUserId, partnerUserId);
+        const name = formatUserName(merged);
+        return name;
+      }
+    }
+    // Fallback: by email if we have no user id
+    if (room.title) {
+      const contact = shiftContactByEmail.get(room.title.toLowerCase());
+      if (contact?.user) return formatUserName(contact.user);
+    }
+    // Avoid using my own sender details for naming; rely on partner/contacts above
+
+    // Final fallback
+    const t = (room.title || '').trim();
+    return t || 'Direct Message';
+  }, [pharmacies, myMemberships, resolveParticipants, resolveUserDetailsByMembership, resolveUserDetailsByUserId, getLatestMessage, shiftContactByUserId, shiftContactByEmail, formatUserName, getMembershipRecord]);
 
   const getRoomAvatar = useCallback(
     (room: ChatRoom, fallbackName: string): { url: string | null; label: string } => {
@@ -244,16 +466,39 @@ return 'Direct Message';
         };
       }
       const { myMembershipId, partnerMembershipId } = resolveParticipants(room);
-      const memberDetails = findMemberDetails(partnerMembershipId);
+      const partnerRecord = getMembershipRecord(partnerMembershipId);
+      const memberDetails = partnerRecord?.details || resolveUserDetailsByMembership(partnerMembershipId);
       if (memberDetails) {
-        return {
-          url: memberDetails.profile_photo_url ?? null,
-          label: initialsFromParts(
-            memberDetails.first_name,
-            memberDetails.last_name,
-            memberDetails.email || fallbackName,
-          ),
-        };
+        const hasPhoto = !!memberDetails.profile_photo_url;
+        if (hasPhoto) {
+          return {
+            url: memberDetails.profile_photo_url ?? null,
+            label: initialsFromParts(
+              memberDetails.first_name,
+              memberDetails.last_name,
+              memberDetails.email || fallbackName,
+            ),
+          };
+        }
+        // No photo on participant; try shift contact/user-id fallbacks before giving up
+        const partnerUserId = memberDetails.id;
+        if (partnerUserId) {
+          const contact = shiftContactByUserId.get(partnerUserId);
+          if (contact?.user) {
+            const u = mergeUserDetails(contact.user, partnerUserId);
+            return {
+              url: u.profile_photo_url ?? null,
+              label: initialsFromParts(u.first_name, u.last_name, u.email || fallbackName),
+            };
+          }
+          const byUserId = resolveUserDetailsByUserId(partnerUserId);
+          if (byUserId) {
+            return {
+              url: byUserId.profile_photo_url ?? null,
+              label: initialsFromParts(byUserId.first_name, byUserId.last_name, byUserId.email || fallbackName),
+            };
+          }
+        }
       }
       const last = getLatestMessage(room.id);
       if (last && last.sender?.user_details && last.sender.id !== myMembershipId) {
@@ -263,12 +508,52 @@ return 'Direct Message';
           label: initialsFromParts(details.first_name, details.last_name, details.email || fallbackName),
         };
       }
+      const partnerUserId = partnerMembershipId ? resolveUserDetailsByMembership(partnerMembershipId)?.id : undefined;
+      if (partnerUserId) {
+        const contact = shiftContactByUserId.get(partnerUserId);
+        if (contact?.user) {
+          const u = mergeUserDetails(contact.user, partnerUserId);
+          return {
+            url: u.profile_photo_url ?? null,
+            label: initialsFromParts(u.first_name, u.last_name, u.email || fallbackName),
+          };
+        }
+        const byUserId = resolveUserDetailsByUserId(partnerUserId);
+        if (byUserId) {
+          const merged = mergeUserDetails(byUserId, partnerUserId);
+          return {
+            url: merged.profile_photo_url ?? null,
+            label: initialsFromParts(merged.first_name, merged.last_name, merged.email || fallbackName),
+          };
+        }
+      }
+      if (room.title) {
+        const contact = shiftContactByEmail.get(room.title.toLowerCase());
+        if (contact?.user) {
+          const u = contact.user;
+          return {
+            url: u.profile_photo_url ?? null,
+            label: initialsFromParts(u.first_name, u.last_name, u.email || fallbackName),
+          };
+        }
+      }
+      const lastEmail = last && last.sender?.user_details?.email;
+      if (lastEmail) {
+        const contact = shiftContactByEmail.get(lastEmail.toLowerCase());
+        if (contact?.user) {
+          const u = contact.user;
+          return {
+            url: u.profile_photo_url ?? null,
+            label: initialsFromParts(u.first_name, u.last_name, u.email || fallbackName),
+          };
+        }
+      }
       return {
         url: null,
         label: initialsFromParts(undefined, undefined, fallbackName || 'Direct Message'),
       };
     },
-    [findMemberDetails, resolveParticipants, getLatestMessage],
+    [resolveParticipants, resolveUserDetailsByMembership, getLatestMessage, shiftContactByUserId, shiftContactByEmail],
   );
 
   const roomCategory = useCallback((room: ChatRoom): SidebarFilter => {
@@ -513,16 +798,60 @@ return 'Direct Message';
                   avatarUrl={avatar.url}
                   avatarLabel={avatar.label}
                   isCollapsed={isCollapsed}
+                  currentUserId={currentUserId}
                   onEdit={onEdit}
                   onDelete={onDelete}
                   canEditDelete={isRoomAdmin(room)}
+                  onTogglePin={onTogglePinConversation}
                 />
               );
             })}
             {!isCollapsed && <Divider sx={{ my: 1 }} />}
           </>
         )}
-        {chatsToDisplay.shiftChats.length > 0 && (
+        {(shiftContacts && shiftContacts.length > 0 && filter === 'shift') ? (
+          <>
+            {!isCollapsed && <Box className="sidebar-section-label">SHIFTS</Box>}
+            {unifiedShiftContacts.map((contact, idx) => {
+              const user = contact.user || {};
+              const displayName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email || 'Shift Contact';
+              const pharmacyLabel =
+                contact.pharmacy_name ||
+                (contact.pharmacies && contact.pharmacies.length
+                  ? contact.pharmacies.map((p: any) => p.name).filter(Boolean).join(', ')
+                  : contact.pharmacy_name);
+              const avatarLabel = initialsFromParts(user.first_name, user.last_name, user.email);
+              const syntheticRoom = {
+                id: -100000 - idx,
+                type: 'GROUP',
+                title: displayName,
+                pharmacy: contact.pharmacy_id,
+                unread_count: 0,
+                is_pinned: false,
+                participant_ids: [],
+                updated_at: contact.shift_date,
+              } as any as ChatRoom;
+              return (
+                <ChatListItem
+                  key={`shift-contact-${contact.pharmacy_id ?? 'none'}-${user.id}-${idx}`}
+                  room={syntheticRoom}
+                  isActive={false}
+                  onSelect={(_id: number) => onSelectShiftContact && onSelectShiftContact(contact as any)}
+                  previewOverride={pharmacyLabel}
+                  displayName={displayName}
+                  avatarUrl={user.profile_photo_url}
+                  avatarLabel={avatarLabel}
+                  isCollapsed={isCollapsed}
+                  currentUserId={currentUserId}
+                  onEdit={() => {}}
+                  onDelete={() => {}}
+                  canEditDelete={false}
+                  onTogglePin={() => {}}
+                />
+              );
+            })}
+          </>
+        ) : (filter === 'shift' && chatsToDisplay.shiftChats.length > 0) && (
           <>
             {!isCollapsed && <Box className="sidebar-section-label">SHIFTS</Box>}
             {chatsToDisplay.shiftChats.map(room => {
@@ -539,9 +868,11 @@ return 'Direct Message';
                   avatarUrl={avatar.url}
                   avatarLabel={avatar.label}
                   isCollapsed={isCollapsed}
+                  currentUserId={currentUserId}
                   onEdit={onEdit}
                   onDelete={onDelete}
                   canEditDelete={isRoomAdmin(room)}
+                  onTogglePin={onTogglePinConversation}
                 />
               );
             })}
@@ -565,9 +896,11 @@ return 'Direct Message';
                   avatarUrl={avatar.url}
                   avatarLabel={avatar.label}
                   isCollapsed={isCollapsed}
+                  currentUserId={currentUserId}
                   onEdit={onEdit}
                   onDelete={onDelete}
                   canEditDelete={isRoomAdmin(room)}
+                  onTogglePin={onTogglePinConversation}
                 />
               );
             })}
@@ -591,9 +924,11 @@ return 'Direct Message';
                   avatarUrl={avatar.url}
                   avatarLabel={avatar.label}
                   isCollapsed={isCollapsed}
+                  currentUserId={currentUserId}
                   onEdit={onEdit}
                   onDelete={onDelete}
                   canEditDelete={isRoomAdmin(room)}
+                  onTogglePin={onTogglePinConversation}
                 />
               );
             })}

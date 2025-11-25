@@ -14,8 +14,8 @@ import {
   FormControlLabel,
   InputAdornment,
 } from '@mui/material';
-import apiClient from '../../utils/apiClient';
-import { API_BASE_URL, API_ENDPOINTS } from '../../constants/api';
+import { API_BASE_URL } from '../../constants/api';
+import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { useNavigate } from 'react-router-dom';
 import ProfilePhotoUploader from '../../components/profilePhoto/ProfilePhotoUploader';
 
@@ -37,7 +37,7 @@ const ROLE_OPTIONS = [
 ];
 
 export default function OwnerOnboarding() {
-  const detailUrl = API_ENDPOINTS.onboardingDetail('owner');
+  const roleKey = 'owner';
   const navigate = useNavigate();
 
   const [data, setData] = useState<FormData>({
@@ -57,10 +57,9 @@ export default function OwnerOnboarding() {
   const [profilePhotoCleared, setProfilePhotoCleared] = useState(false);
 
   useEffect(() => {
-    apiClient
-      .get(detailUrl)
+    getOnboardingDetail(roleKey)
       .then(res => {
-        const d = res.data;
+        const d: any = res;
         setData({
           username: d.username || '',
           first_name: d.first_name || '',
@@ -82,7 +81,7 @@ export default function OwnerOnboarding() {
         }
       })
       .finally(() => setLoading(false));
-  }, [detailUrl]);
+  }, [roleKey]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -110,12 +109,7 @@ const handleSubmit = async (e: React.FormEvent) => {
       payload.append('profile_photo_clear', 'true');
     }
 
-    await apiClient.request({
-      method: 'put',
-      url: detailUrl,
-      data: payload,
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    await updateOnboardingForm(roleKey, payload);
 
     setSnackbarOpen(true);
     setLoading(false);

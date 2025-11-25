@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Box,
@@ -17,10 +17,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import apiClient from '../utils/apiClient';
-import { API_ENDPOINTS } from '../constants/api';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import { getPharmacyClaims, updatePharmacyClaim } from '@chemisttasker/shared-core';
 
 dayjs.extend(utc);
 
@@ -89,13 +88,11 @@ export default function OwnerClaimRequestsPage() {
   const fetchClaims = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiClient.get(API_ENDPOINTS.pharmacyClaims, {
-        params: { owned_by_me: true },
-      });
-      const data = Array.isArray(res.data?.results)
-        ? res.data.results
-        : Array.isArray(res.data)
-        ? res.data
+      const res = await getPharmacyClaims({ owned_by_me: true });
+      const data = Array.isArray((res as any)?.results)
+        ? (res as any).results
+        : Array.isArray(res as any)
+        ? (res as any)
         : [];
       setClaims(data);
       setError(null);
@@ -111,8 +108,6 @@ export default function OwnerClaimRequestsPage() {
     void fetchClaims();
   }, [fetchClaims]);
 
-  const pendingClaims = useMemo(() => claims.filter(claim => claim.status === 'PENDING'), [claims]);
-
   const openDialog = (claim: PharmacyClaim, action: ClaimStatus) => {
     setDialogState({ open: true, claim, action, note: '' });
   };
@@ -126,13 +121,10 @@ export default function OwnerClaimRequestsPage() {
     if (!dialogState.claim || !dialogState.action) return;
     setResponding(true);
     try {
-      await apiClient.patch(
-        API_ENDPOINTS.pharmacyClaimDetail(dialogState.claim.id),
-        {
-          status: dialogState.action,
-          response_message: dialogState.note.trim() || undefined,
-        }
-      );
+      await updatePharmacyClaim(dialogState.claim.id, {
+        status: dialogState.action,
+        response_message: dialogState.note.trim() || undefined,
+      });
       setSnackbar({
         open: true,
         message: dialogState.action === 'ACCEPTED' ? 'Claim accepted.' : 'Claim rejected.',

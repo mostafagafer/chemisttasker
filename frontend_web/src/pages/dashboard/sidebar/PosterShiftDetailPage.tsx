@@ -54,101 +54,21 @@ import {
   CorporateFare as CorporateFareIcon,
   Public as PublicIcon,
 } from '@mui/icons-material';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
+import {
+  Shift,
+  ShiftInterest,
+  ShiftMemberStatus,
+  ShiftUser,
+  EscalationLevelKey,
+  fetchActiveShiftDetailService,
+  fetchShiftInterests,
+  fetchShiftMemberStatus,
+  escalateShiftService,
+  deleteActiveShiftService,
+  acceptShiftCandidateService,
+  revealShiftInterestService,
+} from '@chemisttasker/shared-core';
 import { useAuth } from '../../../contexts/AuthContext';
-
-interface PaginatedResponse<T> {
-  count: number;
-  next: string | null;
-  previous: string | null;
-  results: T[];
-}
-
-interface Slot {
-  id: number;
-  date: string;
-  start_time: string;
-  end_time: string;
-  is_recurring?: boolean;
-  recurring_days?: number[];
-  recurring_end_date?: string | null;
-}
-
-type ClaimStatus = "PENDING" | "ACCEPTED" | "REJECTED" | null;
-
-interface PharmacyDetail {
-  id: number;
-  name: string;
-  street_address?: string;
-  suburb?: string;
-  postcode?: string;
-  state?: string;
-  owner?: { id: number; user?: { id: number; email?: string } | undefined } | null;
-  organization?: { id: number; name?: string } | number | null;
-  claim_status?: ClaimStatus;
-}
-
-interface Shift {
-  id: number;
-  single_user_only: boolean;
-  visibility: string;
-  pharmacy_detail: PharmacyDetail;
-  role_needed: string;
-  slots: Slot[];
-  description?: string;
-  slot_assignments: { slot_id: number; user_id: number }[];
-  slot_count?: number;
-  assigned_count?: number;
-  escalation_level: number;
-  escalate_to_locum_casual: string | null;
-  escalate_to_owner_chain: string | null;
-  escalate_to_org_chain: string | null;
-  escalate_to_platform: string | null;
-  allowed_escalation_levels: string[];
-  created_at: string;
-  created_by?: number;
-  post_anonymously?: boolean;
-}
-
-interface MemberStatus {
-  user_id: number;
-  name: string;
-  employment_type: string;
-  role: string;
-  status: 'no_response' | 'interested' | 'rejected' | 'accepted';
-  is_member: boolean;
-  membership_id?: number;
-}
-
-interface Interest {
-  id: number;
-  user_id: number;
-  slot_id: number | null;
-  slot_time: string;
-  revealed: boolean;
-  user: string;
-}
-
-interface RatePreference {
-  weekday: string;
-  saturday: string;
-  sunday: string;
-  public_holiday: string;
-  early_morning: string;
-  late_night: string;
-}
-
-interface UserDetail {
-  id: number;
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone_number?: string;
-  short_bio?: string;
-  resume?: string;
-  rate_preference?: RatePreference | null;
-}
 
 interface AuthUser {
   id: number;
@@ -162,7 +82,10 @@ interface AuthUser {
   }>;
 }
 
-type EscalationKey = 'FULL_PART_TIME' | 'LOCUM_CASUAL' | 'OWNER_CHAIN' | 'ORG_CHAIN' | 'PLATFORM';
+type EscalationKey = EscalationLevelKey;
+type MemberStatus = ShiftMemberStatus;
+type Interest = ShiftInterest;
+type CandidateUser = ShiftUser;
 
 const PUBLIC_LEVEL_KEY: EscalationKey = 'PLATFORM';
 
@@ -215,12 +138,12 @@ const ESCALATION_LEVELS: Array<{
   icon: React.ElementType;
   requiresOrganization?: boolean;
 }> = [
-  { key: 'FULL_PART_TIME', label: 'My Pharmacy', icon: PeopleIcon },
-  { key: 'LOCUM_CASUAL', label: 'Favourites', icon: FavoriteIcon },
-  { key: 'OWNER_CHAIN', label: 'Chain', icon: StoreIcon },
-  { key: 'ORG_CHAIN', label: 'Organization', icon: CorporateFareIcon, requiresOrganization: true },
-  { key: 'PLATFORM', label: 'Platform', icon: PublicIcon },
-];
+    { key: 'FULL_PART_TIME', label: 'My Pharmacy', icon: PeopleIcon },
+    { key: 'LOCUM_CASUAL', label: 'Favourites', icon: FavoriteIcon },
+    { key: 'OWNER_CHAIN', label: 'Chain', icon: StoreIcon },
+    { key: 'ORG_CHAIN', label: 'Organization', icon: CorporateFareIcon, requiresOrganization: true },
+    { key: 'PLATFORM', label: 'Platform', icon: PublicIcon },
+  ];
 
 const STATUS_PRIORITY: Record<MemberStatus['status'], number> = {
   rejected: 0,
@@ -231,16 +154,19 @@ const STATUS_PRIORITY: Record<MemberStatus['status'], number> = {
 const dedupeMembers = (members: MemberStatus[]): MemberStatus[] => {
   const map = new Map<number, MemberStatus>();
   members.forEach(member => {
-    const existing = map.get(member.user_id);
+    if (!member.userId) {
+      return;
+    }
+    const existing = map.get(member.userId);
     if (!existing || STATUS_PRIORITY[member.status] > STATUS_PRIORITY[existing.status]) {
-      map.set(member.user_id, member);
+      map.set(member.userId, member);
     }
   });
   return Array.from(map.values());
 };
 
 const deriveLevelSequence = (shift: Shift) => {
-  const allowed = new Set(shift.allowed_escalation_levels ?? []);
+  const allowed = new Set(shift.allowedEscalationLevels ?? []);
   if (!allowed.size) {
     return ESCALATION_LEVELS;
   }
@@ -305,17 +231,32 @@ interface TabDataState {
   interestsAll?: Interest[];
 }
 
-const formatAddress = (pharmacy: PharmacyDetail) =>
-  [
-    pharmacy.street_address,
-    pharmacy.suburb,
-    pharmacy.state,
-    pharmacy.postcode,
-  ]
-    .filter(Boolean)
-    .join(', ');
+const formatAddress = (pharmacy: Shift['pharmacyDetail'] | null) =>
+  [pharmacy?.streetAddress, pharmacy?.suburb, pharmacy?.state, pharmacy?.postcode].filter(Boolean).join(', ');
 
-const formatSlotLabel = (slot: Slot) => `${slot.date} ${slot.start_time}\\u2013${slot.end_time}`;
+type ShiftSlotEntry = NonNullable<Shift['slots']>[number];
+
+const formatSlotLabel = (slot: ShiftSlotEntry) => `${slot.date} ${slot.startTime}\u2013${slot.endTime}`;
+
+const getInterestDisplayName = (interest: Interest) => {
+  const rawUser = interest.user;
+  if (typeof rawUser === 'string') {
+    return rawUser;
+  }
+  const userObj =
+    rawUser && typeof rawUser === 'object' && 'id' in rawUser ? (rawUser as ShiftUser) : null;
+  if (userObj && (userObj.firstName || userObj.lastName)) {
+    return `${userObj.firstName ?? ''} ${userObj.lastName ?? ''}`.trim();
+  }
+  if (userObj?.email) {
+    return userObj.email;
+  }
+  const composed = `${interest.userFirstName ?? ''} ${interest.userLastName ?? ''}`.trim();
+  if (composed) {
+    return composed;
+  }
+  return interest.userName || `Candidate #${interest.userId ?? ''}`.trim();
+};
 const PosterShiftDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -329,7 +270,7 @@ const PosterShiftDetailPage: React.FC = () => {
   const [selectedLevelKey, setSelectedLevelKey] = useState<EscalationKey | null>(null);
   const [platformInterestDialog, setPlatformInterestDialog] = useState<{
     open: boolean;
-    user: UserDetail | null;
+    user: CandidateUser | null;
     shiftId: number | null;
     interest: Interest | null;
   }>({ open: false, user: null, shiftId: null, interest: null });
@@ -362,23 +303,18 @@ const PosterShiftDetailPage: React.FC = () => {
 
       try {
         if (levelKey === PUBLIC_LEVEL_KEY) {
-          const res = await apiClient.get<PaginatedResponse<Interest>>(API_ENDPOINTS.getShiftInterests, {
-            params: { shift: currentShift.id },
-          });
-
-          const interests = Array.isArray(res.data.results) ? res.data.results : [];
+          const interests = await fetchShiftInterests({ shiftId: currentShift.id });
           const interestsBySlot: Record<number, Interest[]> = {};
           const interestsAll: Interest[] = [];
 
-          interests.forEach(interest => {
-            if (interest.slot_id === null) {
+          interests.forEach((interest: Interest) => {
+            if (interest.slotId === null || interest.slotId === undefined) {
               interestsAll.push(interest);
             } else {
-              const sid = Number(interest.slot_id);
-              if (!interestsBySlot[sid]) {
-                interestsBySlot[sid] = [];
+              if (!interestsBySlot[interest.slotId]) {
+                interestsBySlot[interest.slotId] = [];
               }
-              interestsBySlot[sid].push(interest);
+              interestsBySlot[interest.slotId].push(interest);
             }
           });
 
@@ -391,13 +327,11 @@ const PosterShiftDetailPage: React.FC = () => {
             },
           }));
         } else {
+          const slotEntries = currentShift.slots ?? [];
           const membersBySlotEntries = await Promise.all(
-            currentShift.slots.map(async slot => {
-              const response = await apiClient.get<MemberStatus[]>(
-                `${API_ENDPOINTS.getActiveShifts}${currentShift.id}/member_status/`,
-                { params: { slot_id: slot.id, visibility: levelKey } }
-              );
-              return [slot.id, response.data] as const;
+            slotEntries.map(async slot => {
+              const members = await fetchShiftMemberStatus(currentShift.id, { slotId: slot.id, visibility: levelKey });
+              return [slot.id, members] as const;
             })
           );
 
@@ -429,7 +363,7 @@ const PosterShiftDetailPage: React.FC = () => {
 
   const handleLevelSelect = useCallback(
     (currentShift: Shift, levelKey: EscalationKey) => {
-      const allowedKeys = new Set(currentShift.allowed_escalation_levels || []);
+      const allowedKeys = new Set(currentShift.allowedEscalationLevels || []);
       if (!allowedKeys.size) {
         ESCALATION_LEVELS.forEach(level => allowedKeys.add(level.key));
       }
@@ -452,17 +386,15 @@ const PosterShiftDetailPage: React.FC = () => {
 
       setEscalating(prev => ({ ...prev, [currentShift.id]: true }));
       try {
-        await apiClient.post(`${API_ENDPOINTS.getActiveShifts}${currentShift.id}/escalate/`, {
-          target_visibility: targetLevelKey,
-        });
+        await escalateShiftService(currentShift.id, { targetVisibility: targetLevelKey });
         showSnackbar(`Shift escalated to ${ESCALATION_LEVELS[targetLevelIdx].label}.`);
 
-        const updatedShiftRes = await apiClient.get<Shift>(`${API_ENDPOINTS.getActiveShifts}${currentShift.id}/`);
-        setShift(updatedShiftRes.data);
+        const updatedShift = await fetchActiveShiftDetailService(currentShift.id);
+        setShift(updatedShift);
         setSelectedLevelKey(targetLevelKey);
-        loadTabData(updatedShiftRes.data, targetLevelKey);
+        loadTabData(updatedShift, targetLevelKey);
       } catch (err: any) {
-        showSnackbar(err.response?.data?.detail || 'Failed to escalate shift.');
+        showSnackbar(err.response?.data?.detail || err.message || 'Failed to escalate shift.');
       } finally {
         setEscalating(prev => ({ ...prev, [currentShift.id]: false }));
       }
@@ -491,11 +423,11 @@ const PosterShiftDetailPage: React.FC = () => {
 
     setDeleting(prev => ({ ...prev, [shiftToDelete]: true }));
     try {
-      await apiClient.delete(`${API_ENDPOINTS.getActiveShifts}${shiftToDelete}/`);
+      await deleteActiveShiftService(shiftToDelete);
       showSnackbar('Shift cancelled/deleted successfully.');
       navigate(-1);
     } catch (err: any) {
-      showSnackbar(err.response?.data?.detail || 'Failed to cancel shift.');
+      showSnackbar(err.response?.data?.detail || err.message || 'Failed to cancel shift.');
     } finally {
       setDeleting(prev => ({ ...prev, [shiftToDelete]: false }));
       setOpenDeleteConfirm(false);
@@ -512,18 +444,15 @@ const PosterShiftDetailPage: React.FC = () => {
     async (currentShift: Shift, userId: number, slotId: number | null) => {
       setAssigning(true);
       try {
-        await apiClient.post(`${API_ENDPOINTS.getActiveShifts}${currentShift.id}/accept_user/`, {
-          user_id: userId,
-          slot_id: slotId,
-        });
+        await acceptShiftCandidateService(currentShift.id, { userId, slotId });
         showSnackbar('User assigned.');
 
-        const updatedShiftRes = await apiClient.get<Shift>(`${API_ENDPOINTS.getActiveShifts}${currentShift.id}/`);
-        setShift(updatedShiftRes.data);
-        const levelKey = selectedLevelKey ?? (updatedShiftRes.data.visibility as EscalationKey);
-        loadTabData(updatedShiftRes.data, levelKey);
+        const updatedShift = await fetchActiveShiftDetailService(currentShift.id);
+        setShift(updatedShift);
+        const levelKey = selectedLevelKey ?? (updatedShift.visibility as EscalationKey);
+        loadTabData(updatedShift, levelKey);
       } catch (err: any) {
-        showSnackbar(err.response?.data?.detail || 'Failed to assign user.');
+        showSnackbar(err.response?.data?.detail || err.message || 'Failed to assign user.');
       } finally {
         setAssigning(false);
       }
@@ -533,16 +462,20 @@ const PosterShiftDetailPage: React.FC = () => {
 
   const handleRevealPlatform = useCallback(
     async (currentShift: Shift, interest: Interest) => {
+      if (!interest.userId) {
+        showSnackbar('Candidate information unavailable.');
+        return;
+      }
       setRevealingInterestId(interest.id);
       try {
-        const res = await apiClient.post<UserDetail>(
-          `${API_ENDPOINTS.getActiveShifts}${currentShift.id}/reveal_profile/`,
-          { slot_id: interest.slot_id, user_id: interest.user_id }
-        );
-        setPlatformInterestDialog({ open: true, user: res.data, shiftId: currentShift.id, interest });
+        const user = await revealShiftInterestService(currentShift.id, {
+          slotId: interest.slotId ?? null,
+          userId: interest.userId,
+        });
+        setPlatformInterestDialog({ open: true, user, shiftId: currentShift.id, interest });
         loadTabData(currentShift, PUBLIC_LEVEL_KEY);
       } catch (err: any) {
-        showSnackbar(err.response?.data?.detail || 'Failed to reveal candidate.');
+        showSnackbar(err.response?.data?.detail || err.message || 'Failed to reveal candidate.');
       } finally {
         setRevealingInterestId(null);
       }
@@ -556,19 +489,16 @@ const PosterShiftDetailPage: React.FC = () => {
 
     setAssigning(true);
     try {
-      await apiClient.post(`${API_ENDPOINTS.getActiveShifts}${shiftId}/accept_user/`, {
-        user_id: candidateUser.id,
-        slot_id: interest.slot_id,
-      });
+      await acceptShiftCandidateService(shiftId, { userId: candidateUser.id, slotId: interest.slotId ?? null });
       showSnackbar('User assigned.');
       setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null });
 
-      const updatedShiftRes = await apiClient.get<Shift>(`${API_ENDPOINTS.getActiveShifts}${shiftId}/`);
-      setShift(updatedShiftRes.data);
+      const updatedShift = await fetchActiveShiftDetailService(shiftId);
+      setShift(updatedShift);
       setSelectedLevelKey(PUBLIC_LEVEL_KEY);
-      loadTabData(updatedShiftRes.data, PUBLIC_LEVEL_KEY);
+      loadTabData(updatedShift, PUBLIC_LEVEL_KEY);
     } catch (err: any) {
-      showSnackbar(err.response?.data?.detail || 'Failed to assign user.');
+      showSnackbar(err.response?.data?.detail || err.message || 'Failed to assign user.');
     } finally {
       setAssigning(false);
     }
@@ -583,14 +513,15 @@ const PosterShiftDetailPage: React.FC = () => {
     const fetchShiftData = async () => {
       setLoadingInitial(true);
       try {
-        const shiftRes = await apiClient.get<Shift>(`${API_ENDPOINTS.getActiveShifts}${id}/`);
-        setShift(shiftRes.data);
-        const currentVisibility = shiftRes.data.visibility as EscalationKey;
+        const shiftRes = await fetchActiveShiftDetailService(Number(id));
+        setShift(shiftRes);
+        const currentVisibility = shiftRes.visibility as EscalationKey;
         setSelectedLevelKey(currentVisibility);
-        loadTabData(shiftRes.data, currentVisibility);
+        loadTabData(shiftRes, currentVisibility);
       } catch (err: any) {
         const errorMessage =
           err.response?.data?.detail ||
+          err.message ||
           'Failed to load shift. It might not exist or you may not have permission to view it.';
         console.error('Shift detail load error:', err.response?.data || err);
         showSnackbar(errorMessage);
@@ -654,7 +585,7 @@ const PosterShiftDetailPage: React.FC = () => {
               <Stack spacing={1.5}>
                 {members.map(member => (
                   <Paper
-                    key={member.user_id}
+                    key={member.userId ?? member.name}
                     variant="outlined"
                     sx={{
                       p: 1.5,
@@ -672,7 +603,7 @@ const PosterShiftDetailPage: React.FC = () => {
                       <Box>
                         <Typography fontWeight={600}>{member.name}</Typography>
                         <Typography variant="body2" color="text.secondary">
-                          {member.employment_type.replace(/_/g, ' ')}
+                          {member.employmentType?.replace(/_/g, ' ')}
                         </Typography>
                         {member.role && (
                           <Typography variant="caption" color="text.secondary">
@@ -685,7 +616,13 @@ const PosterShiftDetailPage: React.FC = () => {
                           size="small"
                           variant="contained"
                           color="secondary"
-                          onClick={() => handleAssign(shift, member.user_id, null)}
+                          onClick={() => {
+                            if (!member.userId) {
+                              showSnackbar('Missing user information for assignment.');
+                              return;
+                            }
+                            handleAssign(shift, member.userId, null);
+                          }}
                           disabled={assigning}
                           startIcon={assigning ? <CircularProgress size={16} color="inherit" /> : undefined}
                         >
@@ -721,8 +658,8 @@ const PosterShiftDetailPage: React.FC = () => {
     shift && currentLevelIdx >= 0 && levelSequence[currentLevelIdx]
       ? levelSequence[currentLevelIdx].key
       : shift
-      ? (shift.visibility as EscalationKey)
-      : levelSequence[0]?.key ?? PUBLIC_LEVEL_KEY;
+        ? (shift.visibility as EscalationKey)
+        : levelSequence[0]?.key ?? PUBLIC_LEVEL_KEY;
 
   const effectiveLevelKey: EscalationKey =
     selectedLevelKey && levelSequence.some(level => level.key === selectedLevelKey)
@@ -734,7 +671,7 @@ const PosterShiftDetailPage: React.FC = () => {
 
   const selectedLevelIdx = levelSequence.findIndex(level => level.key === effectiveLevelKey);
 
-  const allowedKeys = new Set(shift?.allowed_escalation_levels || []);
+  const allowedKeys = new Set(shift?.allowedEscalationLevels || []);
   if (!allowedKeys.size) {
     ESCALATION_LEVELS.forEach(level => allowedKeys.add(level.key));
   }
@@ -754,8 +691,8 @@ const PosterShiftDetailPage: React.FC = () => {
     canEscalateToSelected
       ? levelSequence[selectedLevelIdx]
       : canEscalateToNext
-      ? nextLevel
-      : undefined;
+        ? nextLevel
+        : undefined;
 
 
   const aggregatedMembers = useMemo(() => {
@@ -849,13 +786,13 @@ const PosterShiftDetailPage: React.FC = () => {
             disableTypography
             title={
               <Typography variant="h5" sx={{ fontWeight: 700 }}>
-                {shift.pharmacy_detail.name}
+                {shift.pharmacyDetail?.name}
               </Typography>
             }
             subheader={
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
                 <Chip
-                  label={shift.role_needed}
+                  label={shift.roleNeeded}
                   size="small"
                   sx={{
                     backgroundColor: cardBorderColor,
@@ -864,7 +801,7 @@ const PosterShiftDetailPage: React.FC = () => {
                     letterSpacing: 0.4,
                   }}
                 />
-                {shift.post_anonymously && (
+                {shift.postAnonymously && (
                   <Chip
                     label="Anonymous listing"
                     size="small"
@@ -920,15 +857,15 @@ const PosterShiftDetailPage: React.FC = () => {
                 sx={{ display: 'flex', alignItems: 'center', gap: 1.5, color: '#4B5563' }}
               >
                 <BusinessIcon sx={{ fontSize: 18 }} />
-                {formatAddress(shift.pharmacy_detail) || 'Address not available'}
+                {formatAddress(shift.pharmacyDetail || null) || 'Address not available'}
               </Typography>
               <Typography
                 variant="body2"
                 sx={{ display: 'flex', alignItems: 'center', gap: 1.5, color: '#4B5563' }}
               >
                 <CalendarIcon sx={{ fontSize: 18 }} />
-                {shift.slots.length
-                  ? shift.slots.map(slot => formatSlotLabel(slot)).join(' | ')
+                {(shift.slots?.length ?? 0) > 0
+                  ? (shift.slots ?? []).map(slot => formatSlotLabel(slot)).join(' | ')
                   : 'No slots defined'}
               </Typography>
             </Box>
@@ -1067,7 +1004,7 @@ const PosterShiftDetailPage: React.FC = () => {
                   const interestsBySlot = currentTabData.interestsBySlot ?? {};
                   const interestsAll = currentTabData.interestsAll ?? [];
 
-                  const slotSections = shift.slots
+                  const slotSections = (shift.slots ?? [])
                     .map(slot => {
                       const slotInterests = interestsBySlot[slot.id] || [];
                       if (slotInterests.length === 0) return null;
@@ -1111,9 +1048,9 @@ const PosterShiftDetailPage: React.FC = () => {
                                   spacing={1.5}
                                 >
                                   <Box>
-                                    <Typography fontWeight={600}>{interest.user}</Typography>
+                                    <Typography fontWeight={600}>{getInterestDisplayName(interest)}</Typography>
                                     <Typography variant="caption" color="text.secondary">
-                                      {interest.slot_time}
+                                      {interest.slotTime}
                                     </Typography>
                                   </Box>
                                   <Stack direction="row" spacing={1} alignItems="center">
@@ -1186,7 +1123,7 @@ const PosterShiftDetailPage: React.FC = () => {
                                 justifyContent="space-between"
                                 spacing={1.5}
                               >
-                                <Typography fontWeight={600}>{interest.user}</Typography>
+                                <Typography fontWeight={600}>{getInterestDisplayName(interest)}</Typography>
                                 <Stack direction="row" spacing={1} alignItems="center">
                                   <Chip label="Interested" size="small" color="success" />
                                   <Button
@@ -1278,19 +1215,19 @@ const PosterShiftDetailPage: React.FC = () => {
             {platformInterestDialog.user ? (
               <Stack spacing={1.5}>
                 <Typography variant="h6">
-                  {platformInterestDialog.user.first_name} {platformInterestDialog.user.last_name}
+                  {platformInterestDialog.user.firstName} {platformInterestDialog.user.lastName}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   {platformInterestDialog.user.email}
                 </Typography>
-                {platformInterestDialog.user.phone_number && (
+                {platformInterestDialog.user.phoneNumber && (
                   <Typography variant="body2" color="text.secondary">
-                    {platformInterestDialog.user.phone_number}
+                    {platformInterestDialog.user.phoneNumber}
                   </Typography>
                 )}
-                {platformInterestDialog.user.short_bio && (
+                {platformInterestDialog.user.shortBio && (
                   <Typography variant="body2" sx={{ mt: 1 }}>
-                    {platformInterestDialog.user.short_bio}
+                    {platformInterestDialog.user.shortBio}
                   </Typography>
                 )}
                 {platformInterestDialog.user.resume && (
@@ -1304,13 +1241,13 @@ const PosterShiftDetailPage: React.FC = () => {
                     Download CV
                   </Button>
                 )}
-                {platformInterestDialog.user.rate_preference && (
+                {platformInterestDialog.user.ratePreference && (
                   <Box>
                     <Typography variant="subtitle2" fontWeight={600} gutterBottom>
                       Rate Preference
                     </Typography>
                     <List dense>
-                      {Object.entries(platformInterestDialog.user.rate_preference).map(([key, value]) => (
+                      {Object.entries(platformInterestDialog.user.ratePreference).map(([key, value]) => (
                         <ListItem key={key} sx={{ py: 0, px: 0 }}>
                           <ListItemText
                             primary={key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}

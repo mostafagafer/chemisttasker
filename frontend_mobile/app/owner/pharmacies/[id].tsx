@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, ActivityIndicator, Alert } from 'react-native';
-import { Text, Card, Button, Surface, Chip, Divider, List } from 'react-native-paper';
+import { Text, Button, Surface, Chip, Divider, List } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import apiClient from '../../../utils/apiClient';
+import { getPharmacyById, deletePharmacy } from '@chemisttasker/shared-core';
 
 interface Pharmacy {
     id: number;
@@ -24,22 +24,22 @@ export default function PharmacyDetailsScreen() {
     const [pharmacy, setPharmacy] = useState<Pharmacy | null>(null);
     const [error, setError] = useState('');
 
-    useEffect(() => {
-        fetchPharmacy();
-    }, [id]);
-
-    const fetchPharmacy = async () => {
+    const fetchPharmacy = useCallback(async () => {
         try {
             setError('');
-            const response = await apiClient.get(`/client-profile/pharmacies/${id}/`);
-            setPharmacy(response.data);
+            const response = await getPharmacyById(id as string);
+            setPharmacy(response as Pharmacy);
         } catch (err: any) {
             console.error('Error fetching pharmacy:', err);
             setError('Failed to load pharmacy details');
         } finally {
             setLoading(false);
         }
-    };
+    }, [id]);
+
+    useEffect(() => {
+        void fetchPharmacy();
+    }, [fetchPharmacy]);
 
     const handleDelete = () => {
         Alert.alert(
@@ -52,9 +52,10 @@ export default function PharmacyDetailsScreen() {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            await apiClient.delete(`/client-profile/pharmacies/${id}/`);
+                            await deletePharmacy(id as string);
                             router.back();
                         } catch (err: any) {
+                            console.error('Failed to delete pharmacy', err);
                             Alert.alert('Error', 'Failed to delete pharmacy');
                         }
                     },
@@ -157,6 +158,24 @@ export default function PharmacyDetailsScreen() {
                             style={styles.actionButton}
                         >
                             View Shifts
+                        </Button>
+
+                        <Button
+                            mode="outlined"
+                            icon="account-group"
+                            onPress={() => router.push(`/owner/pharmacies/${id}/staff`)}
+                            style={styles.actionButton}
+                        >
+                            Manage Staff
+                        </Button>
+
+                        <Button
+                            mode="outlined"
+                            icon="account-heart"
+                            onPress={() => router.push(`/owner/pharmacies/${id}/locums`)}
+                            style={styles.actionButton}
+                        >
+                            Manage Locums
                         </Button>
                     </View>
                 </Surface>

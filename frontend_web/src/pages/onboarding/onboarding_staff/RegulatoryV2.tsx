@@ -12,8 +12,8 @@ import {
   Stack,
   Divider,
 } from "@mui/material";
-import apiClient from "../../../utils/apiClient";
-import { API_ENDPOINTS, API_BASE_URL } from "../../../constants/api";
+import { API_BASE_URL } from "../../../constants/api";
+import { getOnboardingDetail, updateOnboardingForm } from "@chemisttasker/shared-core";
 
 /**
  * Mirrors legacy dependent selects and docs:
@@ -90,7 +90,7 @@ function fileUrl(path?: string) {
 }
 
 export default function RegulatoryV2() {
-  const url = API_ENDPOINTS.onboardingDetail("otherstaff");
+  const roleKey = "otherstaff";
   const [loading, setLoading] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [error, setError] = useState<string>("");
@@ -116,9 +116,9 @@ export default function RegulatoryV2() {
       setLoading(true);
       setError("");
       try {
-        const res = await apiClient.get(url);
+        const res = await getOnboardingDetail(roleKey);
         if (!isMounted) return;
-        const d = res.data || {};
+        const d: any = res || {};
         setData({
           role_type: (d.role_type as Role) || "",
           classification_level: d.classification_level || "",
@@ -150,7 +150,7 @@ export default function RegulatoryV2() {
     return () => {
       isMounted = false;
     };
-  }, [url]);
+  }, [roleKey]);
 
   // clear sub-role fields on role change
   const onRoleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -206,10 +206,10 @@ export default function RegulatoryV2() {
       if (data.s8_certificate) form.append("s8_certificate", data.s8_certificate);
 
       // PATCH (V2 is single detail endpoint)
-      const res = await apiClient.patch(url, form);
+      const res = await updateOnboardingForm(roleKey, form);
 
       // keep any new file urls returned
-      const d = res.data || {};
+      const d: any = res || {};
       setData((prev) => ({
         ...prev,
         _existing: {

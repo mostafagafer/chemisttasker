@@ -27,11 +27,24 @@ jobs:
         with:
           node-version: '18'
           cache: 'npm'
-          cache-dependency-path: frontend_web/package-lock.json
-      - name: Clear build cache
-        run: |
-          rm -rf frontend_web/dist
-          rm -rf frontend_web/node_modules
+          cache-dependency-path: |
+            shared-core/package-lock.json
+            frontend_web/package-lock.json
+      - name: Install shared-core dependencies
+        working-directory: shared-core
+        run: npm ci
+      - name: Build shared-core package
+        working-directory: shared-core
+        run: npm run build
+      - name: Pack shared-core tarball
+        working-directory: shared-core
+        run: npm pack
+      - name: Install frontend dependencies
+        working-directory: frontend_web
+        run: npm ci
+      - name: Build frontend web app
+        working-directory: frontend_web
+        run: npm run build
       - name: Install OIDC Client from Core Package
         run: npm install @actions/core@1.6.0 @actions/http-client
       - name: Get Id Token

@@ -40,8 +40,6 @@ import {
   formatUserPortalRole,
   surface,
 } from "./types";
-import apiClient from "../../../../utils/apiClient";
-import { API_BASE_URL, API_ENDPOINTS } from "../../../../constants/api";
 import { ADMIN_CAPABILITY_MANAGE_ADMINS, type AdminCapability } from "../../../../constants/adminCapabilities";
 import { useAuth } from "../../../../contexts/AuthContext";
 import {
@@ -49,6 +47,7 @@ import {
   formatExistingUserRole,
   normalizeEmail,
 } from "./inviteUtils";
+import { createPharmacyAdminService, deletePharmacyAdminService } from "@chemisttasker/shared-core";
 
 interface PharmacyAdminsProps {
   pharmacyId: string;
@@ -190,7 +189,7 @@ export default function PharmacyAdmins({
         return;
       }
 
-      await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.pharmacyAdmins}`, {
+      await createPharmacyAdminService({
         pharmacy: numericPharmacyId,
         email: trimmedEmail,
         invited_name: form.invited_name?.trim() || undefined,
@@ -217,7 +216,7 @@ export default function PharmacyAdmins({
     if (!admin.id) return;
     setLoadingId(admin.id);
     try {
-      await apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.pharmacyAdminDetail(admin.id)}`);
+      await deletePharmacyAdminService(admin.id);
       setToast({ message: "Admin removed.", severity: "success" });
       if (authUser) {
         setUser((prev) => {

@@ -3,7 +3,7 @@ import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } f
 import { Text, TextInput, Button, Surface, RadioButton, Divider } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import apiClient from '../../../utils/apiClient';
+import { createPharmacy } from '@chemisttasker/shared-core';
 
 export default function AddPharmacyScreen() {
     const router = useRouter();
@@ -34,7 +34,7 @@ export default function AddPharmacyScreen() {
 
         setLoading(true);
         try {
-            await apiClient.post('/client-profile/pharmacies/', formData);
+            await createPharmacy(formData as any);
 
             Alert.alert(
                 'Success',

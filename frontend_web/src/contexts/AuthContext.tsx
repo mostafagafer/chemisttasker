@@ -11,8 +11,8 @@ import {
   useCallback,
   useMemo,
 } from "react";
-import apiClient from "../utils/apiClient";
-import { API_ENDPOINTS } from "../constants/api";
+import { getRooms } from "@chemisttasker/shared-core";
+import { type PersonaMode, type AdminLevel } from "@chemisttasker/shared-core";
 import { AdminCapability, ALL_ADMIN_CAPABILITIES } from "../constants/adminCapabilities";
 
 export interface OrgMembership {
@@ -34,8 +34,6 @@ export interface PharmacyMembership {
   role: string;
 }
 
-export type AdminLevel = "OWNER" | "MANAGER" | "ROSTER_MANAGER" | "COMMUNICATION_MANAGER";
-export type PersonaMode = "staff" | "admin";
 
 export interface AdminAssignment {
   id?: number;
@@ -347,10 +345,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUnreadCount(0);
       return;
     }
-    apiClient
-      .get(API_ENDPOINTS.rooms)
-      .then((res) => {
-        const rooms: any[] = Array.isArray(res.data.results) ? res.data.results : res.data;
+    getRooms()
+      .then((res: any) => {
+        const rooms: any[] = Array.isArray(res?.results) ? res.results : res;
         const totalUnread = rooms.reduce((sum, room) => sum + (room.unread_count || 0), 0);
         setUnreadCount(totalUnread);
       })

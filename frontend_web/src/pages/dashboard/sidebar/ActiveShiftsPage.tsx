@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+﻿import React, { useCallback, useEffect, useState } from 'react';
 import {
   Container,
   Typography,
@@ -55,8 +55,25 @@ import {
   Public,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
+import {
+  Shift,
+  ShiftInterest,
+  ShiftMemberStatus,
+  ShiftRatingSummary,
+  ShiftRatingComment,
+  ShiftUser,
+  EscalationLevelKey,
+  fetchActiveShifts,
+  fetchShiftInterests,
+  fetchShiftMemberStatus,
+  generateShiftShareLinkService,
+  escalateShiftService,
+  deleteActiveShiftService,
+  acceptShiftCandidateService,
+  revealShiftInterestService,
+  fetchRatingsSummaryService,
+  fetchRatingsPageService,
+} from '@chemisttasker/shared-core';
 import { useAuth } from '../../../contexts/AuthContext';
 
 // Injecting Inter font from Google Fonts
@@ -95,80 +112,19 @@ const customTheme = createTheme({
   },
 });
 
-interface Slot {
-  id: number;
-  date: string;
-  start_time: string;
-  end_time: string;
-}
-
-type ClaimStatus = "PENDING" | "ACCEPTED" | "REJECTED" | null;
-
-interface Shift {
-  id: number;
-  visibility: string;
-  pharmacy_detail: {
-    name: string;
-    street_address?: string;
-    suburb?: string;
-    postcode?: string;
-    state?: string;
-    organization?: { id?: number; name?: string } | number | null;
-    claim_status?: ClaimStatus;
-    owner?: { id?: number; user?: { id?: number; email?: string | null } | null } | null;
-  };
-  role_needed: string;
-  slots: Slot[];
-  description?: string;
-  allowed_escalation_levels: string[];
-  escalation_level: number;
-}
-
-interface MemberStatus {
-  user_id: number;
-  name: string;
-  employment_type: string;
-  status: 'no_response' | 'interested' | 'rejected' | 'accepted';
-  average_rating?: number | null;
-  rating?: number | null;
-}
-
-interface Interest {
-  id: number;
-  user_id: number;
-  slot_id: number | null;
-  revealed: boolean;
-  user: string;
-  average_rating?: number | null;
-  rating?: number | null;
-}
-
-interface UserDetail {
-  id: number;
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone_number?: string;
-  short_bio?: string;
-  resume?: string;
-  employment_type?: string;
-}
-
 interface TabDataState {
   loading: boolean;
-  membersBySlot?: Record<number, MemberStatus[]>;
-  interestsBySlot?: Record<number, Interest[]>;
-  interestsAll?: Interest[];
+  membersBySlot?: Record<number, ShiftMemberStatus[]>;
+  interestsBySlot?: Record<number, ShiftInterest[]>;
+  interestsAll?: ShiftInterest[];
   isPastLevel?: boolean;
 }
 
-type EscalationKey = 'FULL_PART_TIME' | 'LOCUM_CASUAL' | 'OWNER_CHAIN' | 'ORG_CHAIN' | 'PLATFORM';
-
-const PUBLIC_LEVEL_KEY: EscalationKey = 'PLATFORM';
-const FAVOURITE_LEVEL_KEY: EscalationKey = 'LOCUM_CASUAL';
+const PUBLIC_LEVEL_KEY: EscalationLevelKey = 'PLATFORM';
+const FAVOURITE_LEVEL_KEY: EscalationLevelKey = 'LOCUM_CASUAL';
 
 const ESCALATION_LEVELS: Array<{
-  key: EscalationKey;
+  key: EscalationLevelKey;
   label: string;
   icon: React.ElementType;
   requiresOrganization?: boolean;
@@ -180,31 +136,39 @@ const ESCALATION_LEVELS: Array<{
   { key: PUBLIC_LEVEL_KEY, label: 'Platform', icon: Public },
 ];
 
-const STATUS_PRIORITY: Record<MemberStatus['status'], number> = {
+const STATUS_PRIORITY: Record<ShiftMemberStatus['status'], number> = {
   rejected: 0,
   no_response: 1,
   interested: 2,
   accepted: 3,
 };
 
-const dedupeMembers = (members: MemberStatus[]): MemberStatus[] => {
-  const map = new Map<number, MemberStatus>();
+const dedupeMembers = (members: ShiftMemberStatus[]): ShiftMemberStatus[] => {
+  const map = new Map<number, ShiftMemberStatus>();
   members.forEach(member => {
-    const normalizedRating = member.average_rating ?? member.rating ?? null;
-    const normalized: MemberStatus = { ...member, average_rating: normalizedRating };
-    const existing = map.get(member.user_id);
+    const userKey = member.userId ?? null;
+    if (userKey == null) {
+      return;
+    }
+    const normalizedRating = member.averageRating ?? member.rating ?? null;
+    const normalized: ShiftMemberStatus = {
+      ...member,
+      averageRating: normalizedRating,
+      rating: normalizedRating ?? member.rating ?? null,
+    };
+    const existing = map.get(userKey);
     if (!existing) {
-      map.set(member.user_id, normalized);
+      map.set(userKey, normalized);
       return;
     }
     if (STATUS_PRIORITY[normalized.status] > STATUS_PRIORITY[existing.status]) {
-      map.set(member.user_id, normalized);
+      map.set(userKey, normalized);
       return;
     }
     if (STATUS_PRIORITY[normalized.status] === STATUS_PRIORITY[existing.status]) {
-      const existingRating = existing.average_rating ?? existing.rating ?? -1;
-      if ((normalized.average_rating ?? normalized.rating ?? -1) > existingRating) {
-        map.set(member.user_id, normalized);
+      const existingRating = existing.averageRating ?? existing.rating ?? -1;
+      if ((normalized.averageRating ?? normalized.rating ?? -1) > existingRating) {
+        map.set(userKey, normalized);
       }
     }
   });
@@ -281,22 +245,20 @@ const ActiveShiftsPage: React.FC = () => {
       ? activeAdminPharmacyId
       : null;
   const [sharingShiftId, setSharingShiftId] = useState<number | null>(null);
-  const [selectedLevelByShift, setSelectedLevelByShift] = useState<Record<number, EscalationKey>>({});
+  const [selectedLevelByShift, setSelectedLevelByShift] = useState<Record<number, EscalationLevelKey>>({});
   const [reviewCandidateDialog, setReviewCandidateDialog] = useState<{
     open: boolean;
-    candidate: MemberStatus | null;
+    candidate: ShiftMemberStatus | null;
     shiftId: number | null;
   }>({ open: false, candidate: null, shiftId: null });
   const [platformInterestDialog, setPlatformInterestDialog] = useState<{
     open: boolean;
-    user: UserDetail | null;
+    user: ShiftUser | null;
     shiftId: number | null;
-    interest: Interest | null;
+    interest: ShiftInterest | null;
   }>({ open: false, user: null, shiftId: null, interest: null });
-  const [workerRatingSummary, setWorkerRatingSummary] = useState<{ average: number; count: number } | null>(null);
-  const [workerRatingComments, setWorkerRatingComments] = useState<
-    Array<{ id: number; stars: number; comment?: string; created_at?: string }>
-  >([]);
+  const [workerRatingSummary, setWorkerRatingSummary] = useState<ShiftRatingSummary | null>(null);
+  const [workerRatingComments, setWorkerRatingComments] = useState<ShiftRatingComment[]>([]);
   const [workerCommentsPage, setWorkerCommentsPage] = useState(1);
   const [workerCommentsPageCount, setWorkerCommentsPageCount] = useState(1);
   const [loadingWorkerRatings, setLoadingWorkerRatings] = useState(false);
@@ -319,10 +281,10 @@ const ActiveShiftsPage: React.FC = () => {
     setWorkerCommentsPageCount(1);
   };
 
-  const getTabKey = useCallback((shiftId: number, levelKey: EscalationKey) => `${shiftId}_${levelKey}`, []);
+  const getTabKey = useCallback((shiftId: number, levelKey: EscalationLevelKey) => `${shiftId}_${levelKey}`, []);
 
   const deriveLevelSequence = useCallback((shift: Shift) => {
-    const allowed = new Set(shift.allowed_escalation_levels ?? []);
+    const allowed = new Set(shift.allowedEscalationLevels ?? []);
     if (!allowed.size) {
       return ESCALATION_LEVELS;
     }
@@ -332,19 +294,13 @@ const ActiveShiftsPage: React.FC = () => {
   const loadShifts = useCallback(async () => {
     setLoadingShifts(true);
     try {
-      const res = await apiClient.get(API_ENDPOINTS.getActiveShifts);
-      const data = Array.isArray(res.data) ? res.data : res.data?.results ?? [];
+      const data = await fetchActiveShifts();
       const filtered =
         scopedPharmacyId != null
-          ? data.filter(
-              (shift: any) =>
-                Number(
-                  shift.pharmacy_id ??
-                    shift.pharmacy ??
-                    shift.pharmacy_detail?.id ??
-                    shift.pharmacy_detail?.pharmacy_id
-                ) === scopedPharmacyId
-            )
+          ? data.filter((shift: Shift) => {
+              const target = shift.pharmacyId ?? shift.pharmacyDetail?.id ?? null;
+              return Number(target) === scopedPharmacyId;
+            })
           : data;
       setShifts(filtered);
     } catch (error) {
@@ -362,36 +318,19 @@ const ActiveShiftsPage: React.FC = () => {
   const loadWorkerRatings = useCallback(async (workerId: number, page: number = 1) => {
     setLoadingWorkerRatings(true);
     try {
-      const summaryRes = await apiClient.get(
-        `${API_ENDPOINTS.ratingsSummary}?target_type=worker&target_id=${workerId}`
-      );
-      setWorkerRatingSummary({
-        average: summaryRes.data?.average ?? 0,
-        count: summaryRes.data?.count ?? 0,
-      });
+      const summary = await fetchRatingsSummaryService({ targetType: 'worker', targetId: workerId });
+      setWorkerRatingSummary(summary);
 
-      const commentsRes = await apiClient.get(
-        `${API_ENDPOINTS.ratings}?target_type=worker&target_id=${workerId}&page=${page}`
-      );
-      const items = Array.isArray(commentsRes.data)
-        ? commentsRes.data
-        : Array.isArray(commentsRes.data?.results)
-        ? commentsRes.data.results
-        : [];
-      setWorkerRatingComments(
-        items.map((item: any) => ({
-          id: item.id,
-          stars: item.stars,
-          comment: item.comment,
-          created_at: item.created_at,
-        }))
-      );
-      if (commentsRes.data?.count && Array.isArray(commentsRes.data?.results)) {
-        const perPage = commentsRes.data.results.length || 1;
-        setWorkerCommentsPageCount(Math.max(1, Math.ceil(commentsRes.data.count / perPage)));
-      } else {
-        setWorkerCommentsPageCount(1);
-      }
+      const commentsRes = await fetchRatingsPageService({
+        targetType: 'worker',
+        targetId: workerId,
+        page,
+      });
+      const items = commentsRes.results ?? [];
+      setWorkerRatingComments(items);
+      const perPage = items.length || 1;
+      const totalCount = commentsRes.count ?? items.length;
+      setWorkerCommentsPageCount(Math.max(1, Math.ceil(totalCount / perPage)));
       setWorkerCommentsPage(page);
     } catch (error) {
       console.error('Failed to load worker ratings', error);
@@ -403,7 +342,7 @@ const ActiveShiftsPage: React.FC = () => {
   }, []);
 
   const loadTabData = useCallback(
-    async (shift: Shift, levelKey: EscalationKey) => {
+    async (shift: Shift, levelKey: EscalationLevelKey) => {
       const tabKey = getTabKey(shift.id, levelKey);
       setTabData(prev => ({
         ...prev,
@@ -421,40 +360,19 @@ const ActiveShiftsPage: React.FC = () => {
 
       try {
         if (level.key === PUBLIC_LEVEL_KEY) {
-          const res = await apiClient.get(API_ENDPOINTS.getShiftInterests, {
-            params: { shift: shift.id },
-          });
-          const interestsRaw = Array.isArray(res.data)
-            ? res.data
-            : Array.isArray(res.data?.results)
-            ? res.data.results
-            : [];
+          const interestsRaw = await fetchShiftInterests({ shiftId: shift.id });
 
-          const interestsBySlot: Record<number, Interest[]> = {};
-          const interestsAll: Interest[] = [];
+          const interestsBySlot: Record<number, ShiftInterest[]> = {};
+          const interestsAll: ShiftInterest[] = [];
 
-          interestsRaw.forEach((interest: any) => {
-            const slotId = interest.slot_id === null || interest.slot_id === undefined ? null : Number(interest.slot_id);
-            const normalized: Interest = {
-              id: interest.id,
-              user_id: interest.user_id,
-              slot_id: slotId,
-              revealed: Boolean(interest.revealed),
-              user:
-                interest.user ||
-                `${interest.user_first_name ?? ''} ${interest.user_last_name ?? ''}`.trim() ||
-                'Candidate',
-              average_rating: interest.average_rating ?? interest.rating ?? null,
-              rating: interest.rating ?? interest.average_rating ?? null,
-            };
-
-            if (normalized.slot_id === null) {
-              interestsAll.push(normalized);
+          interestsRaw.forEach((interest: ShiftInterest) => {
+            if (interest.slotId === null || interest.slotId === undefined) {
+              interestsAll.push(interest);
             } else {
-              if (!interestsBySlot[normalized.slot_id]) {
-                interestsBySlot[normalized.slot_id] = [];
+              if (!interestsBySlot[interest.slotId]) {
+                interestsBySlot[interest.slotId] = [];
               }
-              interestsBySlot[normalized.slot_id].push(normalized);
+              interestsBySlot[interest.slotId].push(interest);
             }
           });
 
@@ -476,32 +394,19 @@ const ActiveShiftsPage: React.FC = () => {
         const membersBySlotEntries = await Promise.all(
           shift.slots.map(async slot => {
             try {
-              const res = await apiClient.get(
-                `${API_ENDPOINTS.getActiveShifts}${shift.id}/member_status/`,
-                { params: { slot_id: slot.id, visibility: level.key } }
-              );
-              const membersRaw = Array.isArray(res.data)
-                ? res.data
-                : Array.isArray(res.data?.results)
-                ? res.data.results
-                : [];
-              const members: MemberStatus[] = membersRaw.map((member: any) => ({
-                user_id: member.user_id,
-                name: member.name ?? `${member.first_name ?? ''} ${member.last_name ?? ''}`.trim(),
-                employment_type: member.employment_type ?? member.user_employment_type ?? '',
-                status: member.status,
-                average_rating: member.average_rating ?? member.rating ?? null,
-                rating: member.rating ?? member.average_rating ?? null,
-              }));
+              const members = await fetchShiftMemberStatus(shift.id, {
+                slotId: slot.id,
+                visibility: level.key,
+              });
               return [slot.id, members] as const;
             } catch (error) {
               console.error(`Failed to load members for shift ${shift.id} slot ${slot.id}`, error);
-              return [slot.id, [] as MemberStatus[]] as const;
+              return [slot.id, [] as ShiftMemberStatus[]] as const;
             }
           })
         );
 
-        const membersBySlot = membersBySlotEntries.reduce<Record<number, MemberStatus[]>>((acc, [slotId, members]) => {
+        const membersBySlot = membersBySlotEntries.reduce<Record<number, ShiftMemberStatus[]>>((acc, [slotId, members]) => {
           acc[slotId] = members;
           return acc;
         }, {});
@@ -549,7 +454,7 @@ const ActiveShiftsPage: React.FC = () => {
   );
 
   const handleLevelSelect = useCallback(
-    (shift: Shift, levelKey: EscalationKey) => {
+    (shift: Shift, levelKey: EscalationLevelKey) => {
       setSelectedLevelByShift(prev => ({ ...prev, [shift.id]: levelKey }));
       const tabKey = getTabKey(shift.id, levelKey);
       if (!tabData[tabKey]) {
@@ -566,12 +471,12 @@ const ActiveShiftsPage: React.FC = () => {
     }
     setSharingShiftId(shift.id);
     try {
-      const res = await apiClient.post(API_ENDPOINTS.generateShareLink(shift.id));
-      const token = res.data?.share_token ?? res.data?.token;
-      if (!token) {
+      const link = await generateShiftShareLinkService(shift.id);
+      const token = link.shareToken ?? link.token;
+      if (!token && !link.url) {
         throw new Error('Missing share token');
       }
-      const publicUrl = `${window.location.origin}/shifts/link?token=${token}`;
+      const publicUrl = link.url ?? `${window.location.origin}/shifts/link?token=${token}`;
       await navigator.clipboard.writeText(publicUrl);
       showSnackbar('Public share link copied to clipboard!');
     } catch (error) {
@@ -582,7 +487,7 @@ const ActiveShiftsPage: React.FC = () => {
     }
   };
 
-  const handleEscalate = async (shift: Shift, targetLevelKey: EscalationKey) => {
+  const handleEscalate = async (shift: Shift, targetLevelKey: EscalationLevelKey) => {
     const targetLevel = ESCALATION_LEVELS.find(level => level.key === targetLevelKey);
     const targetLevelIdx = ESCALATION_LEVELS.findIndex(level => level.key === targetLevelKey);
 
@@ -593,10 +498,8 @@ const ActiveShiftsPage: React.FC = () => {
 
     setEscalating(prev => ({ ...prev, [shift.id]: true }));
     try {
-      await apiClient.post(`${API_ENDPOINTS.getActiveShifts}${shift.id}/escalate/`, {
-        target_visibility: targetLevel.key,
-      });
-      const updatedShift = { ...shift, visibility: targetLevel.key, escalation_level: targetLevelIdx };
+      await escalateShiftService(shift.id, { targetVisibility: targetLevel.key });
+      const updatedShift = { ...shift, visibility: targetLevel.key, escalationLevel: targetLevelIdx };
       setShifts(prev => prev.map(s => (s.id === shift.id ? updatedShift : s)));
       loadTabData(updatedShift, targetLevel.key);
       // After escalating, set the selected level to the new level
@@ -630,7 +533,7 @@ const ActiveShiftsPage: React.FC = () => {
     if (shiftToDelete === null) return;
     setDeleting(prev => ({ ...prev, [shiftToDelete]: true }));
     try {
-      await apiClient.delete(`${API_ENDPOINTS.getActiveShifts}${shiftToDelete}/`);
+      await deleteActiveShiftService(shiftToDelete);
       setShifts(prev => prev.filter(shift => shift.id !== shiftToDelete));
       setTabData(prev => {
         const updated = { ...prev };
@@ -656,7 +559,7 @@ const ActiveShiftsPage: React.FC = () => {
   const handleAssign = async (shiftId: number, userId: number, slotId: number | null) => {
     setAssigning(true);
     try {
-      await apiClient.post(API_ENDPOINTS.acceptUserToShift(shiftId), { user_id: userId, slot_id: slotId });
+      await acceptShiftCandidateService(shiftId, { userId, slotId });
       showSnackbar('User assigned successfully.');
       setReviewCandidateDialog({ open: false, candidate: null, shiftId: null });
       setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null });
@@ -679,29 +582,38 @@ const ActiveShiftsPage: React.FC = () => {
     }
   };
 
-  const handleReviewCandidate = async (candidate: MemberStatus, shiftId: number) => {
+  const handleReviewCandidate = async (candidate: ShiftMemberStatus, shiftId: number) => {
     resetWorkerRatings();
     setReviewCandidateDialog({ open: true, candidate, shiftId });
-    setReviewLoadingId(candidate.user_id);
+    if (candidate.userId != null) {
+      setReviewLoadingId(candidate.userId);
+    }
     try {
-      await loadWorkerRatings(candidate.user_id, 1);
+      if (candidate.userId != null) {
+        await loadWorkerRatings(candidate.userId, 1);
+      }
     } finally {
       setReviewLoadingId(null);
     }
   };
 
-  const handleRevealPlatform = async (shift: Shift, interest: Interest) => {
+  const handleRevealPlatform = async (shift: Shift, interest: ShiftInterest) => {
+    if (interest.userId == null) {
+      showSnackbar('Unable to reveal this interest.');
+      return;
+    }
     setRevealingInterestId(interest.id);
     try {
       resetWorkerRatings();
-      const res = await apiClient.post(API_ENDPOINTS.revealProfile(shift.id), {
-        user_id: interest.user_id,
-        slot_id: interest.slot_id,
+      const userDetail = await revealShiftInterestService(shift.id, {
+        userId: interest.userId,
+        slotId: interest.slotId ?? null,
       });
-      const userDetail: UserDetail = res.data;
       setPlatformInterestDialog({ open: true, user: userDetail, shiftId: shift.id, interest });
-      setReviewLoadingId(userDetail.id);
-      await loadWorkerRatings(userDetail.id, 1);
+      if (userDetail?.id) {
+        setReviewLoadingId(userDetail.id);
+        await loadWorkerRatings(userDetail.id, 1);
+      }
       setReviewLoadingId(null);
 
       const tabKey = getTabKey(shift.id, PUBLIC_LEVEL_KEY);
@@ -709,8 +621,8 @@ const ActiveShiftsPage: React.FC = () => {
         const current = prev[tabKey];
         if (!current) return prev;
         const updatedInterestsBySlot = { ...(current.interestsBySlot || {}) };
-        if (interest.slot_id !== null && updatedInterestsBySlot[interest.slot_id]) {
-          updatedInterestsBySlot[interest.slot_id] = updatedInterestsBySlot[interest.slot_id].map(item =>
+        if (interest.slotId !== null && updatedInterestsBySlot[interest.slotId]) {
+          updatedInterestsBySlot[interest.slotId] = updatedInterestsBySlot[interest.slotId].map(item =>
             item.id === interest.id ? { ...item, revealed: true } : item
           );
         }
@@ -733,12 +645,12 @@ const ActiveShiftsPage: React.FC = () => {
 
   const handleAssignPlatform = async () => {
     const { shiftId, user, interest } = platformInterestDialog;
-    if (!shiftId || !user) return;
-    await handleAssign(shiftId, user.id, interest?.slot_id ?? null);
+    if (!shiftId || !user || user.id == null) return;
+    await handleAssign(shiftId, user.id, interest?.slotId ?? null);
   };
 
   const handleWorkerCommentsPageChange = async (_: React.ChangeEvent<unknown>, value: number) => {
-    const userId = reviewCandidateDialog.candidate?.user_id ?? platformInterestDialog.user?.id;
+    const userId = reviewCandidateDialog.candidate?.userId ?? platformInterestDialog.user?.id;
     if (!userId) return;
     await loadWorkerRatings(userId, value);
     const dialogRef = document.querySelector('[role="dialog"]');
@@ -747,7 +659,7 @@ const ActiveShiftsPage: React.FC = () => {
 
   const renderStatusCard = (
     title: string,
-    members: MemberStatus[],
+    members: ShiftMemberStatus[],
     icon: React.ReactElement,
     color: 'success' | 'error' | 'warning' | 'info',
     shiftId: number
@@ -780,17 +692,17 @@ const ActiveShiftsPage: React.FC = () => {
         {members.length > 0 ? (
           <Stack spacing={2}>
             {members.map((member) => {
-              const ratingValue = member.average_rating ?? member.rating ?? null;
+              const ratingValue = member.averageRating ?? member.rating ?? null;
               return (
-                <Paper key={member.user_id} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                <Paper key={member.userId} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
                   <Stack direction="row" justifyContent="space-between" alignItems="center">
                     <Stack>
                       <Typography variant="body1" fontWeight="bold">
                         {member.name}
                       </Typography>
-                      {member.employment_type && (
+                      {member.employmentType && (
                         <Typography variant="caption" color="text.secondary">
-                          {member.employment_type}
+                          {member.employmentType}
                         </Typography>
                       )}
                     </Stack>
@@ -812,9 +724,9 @@ const ActiveShiftsPage: React.FC = () => {
                       fullWidth
                       sx={{ mt: 1.5 }}
                       onClick={() => handleReviewCandidate(member, shiftId)}
-                      disabled={reviewLoadingId === member.user_id}
+                      disabled={reviewLoadingId === member.userId}
                       startIcon={
-                        reviewLoadingId === member.user_id ? <CircularProgress size={16} color="inherit" /> : undefined
+                        reviewLoadingId === member.userId ? <CircularProgress size={16} color="inherit" /> : undefined
                       }
                     >
                       Review Candidate
@@ -868,22 +780,22 @@ const ActiveShiftsPage: React.FC = () => {
               shift.visibility === PUBLIC_LEVEL_KEY
                 ? customTheme.palette.secondary.light
                 : customTheme.palette.primary.light;
-              const location = [
-                shift.pharmacy_detail.street_address,
-                shift.pharmacy_detail.suburb,
-                shift.pharmacy_detail.state,
-                shift.pharmacy_detail.postcode,
-              ]
-                .filter(Boolean)
-                .join(', ');
-              const shiftSlots = shift.slots
-                ?.map(slot => `${slot.date} (${slot.start_time}—${slot.end_time})`)
-                .join(' | ');
-              const allowedKeys = new Set(shift.allowed_escalation_levels || []);
-              if (!allowedKeys.size) {
-                ESCALATION_LEVELS.forEach(level => allowedKeys.add(level.key));
-              }
-
+            const pharmacyDetail = shift.pharmacyDetail;
+            const location = [
+              pharmacyDetail?.streetAddress,
+              pharmacyDetail?.suburb,
+              pharmacyDetail?.state,
+              pharmacyDetail?.postcode,
+            ]
+              .filter(Boolean)
+              .join(', ');
+            const shiftSlots = shift.slots
+              ?.map(slot => `${slot.date} (${slot.startTime}—${slot.endTime})`)
+              .join(' | ');
+            const allowedKeys = new Set(shift.allowedEscalationLevels || []);
+            if (!allowedKeys.size) {
+              ESCALATION_LEVELS.forEach(level => allowedKeys.add(level.key));
+            }
               return (
                 <Card
                   key={shift.id}
@@ -896,12 +808,12 @@ const ActiveShiftsPage: React.FC = () => {
                     disableTypography
                     title={
                       <Typography variant="h6" component="div" sx={{ fontWeight: 'bold' }}>
-                        {shift.pharmacy_detail.name}
+                        {shift.pharmacyDetail?.name ?? "Unnamed Pharmacy"}
                       </Typography>
                     }
                     subheader={
                       <Chip
-                        label={shift.role_needed}
+                        label={shift.roleNeeded}
                         size="small"
                         sx={{ backgroundColor: cardBorderColor, color: 'white', fontWeight: 500, mt: 0.5 }}
                       />
@@ -1056,7 +968,7 @@ const ActiveShiftsPage: React.FC = () => {
                           const canEscalateToSelected =
                             selectedLevelIdx > currentLevelIdx &&
                             selectedLevelIdx !== -1 &&
-                            allowedKeys.has(levelSequence[selectedLevelIdx]?.key as EscalationKey);
+                            allowedKeys.has(levelSequence[selectedLevelIdx]?.key as EscalationLevelKey);
 
                           if (escalating[shift.id]) {
                             return (
@@ -1179,7 +1091,7 @@ const ActiveShiftsPage: React.FC = () => {
                                       return (
                                         <Paper key={slot.id} variant="outlined" sx={{ p: 2, mb: 2 }}>
                                           <Typography variant="body1" fontWeight="bold">
-                                            Slot: {slot.date} ({slot.start_time} - {slot.end_time})
+                                            Slot: {slot.date} ({slot.startTime} - {slot.endTime})
                                           </Typography>
                                           {slotInterests.map(interest => (
                                             <Box key={interest.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1, pt: 1, borderTop: '1px solid #eee' }}>
@@ -1290,7 +1202,7 @@ const ActiveShiftsPage: React.FC = () => {
               <Box>
                 <Typography variant="h6">{reviewCandidateDialog.candidate.name}</Typography>
                 <Typography variant="body2" color="text.secondary" gutterBottom>
-                  {reviewCandidateDialog.candidate.employment_type}
+                  {reviewCandidateDialog.candidate.employmentType}
                 </Typography>
                 <Divider sx={{ my: 2 }} />
                 <Typography variant="subtitle1" gutterBottom fontWeight="bold">
@@ -1313,9 +1225,9 @@ const ActiveShiftsPage: React.FC = () => {
                     <Paper key={comment.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'background.default' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Rating value={comment.stars} readOnly size="small" />
-                        {comment.created_at && (
+                        {comment.createdAt && (
                           <Typography variant="caption" color="text.secondary">
-                            {new Date(comment.created_at).toLocaleDateString()}
+                            {new Date(comment.createdAt).toLocaleDateString()}
                           </Typography>
                         )}
                       </Box>
@@ -1363,7 +1275,7 @@ const ActiveShiftsPage: React.FC = () => {
               <Button
                 variant="contained"
                 color="success"
-                onClick={() => handleAssign(reviewCandidateDialog.shiftId!, reviewCandidateDialog.candidate!.user_id, null)}
+                onClick={() => handleAssign(reviewCandidateDialog.shiftId!, reviewCandidateDialog.candidate!.userId, null)}
                 disabled={assigning}
                 startIcon={assigning ? <CircularProgress size={16} color="inherit" /> : undefined}
               >
@@ -1387,19 +1299,19 @@ const ActiveShiftsPage: React.FC = () => {
             {platformInterestDialog.user && !loadingWorkerRatings ? (
               <Box>
                 <Typography variant="h6">
-                  {platformInterestDialog.user.first_name} {platformInterestDialog.user.last_name}
+                  {platformInterestDialog.user.firstName} {platformInterestDialog.user.lastName}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   {platformInterestDialog.user.email}
                 </Typography>
-                {platformInterestDialog.user.phone_number && (
+                {platformInterestDialog.user.phoneNumber && (
                   <Typography variant="body2" color="text.secondary">
-                    {platformInterestDialog.user.phone_number}
+                    {platformInterestDialog.user.phoneNumber}
                   </Typography>
                 )}
-                {platformInterestDialog.user.short_bio && (
+                {platformInterestDialog.user.shortBio && (
                   <Typography variant="body2" sx={{ mt: 1 }}>
-                    {platformInterestDialog.user.short_bio}
+                    {platformInterestDialog.user.shortBio}
                   </Typography>
                 )}
                 <Divider sx={{ my: 2 }} />
@@ -1423,9 +1335,9 @@ const ActiveShiftsPage: React.FC = () => {
                     <Paper key={comment.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'background.default' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Rating value={comment.stars} readOnly size="small" />
-                        {comment.created_at && (
+                        {comment.createdAt && (
                           <Typography variant="caption" color="text.secondary">
-                            {new Date(comment.created_at).toLocaleDateString()}
+                            {new Date(comment.createdAt).toLocaleDateString()}
                           </Typography>
                         )}
                       </Box>
@@ -1506,6 +1418,12 @@ const ActiveShiftsPage: React.FC = () => {
 };
 
 export default ActiveShiftsPage;
+
+
+
+
+
+
 
 
 

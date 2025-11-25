@@ -8,8 +8,8 @@ import UploadFileIcon from '@mui/icons-material/UploadFile';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 
-import apiClient from '../../../utils/apiClient';
-import { API_BASE_URL, API_ENDPOINTS } from '../../../constants/api';
+import { API_BASE_URL } from '../../../constants/api';
+import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 
 // ---- Legacy-like skill choices (extend if needed) ----
 const SKILL_CHOICES: Array<{ value: string; label: string }> = [
@@ -45,7 +45,7 @@ type ApiData = {
 };
 
 export default function SkillsV2() {
-  const url = API_ENDPOINTS.onboardingDetail('otherstaff');
+  const roleKey = 'otherstaff';
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -67,22 +67,22 @@ export default function SkillsV2() {
       setLoading(true);
       setError('');
       try {
-        const res = await apiClient.get(url);
+        const res = await getOnboardingDetail(roleKey);
         if (!mounted) return;
-        const d: ApiData = res.data || {};
+        const d: ApiData = (res as any) || {};
         setYearsExperience(d.years_experience || '');
         setSelected(d.skills || []);
         const byCode: Record<string, CertRow> = {};
         (d.skill_certificates || []).forEach(row => { byCode[row.skill_code] = row; });
         setExistingCerts(byCode);
       } catch (e: any) {
-        setError(e.response?.data?.detail || e.message || 'Failed to load');
+        setError(e?.response?.data?.detail || e.message || 'Failed to load');
       } finally {
         setLoading(false);
       }
     })();
     return () => { mounted = false; };
-  }, [url]);
+  }, [roleKey]);
 
   // ---------- interactions ----------
   const toggleSkill = (code: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -133,11 +133,9 @@ export default function SkillsV2() {
         if (f) fd.append(code, f); // accepted by your serializer flat or as skill_files[CODE]
       });
 
-      const res = await apiClient.patch(url, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const res = await updateOnboardingForm(roleKey, fd);
 
-      const d: ApiData = res.data || {};
+      const d: ApiData = (res as any) || {};
       setYearsExperience(d.years_experience || '');
       setSelected(d.skills || []);
       const byCode: Record<string, CertRow> = {};

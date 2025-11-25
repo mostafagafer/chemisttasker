@@ -9,10 +9,8 @@ import { AlertColor } from '@mui/material/Alert';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import axios from 'axios';
-import apiClient from '../../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../../constants/api';
 import type { ChatRoom, MemberCache, PharmacyRef, CachedMember } from './types';
+import { createOrUpdateGroupRoom } from '@chemisttasker/shared-core';
 
 const initials = (text: string) => {
   const parts = (text || '').trim().split(/\s+/);
@@ -30,11 +28,6 @@ interface NewChatModalProps {
   onDmSelect: (partnerMembershipId: number, partnerPharmacyId: number) => void;
   onNotify: (severity: AlertColor, message: string) => void;
 }
-
-const EP = {
-  getOrCreateDM: '/client-profile/rooms/get-or-create-dm/',
-  createGroup: API_ENDPOINTS?.rooms ?? '/client-profile/rooms/',
-};
 
 const formatRole = (role: string) => {
     if (!role) return '';
@@ -225,28 +218,21 @@ const handleUserSelect = (membershipId: number, pharmacyId: number) => {
       if (mode !== 'group') return;
       setIsSubmitting(true);
       try {
-        let res;
-        if (isEditMode && editingRoom) {
-            const participants = Array.from(selectedUsers.keys());
-            res = await apiClient.patch(`${EP.createGroup}${editingRoom.id}/`, { title: groupName, participants });
-        } else {
-            const participants = Array.from(selectedUsers.keys());
-            res = await apiClient.post(EP.createGroup, { type: 'GROUP', title: groupName, participants });
-        }
-        if (res?.data) {
-          onSave(res.data);
-          onNotify('success', isEditMode ? "Group updated successfully" : "Group chat created");
-          onClose();
-        }
+        const participants = Array.from(selectedUsers.keys());
+        const room = await createOrUpdateGroupRoom({
+          roomId: isEditMode && editingRoom ? editingRoom.id : undefined,
+          title: groupName,
+          participants,
+        });
+        onSave(room);
+        onNotify('success', isEditMode ? "Group updated successfully" : "Group chat created");
+        onClose();
       } catch (error) {
         console.error("Failed to save group chat", error);
-        let alertMessage = "Failed to save group chat. Please check your selections.";
-        if (axios.isAxiosError(error) && error.response) {
-            const data = error.response.data as { detail?: string };
-            if (data?.detail) {
-                alertMessage = "Failed to save group chat. " + data.detail;
-            }
-        }
+        const alertMessage =
+          error instanceof Error
+            ? `Failed to save group chat. ${error.message}`
+            : "Failed to save group chat. Please check your selections.";
         onNotify('error', alertMessage);
       } finally {
         setIsSubmitting(false);

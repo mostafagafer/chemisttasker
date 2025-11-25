@@ -85,23 +85,27 @@ def build_roster_email_link(user, pharmacy):
     if not user or not pharmacy:
         return base
 
-    # fallback: infer role if user is owner of this pharmacy
-    if getattr(pharmacy, "owner", None) and getattr(pharmacy.owner, "user", None) == user:
-        return f"{base}/owner/manage-pharmacies/roster"
+    def with_pharmacy(url: str) -> str:
+        return f"{url}?pharmacy={pharmacy.id}" if getattr(pharmacy, 'id', None) else url
 
-    # role-based routing
-    if user.role == "PHARMACIST":
-        return f"{base}/pharmacist/shifts/roster"
-    if user.role == "OWNER":
-        return f"{base}/owner/manage-pharmacies/roster"
+    # Explicit role-based routing first
+    if user.role == "OWNER" or (getattr(pharmacy, "owner", None) and getattr(pharmacy.owner, "user", None) == user):
+        return with_pharmacy(f"{base}/owner/manage-pharmacies/roster")
     if hasattr(user, 'organization_memberships') and user.organization_memberships.filter(
         role__in=['ORG_ADMIN', 'CHIEF_ADMIN', 'REGION_ADMIN']
     ).exists():
-        return f"{base}/organization/manage-pharmacies/roster"
-    if is_admin_of(user, pharmacy.id):
-        return f"{base}/owner/manage-pharmacies/roster"
+        return with_pharmacy(f"{base}/organization/manage-pharmacies/roster")
 
-    return f"{base}/explorer/roster"
+    # Pharmacy admins (regardless of top-level role) get the admin roster path
+    if is_admin_of(user, getattr(pharmacy, 'id', None)):
+        return with_pharmacy(f"{base}/admin/manage-pharmacies/roster")
+
+    if user.role == "PHARMACIST":
+        return with_pharmacy(f"{base}/pharmacist/shifts/roster")
+    if user.role == "OTHER_STAFF":
+        return with_pharmacy(f"{base}/otherstaff/shifts/roster")
+
+    return with_pharmacy(f"{base}/explorer/roster")
 
 def clean_email(email):
     """Remove hidden unicode chars and spaces from email."""

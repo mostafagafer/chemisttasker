@@ -1,6 +1,6 @@
 // src/pages/dashboard/sidebar/MyConfirmedShiftsPage.tsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Container,
   Typography,
@@ -18,40 +18,14 @@ import {
   Rating,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
-
-interface Slot {
-  id: number;
-  date: string;
-  start_time: string;
-  end_time: string;
-  is_recurring: boolean;
-  recurring_days: number[];
-  recurring_end_date: string | null;
-}
-
-interface PharmacyDetail {
-  id?: number;
-  name: string;
-  address?: string;
-  methadone_s8_protocols?: string;
-  qld_sump_docs?: string;
-  sops?: string;
-  induction_guides?: string;
-}
-
-interface Shift {
-  id: number;
-  pharmacy_detail: PharmacyDetail;
-  role_needed: string;
-  rate_type: 'FIXED' | 'FLEXIBLE' | 'PHARMACIST_PROVIDED' | null;
-  fixed_rate: string | null;
-  workload_tags: string[];
-  slots: Slot[];
-  owner_adjusted_rate: string | null;
-
-}
+import {
+  Shift,
+  ShiftRatingComment,
+  ShiftRatingSummary,
+  fetchMyConfirmedShifts,
+  fetchRatingsSummaryService,
+  fetchRatingsPageService,
+} from '@chemisttasker/shared-core';
 
 const curvedPaperSx = {
   borderRadius: 3,
@@ -66,98 +40,64 @@ const gradientButtonSx = {
 };
 
 export default function MyConfirmedShiftsPage() {
-  const [shifts, setShifts]     = useState<Shift[]>([]);
-  const [loading, setLoading]   = useState(true); // Set to true initially for skeleton loading
-  const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string }>({
-    open: false,
-    msg: '',
-  });
-  const [page, setPage]         = useState(1);
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string }>({ open: false, msg: '' });
+  const [page, setPage] = useState(1);
 
-  // Dialog state for pharmacy details
-  const [dialogOpen, setDialogOpen]     = useState(false);
-  const [currentPharm, setCurrentPharm] = useState<PharmacyDetail | null>(null);
-  // Ratings state for dialog (pharmacy)
-  const [ratingSummary, setRatingSummary] = useState<{ average: number; count: number } | null>(null);
-  const [ratingComments, setRatingComments] = useState<Array<{ id: number; stars: number; comment?: string; created_at?: string }>>([]);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [currentPharm, setCurrentPharm] = useState<Shift['pharmacyDetail'] | null>(null);
+  const [ratingSummary, setRatingSummary] = useState<ShiftRatingSummary | null>(null);
+  const [ratingComments, setRatingComments] = useState<ShiftRatingComment[]>([]);
   const [commentsPage, setCommentsPage] = useState(1);
   const [commentsPageCount, setCommentsPageCount] = useState(1);
   const [loadingRatings, setLoadingRatings] = useState(false);
 
   const itemsPerPage = 5;
-  const pageCount    = Math.ceil(shifts.length / itemsPerPage);
-  const displayed    = shifts.slice(
-    (page - 1) * itemsPerPage,
-    page * itemsPerPage
-  );
+  const pageCount = Math.ceil(shifts.length / itemsPerPage);
+  const displayed = shifts.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
   useEffect(() => {
-    setLoading(true); // Ensure loading is true when fetching starts
-    apiClient
-      .get(API_ENDPOINTS.getMyConfirmedShifts)
-      .then(res => {
-        const raw = res.data as any;
-        const data: Shift[] = Array.isArray(raw)
-          ? raw
-          : Array.isArray(raw.results)
-            ? raw.results
-            : [];
-        setShifts(data);
-      })
+    setLoading(true);
+    fetchMyConfirmedShifts()
+      .then(setShifts)
       .catch(() => setSnackbar({ open: true, msg: 'Failed to load shifts' }))
-      .finally(() => setLoading(false)); // Ensure loading is set to false
+      .finally(() => setLoading(false));
   }, []);
 
   const closeSnackbar = () => setSnackbar(s => ({ ...s, open: false }));
-  // Normalize DRF pagination arrays
-  const unpackArray = (d: any) =>
-    Array.isArray(d) ? d
-    : Array.isArray(d?.results) ? d.results
-    : Array.isArray(d?.data) ? d.data
-    : Array.isArray(d?.items) ? d.items
-    : [];
 
-  const openDialog = async (p: PharmacyDetail) => {
-    setCurrentPharm(p);
+  const openDialog = async (pharmacy: Shift['pharmacyDetail']) => {
+    setCurrentPharm(pharmacy);
     setDialogOpen(true);
     setRatingSummary(null);
     setRatingComments([]);
     setCommentsPage(1);
     setCommentsPageCount(1);
 
-    if (!p?.id) return; // no id → skip ratings silently
+    if (!pharmacy?.id) {
+      return;
+    }
 
     setLoadingRatings(true);
     try {
-      // 1) Summary
-      const sumRes = await apiClient.get(
-        `${API_ENDPOINTS.ratingsSummary}?target_type=pharmacy&target_id=${p.id}`
-      );
-      setRatingSummary({
-        average: sumRes.data?.average ?? 0,
-        count: sumRes.data?.count ?? 0,
+      const summary = await fetchRatingsSummaryService({
+        targetType: 'pharmacy',
+        targetId: pharmacy.id,
       });
+      setRatingSummary(summary);
 
-      // 2) First page of comments
-      const listRes = await apiClient.get(
-        `${API_ENDPOINTS.ratings}?target_type=pharmacy&target_id=${p.id}&page=1`
-      );
-      const items = unpackArray(listRes.data);
-      setRatingComments(items.map((r: any) => ({
-        id: r.id,
-        stars: r.stars,
-        comment: r.comment,
-        created_at: r.created_at,
-      })));
-      // compute page count if paginated
-      if (listRes.data?.count && listRes.data?.results) {
-        const per = listRes.data.results.length || 1;
-        setCommentsPageCount(Math.max(1, Math.ceil(listRes.data.count / per)));
-      } else {
-        setCommentsPageCount(1);
-      }
+      const firstPage = await fetchRatingsPageService({
+        targetType: 'pharmacy',
+        targetId: pharmacy.id,
+        page: 1,
+      });
+      setRatingComments(firstPage.results);
+      const pageSize = firstPage.results.length || 1;
+      setCommentsPageCount(Math.max(1, Math.ceil(firstPage.count / pageSize)));
     } catch {
-      // leave summary/comments empty on error
+      setRatingSummary(null);
+      setRatingComments([]);
     } finally {
       setLoadingRatings(false);
     }
@@ -177,26 +117,16 @@ export default function MyConfirmedShiftsPage() {
     if (!currentPharm?.id) return;
     setLoadingRatings(true);
     try {
-      const listRes = await apiClient.get(
-        `${API_ENDPOINTS.ratings}?target_type=pharmacy&target_id=${currentPharm.id}&page=${value}`
-      );
-      const items = unpackArray(listRes.data);
-      setRatingComments(items.map((r: any) => ({
-        id: r.id,
-        stars: r.stars,
-        comment: r.comment,
-        created_at: r.created_at,
-      })));
-      // keep pageCount stable; compute if missing
-      if (listRes.data?.count && listRes.data?.results) {
-        const per = listRes.data.results.length || 1;
-        setCommentsPageCount(Math.max(1, Math.ceil(listRes.data.count / per)));
-      }
-    } catch {
-      // keep old state
+      const pageData = await fetchRatingsPageService({
+        targetType: 'pharmacy',
+        targetId: currentPharm.id,
+        page: value,
+      });
+      setRatingComments(pageData.results);
+      const pageSize = pageData.results.length || 1;
+      setCommentsPageCount(Math.max(1, Math.ceil(pageData.count / pageSize)));
     } finally {
       setLoadingRatings(false);
-      // scroll to top of dialog for UX
       const dlg = document.querySelector('[role="dialog"]');
       dlg?.scrollTo?.({ top: 0, behavior: 'smooth' });
     }
@@ -210,7 +140,7 @@ export default function MyConfirmedShiftsPage() {
   if (loading) {
     return (
       <Container sx={{ textAlign: 'center', py: 4 }}>
-        {[...Array(3)].map((_, index) => ( // Render 3 skeleton papers
+        {[...Array(3)].map((_, index) => (
           <Paper key={index} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Skeleton variant="text" width="60%" height={30} />
@@ -243,98 +173,87 @@ export default function MyConfirmedShiftsPage() {
         My Confirmed Shifts
       </Typography>
 
-{displayed.map(shift => {
-  const isPharmacist = shift.role_needed === 'PHARMACIST';
-  const showBonus = !!shift.owner_adjusted_rate && !isPharmacist;
+      {displayed.map(shift => {
+        const isPharmacist = shift.roleNeeded === 'PHARMACIST';
+        const showBonus = !!shift.ownerAdjustedRate && !isPharmacist;
+        const workloadTags = shift.workloadTags ?? [];
+        const slots = shift.slots ?? [];
 
-  // Determine rate label:
-  let rateLabel = '';
-  if (isPharmacist) {
-    if (shift.rate_type === 'FIXED') {
-      rateLabel = `Fixed – ${shift.fixed_rate} AUD/hr`;
-    } else if (shift.rate_type === 'FLEXIBLE') {
-      rateLabel = 'Flexible';
-    } else if (shift.rate_type === 'PHARMACIST_PROVIDED') {
-      rateLabel = 'Pharmacist Provided';
-    } else {
-      rateLabel = 'Flexible (Fair Work)';
-    }
-  } else {
-    rateLabel = 'Award Rate (Fair Work Commission, July 2025)';
-  }
+        let rateLabel = '';
+        if (isPharmacist) {
+          if (shift.rateType === 'FIXED') {
+            rateLabel = `Fixed — ${shift.fixedRate} AUD/hr`;
+          } else if (shift.rateType === 'FLEXIBLE') {
+            rateLabel = 'Flexible';
+          } else if (shift.rateType === 'PHARMACIST_PROVIDED') {
+            rateLabel = 'Pharmacist Provided';
+          } else {
+            rateLabel = 'Flexible (Fair Work)';
+          }
+        } else {
+          rateLabel = 'Award Rate (Fair Work Commission, July 2025)';
+        }
 
-  return (
-    <Paper key={shift.id} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}
-      >
-        <Typography variant="h6">
-          {shift.pharmacy_detail.name}
-        </Typography>
-        <Button
-          size="small"
-          variant="contained"
-          onClick={() => openDialog(shift.pharmacy_detail)}
-          sx={gradientButtonSx}
-        >
-          Pharmacy Details
-        </Button>
-      </Box>
+        const pharmacyName = shift.pharmacyDetail?.name ?? 'Pharmacy';
 
-      <Box sx={{ mt: 1, display: 'grid', gap: 1 }}>
-        <Typography>
-          <strong>Role:</strong> {shift.role_needed}
-        </Typography>
+        return (
+          <Paper key={shift.id} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <Typography variant="h6">{pharmacyName}</Typography>
+              <Button
+                size="small"
+                variant="contained"
+                onClick={() => openDialog(shift.pharmacyDetail)}
+                sx={gradientButtonSx}
+              >
+                Pharmacy Details
+              </Button>
+            </Box>
 
-        <Typography>
-          <strong>Rate:</strong> {rateLabel}
-        </Typography>
+            <Box sx={{ mt: 1, display: 'grid', gap: 1 }}>
+              <Typography>
+                <strong>Role:</strong> {shift.roleNeeded}
+              </Typography>
+              <Typography>
+                <strong>Rate:</strong> {rateLabel}
+              </Typography>
 
-        {showBonus && (
-          <Typography
-            sx={{ color: 'green', fontWeight: 'bold', mt: 1 }}
-          >
-            💰 Bonus: +{shift.owner_adjusted_rate} AUD/hr on top of Award Rate
-          </Typography>
-        )}
+              {showBonus && (
+                <Typography sx={{ color: 'green', fontWeight: 'bold', mt: 1 }}>
+                  Bonus: +{shift.ownerAdjustedRate} AUD/hr on top of Award Rate
+                </Typography>
+              )}
 
-        {shift.workload_tags.length > 0 && (
-          <Typography>
-            <strong>Workload Tags:</strong>{' '}
-            {shift.workload_tags.join(', ')}
-          </Typography>
-        )}
-      </Box>
+              {workloadTags.length > 0 && (
+                <Typography>
+                  <strong>Workload Tags:</strong> {workloadTags.join(', ')}
+                </Typography>
+              )}
+            </Box>
 
-      <Box sx={{ mt: 2 }}>
-        {shift.slots.map(slot => (
-          <Typography key={slot.id} variant="body2">
-            {slot.date} {slot.start_time}–{slot.end_time}
-          </Typography>
-        ))}
-      </Box>
-    </Paper>
-  );
-})}
-
-
+            <Box sx={{ mt: 2 }}>
+              {slots.map(slot => (
+                <Typography key={slot.id} variant="body2">
+                  {slot.date} {slot.startTime}–{slot.endTime}
+                </Typography>
+              ))}
+            </Box>
+          </Paper>
+        );
+      })}
 
       {pageCount > 1 && (
         <Box display="flex" justifyContent="center" mt={4}>
-          <Pagination
-            count={pageCount}
-            page={page}
-            onChange={handlePageChange}
-            color="primary"
-          />
+          <Pagination count={pageCount} page={page} onChange={handlePageChange} color="primary" />
         </Box>
       )}
 
-      {/* Pharmacy Details Dialog */}
       <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="sm">
         <DialogTitle>Pharmacy Details</DialogTitle>
         <DialogContent dividers>
@@ -343,30 +262,23 @@ export default function MyConfirmedShiftsPage() {
               <Typography>
                 <strong>Name:</strong> {currentPharm.name}
               </Typography>
-              {currentPharm.address && (
+              {currentPharm.streetAddress && (
                 <Typography>
-                  <strong>Address:</strong> {currentPharm.address}
+                  <strong>Address:</strong> {currentPharm.streetAddress}
                 </Typography>
               )}
-
-              {currentPharm.methadone_s8_protocols && (
+              {currentPharm.methadoneS8Protocols && (
                 <Typography>
                   <strong>Methadone S8 Protocols:</strong>{' '}
-                  <Button
-                    href={currentPharm.methadone_s8_protocols}
-                    target="_blank"
-                  >
+                  <Button href={currentPharm.methadoneS8Protocols} target="_blank">
                     Download
                   </Button>
                 </Typography>
               )}
-              {currentPharm.qld_sump_docs && (
+              {currentPharm.qldSumpDocs && (
                 <Typography>
                   <strong>QLD Sump Docs:</strong>{' '}
-                  <Button
-                    href={currentPharm.qld_sump_docs}
-                    target="_blank"
-                  >
+                  <Button href={currentPharm.qldSumpDocs} target="_blank">
                     Download
                   </Button>
                 </Typography>
@@ -379,21 +291,16 @@ export default function MyConfirmedShiftsPage() {
                   </Button>
                 </Typography>
               )}
-              {currentPharm.induction_guides && (
+              {currentPharm.inductionGuides && (
                 <Typography>
                   <strong>Induction Guides:</strong>{' '}
-                  <Button
-                    href={currentPharm.induction_guides}
-                    target="_blank"
-                  >
+                  <Button href={currentPharm.inductionGuides} target="_blank">
                     Download
                   </Button>
                 </Typography>
               )}
 
-              
-              {/* Rating summary */}
-              {currentPharm.id ? (
+              {currentPharm.id && (
                 <Box sx={{ mt: 1, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
                   {ratingSummary ? (
                     <>
@@ -406,10 +313,9 @@ export default function MyConfirmedShiftsPage() {
                     <Skeleton variant="rectangular" width={140} height={24} />
                   )}
                 </Box>
-              ) : null}
+              )}
 
-              {/* Comments (paginated) */}
-              {currentPharm.id ? (
+              {currentPharm.id && (
                 <Box sx={{ mt: 1, mb: 2 }}>
                   <Typography variant="subtitle1" sx={{ mb: 1 }}>
                     Reviews
@@ -431,9 +337,9 @@ export default function MyConfirmedShiftsPage() {
                         <Box key={rc.id} sx={{ p: 1.2, borderRadius: 1, bgcolor: 'action.hover' }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <Rating value={rc.stars} readOnly size="small" />
-                            {rc.created_at && (
+                            {rc.createdAt && (
                               <Typography variant="caption" color="text.secondary">
-                                {new Date(rc.created_at ?? '').toLocaleDateString()}
+                                {new Date(rc.createdAt).toLocaleDateString()}
                               </Typography>
                             )}
                           </Box>
@@ -445,7 +351,6 @@ export default function MyConfirmedShiftsPage() {
                         </Box>
                       ))}
 
-                      {/* Pagination for comments */}
                       {commentsPageCount > 1 && (
                         <Box display="flex" justifyContent="center" mt={1}>
                           <Pagination
@@ -460,8 +365,7 @@ export default function MyConfirmedShiftsPage() {
                     </Box>
                   )}
                 </Box>
-              ) : null}
-
+              )}
             </>
           )}
         </DialogContent>

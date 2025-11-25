@@ -16,58 +16,19 @@ import {
   DialogActions,
   Rating,
   Skeleton,
-  TextField, // <— ADD
+  TextField, // <â€” ADD
 
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
-
-interface Slot {
-  id: number;
-  date: string;
-  start_time: string;
-  end_time: string;
-  is_recurring: boolean;
-  recurring_days: number[];
-  recurring_end_date: string | null;
-}
-
-interface Shift {
-  id: number;
-  role_needed: string;
-  pharmacy_detail: {
-    id: number;
-    name: string;
-    address?: string;
-  };
-  single_user_only: boolean;
-  slot_assignments: {
-    slot_id: number;
-    user_id: number;
-  }[];
-  slots: Slot[];
-}
-interface RatePreference {
-  weekday: string;
-  saturday: string;
-  sunday: string;
-  public_holiday: string;
-  early_morning: string;
-  late_night: string;
-}
-
-interface Profile {
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone_number?: string;
-  short_bio?: string;
-  resume?: string;
-  rate_preference?: RatePreference | null;
-
-}
+import {
+  Shift,
+  ShiftUser,
+  fetchHistoryShifts,
+  viewAssignedShiftProfileService,
+  fetchMyRatingForTargetService,
+  createRatingService,
+} from '@chemisttasker/shared-core';
 
 const curvedPaperSx = {
   borderRadius: 3,
@@ -93,11 +54,11 @@ export default function HistoryShiftsPage() {
   const [shifts, setShifts]           = useState<Shift[]>([]);
   const [loading, setLoading]         = useState(true); // Set to true initially for skeleton loading
   const [snackbar, setSnackbar]       = useState<{ open: boolean; msg: string }>({ open: false, msg: '' });
-  const [profile, setProfile]         = useState<Profile | null>(null);
+  const [profile, setProfile]         = useState<ShiftUser | null>(null);
   const [dialogOpen, setDialogOpen]   = useState(false);
 
 
-  // Rating modal state (Owner → Worker)
+  // Rating modal state (Owner â†’ Worker)
   const [rateModalOpen, setRateModalOpen] = useState(false);
   const [selectedWorkerId, setSelectedWorkerId] = useState<number | null>(null);
   const [currentStars, setCurrentStars] = useState<number>(0);
@@ -118,18 +79,15 @@ export default function HistoryShiftsPage() {
   // Load history shifts
   useEffect(() => {
     setLoading(true);
-    apiClient.get(API_ENDPOINTS.getHistoryShifts)
-      .then(res => {
-        const data = Array.isArray(res.data?.results)
-          ? res.data.results
-          : Array.isArray(res.data)
-            ? res.data
-            : [];
+    fetchHistoryShifts()
+      .then(data => {
         const filtered =
           scopedPharmacyId != null
-            ? data.filter((shift: any) =>
-                Number(shift.pharmacy_detail?.id ?? shift.pharmacy_id ?? shift.pharmacy) === scopedPharmacyId
-              )
+            ? data.filter((shift: Shift) => {
+                const targetId =
+                  shift.pharmacyDetail?.id ?? (shift as any).pharmacyId ?? shift.pharmacy ?? null;
+                return Number(targetId ?? NaN) === scopedPharmacyId;
+              })
             : data;
         setShifts(filtered);
       })
@@ -143,16 +101,17 @@ export default function HistoryShiftsPage() {
   // Reuse the same reveal_profile logic
 // View already-assigned profile (no reveal quota consumed)
 const openProfile = (shiftId: number, slotId: number|null, userId: number) => {
-  const url = API_ENDPOINTS.viewAssignedShiftProfile('history', shiftId)
-  const payload = slotId == null
-    ? { user_id: userId }
-    : { slot_id: slotId, user_id: userId };
-  apiClient.post(url, payload)
-    .then(res => {
-      setProfile(res.data);
+  viewAssignedShiftProfileService({
+    type: 'history',
+    shiftId,
+    slotId: slotId ?? undefined,
+    userId,
+  })
+    .then(result => {
+      setProfile(result);
       setDialogOpen(true);
     })
-    .catch(() => setSnackbar({ open: true, msg: 'Failed to load profile' }));
+    .catch(err => setSnackbar({ open: true, msg: err?.response?.data?.detail || 'Failed to load profile' }));
 };
 
 
@@ -162,12 +121,13 @@ const openRateWorker = async (workerUserId: number) => {
   setRateModalOpen(true);
   setLoadingExistingWorkerRating(true);
   try {
-    const res = await apiClient.get(
-      `${API_ENDPOINTS.ratingsMine}?target_type=worker&target_id=${workerUserId}`
-    );
-    if (res.data && res.data.id) {
-      setCurrentStars(res.data.stars || 0);
-      setCurrentComment(res.data.comment || '');
+    const existing = await fetchMyRatingForTargetService({
+      targetType: 'worker',
+      targetId: workerUserId,
+    });
+    if (existing) {
+      setCurrentStars(existing.stars || 0);
+      setCurrentComment(existing.comment || '');
     } else {
       setCurrentStars(0);
       setCurrentComment('');
@@ -208,15 +168,18 @@ const openRateWorker = async (workerUserId: number) => {
     <Container sx={{ py: 4 }}>
       <Typography variant="h4" gutterBottom>Shift History</Typography>
 
-      {displayedShifts.map(shift => (
-      <Paper key={shift.id} sx={{ p:2, mb:2, ...curvedPaperSx }}>
-          <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
-          <Typography>Role: {shift.role_needed}</Typography>
+      {displayedShifts.map((shift: Shift) => {
+        const slots = shift.slots ?? [];
+        const slotAssignments = shift.slotAssignments ?? [];
+        return (
+        <Paper key={shift.id} sx={{ p:2, mb:2, ...curvedPaperSx }}>
+          <Typography variant="h6">{shift.pharmacyDetail?.name ?? 'Unknown Pharmacy'}</Typography>
+          <Typography>Role: {shift.roleNeeded}</Typography>
           <Box sx={{ mt:2, display:'flex', flexDirection:'column', gap:1 }}>
             {/* Per-slot details */}
-            {shift.slots.map(slot => {
+            {slots.map(slot => {
               // find who was assigned
-              const assign = shift.slot_assignments.find(a => a.slot_id === slot.id);
+              const assign = slotAssignments.find(a => a.slotId === slot.id);
               return (
                 <Box
                   key={slot.id}
@@ -228,7 +191,7 @@ const openRateWorker = async (workerUserId: number) => {
                 >
                   <Box>
                     <Typography variant="body2">
-                      {slot.date} {slot.start_time}–{slot.end_time}
+                      {slot.date} {slot.startTime}-{slot.endTime}
                     </Typography>
                     {/* Rating placeholder */}
                     {/* <Rating
@@ -243,7 +206,7 @@ const openRateWorker = async (workerUserId: number) => {
                     <Button
                       size="small"
                       variant="outlined"
-                      onClick={() => openProfile(shift.id, slot.id, assign.user_id)}
+                      onClick={() => openProfile(shift.id, slot.id, assign.userId)}
                     >
                       View Assigned
                     </Button>
@@ -251,7 +214,7 @@ const openRateWorker = async (workerUserId: number) => {
                       size="small"
                       variant="contained"
                       color="secondary"
-                      onClick={() => openRateWorker(assign.user_id)}
+                      onClick={() => openRateWorker(assign.userId)}
                       sx={gradientButtonSx}
                     >
                       Rate Chemist
@@ -264,7 +227,8 @@ const openRateWorker = async (workerUserId: number) => {
             })}
           </Box>
         </Paper>
-      ))}
+        );
+      })}
 
       {/* Pagination */}
       {pageCount > 1 && (
@@ -327,7 +291,7 @@ const openRateWorker = async (workerUserId: number) => {
               setSavingWorkerRating(true);
               try {
                 // Upsert rating: OWNER_TO_WORKER
-                await apiClient.post(API_ENDPOINTS.ratings, {
+                await createRatingService({
                   direction: 'OWNER_TO_WORKER',
                   ratee_user: selectedWorkerId,
                   stars: currentStars,
@@ -359,29 +323,29 @@ const openRateWorker = async (workerUserId: number) => {
           {profile && (
             <>
               <Typography>
-                <strong>Name:</strong> {profile.first_name} {profile.last_name}
+                <strong>Name:</strong> {profile.firstName} {profile.lastName}
               </Typography>
               <Typography><strong>Email:</strong> {profile.email}</Typography>
-              <Typography><strong>Phone:</strong> {profile.phone_number}</Typography>
-              <Typography><strong>Bio:</strong> {profile.short_bio}</Typography>
+              <Typography><strong>Phone:</strong> {profile.phoneNumber}</Typography>
+              <Typography><strong>Bio:</strong> {profile.shortBio}</Typography>
               {profile.resume && (
                 <Button href={profile.resume} target="_blank">
                   Download CV
                 </Button>
               )}
 
-              {profile.rate_preference && (
+              {profile.ratePreference && (
                 <Box mt={2}>
                   <Typography variant="subtitle2" gutterBottom>
                     <strong>Rate Preference</strong>
                   </Typography>
                   <ul style={{ margin: 0, paddingLeft: 16 }}>
-                    <li>Weekday: {profile.rate_preference.weekday || "N/A"}</li>
-                    <li>Saturday: {profile.rate_preference.saturday || "N/A"}</li>
-                    <li>Sunday: {profile.rate_preference.sunday || "N/A"}</li>
-                    <li>Public Holiday: {profile.rate_preference.public_holiday || "N/A"}</li>
-                    <li>Early Morning: {profile.rate_preference.early_morning || "N/A"}</li>
-                    <li>Late Night: {profile.rate_preference.late_night || "N/A"}</li>
+                    <li>Weekday: {profile.ratePreference.weekday || "N/A"}</li>
+                    <li>Saturday: {profile.ratePreference.saturday || "N/A"}</li>
+                    <li>Sunday: {profile.ratePreference.sunday || "N/A"}</li>
+                    <li>Public Holiday: {profile.ratePreference.publicHoliday || "N/A"}</li>
+                    <li>Early Morning: {profile.ratePreference.earlyMorning || "N/A"}</li>
+                    <li>Late Night: {profile.ratePreference.lateNight || "N/A"}</li>
                   </ul>
                 </Box>
               )}

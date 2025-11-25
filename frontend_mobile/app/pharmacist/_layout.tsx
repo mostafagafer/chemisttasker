@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext'; // Adjust path if needed
-import { useRouter } from 'expo-router';
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
 
 export default function PharmacistTabs() {

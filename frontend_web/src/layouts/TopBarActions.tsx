@@ -34,8 +34,8 @@ import { useNavigate } from "react-router-dom";
 import { useColorMode } from "../theme/sleekTheme";
 import { useAuth } from "../contexts/AuthContext";
 import { fetchNotifications, markNotificationsRead, NotificationItem } from "../api/notifications";
-import { API_BASE_URL, API_ENDPOINTS } from "../constants/api";
-import apiClient from "../utils/apiClient";
+import { fetchRooms } from "@chemisttasker/shared-core";
+import { API_BASE_URL } from "../constants/api";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 
@@ -466,6 +466,25 @@ export default function TopBarActions() {
   const theme = useTheme();
   const { mode, toggleColorMode } = useColorMode();
   const { user, token, refreshUnreadCount, adminAssignments, activePersona, activeAdminAssignment, selectRolePersona, selectAdminPersona, isAdminUser } = useAuth();
+  // Prefer the live token from context, but fall back to persisted access in case the component renders before auth finishes hydrating.
+  const wsAuthToken = React.useMemo(
+    () => token || localStorage.getItem("access") || "",
+    [token]
+  );
+
+  const isJwtValid = React.useCallback((jwt: string) => {
+    try {
+      const [, payload] = jwt.split(".");
+      if (!payload) return false;
+      const decoded = JSON.parse(atob(payload));
+      const exp = decoded?.exp;
+      if (!exp || typeof exp !== "number") return false;
+      const now = Date.now() / 1000;
+      return exp - now > 30; // allow a small buffer
+    } catch {
+      return false;
+    }
+  }, []);
   const navigate = useNavigate();
   const downSm = useMediaQuery(theme.breakpoints.down("sm"));
   const [query, setQuery] = React.useState("");
@@ -706,7 +725,7 @@ export default function TopBarActions() {
   );
 
   const anyUnreadNotifications = React.useMemo(
-    () => notifications.some((item) => !item.read_at),
+    () => notifications.some((item) => !item.readAt),
     [notifications]
   );
 
@@ -719,7 +738,7 @@ export default function TopBarActions() {
   }, [messageSummaries]);
 
   React.useEffect(() => {
-    if (!token) {
+    if (!wsAuthToken) {
       setNotifications([]);
       setUnreadNotifications(0);
       setNotificationsLoading(false);
@@ -728,21 +747,18 @@ export default function TopBarActions() {
     let cancelled = false;
     setNotificationsLoading(true);
     fetchNotifications()
-      .then((data) => {
+      .then((response) => {
         if (cancelled) return;
-        const response: any = data;
         const list: NotificationItem[] = Array.isArray(response?.results)
           ? response.results
-          : Array.isArray(response)
-          ? response
           : [];
         setNotifications(list);
         const unreadCount =
           typeof response?.unread === "number"
             ? response.unread
-            : typeof response?.count_unread === "number"
-            ? response.count_unread
-            : list.filter((item) => !item.read_at).length;
+            : typeof response?.countUnread === "number"
+            ? response.countUnread
+            : list.filter((item) => !item.readAt).length;
         setUnreadNotifications(unreadCount);
       })
       .catch((error) => {
@@ -759,27 +775,20 @@ export default function TopBarActions() {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [wsAuthToken]);
 
   React.useEffect(() => {
-    if (!token) {
+    if (!wsAuthToken) {
       setMessageSummaries({});
       return;
     }
     let cancelled = false;
 
-    apiClient
-      .get(API_ENDPOINTS.rooms)
-      .then((res) => {
+    fetchRooms()
+      .then((rawRooms) => {
         if (cancelled) return;
-        const payload = res?.data;
-        const rawRooms: any[] = Array.isArray(payload?.results)
-          ? payload.results
-          : Array.isArray(payload)
-          ? payload
-          : [];
         const next: Record<number, MessageSummary> = {};
-        rawRooms.forEach((room) => {
+        rawRooms.forEach((room: any) => {
           if (!room || typeof room.id !== "number") {
             return;
           }
@@ -787,12 +796,13 @@ export default function TopBarActions() {
           if (!unread) {
             return;
           }
-          const lastMessage =
+          const lastMessage = (
             room.last_message ||
             room.latest_message ||
             room.most_recent_message ||
             room.recent_message ||
-            {};
+            {}
+          ) as Record<string, any>;
           const senderName =
             lastMessage?.sender_name ||
             lastMessage?.sender?.name ||
@@ -824,21 +834,21 @@ export default function TopBarActions() {
     return () => {
       cancelled = true;
     };
-  }, [token, refreshUnreadCount]);
+  }, [wsAuthToken, refreshUnreadCount]);
 
   const wsUrl = React.useMemo(() => {
-    if (!token) return null;
+    if (!wsAuthToken || !isJwtValid(wsAuthToken)) return null;
     try {
       const apiBase = (API_BASE_URL as string | undefined) ?? window.location.origin;
       const resolved = new URL(apiBase, window.location.origin);
       const wsProtocol = resolved.protocol === "https:" ? "wss:" : "ws:";
-      return `${wsProtocol}//${resolved.host}/ws/notifications/?token=${encodeURIComponent(token)}`;
+      return `${wsProtocol}//${resolved.host}/ws/notifications/?token=${encodeURIComponent(wsAuthToken)}`;
     } catch {
       const { protocol, host } = window.location;
       const wsProtocol = protocol === "https:" ? "wss:" : "ws:";
-      return `${wsProtocol}//${host}/ws/notifications/?token=${encodeURIComponent(token)}`;
+      return `${wsProtocol}//${host}/ws/notifications/?token=${encodeURIComponent(wsAuthToken)}`;
     }
-  }, [token]);
+  }, [wsAuthToken, isJwtValid]);
 
   React.useEffect(() => {
     if (!wsUrl) {
@@ -863,7 +873,7 @@ export default function TopBarActions() {
                   payload.notification as NotificationItem,
                   ...prev.filter((item) => item.id !== payload.notification.id),
                 ].slice(0, 25);
-                setUnreadNotifications(next.filter((item) => !item.read_at).length);
+                setUnreadNotifications(next.filter((item) => !item.readAt).length);
                 return next;
               });
             }
@@ -876,7 +886,7 @@ export default function TopBarActions() {
                     ? (payload.notification as NotificationItem)
                     : item
                 );
-                setUnreadNotifications(next.filter((item) => !item.read_at).length);
+                setUnreadNotifications(next.filter((item) => !item.readAt).length);
                 return next;
               });
             }
@@ -929,7 +939,8 @@ export default function TopBarActions() {
     };
 
     socket.onerror = (error) => {
-      console.error("Notifications websocket error", error);
+      // Avoid noisy logs when the token is stale/invalid; we'll retry after next token change.
+      console.warn("Notifications websocket error", error);
     };
 
     socket.onclose = () => {
@@ -948,7 +959,7 @@ export default function TopBarActions() {
   };
 
   const markAllNotifications = React.useCallback(async () => {
-    const unreadIds = notifications.filter((item) => !item.read_at).map((item) => item.id);
+    const unreadIds = notifications.filter((item) => !item.readAt).map((item) => item.id);
     if (!unreadIds.length) {
       return;
     }
@@ -957,7 +968,7 @@ export default function TopBarActions() {
       const nowIso = new Date().toISOString();
       setUnreadNotifications(res.unread ?? 0);
       setNotifications((prev) =>
-        prev.map((item) => (item.read_at ? item : { ...item, read_at: nowIso }))
+        prev.map((item) => (item.readAt ? item : { ...item, readAt: nowIso }))
       );
     } catch (error) {
       console.error("Failed to mark notifications read", error);
@@ -981,30 +992,30 @@ export default function TopBarActions() {
 
   const handleNotificationNavigate = React.useCallback(
     (item: NotificationItem) => {
-      if (!item.action_url) {
+      if (!item.actionUrl) {
         handleCloseNotifications();
         return;
       }
       try {
-        const target = new URL(item.action_url, window.location.origin);
+        const target = new URL(item.actionUrl, window.location.origin);
         if (target.origin === window.location.origin) {
           navigate(`${target.pathname}${target.search}${target.hash}`);
         } else {
           window.location.href = target.toString();
         }
       } catch {
-        const normalized = item.action_url.startsWith('/')
-          ? item.action_url
-          : `/${item.action_url}`;
+        const normalized = item.actionUrl.startsWith('/')
+          ? item.actionUrl
+          : `/${item.actionUrl}`;
         navigate(normalized);
       }
       const nowIso = new Date().toISOString();
       setNotifications((prev) =>
         prev.map((existing) =>
-          existing.id === item.id ? { ...existing, read_at: existing.read_at ?? nowIso } : existing
+          existing.id === item.id ? { ...existing, readAt: existing.readAt ?? nowIso } : existing
         )
       );
-      if (!item.read_at) {
+      if (!item.readAt) {
         setUnreadNotifications((prev) => Math.max(0, prev - 1));
       }
       void markNotificationsRead([item.id]).catch((error) =>
@@ -1239,13 +1250,13 @@ export default function TopBarActions() {
                     onClick={() => handleNotificationNavigate(item)}
                     sx={{
                       alignItems: "flex-start",
-                      bgcolor: item.read_at ? "transparent" : alpha(theme.palette.primary.main, 0.08),
+                      bgcolor: item.readAt ? "transparent" : alpha(theme.palette.primary.main, 0.08),
                     }}
                   >
                     <ListItemText
                       primary={item.title}
-                      secondary={item.body || dayjs.utc(item.created_at).local().toDate().toLocaleString()}
-                      primaryTypographyProps={{ fontWeight: item.read_at ? 500 : 700 }}
+                      secondary={item.body || dayjs.utc(item.createdAt).local().toDate().toLocaleString()}
+                      primaryTypographyProps={{ fontWeight: item.readAt ? 500 : 700 }}
                       secondaryTypographyProps={{ color: "text.secondary" }}
                     />
                   </ListItemButton>

@@ -7,8 +7,8 @@ import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import { useWorkspace } from "../contexts/WorkspaceContext";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
-import apiClient from "../utils/apiClient";
 import { useAuth } from "../contexts/AuthContext";
+import { getOnboarding } from "@chemisttasker/shared-core";
 
 // 👉 Use your PNG logo file here
 import logoPng from "../assets/20250711_1205_Chemisttasker Badge Design_remix_01jzwbh9q5ez49phsbaz65h9cd.png";
@@ -80,32 +80,19 @@ export default function CustomAppTitle({
       };
     }
 
-    const endpoints = [
-      `/client-profile/${onboardingKey}/onboarding/me/`,
-      `/client-profile/${onboardingKey}/onboarding/me/`,
-    ];
-
     const refetch = async () => {
-      for (const ep of endpoints) {
-        try {
-          const res = await apiClient.get(ep);
-          if (!active) {
-            return;
-          }
-          const v = !!(res?.data?.verified ?? res?.data?.is_verified ?? false);
-          setVerified(v);
-          return; // success (v2 or v1)
-        } catch (err: any) {
-          const status = err?.response?.status;
-          // Only fall back on "endpoint missing / method not allowed"
-          if (status === 404 || status === 405) {
-            continue;
-          }
-          break;
+      try {
+        const res: any = await getOnboarding(onboardingKey as any);
+        if (!active) {
+          return;
         }
-      }
-      if (active) {
-        setVerified(false);
+        const v = !!(res?.verified ?? res?.is_verified ?? res?.isVerified ?? false);
+        setVerified(v);
+        return;
+      } catch {
+        if (active) {
+          setVerified(false);
+        }
       }
     };
 

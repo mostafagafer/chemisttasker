@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
-import { Text, TextInput, IconButton, Surface, Avatar, ActivityIndicator } from 'react-native-paper';
+import { Text, TextInput, IconButton, Surface, ActivityIndicator } from 'react-native-paper';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import apiClient from '../../../utils/apiClient';
+import { getRoomMessages, sendRoomMessage } from '@chemisttasker/shared-core';
+import { useAuth } from '../../../context/AuthContext';
 
-interface Message {
+interface MessageDisplay {
     id: number;
-    sender: number;
+    sender: number | string;
     content: string;
     created_at: string;
     is_me: boolean;
@@ -16,60 +17,70 @@ interface Message {
 export default function MessageDetailScreen() {
     const { id, name } = useLocalSearchParams();
     const router = useRouter();
-    const [messages, setMessages] = useState<Message[]>([]);
+    const { user } = useAuth();
+
+    const [messages, setMessages] = useState<MessageDisplay[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
-    const flatListRef = useRef<FlatList>(null);
+    const flatListRef = useRef<FlatList<MessageDisplay>>(null);
 
-    useEffect(() => {
-        fetchMessages();
-        // Optional: Set up polling or socket here
+    const parseRoomId = useCallback(() => {
+        if (Array.isArray(id)) return parseInt(id[0], 10);
+        if (typeof id === 'string') return parseInt(id, 10);
+        return typeof id === 'number' ? id : NaN;
     }, [id]);
 
-    const fetchMessages = async () => {
+    const fetchMessages = useCallback(async () => {
+        const roomId = parseRoomId();
+        if (!roomId) return;
         try {
-            const response = await apiClient.get(`/client-profile/messages/?conversation=${id}`);
-            // Transform if necessary, assuming backend returns list of messages
-            // We need to know which messages are "mine". 
-            // The backend might return 'sender' ID. We need to know our own ID or if the backend adds 'is_me'.
-            // For now, let's assume the backend might NOT add 'is_me' directly unless we check against our profile.
-            // However, usually a well-designed API for mobile might.
-            // If not, we can check against a stored user ID. 
-            // Let's assume the response data has what we need or we'll adjust.
-            // Actually, let's assume the backend returns a list where we can deduce it.
-            // For this MVP, let's assume the backend returns `is_me` or we compare sender ID.
-            // Since I don't have the user ID handy in a global store without fetching profile, 
-            // I'll rely on the backend providing `is_me` or similar, OR I'll fetch profile first.
-            // Let's try to fetch profile if we haven't. 
-            // Actually, let's just map it and see. If `is_me` is missing, we might need to fix it.
+            const data = await getRoomMessages(roomId);
+            const list = Array.isArray((data as any)?.results)
+                ? (data as any).results
+                : Array.isArray(data)
+                    ? (data as any)
+                    : [];
 
-            setMessages(response.data.results || response.data);
+            const mapped = list.map((msg: any, idx: number) => ({
+                id: msg.id ?? `${msg.created_at ?? ''}-${idx}`,
+                sender: msg.sender?.id ?? msg.sender,
+                content: msg.body ?? msg.content ?? '',
+                created_at: msg.created_at ?? new Date().toISOString(),
+                is_me: user?.id != null ? (msg.sender?.id ?? msg.sender) === user.id : false,
+            }));
+            setMessages(mapped);
+            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 50);
         } catch (error) {
             console.error('Error fetching messages:', error);
         } finally {
             setLoading(false);
         }
-    };
+    }, [user?.id, parseRoomId]);
+
+    useEffect(() => {
+        void fetchMessages();
+    }, [fetchMessages]);
 
     const sendMessage = async () => {
         if (!newMessage.trim()) return;
+        const roomId = parseRoomId();
+        if (!roomId) return;
 
         setSending(true);
         try {
-            const response = await apiClient.post('/client-profile/messages/', {
-                conversation: id,
-                content: newMessage,
-            });
-
-            // Append new message
-            setMessages(prev => [...prev, response.data]);
+            const payload = { content: newMessage };
+            const sentMessage = await sendRoomMessage(roomId, payload) as any;
+            const newMsg: MessageDisplay = {
+                id: sentMessage.id ?? `${Date.now()}`,
+                sender: sentMessage.sender?.id ?? sentMessage.sender,
+                content: sentMessage.body ?? sentMessage.content ?? newMessage,
+                created_at: sentMessage.created_at ?? new Date().toISOString(),
+                is_me: true,
+            };
+            setMessages((prev) => [...prev, newMsg]);
             setNewMessage('');
-
-            // Scroll to bottom
-            setTimeout(() => {
-                flatListRef.current?.scrollToEnd({ animated: true });
-            }, 100);
+            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
         } catch (error) {
             console.error('Error sending message:', error);
         } finally {
@@ -77,8 +88,8 @@ export default function MessageDetailScreen() {
         }
     };
 
-    const renderMessage = ({ item }: { item: Message }) => {
-        const isMe = item.is_me; // Assuming backend provides this
+    const renderMessage = ({ item }: { item: MessageDisplay }) => {
+        const isMe = item.is_me;
         return (
             <View style={[
                 styles.messageContainer,
@@ -109,15 +120,15 @@ export default function MessageDetailScreen() {
         <SafeAreaView style={styles.container} edges={['bottom']}>
             <Stack.Screen options={{
                 headerShown: true,
-                title: name as string || 'Chat',
+                title: (name as string) || 'Chat',
                 headerBackTitle: 'Messages',
             }} />
 
-            {/* Custom Header if not using Stack.Screen header or to augment it */}
             <View style={styles.header}>
                 <IconButton icon="arrow-left" onPress={() => router.back()} />
-                <Avatar.Text size={40} label={(name as string)?.[0] || '?'} style={styles.avatar} />
-                <Text variant="titleMedium" style={styles.headerTitle}>{name || 'Chat'}</Text>
+                <Surface style={styles.titleRow} elevation={0}>
+                    <Text variant="titleMedium" style={styles.headerTitle}>{name || 'Chat'}</Text>
+                </Surface>
             </View>
 
             {loading ? (
@@ -129,7 +140,7 @@ export default function MessageDetailScreen() {
                     ref={flatListRef}
                     data={messages}
                     renderItem={renderMessage}
-                    keyExtractor={item => item.id.toString()}
+                    keyExtractor={(item, index) => (item.id ?? index).toString()}
                     contentContainerStyle={styles.listContent}
                     onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
                 />
@@ -175,13 +186,14 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: '#E5E7EB',
     },
-    avatar: {
-        backgroundColor: '#E0E7FF',
-        marginRight: 12,
+    titleRow: {
+        flex: 1,
+        paddingHorizontal: 8,
+        backgroundColor: 'transparent',
+        elevation: 0,
     },
     headerTitle: {
         fontWeight: '600',
-        flex: 1,
     },
     centerContainer: {
         flex: 1,

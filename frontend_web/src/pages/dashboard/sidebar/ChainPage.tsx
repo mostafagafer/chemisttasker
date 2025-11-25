@@ -1,6 +1,6 @@
 // src/pages/dashboard/sidebar/ChainPage.tsx
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Box, Button, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, Snackbar, IconButton,
@@ -15,18 +15,21 @@ import {
   Edit as EditIcon, ExpandMore as ExpandMoreIcon,
   Close as CloseIcon
 } from '@mui/icons-material';
-import apiClient from '../../../utils/apiClient';
-import { API_BASE_URL, API_ENDPOINTS } from '../../../constants/api';
-
-type Chain = {
-  id: string;
-  name: string;
-  primary_contact_email: string;
-  logo?: string | null;
-};
-type Pharmacy = { id: string; name: string };
-type User = { id: string; email: string; role: string };
-type Membership = { id: string; user_details: User };
+import { API_BASE_URL } from '../../../constants/api';
+import {
+  Chain,
+  PharmacySummary,
+  MembershipSummary,
+  fetchChainsService,
+  createChainService,
+  updateChainService,
+  deleteChainService,
+  fetchChainPharmaciesService,
+  fetchPharmaciesService,
+  fetchMembershipsByPharmacy,
+  addPharmacyToChain,
+  removePharmacyFromChain,
+} from '@chemisttasker/shared-core';
 
 export default function ChainPage() {
   // ── Chain ─────────────────────────
@@ -38,13 +41,13 @@ export default function ChainPage() {
   const [openChainDlg, setOpenChainDlg] = useState(false);
 
   // ── Pharmacies ────────────────────
-  const [allPharmacies, setAllPharmacies] = useState<Pharmacy[]>([]);
-  const [chainPharmacies, setChainPharmacies] = useState<Pharmacy[]>([]);
+  const [allPharmacies, setAllPharmacies] = useState<PharmacySummary[]>([]);
+  const [chainPharmacies, setChainPharmacies] = useState<PharmacySummary[]>([]);
   const [openPharmDlg, setOpenPharmDlg] = useState(false);
-  const [tempPharmacies, setTempPharmacies] = useState<Pharmacy[]>([]);
+  const [tempPharmacies, setTempPharmacies] = useState<PharmacySummary[]>([]);
 
   // ── Users & memberships ───────────
-  const [memberships, setMemberships] = useState<Record<string, Membership[]>>({});
+  const [memberships, setMemberships] = useState<Record<number, MembershipSummary[]>>({});
 
 
   // New loading state for the entire page's initial data fetch
@@ -55,49 +58,56 @@ export default function ChainPage() {
 
   // ── Load initial data ──────────────
   useEffect(() => {
+    let isMounted = true;
     setPageLoading(true);
-    Promise.all([
-      apiClient.get<Chain[]>(`${API_BASE_URL}${API_ENDPOINTS.chains}`),
-      apiClient.get<Pharmacy[]>(`${API_BASE_URL}${API_ENDPOINTS.pharmacies}`)
-    ])
-    .then(([chainsRes, pharmaciesRes]) => {
-      if (chainsRes.data.length) {
-        setChain(chainsRes.data[0]);
-      }
-      setAllPharmacies(pharmaciesRes.data);
-    })
-    .catch(console.error)
-    .finally(() => setPageLoading(false));
+    Promise.all([fetchChainsService(), fetchPharmaciesService({})])
+      .then(([chains, pharmacies]) => {
+        if (!isMounted) return;
+        if (chains.length) {
+          setChain(chains[0]);
+        }
+        setAllPharmacies(pharmacies);
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (isMounted) {
+          setPageLoading(false);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // ── Whenever chain changes, load its pharmacies + members ─────────────
-  useEffect(() => {
-    if (!chain) return;
-    setPageLoading(true);
-    // The response might be a paginated object { count, results } or a direct array.
-    apiClient
-      .get<any>( // Use 'any' to handle both possible response shapes
-        `${API_BASE_URL}${API_ENDPOINTS.chainDetail(chain.id)}pharmacies/`
-      )
+  const loadMembers = useCallback((phId: number) => {
+    fetchMembershipsByPharmacy(phId)
       .then(res => {
-        const pharmacies = Array.isArray(res.data) ? res.data : res.data.results;
-        setChainPharmacies(pharmacies);
-        pharmacies.forEach((p: Pharmacy) => loadMembers(p.id));
-      })
-      .catch(console.error)
-      .finally(() => setPageLoading(false));
-  }, [chain]);
-
-  function loadMembers(phId: string) {
-    apiClient
-      .get<Membership[]>(
-        `${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${phId}`
-      )
-      .then(res => {
-        setMemberships(m => ({ ...m, [phId]: res.data }));
+        setMemberships(m => ({ ...m, [phId]: res }));
       })
       .catch(console.error);
-  }
+  }, []);
+
+  useEffect(() => {
+    if (!chain) return;
+    let isMounted = true;
+    setPageLoading(true);
+    fetchChainPharmaciesService(chain.id)
+      .then(pharmacies => {
+        if (!isMounted) return;
+        setChainPharmacies(pharmacies);
+        pharmacies.forEach((p: PharmacySummary) => loadMembers(p.id));
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (isMounted) {
+          setPageLoading(false);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [chain, loadMembers]);
 
   // ── Chain Dialog Handlers ────────────────────────────────────────────
   function openCreateChain() {
@@ -111,7 +121,7 @@ export default function ChainPage() {
     if (!chain) return;
     setIsEditing(true);
     setChainName(chain.name);
-    setChainEmail(chain.primary_contact_email);
+    setChainEmail(chain.primaryContactEmail ?? '');
     setChainLogo(null);
     setOpenChainDlg(true);
   }
@@ -122,32 +132,32 @@ export default function ChainPage() {
       fd.append('primary_contact_email', chainEmail);
       if (chainLogo) fd.append('logo', chainLogo);
 
-      let res;
+      let savedChain: Chain;
       if (isEditing && chain) {
-        res = await apiClient.put<Chain>(
-          `${API_BASE_URL}${API_ENDPOINTS.chainDetail(chain.id)}`, fd
-        );
+        savedChain = await updateChainService(chain.id, fd);
         setSnack({ open: true, msg: 'Chain updated' });
       } else {
-        res = await apiClient.post<Chain>(
-          `${API_BASE_URL}${API_ENDPOINTS.chains}`, fd
-        );
+        savedChain = await createChainService(fd);
         setSnack({ open: true, msg: 'Chain created' });
       }
-      setChain(res.data);
+      setChain(savedChain);
       setOpenChainDlg(false);
-    } catch (e: any) { // Catch as 'any' to access response data
+    } catch (e: any) {
       console.error(e);
-      // Display API error message in Snackbar
-      setSnack({ open: true, msg: e.response?.data?.detail || 'Failed to save chain.' });
+      setSnack({ open: true, msg: e?.message || 'Failed to save chain.' });
     }
   }
   async function handleDeleteChain() {
     if (!chain) return;
-    await apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.chainDetail(chain.id)}`);
-    setChain(null);
-    setChainPharmacies([]);
-    setSnack({ open: true, msg: 'Chain deleted' });
+    try {
+      await deleteChainService(chain.id);
+      setChain(null);
+      setChainPharmacies([]);
+      setSnack({ open: true, msg: 'Chain deleted' });
+    } catch (err: any) {
+      console.error(err);
+      setSnack({ open: true, msg: err?.message || 'Failed to delete chain.' });
+    }
   }
 
   // ── Manage Pharmacies ────────────────────────────────────────────────
@@ -165,22 +175,16 @@ export default function ChainPage() {
     const toAdd = tempPharmacies.filter(p => !origIds.includes(p.id));
     const toRem = chainPharmacies.filter(p => !selIds.includes(p.id));
 
-    await Promise.all(toAdd.map(p =>
-      apiClient.post(
-        `${API_BASE_URL}${API_ENDPOINTS.addPharmacyToChain(chain.id)}`,
-        { pharmacy_id: p.id }
-      )
-    ));
-    await Promise.all(toRem.map(p =>
-      apiClient.post(
-        `${API_BASE_URL}${API_ENDPOINTS.removePharmacyFromChain(chain.id)}`,
-        { pharmacy_id: p.id }
-      )
-    ));
-
-    setOpenPharmDlg(false);
-    setSnack({ open: true, msg: 'Pharmacies updated' });
-    setChain(c => c && ({ ...c })); // trigger reload
+    try {
+      await Promise.all(toAdd.map(p => addPharmacyToChain(chain.id, p.id)));
+      await Promise.all(toRem.map(p => removePharmacyFromChain(chain.id, p.id)));
+      setOpenPharmDlg(false);
+      setSnack({ open: true, msg: 'Pharmacies updated' });
+      setChain(c => (c ? { ...c } : c)); // trigger reload
+    } catch (err: any) {
+      console.error(err);
+      setSnack({ open: true, msg: err?.message || 'Failed to update pharmacies.' });
+    }
   }
 
   // ── RENDER ──────────────────────────────────────────────────────────
@@ -257,7 +261,7 @@ export default function ChainPage() {
               </Button>
             </Box>
           </Grid>
-          <Typography sx={{ mb: 4 }}>{chain.primary_contact_email}</Typography>
+          <Typography sx={{ mb: 4 }}>{chain.primaryContactEmail}</Typography>
 
           {/* Staff by Pharmacy */}
           <Typography variant="h5" sx={{ mb: 2 }}>Staff by Pharmacy</Typography>
@@ -277,8 +281,13 @@ export default function ChainPage() {
                         // secondaryAction removed (delete button)
                       >
                         <ListItemText
-                          primary={m.user_details.email}
-                          secondary={m.user_details.role}
+                          primary={
+                            m.userDetails?.email ||
+                            `${m.userDetails?.first_name ?? ''} ${m.userDetails?.last_name ?? ''}`.trim() ||
+                            m.invitedName ||
+                            'Member'
+                          }
+                          secondary={m.role ?? undefined}
                         />
                       </ListItem>
                     ))}

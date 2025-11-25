@@ -14,9 +14,8 @@ import {
 import { alpha, useTheme } from "@mui/material/styles";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import { Link as RouterLink } from "react-router-dom";
-import apiClient from "../../../utils/apiClient";
-import { API_BASE_URL, API_ENDPOINTS } from "../../../constants/api";
 import { useAuth } from "../../../contexts/AuthContext";
+import { getOnboarding, getOwnerDashboard } from "@chemisttasker/shared-core";
 
 const formatShiftDate = (value?: string | null) => {
   if (!value) return "No date provided";
@@ -44,10 +43,6 @@ type DashboardData = {
   bills_summary?: Record<string, string>;
 };
 
-const fetchOwnerDashboard = () => apiClient.get(API_ENDPOINTS.ownerDashboard);
-const fetchOwnerOnboarding = () =>
-  apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.onboardingDetail("owner")}`);
-
 export default function OverviewPageOwner() {
   const theme = useTheme();
   const { user } = useAuth() as { user: User };
@@ -61,14 +56,14 @@ export default function OverviewPageOwner() {
     let active = true;
     setLoading(true);
 
-    Promise.allSettled([fetchOwnerDashboard(), fetchOwnerOnboarding()])
+    Promise.allSettled([getOwnerDashboard(), getOnboarding("owner")])
       .then(([dashboardRes, onboardingRes]) => {
         if (!active) {
           return;
         }
 
         if (dashboardRes.status === "fulfilled") {
-          setData(dashboardRes.value.data);
+          setData(dashboardRes.value as any);
           setError(null);
         } else {
           setData(null);
@@ -76,7 +71,7 @@ export default function OverviewPageOwner() {
         }
 
         if (onboardingRes.status === "fulfilled") {
-          setOwnerProfile(onboardingRes.value.data);
+          setOwnerProfile(onboardingRes.value as any);
         }
       })
       .finally(() => {

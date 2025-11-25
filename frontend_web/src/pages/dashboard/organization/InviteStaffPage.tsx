@@ -47,9 +47,15 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 
 import { useAuth } from '../../../contexts/AuthContext';
 import type { OrgMembership, PharmacyMembership } from '../../../contexts/AuthContext';
-import { API_ENDPOINTS } from '../../../constants/api';
 import { ORG_ROLES } from '../../../constants/roles';
-import apiClient from '../../../utils/apiClient';
+import {
+  fetchPharmaciesService,
+  getOrganizationMemberships,
+  getOrganizationRoleDefinitions,
+  inviteOrgUser,
+  deleteOrganizationMembership,
+  updateOrganizationMembership,
+} from '@chemisttasker/shared-core';
 
 type RoleDefinition = {
   key: string;
@@ -73,6 +79,12 @@ type AdminLevelDefinition = {
 type PharmacyOption = {
   id: number;
   name: string;
+};
+
+type RoleMetadata = {
+  admin_levels?: AdminLevelDefinition[];
+  roles?: RoleDefinition[];
+  documentation?: string;
 };
 
 type OrganizationMember = {
@@ -244,14 +256,14 @@ export default function InviteStaffPage() {
 
     const fetchMetadata = async () => {
       try {
-        const [roleResponse, pharmacyResponse] = await Promise.all([
-          apiClient.get(API_ENDPOINTS.organizationRoleDefinitions),
-          apiClient.get(API_ENDPOINTS.pharmacies, { params: { organization: orgId, limit: 200 } }),
+        const [roleResponse, pharmaciesResponse] = await Promise.all([
+          getOrganizationRoleDefinitions(),
+          fetchPharmaciesService({ organization: orgId, limit: 200 }),
         ]);
 
         if (!isMounted) return;
 
-        const roleData = roleResponse.data || {};
+        const roleData: RoleMetadata = (roleResponse as RoleMetadata) || {};
         const adminLevelsArray: AdminLevelDefinition[] = roleData.admin_levels ?? [];
         const roleDefs: RoleDefinition[] = roleData.roles ?? [];
 
@@ -260,11 +272,7 @@ export default function InviteStaffPage() {
           return acc;
         }, {});
 
-        const pharmacyResults = Array.isArray(pharmacyResponse.data?.results)
-          ? pharmacyResponse.data.results
-          : Array.isArray(pharmacyResponse.data)
-          ? pharmacyResponse.data
-          : [];
+        const pharmacyResults = Array.isArray(pharmaciesResponse) ? pharmaciesResponse : [];
 
         setRoleDefinitions(roleDefs);
         setAdminLevelMap(adminLevelDictionary);
@@ -331,13 +339,11 @@ export default function InviteStaffPage() {
     setMembersLoading(true);
     setMembersError('');
     try {
-      const response = await apiClient.get(API_ENDPOINTS.organizationMemberships, {
-        params: { organization: orgId, limit: 200 },
-      });
-      const data: OrganizationMember[] = Array.isArray(response.data?.results)
-        ? response.data.results
-        : Array.isArray(response.data)
-        ? response.data
+      const response = await getOrganizationMemberships({ organization: orgId, limit: 200 });
+      const data: OrganizationMember[] = Array.isArray((response as any)?.results)
+        ? (response as any).results
+        : Array.isArray(response as any)
+        ? (response as any)
         : [];
       setMembers(data);
     } catch (err: any) {
@@ -407,7 +413,7 @@ export default function InviteStaffPage() {
         payload.pharmacies = selectedPharmacyIds;
       }
 
-      await apiClient.post(API_ENDPOINTS.inviteOrgUser, payload);
+      await inviteOrgUser(payload);
       await loadMemberships();
       setMessage('Invitation sent successfully.');
       setEmail('');
@@ -471,7 +477,7 @@ export default function InviteStaffPage() {
     setSavingMember(true);
     setEditError('');
     try {
-      await apiClient.patch(`${API_ENDPOINTS.organizationMemberships}${editForm.id}/`, {
+      await updateOrganizationMembership(editForm.id, {
         role: editForm.role,
         admin_level: editForm.admin_level,
         job_title: editForm.job_title.trim() || null,
@@ -510,7 +516,7 @@ export default function InviteStaffPage() {
     setDeletingMember(true);
     setDeleteError('');
     try {
-      await apiClient.delete(`${API_ENDPOINTS.organizationMemberships}${targetMember.id}/`);
+      await deleteOrganizationMembership(targetMember.id);
       await loadMemberships();
       handleCloseDeleteDialog();
     } catch (err: any) {

@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, ActivityIndicator, Alert } from 'react-native';
-import { Text, Card, Button, Surface, Chip, Divider, List } from 'react-native-paper';
+import { Text, Button, Surface, Chip, Divider, List } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import apiClient from '../../../utils/apiClient';
+import { getActiveShiftDetail, updateShift } from '@chemisttasker/shared-core';
 
 interface Shift {
     id: number;
@@ -26,22 +26,22 @@ export default function ShiftDetailsScreen() {
     const [shift, setShift] = useState<Shift | null>(null);
     const [error, setError] = useState('');
 
-    useEffect(() => {
-        fetchShift();
-    }, [id]);
-
-    const fetchShift = async () => {
+    const fetchShift = useCallback(async () => {
         try {
             setError('');
-            const response = await apiClient.get(`/client-profile/shifts/${id}/`);
-            setShift(response.data);
+            const response = await getActiveShiftDetail(id as string);
+            setShift(response as Shift);
         } catch (err: any) {
             console.error('Error fetching shift:', err);
             setError('Failed to load shift details');
         } finally {
             setLoading(false);
         }
-    };
+    }, [id]);
+
+    useEffect(() => {
+        void fetchShift();
+    }, [fetchShift]);
 
     const handleCancelShift = () => {
         Alert.alert(
@@ -54,9 +54,10 @@ export default function ShiftDetailsScreen() {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            await apiClient.patch(`/client-profile/shifts/${id}/`, { status: 'CANCELLED' });
+                            await updateShift(id as string, { status: 'CANCELLED' });
                             fetchShift();
                         } catch (err: any) {
+                            console.error('Failed to cancel shift', err);
                             Alert.alert('Error', 'Failed to cancel shift');
                         }
                     },

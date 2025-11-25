@@ -17,31 +17,16 @@ import {
 } from "@mui/material";
 import DoneIcon from "@mui/icons-material/Done";
 import CloseIcon from "@mui/icons-material/Close";
-import apiClient from "../../../../utils/apiClient";
-import { API_BASE_URL, API_ENDPOINTS } from "../../../../constants/api";
+import {
+  approveMembershipApplicationService,
+  fetchMembershipApplicationsService,
+  rejectMembershipApplicationService,
+  type MembershipApplication,
+} from "@chemisttasker/shared-core";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 
 dayjs.extend(utc);
-
-type MembershipApplication = {
-  id: number;
-  pharmacy: string | number;
-  category: "FULL_PART_TIME" | "LOCUM_CASUAL";
-  role: string;
-  email?: string;
-  first_name?: string;
-  last_name?: string;
-  submitted_at?: string;
-  pharmacist_award_level?: string | null;
-  otherstaff_classification_level?: string | null;
-  intern_half?: string | null;
-  student_year?: string | null;
-};
-
-type PaginatedResponse<T> = {
-  results?: T[];
-};
 
 type MembershipApplicationsPanelProps = {
   pharmacyId: string;
@@ -65,10 +50,10 @@ const labelCategory = (category: "FULL_PART_TIME" | "LOCUM_CASUAL") =>
 
 const formatClassification = (app: MembershipApplication) => {
   const raw =
-    app.pharmacist_award_level ||
-    app.otherstaff_classification_level ||
-    app.intern_half ||
-    app.student_year ||
+    app.pharmacistAwardLevel ||
+    app.otherstaffClassificationLevel ||
+    app.internHalf ||
+    app.studentYear ||
     "";
 
   return raw
@@ -78,18 +63,10 @@ const formatClassification = (app: MembershipApplication) => {
     .join(" ");
 };
 
-const formatTimestamp = (value?: string) => {
-  if (!value) return "—";
+const formatTimestamp = (value?: string | null) => {
+  if (!value) return "-";
   const parsed = dayjs.utc(value);
   return parsed.isValid() ? parsed.local().toDate().toLocaleString() : value;
-};
-
-const buildDefaultMap = (apps: MembershipApplication[], fallback: string) => {
-  const map: Record<number, string> = {};
-  apps.forEach((app) => {
-    map[app.id] = fallback;
-  });
-  return map;
 };
 
 export default function MembershipApplicationsPanel({
@@ -118,17 +95,15 @@ export default function MembershipApplicationsPanel({
     isFetchingRef.current = true;
     setLoading(true);
     try {
-      const res = await apiClient.get<PaginatedResponse<MembershipApplication>>(
-        `${API_BASE_URL}${API_ENDPOINTS.membershipApplications}?status=PENDING`
-      );
-      const results = res.data.results || [];
+      const results = await fetchMembershipApplicationsService({ status: "PENDING" });
       const filtered = results.filter(
-        (app) => String(app.pharmacy) === String(pharmacyId) && app.category === category
+        (app: MembershipApplication) =>
+          String(app.pharmacy) === String(pharmacyId) && app.category === category
       );
       setApplications(filtered);
       setApproveTypeById((prev) => {
         const base = { ...prev };
-        filtered.forEach((app) => {
+        filtered.forEach((app: MembershipApplication) => {
           if (!base[app.id]) {
             base[app.id] = defaultEmploymentType;
           }
@@ -159,10 +134,7 @@ export default function MembershipApplicationsPanel({
     async (app: MembershipApplication) => {
       const employmentType = approveTypeById[app.id] || defaultEmploymentType;
       try {
-        await apiClient.post(
-          `${API_BASE_URL}${API_ENDPOINTS.membershipApplications}${app.id}/approve/`,
-          { employment_type: employmentType }
-        );
+        await approveMembershipApplicationService(app.id, { employment_type: employmentType });
         notify("Application approved.", "success");
         await fetchApplications();
         onApproved?.();
@@ -176,7 +148,7 @@ export default function MembershipApplicationsPanel({
   const handleReject = useCallback(
     async (app: MembershipApplication) => {
       try {
-        await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipApplications}${app.id}/reject/`, {});
+        await rejectMembershipApplicationService(app.id);
         notify("Application rejected.", "success");
         await fetchApplications();
       } catch (error: any) {
@@ -204,7 +176,7 @@ export default function MembershipApplicationsPanel({
       ) : (
         <Stack spacing={1.5}>
           {applications.map((app) => {
-            const applicantName = [app.first_name, app.last_name].filter(Boolean).join(" ") || "Applicant";
+            const applicantName = [app.firstName, app.lastName].filter(Boolean).join(" ") || "Applicant";
             const selectedType = approveTypeById[app.id] || defaultEmploymentType;
             const classification = formatClassification(app);
 
@@ -233,7 +205,7 @@ export default function MembershipApplicationsPanel({
                       )}
                     </Stack>
                     <Typography variant="caption" sx={{ display: "block", mt: 1, color: "text.secondary" }}>
-                      Submitted: {formatTimestamp(app.submitted_at)}
+                      Submitted: {formatTimestamp(app.submittedAt)}
                     </Typography>
                   </Box>
 

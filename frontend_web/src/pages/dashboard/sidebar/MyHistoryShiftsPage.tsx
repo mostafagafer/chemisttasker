@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Container,
   Typography,
@@ -17,27 +17,16 @@ import {
   Skeleton,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
-
-interface Slot {
-  id: number;
-  date: string;
-  start_time: string;
-  end_time: string;
-  is_recurring: boolean;
-  recurring_days: number[];
-  recurring_end_date: string | null;
-}
-
-interface Shift {
-  id: number;
-  pharmacy_detail: { name: string; id: number };
-  role_needed: string;
-  slots: Slot[];
-}
+import {
+  Shift,
+  ShiftRatingSummary,
+  fetchMyHistoryShifts,
+  fetchRatingsSummaryService,
+  fetchMyRatingForTargetService,
+  createRatingService,
+} from '@chemisttasker/shared-core';
 
 const curvedPaperSx = {
   borderRadius: 3,
@@ -51,7 +40,6 @@ const gradientButtonSx = {
   '&:hover': { background: 'linear-gradient(90deg, #A78BFA 0%, #8B5CF6 100%)' },
 };
 
-
 export default function MyHistoryShiftsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -60,22 +48,19 @@ export default function MyHistoryShiftsPage() {
       ? '/dashboard/pharmacist'
       : user?.role === 'OTHER_STAFF'
       ? '/dashboard/otherstaff'
-      : '/dashboard/pharmacist'; // sensible fallback
+      : '/dashboard/pharmacist';
 
   const [shifts, setShifts] = useState<Shift[]>([]);
-  const [loading, setLoading] = useState(true); // Set to true initially for skeleton loading
-  const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string }>({
-    open: false,
-    msg: '',
-  });
+  const [loading, setLoading] = useState(true);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string }>({ open: false, msg: '' });
   const [page, setPage] = useState(1);
-  const [generatingId, _setGeneratingId] = useState<number | null>(null);
-  // Rating Modal State
-  const [pharmacySummaries, setPharmacySummaries] = useState<Record<number, { average: number; count: number }>>({});
+  const [generatingId, setGeneratingId] = useState<number | null>(null);
+
+  const [pharmacySummaries, setPharmacySummaries] = useState<Record<number, ShiftRatingSummary>>({});
   const [ratingModalOpen, setRatingModalOpen] = useState(false);
   const [selectedPharmacy, setSelectedPharmacy] = useState<{ id: number; name: string } | null>(null);
-  const [currentStars, setCurrentStars] = useState<number>(0);
-  const [currentComment, setCurrentComment] = useState<string>('');
+  const [currentStars, setCurrentStars] = useState(0);
+  const [currentComment, setCurrentComment] = useState('');
   const [loadingRating, setLoadingRating] = useState(false);
   const [loadingExistingRating, setLoadingExistingRating] = useState(false);
 
@@ -84,45 +69,35 @@ export default function MyHistoryShiftsPage() {
   const displayed = shifts.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
   useEffect(() => {
-    setLoading(true); // Ensure loading is true when fetching starts
-    apiClient
-      .get(API_ENDPOINTS.getMyHistoryShifts)
-      .then((res) => {
-        const raw = res.data as any;
-        const data: Shift[] = Array.isArray(raw)
-          ? raw
-          : Array.isArray(raw.results)
-          ? raw.results
-          : [];
+    setLoading(true);
+    fetchMyHistoryShifts()
+      .then(data => {
         setShifts(data);
-
-                // Fetch rating summaries for each unique pharmacy
-        const uniquePharmacyIds = Array.from(new Set(data.map((shift) => shift.pharmacy_detail.id)));
-        uniquePharmacyIds.forEach(async (pharmacyId) => {
-          try {
-            const res = await apiClient.get(
-              `${API_ENDPOINTS.ratingsSummary}?target_type=pharmacy&target_id=${pharmacyId}`
-            );
-            setPharmacySummaries((prev) => ({
-              ...prev,
-              [pharmacyId]: {
-                average: res.data.average,
-                count: res.data.count,
-              },
-            }));
-          } catch {
-            console.error('Failed to fetch rating summary for pharmacy', pharmacyId);
-          }
+        const uniquePharmacyIds: number[] = Array.from(
+          new Set(
+            data
+              .map((shift: Shift) => shift.pharmacyDetail?.id)
+              .filter((id: number | undefined): id is number => typeof id === 'number')
+          )
+        );
+        uniquePharmacyIds.forEach((id: number) => {
+          fetchRatingsSummaryService({ targetType: 'pharmacy', targetId: id })
+            .then(summary =>
+              setPharmacySummaries(prev => ({
+                ...prev,
+                [id]: summary,
+              }))
+            )
+            .catch(() => {
+              // ignore summary errors
+            });
         });
-
       })
-      .catch(() =>
-        setSnackbar({ open: true, msg: 'Failed to load history shifts' })
-      )
-      .finally(() => setLoading(false)); // Ensure loading is set to false
+      .catch(() => setSnackbar({ open: true, msg: 'Failed to load history shifts' }))
+      .finally(() => setLoading(false));
   }, []);
 
-  const closeSnackbar = () => setSnackbar((s) => ({ ...s, open: false }));
+  const closeSnackbar = () => setSnackbar(s => ({ ...s, open: false }));
 
   const handlePageChange = (_: React.ChangeEvent<unknown>, value: number) => {
     setPage(value);
@@ -130,28 +105,25 @@ export default function MyHistoryShiftsPage() {
   };
 
   const handleGenerateInvoice = (shift: Shift) => {
-    navigate(
-      `${base}/invoice/new?shiftId=${shift.id}&pharmacyId=${shift.pharmacy_detail.id}`
-    );
+    setGeneratingId(shift.id);
+    navigate(`${base}/invoice/new?shiftId=${shift.id}&pharmacyId=${shift.pharmacyDetail?.id ?? ''}`);
+    setTimeout(() => setGeneratingId(null), 0);
   };
 
-  // Re-fetch the pharmacy rating summary (average + count)
-const fetchSummaryForPharmacy = async (pharmacyId: number) => {
-  try {
-    const res = await apiClient.get(
-      `${API_ENDPOINTS.ratingsSummary}?target_type=pharmacy&target_id=${pharmacyId}`
-    );
-    setPharmacySummaries((prev) => ({
-      ...prev,
-      [pharmacyId]: {
-        average: res.data.average,
-        count: res.data.count,
-      },
-    }));
-  } catch {
-    console.error('Failed to refresh pharmacy rating summary');
-  }
-};
+  const fetchSummaryForPharmacy = async (pharmacyId: number) => {
+    try {
+      const summary = await fetchRatingsSummaryService({
+        targetType: 'pharmacy',
+        targetId: pharmacyId,
+      });
+      setPharmacySummaries(prev => ({
+        ...prev,
+        [pharmacyId]: summary,
+      }));
+    } catch {
+      // ignore summary errors
+    }
+  };
 
   const handleOpenRatingModal = async (pharmacyId: number, pharmacyName: string) => {
     setSelectedPharmacy({ id: pharmacyId, name: pharmacyName });
@@ -159,20 +131,18 @@ const fetchSummaryForPharmacy = async (pharmacyId: number) => {
     setRatingModalOpen(true);
 
     try {
-      // Fetch existing rating
-      const res = await apiClient.get(
-        `${API_ENDPOINTS.ratingsMine}?target_type=pharmacy&target_id=${pharmacyId}`
-      );
-      if (res.data && res.data.id) {
-        // Pre-fill with existing rating
-        setCurrentStars(res.data.stars || 0);
-        setCurrentComment(res.data.comment || '');
+      const existing = await fetchMyRatingForTargetService({
+        targetType: 'pharmacy',
+        targetId: pharmacyId,
+      });
+      if (existing) {
+        setCurrentStars(existing.stars || 0);
+        setCurrentComment(existing.comment || '');
       } else {
-        // No rating yet
         setCurrentStars(0);
         setCurrentComment('');
       }
-    } catch (err) {
+    } catch {
       setSnackbar({ open: true, msg: 'Failed to load existing rating' });
       setCurrentStars(0);
       setCurrentComment('');
@@ -181,23 +151,37 @@ const fetchSummaryForPharmacy = async (pharmacyId: number) => {
     }
   };
 
+  const handleSaveRating = async () => {
+    if (!selectedPharmacy) return;
+    setLoadingRating(true);
+    try {
+      await createRatingService({
+        direction: 'WORKER_TO_PHARMACY',
+        ratee_pharmacy: selectedPharmacy.id,
+        stars: currentStars,
+        comment: currentComment,
+      });
+      await fetchSummaryForPharmacy(selectedPharmacy.id);
+      setSnackbar({ open: true, msg: 'Rating saved successfully!' });
+      setRatingModalOpen(false);
+    } catch {
+      setSnackbar({ open: true, msg: 'Failed to save rating' });
+    } finally {
+      setLoadingRating(false);
+    }
+  };
+
   if (loading) {
     return (
       <Container sx={{ textAlign: 'center', py: 4 }}>
-        {[...Array(3)].map((_, index) => ( // Render 3 skeleton papers
+        {[...Array(3)].map((_, index) => (
           <Paper key={index} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
             <Skeleton variant="text" width="70%" height={30} sx={{ mb: 1 }} />
             <Skeleton variant="text" width="50%" height={20} sx={{ mb: 2 }} />
             <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {[...Array(2)].map((__, slotIndex) => (
-                    <Box key={slotIndex} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Skeleton variant="text" width="40%" />
-                        {/* <Rating readOnly size="small" value={0} /> Placeholder for Rating */}
-                    </Box>
-                ))}
-            </Box>
-            <Box sx={{ mt: 2, textAlign: 'right' }}>
-              <Skeleton variant="rectangular" width={150} height={36} />
+              {[...Array(2)].map(slotIndex => (
+                <Skeleton key={slotIndex} variant="text" width="70%" height={20} />
+              ))}
             </Box>
           </Paper>
         ))}
@@ -219,30 +203,28 @@ const fetchSummaryForPharmacy = async (pharmacyId: number) => {
         My Shift History
       </Typography>
 
-      {displayed.map((shift) => (
+      {displayed.map(shift => {
+        const slots = shift.slots ?? [];
+
+        return (
         <Paper key={shift.id} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
           <Box display="flex" alignItems="center" justifyContent="space-between">
-            <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
+            <Typography variant="h6">{shift.pharmacyDetail?.name ?? 'Unknown Pharmacy'}</Typography>
 
-            {pharmacySummaries[shift.pharmacy_detail.id] && (
+            {shift.pharmacyDetail?.id && pharmacySummaries[shift.pharmacyDetail.id] && (
               <Box display="flex" alignItems="center" gap={1}>
-                <Rating
-                  value={pharmacySummaries[shift.pharmacy_detail.id].average}
-                  precision={0.5}
-                  readOnly
-                  size="small"
-                />
+                <Rating value={pharmacySummaries[shift.pharmacyDetail.id].average} precision={0.5} readOnly size="small" />
                 <Typography variant="body2" color="textSecondary">
-                  ({pharmacySummaries[shift.pharmacy_detail.id].count})
+                  ({pharmacySummaries[shift.pharmacyDetail.id].count})
                 </Typography>
               </Box>
             )}
           </Box>
 
-          <Typography>Role: {shift.role_needed}</Typography>
+          <Typography>Role: {shift.roleNeeded}</Typography>
 
           <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {shift.slots.map((slot) => (
+            {slots.map(slot => (
               <Box
                 key={slot.id}
                 sx={{
@@ -252,15 +234,8 @@ const fetchSummaryForPharmacy = async (pharmacyId: number) => {
                 }}
               >
                 <Typography variant="body2">
-                  {slot.date} {slot.start_time}–{slot.end_time}
+                  {slot.date} {slot.startTime}–{slot.endTime}
                 </Typography>
-                {/* <Rating
-                  size="small"
-                  value={ratings[slot.id] || 0}
-                  onChange={(_, v) =>
-                    setRatings((r) => ({ ...r, [slot.id]: v || 0 }))
-                  }
-                /> */}
               </Box>
             ))}
           </Box>
@@ -277,28 +252,26 @@ const fetchSummaryForPharmacy = async (pharmacyId: number) => {
               {generatingId === shift.id ? 'Generating...' : 'Generate Invoice'}
             </Button>
           </Box>
-                    <Box mt={1} textAlign="right">
+          <Box mt={1} textAlign="right">
             <Button
               variant="outlined"
               color="secondary"
               size="small"
-              onClick={() => handleOpenRatingModal(shift.pharmacy_detail.id, shift.pharmacy_detail.name)}
+              onClick={() =>
+                shift.pharmacyDetail?.id &&
+                handleOpenRatingModal(shift.pharmacyDetail.id, shift.pharmacyDetail.name ?? 'Pharmacy')
+              }
             >
               Rate Pharmacy
             </Button>
           </Box>
-
         </Paper>
-      ))}
+      );
+      })}
 
       {pageCount > 1 && (
         <Box display="flex" justifyContent="center" mt={4}>
-          <Pagination
-            count={pageCount}
-            page={page}
-            onChange={handlePageChange}
-            color="primary"
-          />
+          <Pagination count={pageCount} page={page} onChange={handlePageChange} color="primary" />
         </Box>
       )}
 
@@ -314,16 +287,8 @@ const fetchSummaryForPharmacy = async (pharmacyId: number) => {
         }
       />
 
-      {/* === Rating Modal === */}
-      <Dialog
-        open={ratingModalOpen}
-        onClose={() => setRatingModalOpen(false)}
-        fullWidth
-        maxWidth="sm"
-      >
-        <DialogTitle>
-          {selectedPharmacy ? `Rate ${selectedPharmacy.name}` : 'Rate Pharmacy'}
-        </DialogTitle>
+      <Dialog open={ratingModalOpen} onClose={() => setRatingModalOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>{selectedPharmacy ? `Rate ${selectedPharmacy.name}` : 'Rate Pharmacy'}</DialogTitle>
         <DialogContent>
           {loadingExistingRating ? (
             <Box display="flex" justifyContent="center" py={3}>
@@ -343,7 +308,7 @@ const fetchSummaryForPharmacy = async (pharmacyId: number) => {
                 multiline
                 minRows={3}
                 value={currentComment}
-                onChange={(e) => setCurrentComment(e.target.value)}
+                onChange={e => setCurrentComment(e.target.value)}
                 fullWidth
               />
             </Box>
@@ -352,28 +317,7 @@ const fetchSummaryForPharmacy = async (pharmacyId: number) => {
         <DialogActions>
           <Button onClick={() => setRatingModalOpen(false)}>Cancel</Button>
           <Button
-            onClick={async () => {
-              if (!selectedPharmacy) return;
-              setLoadingRating(true);
-              try {
-                await apiClient.post(API_ENDPOINTS.ratings, {
-                  direction: 'WORKER_TO_PHARMACY',
-                  ratee_pharmacy: selectedPharmacy.id,
-                  stars: currentStars,
-                  comment: currentComment,
-                });
-
-                // ✅ refresh the summary stars/count shown on the main page
-                await fetchSummaryForPharmacy(selectedPharmacy.id);
-
-                setSnackbar({ open: true, msg: 'Rating saved successfully!' });
-                setRatingModalOpen(false);
-              } catch {
-                setSnackbar({ open: true, msg: 'Failed to save rating' });
-              } finally {
-                setLoadingRating(false);
-              }
-            }}
+            onClick={handleSaveRating}
             variant="contained"
             color="primary"
             disabled={loadingRating || currentStars === 0}
@@ -383,7 +327,6 @@ const fetchSummaryForPharmacy = async (pharmacyId: number) => {
           </Button>
         </DialogActions>
       </Dialog>
-
     </Container>
   );
 }

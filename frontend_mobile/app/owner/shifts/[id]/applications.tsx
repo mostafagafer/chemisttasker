@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { Text, Surface, Avatar, Button, Chip, Divider, List } from 'react-native-paper';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import apiClient from '../../../../utils/apiClient';
+import { getWorkerShiftRequests, approveWorkerShiftRequest, rejectWorkerShiftRequest } from '@chemisttasker/shared-core';
 
 interface Application {
     id: number;
@@ -19,28 +19,36 @@ interface Application {
 }
 
 export default function ShiftApplicationsScreen() {
-    const router = useRouter();
     const { id } = useLocalSearchParams();
     const [applications, setApplications] = useState<Application[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
-    useEffect(() => {
-        fetchApplications();
-    }, [id]);
-
-    const fetchApplications = async () => {
+    const fetchApplications = useCallback(async () => {
         try {
             setError('');
-            const response = await apiClient.get(`/client-profile/shifts/${id}/applications/`);
-            setApplications(response.data);
+            const response = await getWorkerShiftRequests();
+            const list = Array.isArray((response as any)?.results)
+                ? (response as any).results
+                : Array.isArray(response)
+                    ? (response as any)
+                    : [];
+            const filtered = list.filter((req: any) => {
+                const shiftId = (req as any).shift_id ?? (req as any).shift ?? (req as any).shift?.id;
+                return String(shiftId) === String(id);
+            });
+            setApplications(filtered as any);
         } catch (err: any) {
             console.error('Error fetching applications:', err);
             setError('Failed to load applications');
         } finally {
             setLoading(false);
         }
-    };
+    }, [id]);
+
+    useEffect(() => {
+        void fetchApplications();
+    }, [fetchApplications]);
 
     const handleAccept = (applicationId: number) => {
         Alert.alert(
@@ -52,10 +60,11 @@ export default function ShiftApplicationsScreen() {
                     text: 'Accept',
                     onPress: async () => {
                         try {
-                            await apiClient.post(`/client-profile/shifts/${id}/applications/${applicationId}/accept/`);
+                            await approveWorkerShiftRequest(applicationId);
                             fetchApplications();
                             Alert.alert('Success', 'Application accepted!');
                         } catch (err: any) {
+                            console.error('Failed to accept application', err);
                             Alert.alert('Error', 'Failed to accept application');
                         }
                     },
@@ -75,9 +84,10 @@ export default function ShiftApplicationsScreen() {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            await apiClient.post(`/client-profile/shifts/${id}/applications/${applicationId}/reject/`);
+                            await rejectWorkerShiftRequest(applicationId);
                             fetchApplications();
                         } catch (err: any) {
+                            console.error('Failed to reject application', err);
                             Alert.alert('Error', 'Failed to reject application');
                         }
                     },

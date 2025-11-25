@@ -31,11 +31,97 @@ import { Calendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import { calendarViews, calendarMessages, getDateRangeForView, CalendarViewKey } from './calendarViews';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext'; // Using the corrected path
 import { ROSTER_COLORS } from '../../../constants/rosterColors';
+import {
+  PharmacySummary,
+  RosterAssignment,
+  WorkerShiftRequest as WorkerShiftRequestDto,
+  Shift as SharedShift,
+  fetchRosterWorkerPharmaciesService,
+  fetchRosterWorkerAssignments,
+  fetchCommunityShifts,
+  fetchWorkerShiftRequestsService,
+  claimShiftService,
+  createLeaveRequestService,
+  updateLeaveRequestService,
+  deleteLeaveRequestService,
+  createWorkerShiftRequestService,
+  updateWorkerShiftRequestService,
+  deleteWorkerShiftRequestService,
+} from '@chemisttasker/shared-core';
 const localizer = momentLocalizer(moment);
+
+const mapPharmacySummaryToView = (summary: PharmacySummary): Pharmacy => ({
+  id: summary.id,
+  name: summary.name ?? 'Unnamed Pharmacy',
+});
+
+const mapAssignmentToView = (assignment: RosterAssignment): Assignment => ({
+  id: assignment.id,
+  slot_date: assignment.slotDate,
+  user: assignment.user ?? null,
+  slot: assignment.slot ?? undefined,
+  shift: assignment.shift ?? undefined,
+  user_detail: {
+    id: assignment.userDetail.id,
+    first_name: assignment.userDetail.firstName ?? '',
+    last_name: assignment.userDetail.lastName ?? '',
+    email: assignment.userDetail.email ?? '',
+  },
+  slot_detail: {
+    id: assignment.slotDetail.id,
+    date: assignment.slotDetail.date,
+    start_time: assignment.slotDetail.startTime,
+    end_time: assignment.slotDetail.endTime,
+  },
+  shift_detail: {
+    id: assignment.shiftDetail.id,
+    pharmacy_name: assignment.shiftDetail.pharmacyName ?? 'Unknown Pharmacy',
+    role_needed: assignment.shiftDetail.roleNeeded ?? 'PHARMACIST',
+    visibility: assignment.shiftDetail.visibility ?? 'PRIVATE',
+  },
+  leave_request: assignment.leaveRequest
+    ? {
+        id: assignment.leaveRequest.id,
+        leave_type: assignment.leaveRequest.leaveType,
+        status: assignment.leaveRequest.status,
+        note: assignment.leaveRequest.note ?? '',
+      }
+    : null,
+  isSwapRequest: false,
+  status: undefined,
+  isOpenShift: false,
+  originalShiftId: undefined,
+  swap_request: undefined,
+});
+
+const mapOpenShiftToView = (shift: SharedShift): OpenShift => {
+  const slots = shift.slots ?? [];
+  return {
+    id: shift.id,
+    pharmacy: (shift as any).pharmacy ?? null,
+    role_needed: shift.roleNeeded,
+    slots: slots.map(slot => ({
+      id: slot.id,
+      date: slot.date,
+      start_time: slot.startTime,
+      end_time: slot.endTime,
+    })),
+    description: shift.description ?? '',
+  };
+};
+
+const mapWorkerRequestToView = (request: WorkerShiftRequestDto): WorkerSwapRequest => ({
+  id: request.id,
+  pharmacy: request.pharmacy ?? 0,
+  role: request.role,
+  slot_date: request.slotDate,
+  start_time: request.startTime,
+  end_time: request.endTime,
+  note: request.note ?? '',
+  status: request.status,
+});
 // --- Interfaces ---
 interface Pharmacy {
   id: number;
@@ -44,7 +130,7 @@ interface Pharmacy {
 interface UserDetail { id: number; first_name: string; last_name: string; email: string; }
 interface SlotDetail { id: number; date: string; start_time: string; end_time: string; }
 interface ShiftDetail { id: number; pharmacy_name: string; role_needed: string; visibility: string; }
-interface LeaveRequest {
+interface UiLeaveRequest {
   id: number;
   leave_type: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
@@ -69,7 +155,7 @@ interface Assignment {
   user_detail: UserDetail;
   slot_detail: SlotDetail;
   shift_detail: ShiftDetail;
-  leave_request: LeaveRequest | null;
+  leave_request: UiLeaveRequest | null;
   isSwapRequest?: boolean;  // added for frontend-only marking
   status?: "PENDING" | "APPROVED" | "REJECTED" | "AUTO_PUBLISHED"; // added for cover/swaps
   isOpenShift?: boolean; // NEW: added for owner-created open shifts
@@ -79,15 +165,10 @@ interface Assignment {
 // NEW: Interface for an open shift (unassigned, community-visible)
 interface OpenShift {
   id: number;
+  pharmacy?: number | null;
   role_needed: string;
   slots: SlotDetail[];
   description: string;
-}
-interface PaginatedResponse<T> {
-  count: number;
-  next: string | null;
-  previous: string | null;
-  results: T[];
 }
 // --- Constants ---
 const ROLES = ['PHARMACIST', 'ASSISTANT', 'INTERN', 'TECHNICIAN'];
@@ -118,6 +199,12 @@ const RosterPageSkeleton = () => (
 export default function RosterWorkerPage() {
   const { user } = useAuth();
   const currentUserId = user?.id;
+  const initialPharmacyFromUrl = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const candidate = params.get('pharmacy') ?? params.get('admin_pharmacy_id');
+    const num = candidate ? Number(candidate) : null;
+    return Number.isFinite(num) ? num : null;
+  }, []);
   // --- Component State ---
   const [allAssignments, setAllAssignments] = useState<Assignment[]>([]);
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
@@ -163,14 +250,13 @@ export default function RosterWorkerPage() {
       if (!currentUserId) return;
       setIsPageLoading(true);
       try {
-    setIsPageLoading(true);
-  const pharmacyRes = await apiClient.get<Pharmacy[]>(`${API_ENDPOINTS.getRosterWorker}pharmacies/`);
-  const loadedPharmacies = pharmacyRes.data || [];
-  setPharmacies(loadedPharmacies);
-  
-  if (loadedPharmacies.length > 0) {
-    setSelectedPharmacyId(loadedPharmacies[0].id);
-  }
+        const loadedPharmacies = await fetchRosterWorkerPharmaciesService();
+        const mapped = loadedPharmacies.map(mapPharmacySummaryToView);
+        setPharmacies(mapped);
+        if (mapped.length > 0) {
+          const initialId = initialPharmacyFromUrl ?? mapped[0].id;
+          setSelectedPharmacyId(initialId);
+        }
       } catch (err: any) { 
         console.error("Failed to load initial page data", err); 
       } finally {
@@ -179,7 +265,7 @@ export default function RosterWorkerPage() {
     };
     
     loadInitialData();
-  }, [currentUserId, calendarDate, calendarView]);
+  }, [currentUserId, calendarDate, calendarView, initialPharmacyFromUrl]);
   useEffect(() => {
     if (!isPageLoading && selectedPharmacyId) {
       reloadAssignments();
@@ -195,29 +281,21 @@ const reloadAssignments = async () => {
   const startDate = start.format("YYYY-MM-DD");
   const endDate = end.format("YYYY-MM-DD");
   try {
-    // -------------------------------
-    // 1️⃣ Load regular roster assignments (existing)
-    // -------------------------------
-    const res = await apiClient.get<PaginatedResponse<Assignment>>(
-      `${API_ENDPOINTS.getRosterWorker}?pharmacy=${selectedPharmacyId}&start_date=${startDate}&end_date=${endDate}`
-    );
-    const assignments = res.data.results || [];
-    // NEW: Fetch owner-created open shifts
-    const openShiftsRes = await apiClient.get<PaginatedResponse<OpenShift>>(`${API_ENDPOINTS.getCommunityShifts}?pharmacy=${selectedPharmacyId}&start_date=${startDate}&end_date=${endDate}&unassigned=true`);
-    const openShifts = Array.isArray(openShiftsRes.data) ? openShiftsRes.data : openShiftsRes.data?.results ?? [];
-    // -------------------------------
-    // 2️⃣ Load swap/cover requests (new)
-    // -------------------------------
-    const swapRes = await apiClient.get<PaginatedResponse<WorkerSwapRequest>>(
-      `${API_ENDPOINTS.workerShiftRequests}?pharmacy=${selectedPharmacyId}&start_date=${startDate}&end_date=${endDate}`
-    );
-    const swapRequests = swapRes.data.results || [];
+    const [assignmentsRes, openShiftsRes, swapRes] = await Promise.all([
+      fetchRosterWorkerAssignments({ pharmacyId: selectedPharmacyId, startDate, endDate }),
+      fetchCommunityShifts({ pharmacyId: selectedPharmacyId, startDate, endDate, unassigned: true }),
+      fetchWorkerShiftRequestsService({ pharmacyId: selectedPharmacyId, startDate, endDate }),
+    ]);
+    const assignments = assignmentsRes.map(mapAssignmentToView);
+    const openShifts = openShiftsRes.map(mapOpenShiftToView);
+    const swapRequests = swapRes.map(mapWorkerRequestToView);
     // -------------------------------
     // 3️⃣ Map owner-created open shifts into calendar events
     // -------------------------------
     const mappedOpenShifts = openShifts.flatMap((shift: OpenShift) => 
-      shift.slots.map(slot => ({
+      (shift.slots ?? []).map(slot => ({
         id: `open-${shift.id}-${slot.id}`,
+        pharmacy: shift.pharmacy ?? null,
         slot_date: slot.date,
         user: null, // No assigned user
         slot: slot.id,
@@ -231,7 +309,7 @@ const reloadAssignments = async () => {
         },
         shift_detail: {
           id: shift.id,
-          pharmacy_name: pharmacies.find((p) => p.id === selectedPharmacyId)?.name || 'Unknown Pharmacy',
+          pharmacy_name: pharmacies.find((p) => p.id === Number(shift.pharmacy ?? selectedPharmacyId))?.name || 'Unknown Pharmacy',
           role_needed: shift.role_needed,
           visibility: 'LOCUM_CASUAL',
         },
@@ -246,7 +324,7 @@ const reloadAssignments = async () => {
     // -------------------------------
     // 3️⃣ Merge both into one list
     // -------------------------------
-    const mappedSwapRequests: Assignment[] = swapRequests.map(req => {
+    const mappedSwapRequests: Assignment[] = swapRequests.map((req: WorkerSwapRequest) => {
       const requesterName = (req as any)?.requester_name || `${(user as any)?.first_name || ''} ${(user as any)?.last_name || ''}`.trim();
       const [firstName, ...restName] = requesterName.split(' ');
       const derivedFirstName = firstName || (user as any)?.first_name || '';
@@ -287,7 +365,7 @@ const reloadAssignments = async () => {
         swap_request: req,
       };
     });
-    const normalizedAssignments: Assignment[] = assignments.map(a => ({
+    const normalizedAssignments: Assignment[] = assignments.map((a: Assignment) => ({
       ...a,
       isSwapRequest: false,
       isOpenShift: false,
@@ -296,11 +374,25 @@ const reloadAssignments = async () => {
     // -------------------------------
     // 4️⃣ Update state
     // -------------------------------
-    setAllAssignments([
+    const activePharmacyName =
+      pharmacies.find((p) => p.id === selectedPharmacyId)?.name || null;
+    const filteredAssignments = [
       ...normalizedAssignments,
       ...mappedSwapRequests,
       ...mappedOpenShifts,
-    ]);
+    ].filter(item => {
+      // Prefer explicit pharmacy id when present (swap requests)
+      if ((item as any).pharmacy) {
+        return Number((item as any).pharmacy) === Number(selectedPharmacyId);
+      }
+      // Fallback to pharmacy name on shift_detail (assignments/open shifts)
+      if (activePharmacyName) {
+        return (item as any).shift_detail?.pharmacy_name === activePharmacyName;
+      }
+      return true;
+    });
+
+    setAllAssignments(filteredAssignments);
   } catch (err: any) {
     console.error("Failed to load roster assignments or cover requests", err);
   } finally {
@@ -318,8 +410,9 @@ const reloadAssignments = async () => {
     setIsSubmitting(true);
     try {
     setIsPageLoading(true);
-      await apiClient.post(API_ENDPOINTS.claimShift(selectedAssignment.originalShiftId), {
-        slot_id: selectedAssignment.slot_detail.id,
+      await claimShiftService({
+        shiftId: selectedAssignment.originalShiftId,
+        slotId: selectedAssignment.slot_detail.id,
       });
       setSnackbar({ open: true, message: "Shift claimed successfully!", severity: "success" });
       setIsClaimShiftDialogOpen(false);
@@ -396,13 +489,13 @@ const handleSubmitLeaveRequest = async () => {
   try {
     setIsPageLoading(true);
     if (isUpdate && existingLeave?.id) {
-      await apiClient.patch(`${API_ENDPOINTS.leaveRequests}${existingLeave.id}/`, {
+      await updateLeaveRequestService(existingLeave.id, {
         leave_type: leaveType,
         note: leaveNote,
       });
       setSnackbar({ open: true, message: "Leave request updated successfully.", severity: "success" });
     } else {
-      await apiClient.post(API_ENDPOINTS.createLeaveRequest, {
+      await createLeaveRequestService({
         slot_assignment: selectedAssignment.id,
         leave_type: leaveType,
         note: leaveNote,
@@ -432,7 +525,7 @@ const handleSubmitLeaveRequest = async () => {
     setIsSubmitting(true);
     try {
     setIsPageLoading(true);
-      await apiClient.delete(`${API_ENDPOINTS.leaveRequests}${existingLeave.id}/`);
+      await deleteLeaveRequestService(existingLeave.id);
       setSnackbar({ open: true, message: "Leave request cancelled.", severity: "success" });
       setIsLeaveDialogOpen(false);
       setIsEditingLeaveRequest(false);
@@ -489,10 +582,10 @@ const handleSubmitLeaveRequest = async () => {
         note: swapNote,
       };
       if (isUpdate && existingSwap?.id) {
-        await apiClient.patch(`${API_ENDPOINTS.workerShiftRequests}${existingSwap.id}/`, payload);
+        await updateWorkerShiftRequestService(existingSwap.id, payload);
         setSnackbar({ open: true, message: "Cover request updated successfully.", severity: "success" });
       } else {
-        await apiClient.post(API_ENDPOINTS.workerShiftRequests, payload);
+        await createWorkerShiftRequestService(payload);
         setSnackbar({ open: true, message: "Cover request submitted successfully.", severity: "success" });
       }
       setIsSwapDialogOpen(false);
@@ -519,7 +612,7 @@ const handleSubmitLeaveRequest = async () => {
     setIsSubmitting(true);
     try {
     setIsPageLoading(true);
-      await apiClient.delete(`${API_ENDPOINTS.workerShiftRequests}${existingSwap.id}/`);
+      await deleteWorkerShiftRequestService(existingSwap.id);
       setSnackbar({ open: true, message: "Cover request cancelled.", severity: "success" });
       setIsSwapDialogOpen(false);
       setIsEditingSwapRequest(false);
@@ -545,16 +638,26 @@ const handleSubmitLeaveRequest = async () => {
   
   // --- MEMOIZED CALENDAR EVENTS ---
   const calendarEvents = useMemo(() => {
-    // This now filters based on the `allAssignments` fetched for the selected pharmacy
+    const activePharmacyName = pharmacies.find(p => p.id === selectedPharmacyId)?.name ?? '';
+    // Filter to active pharmacy first, then role filters
     return allAssignments
-      .filter(a => {
-        // FIX: Filtering logic now exactly matches RosterOwnerPage
+      .filter((a: Assignment) => {
+        const hasPharmacyId = (a as any).pharmacy !== undefined && (a as any).pharmacy !== null;
+        if (hasPharmacyId) {
+          return Number((a as any).pharmacy) === Number(selectedPharmacyId);
+        }
+        if (activePharmacyName) {
+          return a.shift_detail?.pharmacy_name === activePharmacyName;
+        }
+        return true;
+      })
+      .filter((a: Assignment) => {
         if (roleFilters.includes(ALL_STAFF)) {
             return true;
         }
         return roleFilters.includes(a.shift_detail.role_needed);
       })
-      .map(a => {
+      .map((a: Assignment) => {
         let title: string;
         if (a.isOpenShift) {
           title = `Open Shift: ${a.shift_detail.role_needed}`;
@@ -624,7 +727,16 @@ const handleSubmitLeaveRequest = async () => {
   return (
     <Container sx={{ py: 4 }}>
       <Typography variant="h4" gutterBottom>My Roster</Typography>
-      <Tabs value={selectedPharmacyId} onChange={(_, val) => setSelectedPharmacyId(val as number)} sx={{ mb: 3 }} textColor="primary" indicatorColor="primary">
+      <Tabs
+        value={selectedPharmacyId}
+        onChange={(_, val) => {
+          setAllAssignments([]);
+          setSelectedPharmacyId(val as number);
+        }}
+        sx={{ mb: 3 }}
+        textColor="primary"
+        indicatorColor="primary"
+      >
         {pharmacies.map(p => <Tab key={p.id} label={p.name} value={p.id} />)}
       </Tabs>
       <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2}}>

@@ -17,12 +17,17 @@ import {
   Rating,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { formatDistanceToNow } from 'date-fns';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import {
+  Shift,
+  expressInterestInPublicShiftService,
+  fetchPublicShifts,
+  fetchShiftInterests,
+  fetchRatingsSummaryService,
+} from '@chemisttasker/shared-core';
 
 const formatClockTime = (value?: string | null) => {
   if (!value) return '';
@@ -35,60 +40,23 @@ const formatClockTime = (value?: string | null) => {
   return `${hour}:${minutes} ${suffix}`;
 };
 
-interface Slot {
-  id: number;
-  date: string;
-  start_time: string;
-  end_time: string;
-  is_recurring: boolean;
-  recurring_days: number[];
-  recurring_end_date: string | null;
-}
-
-interface Shift {
-  id: number;
-  pharmacy?: { // <-- UPDATE THIS
-    id: number;
-    name: string;
-    street_address?: string;
-    suburb?: string;
-    postcode?: string;
-    state?: string;
-  };
-  pharmacy_detail?: { // <-- AND UPDATE THIS
-    id: number;
-    name: string;
-    street_address?: string;
-    suburb?: string;
-    postcode?: string;
-    state?: string;
-  };
-  slots: Slot[];
-  employment_type: 'LOCUM' | 'FULL_TIME' | 'PART_TIME';
-  workload_tags: string[];
-  owner_adjusted_rate?: string | null;
-  must_have: string[];
-  nice_to_have: string[];
-  created_at: string;
-  rate_type: 'FIXED' | 'FLEXIBLE' | 'PHARMACIST_PROVIDED' | null;
-  fixed_rate: string | null;
-  single_user_only: boolean;
-  slot_assignments: { slot_id: number; user_id: number }[];
-  description?: string;
-  post_anonymously?: boolean;
-  }
-
-interface Interest {
-  id: number;
-  shift: number;
-  slot: number | null;
-}
-
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+type ShiftSlot = NonNullable<Shift['slots']>[number];
 
 const curvedCardSx = {
   borderRadius: 3,
   boxShadow: '0 20px 45px rgba(109, 40, 217, 0.08)',
+};
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  const detail = (error as any)?.response?.data?.detail;
+  if (typeof detail === 'string') {
+    return detail;
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return fallback;
 };
 
 const gradientButtonSx = {
@@ -123,12 +91,14 @@ export default function PublicShiftsPage() {
   );
 
   // helper to pick whichever field exists
-  const getPharmacyData = (shift: Shift) =>
-    shift.pharmacy ?? shift.pharmacy_detail;
+  const getPharmacyData = (shift: Shift) => {
+    const pharm = shift.pharmacy ?? shift.pharmacyDetail;
+    return typeof pharm === 'number' ? null : pharm;
+  };
 
   const getPharmacyHeading = (shift: Shift) => {
     const pharm = getPharmacyData(shift);
-    if (shift.post_anonymously) {
+    if (shift.postAnonymously) {
       const suburb = pharm?.suburb?.trim();
       return suburb && suburb.length > 0 ? `Shift in ${suburb}` : 'Anonymous Shift';
     }
@@ -138,10 +108,10 @@ export default function PublicShiftsPage() {
   const getPharmacyLocationLine = (shift: Shift) => {
     const pharm = getPharmacyData(shift);
     if (!pharm) return null;
-    if (shift.post_anonymously) {
+    if (shift.postAnonymously) {
       return pharm.suburb ?? null;
     }
-    const parts = [pharm.street_address, pharm.suburb, pharm.state, pharm.postcode]
+    const parts = [pharm.streetAddress, pharm.suburb, pharm.state, pharm.postcode]
       .filter((part): part is string => Boolean(part && part.toString().trim().length));
     if (parts.length === 0) return null;
     return parts.join(', ');
@@ -152,82 +122,59 @@ export default function PublicShiftsPage() {
     const load = async () => {
       setLoading(true);
       try {
-        const [shiftsRes, interestsRes] = await Promise.all([
-          apiClient.get(API_ENDPOINTS.getPublicShifts),
-          apiClient.get(`${API_ENDPOINTS.getShiftInterests}?user=${user.id}`),
+        const [publicShifts, interests] = await Promise.all([
+          fetchPublicShifts({}),
+          fetchShiftInterests({ userId: user.id }),
         ]);
 
-        const rawShifts: any[] = Array.isArray(shiftsRes.data.results)
-          ? shiftsRes.data.results
-          : Array.isArray(shiftsRes.data)
-          ? shiftsRes.data
-          : [];
+        const available = publicShifts.filter((shift: Shift) => {
+          const assignedSlotCount = shift.slotAssignments?.length ?? 0;
+          const slots = shift.slots ?? [];
+          return assignedSlotCount < slots.length;
+        });
 
-          const available = rawShifts.filter(s => {
-            const assignedSlotCount = s.slot_assignments?.length ?? 0;
-            return assignedSlotCount < s.slots.length;
-          });
+        setShifts(available);
 
-          setShifts(
-          available.map(s => ({
-            ...s,
-            workload_tags: s.workload_tags ?? [],
-            must_have:     s.must_have     ?? [],
-            nice_to_have:  s.nice_to_have  ?? [],
-            created_at:    s.created_at,
-            rate_type:     s.rate_type,
-            fixed_rate:    s.fixed_rate,
-            owner_adjusted_rate: s.owner_adjusted_rate ?? null, // ✅ add this
-          }))
-        );
-
-                // Fetch rating summaries (average + count) for each unique pharmacy
-        const uniquePharmacyIds = Array.from(
+        const uniquePharmacyIds: number[] = Array.from(
           new Set(
             available
-              .map(s => (s.pharmacy?.id ?? s.pharmacy_detail?.id))
-              .filter((id): id is number => typeof id === 'number')
+              .map((s: Shift) => {
+                const pharm = getPharmacyData(s);
+                return pharm?.id;
+              })
+              .filter((id: unknown): id is number => typeof id === 'number')
           )
         );
 
         await Promise.all(
-          uniquePharmacyIds.map(async (pharmacyId) => {
+          uniquePharmacyIds.map(async (pharmacyId: number) => {
             try {
-              const res = await apiClient.get(
-                `${API_ENDPOINTS.ratingsSummary}?target_type=pharmacy&target_id=${pharmacyId}`
-              );
+              const summary = await fetchRatingsSummaryService({
+                targetType: 'pharmacy',
+                targetId: pharmacyId,
+              });
               setPharmacySummaries(prev => ({
                 ...prev,
                 [pharmacyId]: {
-                  average: res.data?.average ?? 0,
-                  count:   res.data?.count   ?? 0,
+                  average: summary.average ?? 0,
+                  count: summary.count ?? 0,
                 },
               }));
             } catch (e) {
-              // leave summary missing on error; keep UI resilient
+              console.error('Failed to load rating summary for pharmacy', pharmacyId, e);
             }
           })
         );
 
+        const slotIds = interests
+          .map((i: any) => i.slotId)
+          .filter((id: unknown): id is number => typeof id === 'number');
+        setDisabledSlots(slotIds);
 
-        const rawInt: Interest[] = Array.isArray(interestsRes.data.results)
-        ? interestsRes.data.results
-        : Array.isArray(interestsRes.data)
-        ? interestsRes.data
-        : [];
-
-      // 1) all the per-slot interests
-      const slotIds = rawInt
-        .map(i => i.slot)
-        .filter((id): id is number => id != null);
-      setDisabledSlots(slotIds);
-
-      // 2) all the shift-level interests (slot === null)
-      const shiftIds = rawInt
-        .filter(i => i.slot === null)
-        .map(i => i.shift);
-      setDisabledShifts(shiftIds);
-
+        const shiftIds = interests
+          .filter((i: any) => i.slotId == null)
+          .map((i: any) => i.shift);
+        setDisabledShifts(shiftIds);
       } catch {
         setError('Failed to load public shifts or interests');
       } finally {
@@ -236,51 +183,55 @@ export default function PublicShiftsPage() {
     };
     load();
   }, [user.id]);
-
   const handleExpressInterest = async (shiftId: number, slotId: number | null) => {
+    const shift = shifts.find(s => s.id === shiftId);
+    if (!shift) {
+      showSnackbar('Shift not found.');
+      return;
+    }
+
     if (slotId === null) {
-      // shift‐level interest
       setDisabledShifts(ds => [...ds, shiftId]);
       try {
-        await apiClient.post(
-          `${API_ENDPOINTS.getPublicShifts}${shiftId}/express_interest/`,
-          {}             // no slot_id
-        );
-      } catch (err: any) {
-        showSnackbar(err.response?.data?.detail || 'Failed to express interest');
+        if (shift.singleUserOnly) {
+          await expressInterestInPublicShiftService({ shiftId, slotId: null });
+        } else {
+          const slots = shift.slots ?? [];
+          await Promise.all(
+            slots.map(slot =>
+              expressInterestInPublicShiftService({ shiftId, slotId: slot.id })
+            )
+          );
+          setDisabledSlots(ds => [...ds, ...slots.map(s => s.id)]);
+        }
+      } catch (error) {
+        showSnackbar(getErrorMessage(error, 'Failed to express interest'));
         setDisabledShifts(ds => ds.filter(id => id !== shiftId));
       }
-
     } else {
-      // per‐slot interest (your existing logic)
       setDisabledSlots(ds => [...ds, slotId]);
       try {
-        await apiClient.post(
-          `${API_ENDPOINTS.getPublicShifts}${shiftId}/express_interest/`,
-          { slot_id: slotId }
-        );
-      } catch (err: any) {
-        showSnackbar(err.response?.data?.detail || 'Failed to express interest');
+        await expressInterestInPublicShiftService({ shiftId, slotId });
+      } catch (error) {
+        showSnackbar(getErrorMessage(error, 'Failed to express interest'));
         setDisabledSlots(ds => ds.filter(id => id !== slotId));
       }
-
     }
   };
-
 
   const handlePageChange = (_: React.ChangeEvent<unknown>, value: number) => {
     setPage(value);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const formatSlot = (slot: Slot) => {
+  const formatSlot = (slot: ShiftSlot) => {
     const dateStr = dayjs(slot.date).format('MMM D, YYYY');
-    const start = formatClockTime(slot.start_time);
-    const end = formatClockTime(slot.end_time);
+    const start = formatClockTime(slot.startTime);
+    const end = formatClockTime(slot.endTime);
     let base = `${dateStr} ${start} – ${end}`;
-    if (slot.is_recurring && slot.recurring_days.length && slot.recurring_end_date) {
-      const days = slot.recurring_days.map(d => WEEKDAY_LABELS[d]).join(', ');
-      base += ` (Repeats ${days} until ${dayjs(slot.recurring_end_date).format('MMM D, YYYY')})`;
+    if (slot.isRecurring && slot.recurringDays && slot.recurringDays.length && slot.recurringEndDate) {
+      const days = slot.recurringDays.map((d: number) => WEEKDAY_LABELS[d]).join(', ');
+      base += ` (Repeats ${days} until ${dayjs(slot.recurringEndDate).format('MMM D, YYYY')})`;
     }
     return base;
   };
@@ -328,15 +279,19 @@ export default function PublicShiftsPage() {
           const pharm = getPharmacyData(shift);
           const heading = getPharmacyHeading(shift);
           const locationLine = getPharmacyLocationLine(shift);
+          const slots = shift.slots ?? [];
           // determine rate display
           let rateLabel = 'N/A';
-          if (shift.rate_type === 'FIXED') {
-            rateLabel = `Fixed - ${shift.fixed_rate} AUD/hr`;
-          } else if (shift.rate_type === 'FLEXIBLE') {
+          if (shift.rateType === 'FIXED') {
+            rateLabel = `Fixed - ${shift.fixedRate} AUD/hr`;
+          } else if (shift.rateType === 'FLEXIBLE') {
             rateLabel = 'Flexible';
-          } else if (shift.rate_type === 'PHARMACIST_PROVIDED') {
+          } else if (shift.rateType === 'PHARMACIST_PROVIDED') {
             rateLabel = 'Pharmacist Provided';
           }
+          const workloadTags = shift.workloadTags ?? [];
+          const mustHave = shift.mustHave ?? [];
+          const niceToHave = shift.niceToHave ?? [];
           return (
             <Card key={shift.id} sx={{ mb: 3, ...curvedCardSx }}>
               <CardContent>
@@ -380,19 +335,19 @@ export default function PublicShiftsPage() {
                 {/* Rate */}
                 <Box sx={{ mt: 4 }}>
                   {/* Pharmacist Rate Info */}
-                  {shift.rate_type && (
+                  {shift.rateType && (
                     <Typography variant="body1">
                       <strong>Rate:</strong> {rateLabel}
                     </Typography>
                   )}
 
                   {/* Owner Bonus for Other Staff */}
-                  {shift.owner_adjusted_rate && (
+                  {shift.ownerAdjustedRate && (
                     <Typography
                       variant="body1"
-                      sx={{ color: 'green', fontWeight: 'bold', mt: shift.rate_type ? 1 : 0 }}
+                      sx={{ color: 'green', fontWeight: 'bold', mt: shift.rateType ? 1 : 0 }}
                     >
-                      💰 Bonus: +{shift.owner_adjusted_rate} AUD/hr on top of Award Rate
+                      💰 Bonus: +{shift.ownerAdjustedRate} AUD/hr on top of Award Rate
                     </Typography>
                   )}
                 </Box>
@@ -402,7 +357,7 @@ export default function PublicShiftsPage() {
                 {/* Employment Type */}
                  <Box sx={{ mt: 1 }}>
                    <Typography variant="body1">
-                     <strong>Emp. Type:</strong> {shift.employment_type.replace('_', ' ')}
+                     <strong>Emp. Type:</strong> {(shift.employmentType || 'UNKNOWN').replace('_', ' ')}
                    </Typography>
                  </Box>
 
@@ -412,9 +367,9 @@ export default function PublicShiftsPage() {
                   <Typography variant="subtitle2">Time Slots</Typography>
 
                   {/* 1) Always list each slot */}
-                  {shift.slots.map(slot => {
-                    // has this slot already been assigned?
-                    const isAssigned = shift.slot_assignments.some(a => a.slot_id === slot.id);
+                  {slots.map((slot: ShiftSlot) => {
+                    const assignments = shift.slotAssignments ?? [];
+                    const isAssigned = assignments.some(a => a.slotId === slot.id);
 
                     // disable if:
                     //  • user already requested this slot (disabledSlots)
@@ -437,7 +392,7 @@ export default function PublicShiftsPage() {
                           {formatSlot(slot)}
                         </Typography>
 
-                        {!shift.single_user_only && (
+                        {!shift.singleUserOnly && (
                           <Button
                             size="small"
                             variant="contained"
@@ -453,7 +408,7 @@ export default function PublicShiftsPage() {
                   })}
 
                   {/* 2) “Express Interest in All Slots” only if more than one slot */}
-                  {!shift.single_user_only && shift.slots.length > 1 && (
+                  {!shift.singleUserOnly && slots.length > 1 && (
                     <Box display="flex" justifyContent="flex-end" sx={{ mt: 2 }}>
                       <Button
                         size="small"
@@ -470,7 +425,7 @@ export default function PublicShiftsPage() {
                   )}
 
                   {/* 3) Single-user-only mode button */}
-                  {shift.single_user_only && (
+                  {shift.singleUserOnly && (
                     <Box display="flex" justifyContent="flex-end" sx={{ mt: 2 }}>
                       <Button
                         size="small"
@@ -488,11 +443,11 @@ export default function PublicShiftsPage() {
                 </Box>
 
                 {/* Workload Tags */}
-                {shift.workload_tags.length > 0 && (
+                {workloadTags.length > 0 && (
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="subtitle2">Workload Tags</Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-                      {shift.workload_tags.map(tag => (
+                      {workloadTags.map(tag => (
                         <Chip key={tag} label={tag} size="small" />
                       ))}
                     </Box>
@@ -500,11 +455,11 @@ export default function PublicShiftsPage() {
                 )}
 
                 {/* Must-Have */}
-                {shift.must_have.length > 0 && (
+                {mustHave.length > 0 && (
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="subtitle2">Must-Have</Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-                      {shift.must_have.map(skill => (
+                      {mustHave.map(skill => (
                         <Chip
                           key={skill}
                           label={skill}
@@ -517,17 +472,17 @@ export default function PublicShiftsPage() {
                 )}
 
                 {/* Nice-to-Have */}
-                {shift.nice_to_have.length > 0 && (
+                {niceToHave.length > 0 && (
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="subtitle2">Nice-to-Have</Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-                      {shift.nice_to_have.map(skill => (
+                      {niceToHave.map(skill => (
                         <Chip key={skill} label={skill} color="default" size="small" />
                       ))}
                     </Box>
                     <Box sx={{ mt: 1, textAlign: 'left' }}>
                       <Typography variant="caption" color="textSecondary">
-                        Posted {formatDistanceToNow(dayjs.utc(shift.created_at).toDate(), { addSuffix: true })}
+                        Posted {formatDistanceToNow(dayjs.utc(shift.createdAt).toDate(), { addSuffix: true })}
                       </Typography>
                     </Box>
                   </Box>

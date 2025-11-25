@@ -32,7 +32,7 @@ from django.db.models import Q, Count, F, Avg, Exists, OuterRef
 from django.utils import timezone
 from client_profile.services import get_locked_rate_for_slot, expand_shift_slots, generate_invoice_from_shifts, render_invoice_to_pdf, generate_preview_invoice_lines
 from client_profile.utils import build_shift_email_context, clean_email, build_roster_email_link, get_frontend_dashboard_url, enforce_public_shift_daily_limit
-from client_profile.notifications import mark_notifications_read, broadcast_message_read
+from client_profile.notifications import mark_notifications_read, broadcast_message_read, broadcast_message_badge
 from django.utils.crypto import get_random_string
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode
@@ -63,9 +63,13 @@ from users.org_roles import (
     membership_visible_pharmacies,
     membership_visible_pharmacy_ids,
 )
+from client_profile.serializers import ShiftContactSerializer
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import mimetypes
+import logging
+
+log = logging.getLogger("client_profile.views")
 import re
 # import logging
 # logger = logging.getLogger("roster.debug")
@@ -3044,6 +3048,26 @@ class CommunityShiftViewSet(BaseShiftViewSet):
             visibility__in=COMMUNITY_LEVELS,
             slots__date__gte=date.today()
         )
+        # Scope by pharmacy when requested
+        pharmacy_id = self.request.query_params.get('pharmacy')
+        if pharmacy_id:
+            qs = qs.filter(pharmacy_id=pharmacy_id)
+
+        # Optional date range filters
+        start_date_str = self.request.query_params.get('start_date')
+        end_date_str = self.request.query_params.get('end_date')
+        if start_date_str:
+            try:
+                start_date = date.fromisoformat(start_date_str)
+                qs = qs.filter(slots__date__gte=start_date)
+            except ValueError:
+                pass
+        if end_date_str:
+            try:
+                end_date = date.fromisoformat(end_date_str)
+                qs = qs.filter(slots__date__lte=end_date)
+            except ValueError:
+                pass
 
         # NEW: Filter by 'unassigned' query parameter
         unassigned_param = self.request.query_params.get('unassigned')
@@ -3299,6 +3323,13 @@ class CommunityShiftViewSet(BaseShiftViewSet):
                     template_name="emails/shift_claimed.html",
                     context=ctx,
                     text_template="emails/shift_claimed.txt",
+                    notification={
+                        "title": f"Shift claimed: {shift.pharmacy.name}",
+                        "body": f"{user.get_full_name() or user.email} claimed your shift on {slots_to_claim[0].date}",
+                        "payload": {"shift_id": shift.id},
+                        "user_ids": [getattr(shift.created_by, 'id', None)],
+                        "action_url": build_roster_email_link(shift.created_by, shift.pharmacy),
+                    },
                 )
                 # print("[CLAIM_DBG] Step 8 - Notification queued")
             except Exception as e:
@@ -4043,6 +4074,11 @@ class RosterShiftManageViewSet(viewsets.ModelViewSet):
             assigned_slot_count=Count('slots__assignments', distinct=True)
         ).filter(assigned_slot_count=0).distinct()
 
+        # Filter by pharmacy if provided
+        pharmacy_id = request.query_params.get('pharmacy')
+        if pharmacy_id:
+            qs = qs.filter(pharmacy_id=pharmacy_id)
+
         # Apply date filters if present
         start_date_str = self.request.query_params.get('start_date')
         end_date_str = self.request.query_params.get('end_date')
@@ -4272,109 +4308,6 @@ class CreateShiftAndAssignView(APIView):
             "assignment_id": assignment.id
         }, status=status.HTTP_201_CREATED)
 
-# class RosterWorkerViewSet(viewsets.ReadOnlyModelViewSet):
-#     serializer_class = RosterAssignmentSerializer
-#     permission_classes = [permissions.IsAuthenticated]
-
-#     def get_queryset(self):
-#         """
-#         Returns rostered assignments for pharmacies where the user is a member.
-#         The queryset is now filtered by the 'pharmacy', 'start_date', and 
-#         'end_date' query parameters if they are provided in the request.
-#         """
-#         user = self.request.user
-        
-#         # Get all pharmacies where the user has an active membership
-#         member_pharmacy_ids = Membership.objects.filter(
-#             user=user, is_active=True
-#         ).values_list('pharmacy_id', flat=True)
-        
-#         # Start with a base queryset of all assignments in those pharmacies
-#         qs = ShiftSlotAssignment.objects.filter(
-#             is_rostered=True,
-#             shift__pharmacy_id__in=member_pharmacy_ids
-#         ).select_related('shift__pharmacy', 'slot', 'user').distinct()
-
-#         # --- START OF FIX (This part is correct, but the following part needs to be removed) ---
-
-#         # 1. Filter by the specific pharmacy ID from the request
-#         pharmacy_id_param = self.request.query_params.get('pharmacy')
-#         # The user-specific filter is removed to show all assignments for the pharmacy.
-#         # The frontend will handle opacity/interactivity for non-user shifts.
-#         if pharmacy_id_param:
-#             try:
-#                 # Security check: Ensure the requested pharmacy is one the user can see
-#                 requested_pharmacy_id = int(pharmacy_id_param)
-#                 if requested_pharmacy_id in member_pharmacy_ids:
-#                     qs = qs.filter(shift__pharmacy_id=requested_pharmacy_id)
-#                 else:
-#                     # If user requests a pharmacy they aren't a member of, return nothing
-#                     return ShiftSlotAssignment.objects.none()
-#             except (ValueError, TypeError):
-#                 # If pharmacy_id is not a valid integer, ignore it
-#                 pass
-
-#         # 2. Filter by the date range from the request
-#         start_date_str = self.request.query_params.get('start_date')
-#         end_date_str = self.request.query_params.get('end_date')
-
-#         if start_date_str:
-#             try:
-#                 start_date = date.fromisoformat(start_date_str)
-#                 qs = qs.filter(slot_date__gte=start_date)
-#             except ValueError:
-#                 pass  # Ignore invalid date format
-
-#         if end_date_str:
-#             try:
-#                 end_date = date.fromisoformat(end_date_str)
-#                 qs = qs.filter(slot_date__lte=end_date)
-#             except ValueError:
-#                 pass  # Ignore invalid date format
-                
-#         # --- END OF FIX (The user-specific filter was here) ---
-        
-#         return qs
-
-#     @action(detail=False, methods=['get'])
-#     def pharmacies(self, request):
-#         user = request.user
-#         memberships = (
-#             Membership.objects
-#             .filter(user=user, is_active=True)
-#             .select_related('pharmacy')
-#         )
-
-#         data = []
-#         for m in memberships:
-#             p = m.pharmacy
-
-#             # Safely use legacy 'address' if it exists; otherwise compose from new parts.
-#             address = (
-#                 getattr(p, "address", None)  # legacy compatibility (if still present anywhere)
-#                 or ", ".join(filter(None, [
-#                     (p.street_address or "").strip(),
-#                     (p.suburb or "").strip(),
-#                     (p.state or "").strip(),
-#                     (p.postcode or "").strip(),
-#                 ]))
-#             )
-
-#             data.append({
-#                 "id": p.id,
-#                 "name": p.name,
-#                 "address": address,
-#                 # keep returning the structured bits too (harmless + future-proof)
-#                 "street_address": p.street_address,
-#                 "suburb": p.suburb,
-#                 "state": p.state,
-#                 "postcode": p.postcode,
-#                 "latitude": p.latitude,
-#                 "longitude": p.longitude,
-#             })
-
-#         return Response(data)
-
 class RosterWorkerViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = RosterAssignmentSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -4560,13 +4493,14 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
                 notification_emails.append(owner_user.email)
             notification_users.append(owner_user)
 
-        # Who should the roster link be for? (Prefer first org_admin, fallback to owner)
-        if pharmacy_admins:
-            roster_link_user = pharmacy_admins[0].user
+        # Who should the roster link be for?
+        # Prefer the owner, then org admin, then pharmacy admin to avoid misrouting owners to admin paths.
+        if owner_user:
+            roster_link_user = owner_user
         elif org_admins:
             roster_link_user = org_admins[0].user
-        elif owner_user:
-            roster_link_user = owner_user
+        elif pharmacy_admins:
+            roster_link_user = pharmacy_admins[0].user
         else:
             roster_link_user = None
 
@@ -4687,7 +4621,14 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             recipient_list=[leave.user.email],
             template_name="emails/leave_approved.html",
             context=ctx,
-            text_template="emails/leave_approved.txt"
+            text_template="emails/leave_approved.txt",
+            notification={
+                "title": f"Leave approved: {ctx['pharmacy_name']}",
+                "body": f"Your leave request for {ctx['shift_date']} was approved.",
+                "action_url": ctx["shift_link"],
+                "payload": {"leave_request_id": leave.id, "pharmacy_id": leave.slot_assignment.shift.pharmacy.id},
+                "user_ids": [getattr(leave.user, "id", None)],
+            }
         )
         return Response({'status': 'approved'})
 
@@ -4710,7 +4651,14 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             recipient_list=[leave.user.email],
             template_name="emails/leave_rejected.html",
             context=ctx,
-            text_template="emails/leave_rejected.txt"
+            text_template="emails/leave_rejected.txt",
+            notification={
+                "title": f"Leave rejected: {ctx['pharmacy_name']}",
+                "body": f"Your leave request for {ctx['shift_date']} was rejected.",
+                "action_url": ctx["shift_link"],
+                "payload": {"leave_request_id": leave.id, "pharmacy_id": leave.slot_assignment.shift.pharmacy.id},
+                "user_ids": [getattr(leave.user, "id", None)],
+            }
         )
         return Response({'status': 'rejected'})
 
@@ -4757,7 +4705,30 @@ class WorkerShiftRequestViewSet(viewsets.ModelViewSet):
         )
         controlled |= admin_pharms
 
-        return self.queryset.filter(pharmacy__in=controlled).distinct()
+        qs = self.queryset.filter(pharmacy__in=controlled).distinct()
+
+        # Filter by pharmacy if provided
+        pharmacy_id = self.request.query_params.get('pharmacy')
+        if pharmacy_id:
+            qs = qs.filter(pharmacy_id=pharmacy_id)
+
+        # Date filters to mirror roster range
+        start_date_str = self.request.query_params.get('start_date')
+        end_date_str = self.request.query_params.get('end_date')
+        if start_date_str:
+            try:
+                start_date = date.fromisoformat(start_date_str)
+                qs = qs.filter(slot_date__gte=start_date)
+            except ValueError:
+                pass
+        if end_date_str:
+            try:
+                end_date = date.fromisoformat(end_date_str)
+                qs = qs.filter(slot_date__lte=end_date)
+            except ValueError:
+                pass
+
+        return qs
 
     # ---------------------------
     # CREATE (Worker submits)
@@ -5777,11 +5748,167 @@ class ConversationViewSet(mixins.ListModelMixin,
 
     def get_serializer_class(self):
         # All "create DM" actions will serialize the final conversation object
-        if self.action in ['create', 'update', 'partial_update', 'get_or_create_dm', 'get_or_create_dm_by_user', 'toggle_pin']:
+        if self.action in ['create', 'update', 'partial_update', 'get_or_create_dm', 'get_or_create_dm_by_user', 'get_or_create_group', 'toggle_pin']:
             return ConversationCreateSerializer
         if self.action in ['retrieve']:
             return ConversationDetailSerializer
         return ConversationListSerializer
+
+    @action(detail=False, methods=['get'], url_path='shift-contacts')
+    def shift_contacts(self, request):
+        """
+        Returns shift-related chat contacts for the current user.
+        - If user manages a pharmacy (owner/org-admin/pharmacy-admin/roster admin): returns workers assigned to shifts at those pharmacies.
+        - If user is a worker on shifts: returns owners/admins for those pharmacies.
+        """
+        user = request.user
+        today = date.today()
+        contacts = []
+        seen = set()
+
+        managed_pharmacies = BaseShiftViewSet._managed_pharmacies(user)
+        managed_ids = list(managed_pharmacies.values_list('id', flat=True))
+
+        if managed_ids:
+            assignments = (
+                ShiftSlotAssignment.objects.filter(
+                    shift__pharmacy_id__in=managed_ids,
+                    slot_date__gte=today,
+                )
+                .select_related('user', 'shift__pharmacy', 'shift')
+            )
+            for assn in assignments:
+                contact_user = assn.user
+                if not contact_user or contact_user.id == user.id:
+                    continue
+                key = (assn.shift.pharmacy_id, contact_user.id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                contacts.append({
+                    "pharmacy_id": assn.shift.pharmacy_id,
+                    "pharmacy_name": getattr(assn.shift.pharmacy, "name", ""),
+                    "shift_id": assn.shift_id,
+                    "shift_date": assn.slot_date,
+                    "role": "WORKER",
+                    "user": contact_user,
+                })
+        else:
+            # Worker view: show owners/admins of pharmacies where this user has upcoming assignments
+            assignments = (
+                ShiftSlotAssignment.objects.filter(
+                    user=user,
+                    slot_date__gte=today,
+                )
+                .select_related('shift__pharmacy', 'shift__pharmacy__owner__user')
+            )
+            for assn in assignments:
+                pharmacy = assn.shift.pharmacy
+                if not pharmacy:
+                    continue
+                # Owner
+                owner_user = getattr(getattr(pharmacy, "owner", None), "user", None)
+                if owner_user and owner_user.id != user.id:
+                    key = (pharmacy.id, owner_user.id)
+                    if key not in seen:
+                        seen.add(key)
+                        contacts.append({
+                            "pharmacy_id": pharmacy.id,
+                            "pharmacy_name": getattr(pharmacy, "name", ""),
+                            "shift_id": assn.shift_id,
+                            "shift_date": assn.slot_date,
+                            "role": "OWNER",
+                            "user": owner_user,
+                        })
+                # Org admins
+                org_id = getattr(pharmacy, "organization_id", None)
+                if org_id:
+                    org_admins = OrganizationMembership.objects.filter(
+                        organization_id=org_id,
+                        role='ORG_ADMIN',
+                    ).select_related('user')
+                    for adm in org_admins:
+                        if adm.user and adm.user.id != user.id:
+                            key = (pharmacy.id, adm.user.id)
+                            if key not in seen:
+                                seen.add(key)
+                                contacts.append({
+                                    "pharmacy_id": pharmacy.id,
+                                    "pharmacy_name": getattr(pharmacy, "name", ""),
+                                    "shift_id": assn.shift_id,
+                                    "shift_date": assn.slot_date,
+                                    "role": "ADMIN",
+                                    "user": adm.user,
+                                })
+                # Pharmacy admins
+                if hasattr(pharmacy, "admin_assignments"):
+                    pharm_admins = pharmacy.admin_assignments.filter(is_active=True).select_related('user')
+                    for adm in pharm_admins:
+                        if adm.user and adm.user.id != user.id:
+                            key = (pharmacy.id, adm.user.id)
+                            if key not in seen:
+                                seen.add(key)
+                                contacts.append({
+                                    "pharmacy_id": pharmacy.id,
+                                    "pharmacy_name": getattr(pharmacy, "name", ""),
+                                    "shift_id": assn.shift_id,
+                                    "shift_date": assn.slot_date,
+                                    "role": "ADMIN",
+                                    "user": adm.user,
+                                })
+
+        # Deduplicate by user (or email) and aggregate pharmacies
+        aggregated = {}
+        for c in contacts:
+            user_obj = c.get("user")
+            user_id = getattr(user_obj, "id", None)
+            email = (getattr(user_obj, "email", "") or "").lower()
+            key = f"id:{user_id}" if user_id else (f"email:{email}" if email else None)
+            if not key:
+                continue
+            entry = aggregated.get(key)
+            if not entry:
+                entry = {
+                    "user": user_obj,
+                    "pharmacies": {},
+                    "shift_ids": set(),
+                    "shift_dates": set(),
+                    "role": c.get("role") or "",
+                }
+                aggregated[key] = entry
+            pname = c.get("pharmacy_name") or ""
+            pid = c.get("pharmacy_id")
+            if pid:
+                entry["pharmacies"][pid] = pname
+            entry["shift_ids"].add(c.get("shift_id"))
+            if c.get("shift_date"):
+                entry["shift_dates"].add(c.get("shift_date"))
+
+        normalized_contacts = []
+        for entry in aggregated.values():
+            user_obj = entry["user"]
+            user_id = getattr(user_obj, "id", None)
+            # If any contact had a photo, prefer that user object
+            for other in contacts:
+                ou = other.get("user")
+                if ou and getattr(ou, "id", None) == user_id and getattr(ou, "profile_photo_url", None):
+                    user_obj = ou
+                    break
+            pharmacy_items = list(entry["pharmacies"].items())
+            primary_pid, primary_pname = (pharmacy_items[0] if pharmacy_items else (None, ""))
+            pharmacy_names = [p for _, p in pharmacy_items if p]
+            normalized_contacts.append({
+                "pharmacy_id": primary_pid,
+                "pharmacy_name": ", ".join(sorted(set(pharmacy_names))) if pharmacy_names else primary_pname,
+                "pharmacies": [{"id": pid, "name": pname} for pid, pname in pharmacy_items],
+                "shift_id": None,
+                "shift_date": None,
+                "role": entry["role"],
+                "user": user_obj,
+            })
+
+        ser = ShiftContactSerializer(normalized_contacts, many=True, context={'request': request})
+        return Response(ser.data)
 
     # --- NEW: Centralized DM Creation Logic ---
     def _get_or_create_dm_conversation(self, user_a, user_b):
@@ -5813,6 +5940,22 @@ class ConversationViewSet(mixins.ListModelMixin,
                     'invited_by': user_a,
                 }
             )
+
+        def _ensure_participants(conv, memberships):
+            existing_ids = set(
+                Participant.objects.filter(
+                    conversation=conv,
+                    membership__in=memberships
+                ).values_list('membership_id', flat=True)
+            )
+            to_add = [
+                Participant(conversation=conv, membership=m)
+                for m in memberships
+                if m and m.id not in existing_ids
+            ]
+            if to_add:
+                Participant.objects.bulk_create(to_add, ignore_conflicts=True)
+
         # ---- LEGACY DM RESOLUTION (prevents duplicates) ----
         # There may be an older DM without a dm_key. Find any DM that has *both* users as participants.
         # If found, backfill dm_key and return it instead of creating a new conversation.
@@ -5832,6 +5975,8 @@ class ConversationViewSet(mixins.ListModelMixin,
             if not getattr(legacy_dm, 'dm_key', None):
                 legacy_dm.dm_key = make_dm_key(user_a.id, user_b.id)
                 legacy_dm.save(update_fields=['dm_key'])
+            # Safety: reattach requester/partner if their participant rows were deleted (delete-for-me case)
+            _ensure_participants(legacy_dm, [membership_a, membership_b])
             return legacy_dm, False, None
 
         # The DM key is based on user IDs.
@@ -5847,6 +5992,9 @@ class ConversationViewSet(mixins.ListModelMixin,
                     Participant(conversation=conversation, membership=membership_a),
                     Participant(conversation=conversation, membership=membership_b)
                 ])
+            else:
+                # Safety: reattach missing participant rows if this DM already existed
+                _ensure_participants(conversation, [membership_a, membership_b])
         
         return conversation, created, None
 
@@ -5899,6 +6047,65 @@ class ConversationViewSet(mixins.ListModelMixin,
         serializer = self.get_serializer(conversation)
         return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
+    # --- ACTION 3: Create/Update Group or Community Chat ---
+    @action(detail=False, methods=['post'], url_path='get-or-create-group')
+    def get_or_create_group(self, request):
+        """
+        Supports:
+          - Creating a new custom group (title + participant_ids)
+          - Updating an existing custom group (room_id + title/participant_ids)
+          - Getting/creating a pharmacy community chat (pharmacy_id)
+        """
+        user = request.user
+        data = request.data or {}
+        pharmacy_id = data.get('pharmacy_id')
+        room_id = data.get('room_id')
+        participant_ids = data.get('participant_ids') or []
+        title = data.get('title', '').strip()
+
+        # Case A: Pharmacy community chat (one per pharmacy)
+        if pharmacy_id:
+            pharmacy = get_object_or_404(Pharmacy, pk=pharmacy_id)
+            conv, created = Conversation.objects.get_or_create(
+                pharmacy=pharmacy,
+                type=Conversation.Type.GROUP,
+                defaults={
+                    'title': pharmacy.name,
+                    'created_by': user,
+                },
+            )
+            # Ensure requester is a participant if they have a membership in this pharmacy
+            requester_membership = Membership.objects.filter(user=user, pharmacy=pharmacy, is_active=True).first()
+            if requester_membership:
+                Participant.objects.get_or_create(conversation=conv, membership=requester_membership, defaults={'is_admin': True})
+            ser = ConversationCreateSerializer(conv, context={'request': request})
+            return Response(ser.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+        # Case B: Update existing custom group
+        if room_id:
+            conv = get_object_or_404(Conversation, pk=room_id, type=Conversation.Type.GROUP)
+            # Only allow updates on non-pharmacy groups here
+            if conv.pharmacy_id:
+                return Response({"detail": "Use pharmacy_id to manage community chats."}, status=status.HTTP_400_BAD_REQUEST)
+            serializer = ConversationCreateSerializer(
+                conv,
+                data={'title': title or conv.title, 'participants': participant_ids},
+                partial=True,
+                context={'request': request},
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        # Case C: Create new custom group
+        serializer = ConversationCreateSerializer(
+            data={'title': title, 'participants': participant_ids},
+            context={'request': request},
+        )
+        serializer.is_valid(raise_exception=True)
+        conv = serializer.save()
+        return Response(ConversationCreateSerializer(conv, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
     def perform_create(self, serializer):
         # This method is now only for creating GROUP chats.
         conv = serializer.save(created_by=self.request.user)
@@ -5941,7 +6148,16 @@ class ConversationViewSet(mixins.ListModelMixin,
         Payload: { "target": "message", "message_id": 123 }
         """
         conv = self.get_object()
-        my_part = get_object_or_404(Participant, conversation=conv, membership__user=request.user)
+        # A user can (historically) have multiple Participant rows in the same conversation.
+        # Pick the first match instead of raising MultipleObjectsReturned.
+        my_part = (
+            Participant.objects
+            .filter(conversation=conv, membership__user=request.user)
+            .order_by('id')
+            .first()
+        )
+        if not my_part:
+            return Response({"detail": "Not a participant of this conversation."}, status=status.HTTP_403_FORBIDDEN)
         
         target = request.data.get('target')
         
@@ -5954,15 +6170,18 @@ class ConversationViewSet(mixins.ListModelMixin,
         elif target == 'message':
             message_id = request.data.get('message_id')
             if not message_id:
-                conv.pinned_message = None
+                # Unpin for current user only
+                my_part.pinned_message = None
+                my_part.save(update_fields=['pinned_message'])
             else:
                 message_to_pin = get_object_or_404(Message, pk=message_id, conversation=conv)
-                if conv.pinned_message_id == message_to_pin.id:
-                    conv.pinned_message = None
+                # Toggle per-user pin
+                if my_part.pinned_message_id == message_to_pin.id:
+                    my_part.pinned_message = None
                 else:
-                    conv.pinned_message = message_to_pin
-            
-            conv.save(update_fields=['pinned_message'])
+                    my_part.pinned_message = message_to_pin
+                my_part.save(update_fields=['pinned_message'])
+
             return Response(ConversationListSerializer(conv, context={'request': request}).data)
 
         return Response({'detail': 'Invalid target specified.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -5995,6 +6214,9 @@ class ConversationViewSet(mixins.ListModelMixin,
                     pass  # allow delete
                 else:
                     raise PermissionDenied("Only group admins can delete this conversation.")
+            # Only the creator can delete a custom group.
+            if instance.created_by_id != user.id:
+                raise PermissionDenied("Only the creator can delete this group.")
         
         # Case 3: Direct Messages (DMs) can always be deleted by participants
         if instance.type == 'DM':
@@ -6020,7 +6242,7 @@ class ConversationViewSet(mixins.ListModelMixin,
         if request.method.lower() == 'get':
             qs = conv.messages.select_related('sender__user').order_by('-created_at')
             page = self.paginate_queryset(qs)
-            ser = MessageSerializer(page if page is not None else qs, many=True)
+            ser = MessageSerializer(page if page is not None else qs, many=True, context={'request': request})
             return self.get_paginated_response(ser.data) if page else Response(ser.data)
 
         data = request.data or {}
@@ -6041,8 +6263,13 @@ class ConversationViewSet(mixins.ListModelMixin,
         
         if created_messages:
             Conversation.objects.filter(pk=conv.pk).update(updated_at=created_messages[-1].created_at)
-        
-        http_payload = MessageSerializer(created_messages, many=True).data
+            # Mark my read position up to my latest message so I don't badge myself
+            my_part.last_read_at = created_messages[-1].created_at
+            my_part.save(update_fields=["last_read_at"])
+
+        http_payload = MessageSerializer(created_messages, many=True, context={'request': request}).data
+        if len(created_messages) == 1:
+            return Response(http_payload[0], status=status.HTTP_201_CREATED)
         return Response(http_payload, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
@@ -6094,7 +6321,60 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        return Message.objects.filter(conversation__participants__membership__user=user)
+        return (
+            Message.objects
+            .filter(conversation__participants__membership__user=user)
+            .select_related("sender__user", "conversation")
+        )
+
+    def create(self, request, *args, **kwargs):
+        user = request.user
+        body = (request.data.get("body") or "").strip()
+        if not body and not request.FILES.get("attachment"):
+            return Response({"detail": "Message body or attachment is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        conversation_id = self.kwargs.get("conversation_pk") or request.data.get("conversation") or request.data.get("conversation_id")
+        try:
+            conversation = Conversation.objects.get(pk=conversation_id)
+        except Conversation.DoesNotExist:
+            return Response({"detail": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        participant = Participant.objects.filter(conversation=conversation, membership__user=user).select_related("membership").first()
+        if not participant:
+            return Response({"detail": "You are not a participant in this conversation."}, status=status.HTTP_403_FORBIDDEN)
+
+        msg = Message.objects.create(
+            conversation=conversation,
+            sender=participant.membership,
+            body=body,
+            attachment=request.FILES.get("attachment") if request.FILES else None,
+            attachment_filename=request.FILES.get("attachment").name if request.FILES.get("attachment") else None,
+        )
+        Conversation.objects.filter(pk=conversation.id).update(updated_at=msg.created_at)
+        serializer = self.get_serializer(msg)
+
+        # Broadcast immediately so clients see the message without waiting for the signal
+        try:
+            layer = get_channel_layer()
+            if layer:
+                payload = serializer.data
+                async_to_sync(layer.group_send)(
+                    f"room.{msg.conversation_id}",
+                    {
+                        "type": "message.created",
+                        "message": payload,
+                    },
+                )
+                sender_user_id = getattr(msg.sender, "user_id", None)
+                for participant in Participant.objects.select_related("membership__user", "conversation").filter(conversation_id=msg.conversation_id):
+                    # Skip notifying the sender
+                    if sender_user_id and getattr(participant.membership, "user_id", None) == sender_user_id:
+                        continue
+                    broadcast_message_badge(participant, sender_membership_id=msg.sender_id, sender_user_id=sender_user_id)
+        except Exception:
+            log.exception("Error while broadcasting message from view")
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
         """
@@ -6228,4 +6508,4 @@ class ChatParticipantView(generics.ListAPIView):
         participant_memberships = Membership.objects.filter(
             chat_participations__conversation__in=user_conversations
         ).distinct()
-        return participant_memberships
+        return participant_memberships.select_related('user')

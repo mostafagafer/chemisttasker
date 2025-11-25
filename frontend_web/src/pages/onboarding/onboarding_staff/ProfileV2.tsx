@@ -14,8 +14,8 @@ import {
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import DescriptionIcon from '@mui/icons-material/Description';
 
-import apiClient from '../../../utils/apiClient';
-import { API_BASE_URL, API_ENDPOINTS } from '../../../constants/api';
+import { API_BASE_URL } from '../../../constants/api';
+import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 
 type ApiData = {
   short_bio?: string | null;
@@ -23,7 +23,7 @@ type ApiData = {
 };
 
 export default function ProfileV2() {
-  const url = API_ENDPOINTS.onboardingDetail('otherstaff');
+  const roleKey = 'otherstaff';
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -43,9 +43,9 @@ export default function ProfileV2() {
       setLoading(true);
       setError('');
       try {
-        const res = await apiClient.get(url);
+        const res = await getOnboardingDetail(roleKey);
         if (!mounted) return;
-        const d: ApiData = res.data || {};
+        const d: ApiData = (res as any) || {};
         setShortBio(d.short_bio || '');
         setResumeExistingUrl(getFileUrl(d.resume || ''));
       } catch (e: any) {
@@ -57,7 +57,7 @@ export default function ProfileV2() {
     return () => {
       mounted = false;
     };
-  }, [url]);
+  }, [roleKey]);
 
   const onPickResume = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] || null;
@@ -80,11 +80,8 @@ export default function ProfileV2() {
       if (resumePending) {
         fd.append('resume', resumePending);
       }
-      const res = await apiClient.patch(url, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
-      const d: ApiData = res.data || {};
+      const res = await updateOnboardingForm(roleKey, fd);
+      const d: ApiData = (res as any) || {};
       setShortBio(d.short_bio || '');
       setResumeExistingUrl(getFileUrl(d.resume || ''));
       setResumePending(null);

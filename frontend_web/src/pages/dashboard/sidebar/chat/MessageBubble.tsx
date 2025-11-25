@@ -1,12 +1,12 @@
 import { FC, useState, useMemo } from 'react';
-import { Avatar, Box, Typography, Link, Chip, IconButton, Menu, MenuItem, Tooltip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Button, Paper } from '@mui/material';
-import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
+import { Avatar, Box, Typography, Link, Chip, IconButton, Tooltip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Button, Paper } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
 import AddReactionOutlinedIcon from '@mui/icons-material/AddReactionOutlined';
 import { ChatMessage, UserLite } from './types';
 import PushPinIcon from '@mui/icons-material/PushPin';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 
@@ -37,7 +37,6 @@ type Props = {
   prevMsg: ChatMessage | null;
   isMe: boolean;
   onStartDm: (partnerMembershipId: number) => void;
-  roomType: 'GROUP' | 'DM';
   onEdit: (messageId: number, newBody: string) => void;
   onDelete: (messageId: number) => void;
   onReact: (messageId: number, reaction: string) => void;
@@ -51,7 +50,6 @@ export const MessageBubble: FC<Props> = ({
   prevMsg,
   isMe,
   onStartDm,
-  roomType,
   onEdit,
   onDelete,
   onReact,
@@ -59,7 +57,6 @@ export const MessageBubble: FC<Props> = ({
   innerRef,
   resolveMemberDetails,
 }) => {
-  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(msg.body);
@@ -86,22 +83,16 @@ export const MessageBubble: FC<Props> = ({
 
   const isSameSenderAsPrevious = prevMsg?.sender.id === msg.sender.id;
 
-  const handleOpenMenu = (event: React.MouseEvent<HTMLElement>) => setMenuAnchor(event.currentTarget);
-  const handleCloseMenu = () => setMenuAnchor(null);
-  
   const handleStartDmClick = () => {
     onStartDm(msg.sender.id);
-    handleCloseMenu();
   };
 
   const handleEditClick = () => {
     setIsEditing(true);
-    handleCloseMenu();
   };
-  
+
   const handleDeleteClick = () => {
     onDelete(msg.id);
-    handleCloseMenu();
   };
   
   const handleSaveEdit = () => {
@@ -225,32 +216,49 @@ export const MessageBubble: FC<Props> = ({
                 </IconButton>
               </Tooltip>
               {isMe && (
-                <Tooltip title="Edit message">
+                <>
+                  <Tooltip title="Edit message">
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsEditing(true);
+                        setPickerOpen(false);
+                      }}
+                      sx={{ bgcolor: 'background.paper', boxShadow: 1, '&:hover': { bgcolor: 'background.default' } }}
+                    >
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Delete message">
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteClick();
+                      }}
+                      sx={{ bgcolor: 'background.paper', boxShadow: 1, '&:hover': { bgcolor: 'background.default' } }}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </>
+              )}
+              {!isMe && (
+                <Tooltip title="Send a direct message">
                   <IconButton
                     size="small"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setIsEditing(true);
+                      handleStartDmClick();
                       setPickerOpen(false);
                     }}
                     sx={{ bgcolor: 'background.paper', boxShadow: 1, '&:hover': { bgcolor: 'background.default' } }}
                   >
-                    <EditIcon fontSize="small" />
+                    <ChatBubbleOutlineIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
               )}
-              <Tooltip title="More options">
-                <IconButton
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenMenu(e);
-                  }}
-                  sx={{ bgcolor: 'background.paper', boxShadow: 1, '&:hover': { bgcolor: 'background.default' } }}
-                >
-                  <MoreHorizIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
               {pickerOpen && (
                 <Paper sx={{ ml: 1, boxShadow: 3, zIndex: 10 }}>
                   <Box sx={{ p: 0.5, display: 'flex' }}>
@@ -287,17 +295,6 @@ export const MessageBubble: FC<Props> = ({
           )}
         </Box>
       </Box>
-
-      <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={handleCloseMenu}>
-        {isMe ? [
-            <MenuItem key="edit" onClick={handleEditClick}><EditIcon sx={{ mr: 1 }} fontSize="small" /> Edit</MenuItem>,
-            <MenuItem key="pin" onClick={() => { onTogglePin('message', msg.id); handleCloseMenu(); }}><PushPinIcon sx={{ mr: 1 }} fontSize="small" /> {msg.is_pinned ? 'Unpin' : 'Pin'} Message</MenuItem>,
-            <MenuItem key="delete" onClick={handleDeleteClick} sx={{ color: 'error.main' }}><DeleteIcon sx={{ mr: 1 }} fontSize="small" /> Delete</MenuItem>
-        ] : [
-            <MenuItem key="pin" onClick={() => { onTogglePin('message', msg.id); handleCloseMenu(); }}><PushPinIcon sx={{ mr: 1 }} fontSize="small" /> {msg.is_pinned ? 'Unpin' : 'Pin'} Message</MenuItem>,
-            <MenuItem key="dm" onClick={handleStartDmClick}>Send a direct message</MenuItem>
-        ]}
-      </Menu>
 
       <Dialog open={isEditing} onClose={() => setIsEditing(false)} fullWidth maxWidth="sm">
         <DialogTitle>Edit Message</DialogTitle>

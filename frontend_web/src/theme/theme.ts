@@ -8,6 +8,12 @@ const theme = createTheme({
     secondary: {
       main: '#9c27b0',
     },
+    grayishBlue: {
+      main: '#90a4ae',
+    },
+    darkGrayishBlue: {
+      main: '#546e7a',
+    },
   },
   typography: {
     fontFamily: 'Roboto, Arial',

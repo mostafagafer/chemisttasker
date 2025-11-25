@@ -8,10 +8,11 @@ import OwnerPharmaciesPage from "./OwnerPharmaciesPage";
 import OwnerPharmacyDetailPage from "./OwnerPharmacyDetailPage";
 import { MembershipDTO, PharmacyAdminDTO, PharmacyDTO } from "./types";
 import { useNavigate, useSearchParams } from "react-router-dom";
-
-// Your existing utils
-import apiClient from "../../../../utils/apiClient";
-import { API_BASE_URL, API_ENDPOINTS } from "../../../../constants/api";
+import {
+  fetchPharmaciesService,
+  fetchMembershipsByPharmacy,
+  fetchPharmacyAdminsService,
+} from "@chemisttasker/shared-core";
 
 type View = "overview" | "pharmacies" | "pharmacy";
 
@@ -28,15 +29,18 @@ export default function OwnerOverviewContainer() {
       : null;
   const adminBasePath = scopedPharmacyId != null ? `/dashboard/admin/${scopedPharmacyId}` : null;
 
-  const fetchMemberships = useCallback(async (pharmacyId: string) => {
-    const res = await apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${pharmacyId}`);
-    return Array.isArray(res.data?.results) ? res.data.results : res.data || [];
-  }, []);
+  const fetchMemberships = useCallback(
+    async (pharmacyId: string) => fetchMembershipsByPharmacy(Number(pharmacyId)),
+    []
+  );
 
-  const fetchAdmins = useCallback(async (pharmacyId: string) => {
-    const res = await apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.pharmacyAdmins}?pharmacy=${pharmacyId}`);
-    return Array.isArray(res.data?.results) ? res.data.results : res.data || [];
-  }, []);
+  const fetchAdmins = useCallback(
+    async (pharmacyId: string) => {
+      const admins = await fetchPharmacyAdminsService(Number(pharmacyId));
+      return admins;
+    },
+    []
+  );
 
   const reloadPharmacyMemberships = useCallback(async (pharmacyId: string) => {
     try {
@@ -56,17 +60,14 @@ export default function OwnerOverviewContainer() {
     let mounted = true;
     (async () => {
       try {
-        const res = await apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.pharmacies}`);
+        const res = await fetchPharmaciesService({});
         if (!mounted) return;
 
         // FIX: Extract the array from the 'results' property if it exists.
-        const pharmacyData = Array.isArray(res.data?.results) ? res.data.results : res.data;
-        const normalizedPharmacies: PharmacyDTO[] = (Array.isArray(pharmacyData) ? pharmacyData : []).map(
-          (item: PharmacyDTO & { id: string | number }) => ({
-            ...item,
-            id: String(item.id),
-          })
-        );
+        const normalizedPharmacies: PharmacyDTO[] = res.map((item: any) => ({
+          ...item,
+          id: String(item.id),
+        }));
         const scopedPharmacies =
           scopedPharmacyId != null
             ? normalizedPharmacies.filter((pharmacy) => Number(pharmacy.id) === scopedPharmacyId)

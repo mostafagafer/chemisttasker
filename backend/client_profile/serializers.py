@@ -739,6 +739,8 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         # nested user data
         user_data = vdata.pop('user', {})
 
+        update_fields = []
+
         if user_data:
             changed_user_fields = []
             for k in ('username', 'first_name', 'last_name', 'mobile_number'):
@@ -784,8 +786,6 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         # Detect changes that affect verification flags
         ahpra_changed = 'ahpra_number' in vdata and (vdata.get('ahpra_number') != getattr(instance, 'ahpra_number'))
 
-        update_fields = []
-
         # --- government_id: delete old file on replace or explicit clear ---
         # gov_id_changed = False
         # if 'government_id' in vdata:
@@ -825,48 +825,6 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         if 'longitude' in vdata:
             instance.longitude = q6(vdata.get('longitude'))
             update_fields.append('longitude')
-
-        clear_photo = _should_clear_flag(self.initial_data, "profile_photo_clear")
-        if 'profile_photo' in vdata or clear_photo:
-            new_photo = vdata.pop('profile_photo', None)
-            old_photo = getattr(instance, 'profile_photo', None)
-            if new_photo is None and clear_photo:
-                if old_photo:
-                    try:
-                        old_photo.delete(save=False)
-                    except Exception:
-                        pass
-                instance.profile_photo = None
-                update_fields.append('profile_photo')
-            elif new_photo is not None:
-                if old_photo and _file_has_changed(new_photo, old_photo):
-                    try:
-                        old_photo.delete(save=False)
-                    except Exception:
-                        pass
-                instance.profile_photo = new_photo
-                update_fields.append('profile_photo')
-
-        clear_photo = _should_clear_flag(self.initial_data, "profile_photo_clear")
-        if 'profile_photo' in vdata or clear_photo:
-            new_photo = vdata.pop('profile_photo', None)
-            old_photo = getattr(instance, 'profile_photo', None)
-            if new_photo is None and clear_photo:
-                if old_photo:
-                    try:
-                        old_photo.delete(save=False)
-                    except Exception:
-                        pass
-                instance.profile_photo = None
-                update_fields.append('profile_photo')
-            elif new_photo is not None:
-                if old_photo and _file_has_changed(new_photo, old_photo):
-                    try:
-                        old_photo.delete(save=False)
-                    except Exception:
-                        pass
-                instance.profile_photo = new_photo
-                update_fields.append('profile_photo')
 
         # reset only relevant flags when inputs changed
         if ahpra_changed:
@@ -2605,6 +2563,27 @@ class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
 
         update_fields = []
 
+        clear_photo = _should_clear_flag(self.initial_data, "profile_photo_clear")
+        if "profile_photo" in vdata or clear_photo:
+            new_photo = vdata.pop("profile_photo", None)
+            old_photo = getattr(instance, "profile_photo", None)
+            if new_photo is None and clear_photo:
+                if old_photo:
+                    try:
+                        old_photo.delete(save=False)
+                    except Exception:
+                        pass
+                instance.profile_photo = None
+                update_fields.append("profile_photo")
+            elif new_photo is not None:
+                if old_photo and _file_has_changed(new_photo, old_photo):
+                    try:
+                        old_photo.delete(save=False)
+                    except Exception:
+                        pass
+                instance.profile_photo = new_photo
+                update_fields.append("profile_photo")
+
         # role + address
         direct_fields = [
             'role_type',
@@ -4341,7 +4320,12 @@ class MessageSerializer(serializers.ModelSerializer):
         return None
  
     def get_is_pinned(self, obj):
-        # A message is pinned if its ID matches the conversation's pinned_message_id
+        request = self.context.get("request")
+        if request and hasattr(request, 'user') and request.user.is_authenticated:
+            part = Participant.objects.filter(conversation=obj.conversation, membership__user=request.user).first()
+            if part and part.pinned_message_id:
+                return part.pinned_message_id == obj.id
+        # Fallback to legacy conversation-level pin if present
         return obj.conversation.pinned_message_id == obj.id
 
 class ConversationListSerializer(serializers.ModelSerializer):
@@ -4352,7 +4336,7 @@ class ConversationListSerializer(serializers.ModelSerializer):
     title = serializers.SerializerMethodField()
     my_membership_id = serializers.SerializerMethodField()
     is_pinned = serializers.SerializerMethodField()
-    pinned_message = MessageSerializer(read_only=True)
+    pinned_message = serializers.SerializerMethodField()
     created_by_user_id = serializers.IntegerField(source='created_by_id', read_only=True)
 
     class Meta:
@@ -4415,12 +4399,29 @@ class ConversationListSerializer(serializers.ModelSerializer):
         if not msg: return None
         return {"id": msg.id, "body": msg.body[:200], "created_at": msg.created_at.isoformat(), "sender": msg.sender_id}
 
+    def get_pinned_message(self, obj):
+        request = self.context.get("request")
+        if not request or not getattr(request, "user", None) or not request.user.is_authenticated:
+            # fallback to legacy conversation-level pinned message
+            pm = obj.pinned_message
+            return MessageSerializer(pm, context=self.context).data if pm else None
+        part = Participant.objects.filter(conversation=obj, membership__user=request.user).first()
+        if part and part.pinned_message:
+            return MessageSerializer(part.pinned_message, context=self.context).data
+        # legacy fallback
+        pm = obj.pinned_message
+        return MessageSerializer(pm, context=self.context).data if pm else None
+
     def get_unread_count(self, obj):
         my_part = self._get_my_participant(obj)
         if not my_part: return 0
         since = my_part.last_read_at
-        if not since: return obj.messages.count()
-        return obj.messages.filter(created_at__gt=since).count()
+        qs = obj.messages
+        # Never count my own messages as unread
+        qs = qs.exclude(sender_id=my_part.membership_id)
+        if not since:
+            return qs.count()
+        return qs.filter(created_at__gt=since).count()
 
     def get_participant_ids(self, obj):
         return list(obj.participants.values_list("membership_id", flat=True))
@@ -4534,6 +4535,19 @@ class ChatParticipantSerializer(serializers.ModelSerializer):
             "employment_type",
             "invited_name",
         ]
+
+class ShiftContactSerializer(serializers.Serializer):
+    """
+    Lightweight serializer for shift-related chat contacts.
+    Includes aggregated pharmacy info for users with multiple shifts.
+    """
+    pharmacy_id = serializers.IntegerField(required=False, allow_null=True)
+    pharmacy_name = serializers.CharField(required=False, allow_blank=True)
+    pharmacies = serializers.ListField(child=serializers.DictField(), required=False)
+    shift_id = serializers.IntegerField(required=False, allow_null=True)
+    shift_date = serializers.DateField(required=False, allow_null=True)
+    role = serializers.CharField()
+    user = ChatMemberSerializer()
 
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:

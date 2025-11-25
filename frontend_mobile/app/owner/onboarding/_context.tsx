@@ -44,3 +44,8 @@ export function useOnboarding() {
     }
     return context;
 }
+
+// Default export to satisfy Expo Router route resolution when scanning files.
+export default function OnboardingContextProviderWrapper({ children }: { children?: ReactNode }) {
+    return children ? <OnboardingProvider>{children}</OnboardingProvider> : null;
+}

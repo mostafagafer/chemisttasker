@@ -9,9 +9,8 @@ import {
   IconButton,
 } from '@mui/material';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
-import apiClient from '../utils/apiClient';
-import { API_ENDPOINTS } from '../constants/api';
 import AuthLayout from '../layouts/AuthLayout'; // Import the new layout
+import { passwordResetConfirm } from '@chemisttasker/shared-core';
 
 export default function ResetPasswordPage() {
   // --- All logic is unchanged ---
@@ -33,9 +32,9 @@ export default function ResetPasswordPage() {
     setLoading(true);
     setError('');
     try {
-      await apiClient.post(API_ENDPOINTS.passwordResetConfirm, {
-        uid,
-        token,
+      await passwordResetConfirm({
+        uid: uid ?? '',
+        token: token ?? '',
         new_password1: newPassword,
         new_password2: confirmPassword,
       });

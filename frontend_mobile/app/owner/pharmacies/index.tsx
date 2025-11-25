@@ -3,7 +3,7 @@ import { View, StyleSheet, ScrollView, RefreshControl, ActivityIndicator } from 
 import { Text, Card, FAB, Button, Searchbar, Chip, Surface } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import apiClient from '../../../utils/apiClient';
+import { getPharmacies } from '@chemisttasker/shared-core';
 
 interface Pharmacy {
     id: number;
@@ -30,8 +30,10 @@ export default function PharmaciesListScreen() {
     const fetchPharmacies = async () => {
         try {
             setError('');
-            const response = await apiClient.get('/client-profile/pharmacies/');
-            setPharmacies(response.data);
+            const data = await getPharmacies();
+            // Handle both array and paginated response
+            const pharmacyList = Array.isArray(data) ? data : (data as any).results || [];
+            setPharmacies(pharmacyList);
         } catch (err: any) {
             console.error('Error fetching pharmacies:', err);
             setError('Failed to load pharmacies');

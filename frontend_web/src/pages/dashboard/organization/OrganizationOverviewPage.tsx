@@ -17,7 +17,6 @@ import GroupsIcon from "@mui/icons-material/Groups";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
 import ChatOutlinedIcon from "@mui/icons-material/ChatOutlined";
-import Diversity3Icon from "@mui/icons-material/Diversity3";
 import HubIcon from "@mui/icons-material/Hub";
 import PostAddIcon from "@mui/icons-material/PostAdd";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
@@ -28,8 +27,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../contexts/AuthContext";
 import type { OrgMembership } from "../../../contexts/AuthContext";
 import { ORG_ROLES } from "../../../constants/roles";
-import apiClient from "../../../utils/apiClient";
-import { API_ENDPOINTS } from "../../../constants/api";
+import { getOrganizationDashboard } from "@chemisttasker/shared-core";
 
 type QuickAction = {
   title: string;
@@ -76,13 +74,12 @@ export default function OrganizationOverviewPage() {
 
     setError(null);
 
-    apiClient
-      .get(API_ENDPOINTS.organizationDashboard(orgId))
+    getOrganizationDashboard(orgId)
       .then((res) => {
         if (!isActive) {
           return;
         }
-        setData(res.data);
+        setData(res as any);
         setError(null);
       })
       .catch((err) => {

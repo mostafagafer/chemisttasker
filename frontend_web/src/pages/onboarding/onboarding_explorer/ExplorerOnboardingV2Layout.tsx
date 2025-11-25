@@ -10,11 +10,9 @@ import {
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import apiClient from "../../../utils/apiClient";
-import { API_ENDPOINTS } from "../../../constants/api";
-
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
+import { getOnboardingDetail } from "@chemisttasker/shared-core";
 
 const BRAND = {
   grad: "linear-gradient(90deg, #7c3aed 0%, #2563eb 100%)",
@@ -52,11 +50,9 @@ export default function ExplorerOnboardingV2Layout() {
 
   // Load real progress from backend on mount
   React.useEffect(() => {
-    const url = API_ENDPOINTS.onboardingDetail("explorer");
-    apiClient
-      .get(url)
+    getOnboardingDetail("explorer")
       .then((res) => {
-        const p = res.data?.progress_percent ?? 0;
+        const p = (res as any)?.progress_percent ?? 0;
         setProgress(Number.isFinite(p) ? p : 0);
       })
       .catch(() => {

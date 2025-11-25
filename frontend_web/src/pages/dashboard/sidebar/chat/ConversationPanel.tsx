@@ -9,7 +9,6 @@ import { MessageBubble } from './MessageBubble';
 import type { ChatMessage, ChatRoom, MemberCache, PharmacyRef, UserLite } from './types';
 import './chat.css';
 import PushPinIcon from '@mui/icons-material/PushPin';
-import CloseIcon from '@mui/icons-material/Close';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 
@@ -443,8 +442,8 @@ return 'Direct Message';
   };
 
   return (
-    <Box className="chatpage-main">
-      <Box className="conversation-header">
+    <Box className="chatpage-main" sx={{ position: 'relative' }}>
+      <Box className="conversation-header" sx={{ position: 'sticky', top: 0, zIndex: 2, bgcolor: 'background.paper' }}>
         {isMobile && (
           <IconButton onClick={onBack} sx={{ mr: 1 }}>
             <ArrowBackIcon />
@@ -457,51 +456,41 @@ return 'Direct Message';
           {isLoadingMessages ? (
             <Typography variant="caption" color="text.secondary">Loading…</Typography>
           ) : null}
-        </Box>
-      </Box>
-      {activeRoom.pinned_message && (
-        <Box 
-          sx={{ 
-            p: 1.5, 
-            borderBottom: '1px solid', 
-            borderColor: 'divider',
-            bgcolor: 'action.hover',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-            cursor: 'pointer'
-          }}
-          role="button"
-          tabIndex={0}
-          onClick={handlePinnedJump}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              handlePinnedJump();
-            }
-          }}
-        >
-            <PushPinIcon sx={{ color: 'text.secondary' }} fontSize="small" />
-            <Box sx={{ minWidth: 0 }}>
-                <Typography variant="body2" fontWeight="bold" noWrap>
-                  {memberCache[activeRoom.pinned_message.sender.pharmacy]?.[activeRoom.pinned_message.sender.id]?.details.first_name || 'User'} pinned a message
-                </Typography>
-                <Typography variant="body2" color="text.secondary" noWrap>
-                  {activeRoom.pinned_message.body || 'Attachment'}
-                </Typography>
-            </Box>
-            <IconButton
-              size="small"
-              sx={{ ml: 'auto' }}
-              onClick={(e) => {
-                e.stopPropagation();
-                onTogglePin('message', activeRoom.pinned_message?.id);
+          {activeRoom.pinned_message && (
+            <Box
+              sx={{
+                mt: 1,
+                p: 1,
+                borderRadius: 1,
+                bgcolor: 'action.hover',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                cursor: 'pointer'
+              }}
+              role="button"
+              tabIndex={0}
+              onClick={handlePinnedJump}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handlePinnedJump();
+                }
               }}
             >
-              <CloseIcon fontSize="inherit" />
-            </IconButton>
+              <PushPinIcon sx={{ color: 'text.secondary' }} fontSize="small" />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="body2" fontWeight="bold" noWrap>
+                  Pinned
+                </Typography>
+                <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: '260px' }}>
+                  {activeRoom.pinned_message.body || 'Attachment'}
+                </Typography>
+              </Box>
+            </Box>
+          )}
         </Box>
-      )}
+      </Box>
 
       <Box ref={scrollRef} className="conversation-scroll" onScroll={handleScroll}>
         {isLoadingMore && (
@@ -516,12 +505,11 @@ return 'Direct Message';
                 <Chip label="New Messages" size="small" color="primary" variant="outlined" />
               </Divider>
             )}
-            <MessageBubble 
-              msg={m} 
+            <MessageBubble
+              msg={m}
               prevMsg={index > 0 ? messages[index - 1] : null}
-              isMe={Boolean(myMembershipId && m.sender?.id === myMembershipId)} 
+              isMe={Boolean(myMembershipId && m.sender?.id === myMembershipId)}
               onStartDm={onStartDm}
-              roomType={activeRoom.type}
               onEdit={onEditMessage}
               onDelete={onDeleteMessage}
               onReact={onReact}

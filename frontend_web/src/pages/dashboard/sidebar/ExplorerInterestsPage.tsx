@@ -47,10 +47,18 @@ import { formatDistanceToNow } from 'date-fns';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import {
+  createExplorerPost,
+  createExplorerPostAttachment,
+  deleteExplorerPost,
+  getExplorerPostFeed,
+  getOnboarding,
+  likeExplorerPost,
+  unlikeExplorerPost,
+  updateExplorerPost,
+} from '@chemisttasker/shared-core';
 
 dayjs.extend(utc);
 
@@ -153,41 +161,41 @@ export default function ExplorerInterestsPage() {
 
   const showSnackbar = (message: string) => setSnackbar({ open: true, message });
 
-  const fetchExplorerProfile = useCallback(async () => {
-    if (!user) return;
-    setLoadingProfile(true);
-    try {
-        const res = await apiClient.get<ExplorerOnboardingProfile>('/client-profile/explorer/onboarding/me/');
-        if (res.data && res.data.id) {
-            setIsExplorer(true);
-            setExplorerProfile(res.data);
-        } else {
-            setIsExplorer(false);
-        }
-    } catch {
-        setIsExplorer(false);
-    } finally {
-        setLoadingProfile(false);
-    }
-  }, [user]);
-
-  const loadFeed = useCallback(async (currentPage: number) => {
-    setLoadingFeed(true);
-    setError(null);
-    try {
-      const res = await apiClient.get(`${API_ENDPOINTS.explorerPostFeed}?page=${currentPage}&page_size=${ITEMS_PER_PAGE}`);
-      if (isPaginated<ExplorerPost>(res.data)) {
-        setPosts(res.data.results);
-        setTotalPosts(res.data.count);
-      } else if (Array.isArray(res.data)) {
-        setPosts(res.data);
-        setTotalPosts(res.data.length);
+const fetchExplorerProfile = useCallback(async () => {
+  if (!user) return;
+  setLoadingProfile(true);
+  try {
+      const res: any = await getOnboarding('explorer');
+      if (res && res.id) {
+          setIsExplorer(true);
+          setExplorerProfile(res as ExplorerOnboardingProfile);
+      } else {
+          setIsExplorer(false);
       }
-    } catch {
-      setError('Failed to load explorer posts.');
-    } finally {
-      setLoadingFeed(false);
-    }
+  } catch {
+      setIsExplorer(false);
+  } finally {
+      setLoadingProfile(false);
+  }
+}, [user]);
+
+const loadFeed = useCallback(async (currentPage: number) => {
+  setLoadingFeed(true);
+  setError(null);
+  try {
+      const res: any = await getExplorerPostFeed({ page: currentPage, page_size: ITEMS_PER_PAGE });
+      if (isPaginated<ExplorerPost>(res)) {
+        setPosts(res.results);
+        setTotalPosts(res.count);
+      } else if (Array.isArray(res)) {
+        setPosts(res);
+        setTotalPosts(res.length);
+      }
+  } catch {
+    setError('Failed to load explorer posts.');
+  } finally {
+    setLoadingFeed(false);
+  }
   }, []);
 
   useEffect(() => {
@@ -204,8 +212,11 @@ export default function ExplorerInterestsPage() {
     const wasLiked = post.is_liked_by_me;
     setPosts(prev => prev.map(p => p.id === post.id ? { ...p, is_liked_by_me: !wasLiked, like_count: p.like_count + (wasLiked ? -1 : 1) } : p));
     try {
-      const endpoint = wasLiked ? API_ENDPOINTS.explorerPostUnlike(post.id) : API_ENDPOINTS.explorerPostLike(post.id);
-      await apiClient.post(endpoint);
+      if (wasLiked) {
+        await unlikeExplorerPost(post.id);
+      } else {
+        await likeExplorerPost(post.id);
+      }
     } catch {
       showSnackbar('Action failed. Please try again.');
       setPosts(prev => prev.map(p => p.id === post.id ? { ...p, is_liked_by_me: wasLiked, like_count: p.like_count } : p));
@@ -260,23 +271,23 @@ export default function ExplorerInterestsPage() {
     try {
       if (composerState.isEditing && composerState.postToEdit) {
         const { postToEdit } = composerState;
-        await apiClient.patch(API_ENDPOINTS.explorerPostDetail(postToEdit.id), {
+        await updateExplorerPost(postToEdit.id, {
           headline: composerState.headline.trim(),
           body: composerState.body.trim(),
         });
         showSnackbar('Post updated!');
       } else {
-        const createRes = await apiClient.post(API_ENDPOINTS.explorerPosts, {
-          explorer_profile: explorerProfile.id,
-          headline: composerState.headline.trim(),
-          body: composerState.body.trim(),
-        });
-        const createdPost: ExplorerPost = createRes.data;
+        const fd = new FormData();
+        fd.append('explorer_profile', String(explorerProfile.id));
+        fd.append('headline', composerState.headline.trim());
+        fd.append('body', composerState.body.trim());
+        const createRes: any = await createExplorerPost(fd);
+        const createdPost: ExplorerPost = createRes as ExplorerPost;
 
         if (composerState.files.length > 0) {
           const form = new FormData();
           composerState.files.forEach(f => form.append('file', f));
-          await apiClient.post(API_ENDPOINTS.explorerPostAttachments(createdPost.id), form);
+          await createExplorerPostAttachment(createdPost.id, form);
         }
         showSnackbar('Post created!');
       }
@@ -295,7 +306,7 @@ export default function ExplorerInterestsPage() {
   const confirmDelete = async () => {
     if (!deleteDialog.post) return;
     try {
-      await apiClient.delete(API_ENDPOINTS.explorerPostDetail(deleteDialog.post.id));
+      await deleteExplorerPost(deleteDialog.post.id);
       showSnackbar('Post deleted successfully.');
       await loadFeed(page);
     } catch (e: any) {

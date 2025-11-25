@@ -10,11 +10,17 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
 
-import apiClient from '../../../utils/apiClient';
-import { API_BASE_URL, API_ENDPOINTS } from '../../../constants/api';
+import { API_BASE_URL } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import ProfilePhotoUploader from '../../../components/profilePhoto/ProfilePhotoUploader';
 import type { User } from '../../../contexts/AuthContext';
+import {
+  getOnboarding,
+  updateOnboarding,
+  mobileRequestOtp,
+  mobileVerifyOtp,
+  mobileResendOtp,
+} from '@chemisttasker/shared-core';
 
 const EXPLORER_ROLE_CHOICES = [
   { value: 'STUDENT',          label: 'Student' },
@@ -88,31 +94,31 @@ export default function BasicInfoV2() {
   });
   const autocompleteRef = React.useRef<google.maps.places.Autocomplete | null>(null);
 
-  const url = API_ENDPOINTS.onboardingDetail('explorer');
+  const roleKey = 'explorer';
 
   React.useEffect(() => {
     let mounted = true;
     setLoading(true);
     setError('');
-    apiClient.get(url)
+    getOnboarding(roleKey as any)
       .then(res => {
         if (!mounted) return;
-        setData(res.data);
+        setData(res as any);
         const nextPhoto =
-          res.data.profile_photo_url ||
-          (res.data.profile_photo ? `${API_BASE_URL}${res.data.profile_photo}` : null);
+          (res as any)?.profile_photo_url ||
+          ((res as any)?.profile_photo ? `${API_BASE_URL}${(res as any).profile_photo}` : null);
         setProfilePhotoPreview(nextPhoto);
         setProfilePhotoFile(null);
         setProfilePhotoCleared(false);
         // Pre-fill the visible address from parts so it never looks blank
-        const s = [res.data.street_address, res.data.suburb, res.data.state, res.data.postcode]
+        const s = [(res as any)?.street_address, (res as any)?.suburb, (res as any)?.state, (res as any)?.postcode]
           .filter(Boolean).join(', ');
         setAddressDisplay(s);
       })
-      .catch(e => setError(e.response?.data?.detail || e.message))
+      .catch(e => setError(e?.message || 'Unable to load onboarding'))
       .finally(() => setLoading(false));
     return () => { mounted = false; };
-  }, [url]);
+  }, [roleKey]);
 
   const setField = (name: keyof ApiData, value: any) =>
     setData(prev => ({ ...prev, [name]: value }));
@@ -196,29 +202,27 @@ export default function BasicInfoV2() {
 
       // government id file
 
-      const res = await apiClient.patch(url, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setData(res.data);
+      const res = await updateOnboarding(roleKey as any, fd as any);
+      setData(res as any);
       const nextPhoto =
-        res.data.profile_photo_url ||
-        (res.data.profile_photo ? `${API_BASE_URL}${res.data.profile_photo}` : null);
+        (res as any)?.profile_photo_url ||
+        ((res as any)?.profile_photo ? `${API_BASE_URL}${(res as any).profile_photo}` : null);
       setProfilePhotoPreview(nextPhoto);
       setProfilePhotoFile(null);
       setProfilePhotoCleared(false);
 
       // refresh the visible address line from saved parts (in case backend normalizes)
-      const s = [res.data.street_address, res.data.suburb, res.data.state, res.data.postcode]
+      const s = [(res as any)?.street_address, (res as any)?.suburb, (res as any)?.state, (res as any)?.postcode]
         .filter(Boolean).join(', ');
       if (s) setAddressDisplay(s);
 
       setSnack(submitForVerification ? 'Submitted for verification.' : 'Saved.');
     } catch (e: any) {
-      const resp = e.response?.data;
+      const resp = (e as any)?.response?.data;
       setError(
         resp && typeof resp === 'object'
           ? Object.entries(resp).map(([k, v]) => `${k}: ${(v as any[]).join(', ')}`).join('\n')
-          : e.message
+          : (e?.message || 'Error saving')
       );
     } finally {
       setSaving(false);
@@ -233,51 +237,47 @@ export default function BasicInfoV2() {
 
 
   // --- mobile OTP handlers ---
-const sendMobileOtp = async () => {
-  setOtpBusy(true); setOtpErr(''); setOtpMsg('');
-  try {
-    await apiClient.post(API_ENDPOINTS.mobileRequestOtp, {
-      mobile_number: data.phone_number,
-    });
-    setOtpMsg('Code sent to your mobile.');
-  } catch (e: any) {
-    setOtpErr(e?.response?.data?.error || e?.response?.data?.detail || e.message || 'Failed to send code.');
-  } finally {
-    setOtpBusy(false);
-  }
-};
+  const sendMobileOtp = async () => {
+    setOtpBusy(true); setOtpErr(''); setOtpMsg('');
+    try {
+      await mobileRequestOtp({ mobile_number: data.phone_number } as any);
+      setOtpMsg('Code sent to your mobile.');
+    } catch (e: any) {
+      setOtpErr(e?.response?.data?.error || e?.response?.data?.detail || e.message || 'Failed to send code.');
+    } finally {
+      setOtpBusy(false);
+    }
+  };
 
-const verifyMobileOtp = async () => {
-  setOtpBusy(true); setOtpErr(''); setOtpMsg('');
-  try {
-    await apiClient.post(API_ENDPOINTS.mobileVerifyOtp, { otp });
-    setOtpMsg('Mobile verified!');
-    setMobileVerifiedLocal(true);
-if (setUser) {
-  setUser((prev: User | null) => (prev ? { ...prev, is_mobile_verified: true } : prev));
-}
+  const verifyMobileOtp = async () => {
+    setOtpBusy(true); setOtpErr(''); setOtpMsg('');
+    try {
+      await mobileVerifyOtp({ otp } as any);
+      setOtpMsg('Mobile verified!');
+      setMobileVerifiedLocal(true);
+      if (setUser) {
+        setUser((prev: User | null) => (prev ? { ...prev, is_mobile_verified: true } : prev));
+      }
+      // Optionally close after success:
+      // setTimeout(() => setOtpOpen(false), 800);
+    } catch (e: any) {
+      setOtpErr(e?.response?.data?.error || e?.response?.data?.detail || e.message || 'Verification failed.');
+    } finally {
+      setOtpBusy(false);
+    }
+  };
 
-
-    // Optionally close after success:
-    // setTimeout(() => setOtpOpen(false), 800);
-  } catch (e: any) {
-    setOtpErr(e?.response?.data?.error || e?.response?.data?.detail || e.message || 'Verification failed.');
-  } finally {
-    setOtpBusy(false);
-  }
-};
-
-const resendMobileOtp = async () => {
-  setOtpBusy(true); setOtpErr(''); setOtpMsg('');
-  try {
-    await apiClient.post(API_ENDPOINTS.mobileResendOtp, {});
-    setOtpMsg('New code sent.');
-  } catch (e: any) {
-    setOtpErr(e?.response?.data?.error || e?.response?.data?.detail || e.message || 'Could not resend code.');
-  } finally {
-    setOtpBusy(false);
-  }
-};
+  const resendMobileOtp = async () => {
+    setOtpBusy(true); setOtpErr(''); setOtpMsg('');
+    try {
+      await mobileResendOtp({} as any);
+      setOtpMsg('New code sent.');
+    } catch (e: any) {
+      setOtpErr(e?.response?.data?.error || e?.response?.data?.detail || e.message || 'Could not resend code.');
+    } finally {
+      setOtpBusy(false);
+    }
+  };
 
   if (loading) return <Typography>Loading…</Typography>;
 

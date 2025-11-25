@@ -29,8 +29,11 @@ import LinkIcon from "@mui/icons-material/Link";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useTheme } from "@mui/material/styles";
-import apiClient from "../../../../utils/apiClient";
-import { API_BASE_URL, API_ENDPOINTS } from "../../../../constants/api";
+import {
+  createMembershipInviteLinkService,
+  deleteMembershipService,
+  bulkInviteMembersService,
+} from "@chemisttasker/shared-core";
 import {
   MembershipDTO,
   Role,
@@ -348,10 +351,8 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
       }));
 
     try {
-      const response = await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`, {
-        invitations: payload,
-      });
-      const errors = response?.data?.errors;
+      const response = await bulkInviteMembersService({ invitations: payload });
+      const errors = (response as any)?.errors;
       if (Array.isArray(errors) && errors.length > 0) {
         const first = errors[0];
         const message =
@@ -380,7 +381,7 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
     if (!id) return;
     setDeleteLoadingId(id);
     try {
-      await apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.membershipDelete(String(id))}`);
+      await deleteMembershipService(id);
       setToast({ message: "Favourite removed", severity: "success" });
       onMembershipsChanged();
     } catch (error: any) {
@@ -401,12 +402,12 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
     setLinkSubmitting(true);
     try {
       const expires = Number(linkExpiry) || 14;
-      const res = await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipInviteLinks}`, {
+      const res = await createMembershipInviteLinkService({
         pharmacy: pharmacyId,
         category: "LOCUM_CASUAL",
         expires_in_days: expires,
       });
-      const token = res.data?.token;
+      const token = res?.token ?? res?.data?.token ?? res;
       const url = `${window.location.origin}/membership/apply/${token}`;
       setLinkValue(url);
       setToast({ message: "Favourite link generated", severity: "success" });

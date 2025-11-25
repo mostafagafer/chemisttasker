@@ -17,12 +17,18 @@ import {
   Skeleton, // Added Skeleton import
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { formatDistanceToNow } from 'date-fns';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import {
+  Shift,
+  expressInterestInCommunityShiftService,
+  fetchCommunityShifts,
+  fetchShiftInterests,
+  fetchShiftRejections,
+  rejectCommunityShiftService,
+} from '@chemisttasker/shared-core';
 
 const formatClockTime = (value?: string | null) => {
   if (!value) return '';
@@ -35,55 +41,8 @@ const formatClockTime = (value?: string | null) => {
   return `${hour}:${minutes} ${suffix}`;
 };
 
-interface Slot {
-  id: number;
-  date: string;
-  start_time: string;
-  end_time: string;
-  is_recurring: boolean;
-  recurring_days: number[];
-  recurring_end_date: string | null;
-}
-
-interface Shift {
-  id: number;
-  pharmacy?: {
-    id: number;
-    name: string;
-    address?: string;
-    state?: string;
-    suburb?: string;
-  };
-  pharmacy_detail?: {
-    id: number;
-    name: string;
-    address?: string;
-    state?: string;
-    suburb?: string;
-    postcode?: string;
-  };
-  slots: Slot[];
-  employment_type: 'LOCUM' | 'FULL_TIME' | 'PART_TIME';
-  workload_tags: string[];
-  owner_adjusted_rate?: string | null;
-  must_have: string[];
-  nice_to_have: string[];
-  created_at: string;
-  rate_type: 'FIXED' | 'FLEXIBLE' | 'PHARMACIST_PROVIDED' | null;
-  fixed_rate: string | null;
-  single_user_only: boolean;
-  slot_assignments: { slot_id: number; user_id: number }[];
-  description?: string;
-  post_anonymously?: boolean;
-}
-
-interface Interest {
-  id: number;
-  shift: number;
-  slot: number | null;
-}
-
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+type ShiftSlot = NonNullable<Shift['slots']>[number];
 
 const gradientButtonSx = {
   borderRadius: 2,
@@ -94,6 +53,17 @@ const gradientButtonSx = {
 const curvedCardSx = {
   borderRadius: 3,
   boxShadow: '0 20px 45px rgba(109, 40, 217, 0.08)',
+};
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  const detail = (error as any)?.response?.data?.detail;
+  if (typeof detail === 'string') {
+    return detail;
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return fallback;
 };
 
 export default function CommunityShiftsPage() {
@@ -122,12 +92,14 @@ export default function CommunityShiftsPage() {
   );
 
   // helper to pick whichever field exists
-  const getPharmacyData = (shift: Shift) =>
-    shift.pharmacy ?? shift.pharmacy_detail;
+  const getPharmacyData = (shift: Shift) => {
+    const pharm = shift.pharmacy ?? shift.pharmacyDetail;
+    return typeof pharm === 'number' ? null : pharm;
+  };
 
   const getPharmacyHeading = (shift: Shift) => {
     const pharm = getPharmacyData(shift);
-    if (shift.post_anonymously) {
+    if (shift.postAnonymously) {
       const suburb = pharm?.suburb?.trim();
       return suburb && suburb.length > 0 ? `Shift in ${suburb}` : 'Anonymous Shift';
     }
@@ -135,13 +107,13 @@ export default function CommunityShiftsPage() {
   };
 
   const getPharmacySubheading = (shift: Shift) => {
-    if (shift.post_anonymously) {
+    if (shift.postAnonymously) {
       return null;
     }
     const pharm = getPharmacyData(shift);
     if (!pharm) return null;
-    if (pharm.address) {
-      return pharm.state ? `${pharm.state} | ${pharm.address}` : pharm.address;
+    if (pharm.streetAddress) {
+      return pharm.state ? `${pharm.state} | ${pharm.streetAddress}` : pharm.streetAddress;
     }
     return null;
   };
@@ -151,82 +123,42 @@ export default function CommunityShiftsPage() {
     const load = async () => {
       setLoading(true);
       try {
-        const [shiftsRes, interestsRes] = await Promise.all([
-          apiClient.get(API_ENDPOINTS.getCommunityShifts),
-          apiClient.get(API_ENDPOINTS.getShiftInterests + '?user=' + user.id),
+        const [community, interests, rejections] = await Promise.all([
+          fetchCommunityShifts({}),
+          fetchShiftInterests({ userId: user.id }),
+          fetchShiftRejections({ userId: user.id }),
         ]);
 
-        const rawShifts: any[] = Array.isArray(shiftsRes.data.results)
-          ? shiftsRes.data.results
-          : Array.isArray(shiftsRes.data)
-          ? shiftsRes.data
-          : [];
-
-        const available = rawShifts.filter(s => {
-          const assignedSlotCount = s.slot_assignments?.length ?? 0;
-          return assignedSlotCount < s.slots.length;
+        const available = community.filter((shift: Shift) => {
+          const assignedSlotCount = shift.slotAssignments?.length ?? 0;
+          const slots = shift.slots ?? [];
+          return assignedSlotCount < slots.length;
         });
 
-        setShifts(
-          available.map(s => ({
-            ...s,
-            workload_tags: s.workload_tags ?? [],
-            must_have: s.must_have ?? [],
-            nice_to_have: s.nice_to_have ?? [],
-            created_at: s.created_at,
-            rate_type: s.rate_type,
-            fixed_rate: s.fixed_rate,
-            owner_adjusted_rate: s.owner_adjusted_rate ?? null,
-          }))
-        );
+        setShifts(available);
 
-        const rawInt: Interest[] = Array.isArray(interestsRes.data.results)
-          ? interestsRes.data.results
-          : Array.isArray(interestsRes.data)
-          ? interestsRes.data
-          : [];
+        const slotInterestIds = interests
+          .map((i: any) => i.slotId)
+          .filter((id: unknown): id is number => typeof id === 'number');
+        setDisabledSlots(slotInterestIds);
 
-        // 1) all the per-slot interests
-        const slotIds = rawInt
-          .map(i => i.slot)
-          .filter((id): id is number => id != null);
-        setDisabledSlots(slotIds);
+        const shiftInterestIds = interests
+          .filter((i: any) => i.slotId == null)
+          .map((i: any) => i.shift);
+        setDisabledShifts(shiftInterestIds);
 
-        // 2) all the shift-level interests (slot === null)
-        const shiftIds = rawInt
-          .filter(i => i.slot === null)
-          .map(i => i.shift);
-        setDisabledShifts(shiftIds);
-        // Get user's rejections for this user
-        try {
-          const rejectionsRes = await apiClient.get(
-            API_ENDPOINTS.getShiftRejections + '?user=' + user.id
-          );
+        const slotRejections = rejections
+          .map((r: any) => r.slotId)
+          .filter((id: unknown): id is number => typeof id === 'number');
+        setRejectedSlots(slotRejections);
 
-          const rawRej: any[] = Array.isArray(rejectionsRes.data.results)
-            ? rejectionsRes.data.results
-            : Array.isArray(rejectionsRes.data)
-            ? rejectionsRes.data
-            : [];
-
-          // Per-slot rejections
-          const rejSlotIds = rawRej
-            .map(r => r.slot) // Changed from r.slot_id to r.slot based on ShiftRejection model
-            .filter((id): id is number => id != null);
-          setRejectedSlots(rejSlotIds);
-
-          // Shift-level (entire shift) rejections
-          const rejShiftIds = rawRej
-            .filter(r => r.slot == null) // Changed from r.slot_id to r.slot
-            .map(r => r.shift);
-          setRejectedShifts(rejShiftIds);
-        } catch (error) {
-          console.error("Failed to load rejections:", error);
-        }
-
+        const shiftRejections = rejections
+          .filter((r: any) => r.slotId == null)
+          .map((r: any) => r.shift);
+        setRejectedShifts(shiftRejections);
       } catch (error) {
         setError('Failed to load community shifts or interests');
-        console.error("Overall load error:", error);
+        console.error('Failed to load community shifts:', error);
       } finally {
         setLoading(false);
       }
@@ -241,63 +173,45 @@ export default function CommunityShiftsPage() {
       return;
     }
 
+    const slots = shift.slots ?? [];
+    const slotIdsForShift = slots.map(s => s.id);
+
     if (slotId === null) {
-      // "Express Interest in All Slots" or "Entire Shift"
-      setDisabledShifts(ds => [...ds, shiftId]); // Disable the shift visually immediately
-      if (!shift.single_user_only) {
-        // Multi-slot shift: also disable all individual slots
-        setDisabledSlots(ds => [
-          ...ds,
-          ...shift.slots.map(s => s.id)
-        ]);
-        // Also remove any individual slot rejections for this shift
-        setRejectedSlots(rs => rs.filter(id => !shift.slots.map(s => s.id).includes(id)));
+      setDisabledShifts(ds => [...ds, shiftId]);
+      if (!shift.singleUserOnly) {
+        setDisabledSlots(ds => [...ds, ...slotIdsForShift]);
+        setRejectedSlots(rs => rs.filter(id => !slotIdsForShift.includes(id)));
       }
-      // Remove any entire shift rejections
       setRejectedShifts(rs => rs.filter(id => id !== shiftId));
 
-
       try {
-        if (shift.single_user_only) {
-          // For single-user-only shifts, express interest in the entire shift (slot=None)
-          await apiClient.post(
-            `${API_ENDPOINTS.getCommunityShifts}${shiftId}/express_interest/`,
-            { slot_id: null } // Send null for whole shift interest
-          );
+        if (shift.singleUserOnly) {
+          await expressInterestInCommunityShiftService({ shiftId, slotId: null });
           showSnackbar('Expressed interest in entire shift.');
         } else {
-          // Multi-slot shift: express interest for each individual slot
           await Promise.all(
-            shift.slots.map(slot =>
-              apiClient.post(
-                `${API_ENDPOINTS.getCommunityShifts}${shiftId}/express_interest/`,
-                { slot_id: slot.id } // Send specific slot ID for each slot
-              )
+            slots.map(slot =>
+              expressInterestInCommunityShiftService({ shiftId, slotId: slot.id })
             )
           );
           showSnackbar('Expressed interest in all slots.');
         }
-      } catch (err: any) {
-        showSnackbar(err.response?.data?.detail || 'Failed to express interest.');
-        setDisabledShifts(ds => ds.filter(id => id !== shiftId)); // Re-enable if error
-        if (!shift.single_user_only) {
-          setDisabledSlots(ds => ds.filter(id => !shift.slots.map(s => s.id).includes(id)));
+      } catch (error) {
+        showSnackbar(getErrorMessage(error, 'Failed to express interest.'));
+        setDisabledShifts(ds => ds.filter(id => id !== shiftId));
+        if (!shift.singleUserOnly) {
+          setDisabledSlots(ds => ds.filter(id => !slotIdsForShift.includes(id)));
         }
       }
     } else {
-      // per-slot interest
       setDisabledSlots(ds => [...ds, slotId]);
-      // Remove this specific slot from rejections if it was rejected
       setRejectedSlots(rs => rs.filter(id => id !== slotId));
       try {
-        await apiClient.post(
-          `${API_ENDPOINTS.getCommunityShifts}${shiftId}/express_interest/`,
-          { slot_id: slotId }
-        );
+        await expressInterestInCommunityShiftService({ shiftId, slotId });
         showSnackbar('Expressed interest in slot.');
-      } catch (err: any) {
-        showSnackbar(err.response?.data?.detail || 'Failed to express interest in slot.');
-        setDisabledSlots(ds => ds.filter(id => id !== slotId)); // Re-enable if error
+      } catch (error) {
+        showSnackbar(getErrorMessage(error, 'Failed to express interest in slot.'));
+        setDisabledSlots(ds => ds.filter(id => id !== slotId));
       }
     }
   };
@@ -308,72 +222,65 @@ export default function CommunityShiftsPage() {
       showSnackbar('Shift not found.');
       return;
     }
+    const slots = shift.slots ?? [];
 
     if (slotId === null) {
       // Reject Entire Shift
       setRejectedShifts(rs => [...rs, shiftId]);
-      if (!shift.single_user_only) {
+      if (!shift.singleUserOnly) {
         // Multi-slot shift: also reject all individual slots
         setRejectedSlots(rs => [
           ...rs,
-          ...shift.slots.map(s => s.id)
+          ...slots.map(s => s.id)
         ]);
         // Also remove any individual slot interests for this shift
-        setDisabledSlots(ds => ds.filter(id => !shift.slots.map(s => s.id).includes(id)));
+        setDisabledSlots(ds => ds.filter(id => !slots.map(s => s.id).includes(id)));
       }
       // Remove any entire shift interests
       setDisabledShifts(ds => ds.filter(id => id !== shiftId));
 
       try {
-        if (shift.single_user_only) {
-          await apiClient.post(
-            API_ENDPOINTS.rejectCommunityShift(shiftId),
-            {} // No slot_id for entire shift rejection
-          );
+        if (shift.singleUserOnly) {
+          await rejectCommunityShiftService({ shiftId, slotId: null });
           showSnackbar('Rejected entire shift.');
         } else {
           await Promise.all(
-            shift.slots.map(slot =>
-              apiClient.post(
-                API_ENDPOINTS.rejectCommunityShift(shiftId),
-                { slot_id: slot.id }
-              )
+            slots.map(slot =>
+              rejectCommunityShiftService({ shiftId, slotId: slot.id })
             )
           );
           showSnackbar('Rejected all slots in shift.');
         }
-      } catch (err: any) {
-        showSnackbar(err.response?.data?.detail || 'Failed to reject shift.');
+      } catch (error) {
+        showSnackbar(getErrorMessage(error, 'Failed to reject shift.'));
         setRejectedShifts(rs => rs.filter(id => id !== shiftId)); // Re-enable if error
-        if (!shift.single_user_only) {
-          setRejectedSlots(rs => rs.filter(id => !shift.slots.map(s => s.id).includes(id)));
+        if (!shift.singleUserOnly) {
+          setRejectedSlots(rs => rs.filter(id => !slots.map(s => s.id).includes(id)));
         }
       }
-    } else {
+      } else {
       // Per-slot rejection
       setRejectedSlots(rs => [...rs, slotId]);
       // Remove this specific slot from interests if it was interested
       setDisabledSlots(ds => ds.filter(id => id !== slotId));
       try {
-        await apiClient.post(
-          API_ENDPOINTS.rejectCommunityShift(shiftId),
-          { slot_id: slotId }
-        );
+        await rejectCommunityShiftService({ shiftId, slotId });
         showSnackbar('Rejected slot.');
-      } catch (err: any) {
-        showSnackbar(err.response?.data?.detail || 'Failed to reject slot.');
+      } catch (error) {
+        showSnackbar(getErrorMessage(error, 'Failed to reject slot.'));
         setRejectedSlots(rs => rs.filter(id => id !== slotId)); // Re-enable if error
       }
     }
   };
 
-  const getSlotStatus = (shift: Shift, slot: Slot) => {
-    const isAssigned = shift.slot_assignments.some(a => a.slot_id === slot.id);
+  const getSlotStatus = (shift: Shift, slot: ShiftSlot) => {
+    const assignments = shift.slotAssignments ?? [];
+    const isAssigned = assignments.some(a => a.slotId === slot.id);
     if (isAssigned) return 'Assigned';
 
     // Check if individual slot is rejected or requested
-    const slotRejected = rejectedSlots.includes(slot.id);
-    const slotRequested = disabledSlots.includes(slot.id);
+      const slotRejected = rejectedSlots.includes(slot.id);
+      const slotRequested = disabledSlots.includes(slot.id);
 
     if (slotRejected) return 'Rejected';
     if (slotRequested) return 'Requested';
@@ -389,13 +296,13 @@ export default function CommunityShiftsPage() {
   };
 
   const getShiftStatus = (shift: Shift) => {
-    // If any slot is assigned, the shift cannot be fully "requested" or "rejected" as a whole for new actions.
-    const anySlotAssigned = shift.slot_assignments.length > 0;
-    if (anySlotAssigned && !shift.single_user_only) {
-        // If it's a multi-user shift, and any slot is assigned, the "entire shift" buttons don't make sense to be 'requested' or 'rejected'
-        // This scenario might need more nuanced handling depending on what "fully assigned" means for the whole shift.
-        // For simplicity, if any slot is assigned, we consider the whole shift not fully available for a single interest/reject.
-        return 'Partially Assigned';
+    const slotAssignments = shift.slotAssignments ?? [];
+    const anySlotAssigned = slotAssignments.length > 0;
+    if (anySlotAssigned && !shift.singleUserOnly) {
+      // If it's a multi-user shift, and any slot is assigned, the "entire shift" buttons don't make sense to be 'requested' or 'rejected'
+      // This scenario might need more nuanced handling depending on what "fully assigned" means for the whole shift.
+      // For simplicity, if any slot is assigned, we consider the whole shift not fully available for a single interest/reject.
+      return 'Partially Assigned';
     }
 
 
@@ -405,17 +312,18 @@ export default function CommunityShiftsPage() {
     if (shiftRejected) return 'Rejected';
     if (shiftRequested) return 'Requested';
 
-    // If it's a multi-slot shift and not single_user_only, check individual slots.
+    // If it's a multi-slot shift and not singleUserOnly, check individual slots.
     // If *all* slots are either requested or rejected individually, then the whole shift might be considered as such.
-    if (!shift.single_user_only && shift.slots.length > 0) {
-      const allSlotsHandled = shift.slots.every(slot => {
+    const slots = shift.slots ?? [];
+    if (!shift.singleUserOnly && slots.length > 0) {
+      const allSlotsHandled = slots.every(slot => {
         const status = getSlotStatus(shift, slot);
         return status === 'Requested' || status === 'Rejected' || status === 'Assigned';
       });
 
       if (allSlotsHandled) {
-        const allSlotsRejected = shift.slots.every(slot => rejectedSlots.includes(slot.id));
-        const allSlotsRequested = shift.slots.every(slot => disabledSlots.includes(slot.id));
+        const allSlotsRejected = slots.every(slot => rejectedSlots.includes(slot.id));
+        const allSlotsRequested = slots.every(slot => disabledSlots.includes(slot.id));
 
         if (allSlotsRejected) return 'Rejected';
         if (allSlotsRequested) return 'Requested';
@@ -434,14 +342,14 @@ export default function CommunityShiftsPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const formatSlot = (slot: Slot) => {
+  const formatSlot = (slot: ShiftSlot) => {
     const dateStr = dayjs(slot.date).format('MMM D, YYYY');
-    const start = formatClockTime(slot.start_time);
-    const end = formatClockTime(slot.end_time);
+    const start = formatClockTime(slot.startTime);
+    const end = formatClockTime(slot.endTime);
     let base = `${dateStr} ${start} – ${end}`;
-    if (slot.is_recurring && slot.recurring_days.length && slot.recurring_end_date) {
-      const days = slot.recurring_days.map(d => WEEKDAY_LABELS[d]).join(', ');
-      base += ` (Repeats ${days} until ${dayjs(slot.recurring_end_date).format('MMM D, YYYY')})`;
+    if (slot.isRecurring && slot.recurringDays && slot.recurringDays.length && slot.recurringEndDate) {
+      const days = slot.recurringDays.map((d: number) => WEEKDAY_LABELS[d]).join(', ');
+      base += ` (Repeats ${days} until ${dayjs(slot.recurringEndDate).format('MMM D, YYYY')})`;
     }
     return base;
   };
@@ -488,18 +396,22 @@ export default function CommunityShiftsPage() {
         displayedShifts.map(shift => {
           const heading = getPharmacyHeading(shift);
           const subheading = getPharmacySubheading(shift);
+          const slots = shift.slots ?? [];
           let rateLabel = 'N/A';
-          if (shift.rate_type === 'FIXED') {
-            rateLabel = `Fixed — ${shift.fixed_rate} AUD/hr`;
-          } else if (shift.rate_type === 'FLEXIBLE') {
+          if (shift.rateType === 'FIXED') {
+            rateLabel = `Fixed – ${shift.fixedRate} AUD/hr`;
+          } else if (shift.rateType === 'FLEXIBLE') {
             rateLabel = 'Flexible';
-          } else if (shift.rate_type === 'PHARMACIST_PROVIDED') {
+          } else if (shift.rateType === 'PHARMACIST_PROVIDED') {
             rateLabel = 'Pharmacist Provided';
           }
           const shiftStatus = getShiftStatus(shift);
+          const workloadTags = shift.workloadTags ?? [];
+          const mustHave = shift.mustHave ?? [];
+          const niceToHave = shift.niceToHave ?? [];
 
           return (
-          <Card key={shift.id} sx={{ mb: 3, ...curvedCardSx }}>
+            <Card key={shift.id} sx={{ mb: 3, ...curvedCardSx }}>
               <CardContent>
                 {/* Pharmacy name & address */}
                 <Typography variant="h6">
@@ -514,29 +426,29 @@ export default function CommunityShiftsPage() {
 
                 {/* Shift description*/}
                 {shift.description && (
-                <Typography variant="body1" color="text.primary" sx={{ mt: 3,  whiteSpace: 'pre-wrap' }}>
-                  {shift.description}
-                </Typography>
-              )}
+                  <Typography variant="body1" color="text.primary" sx={{ mt: 3, whiteSpace: 'pre-wrap' }}>
+                    {shift.description}
+                  </Typography>
+                )}
 
                 <Divider sx={{ my: 1 }} />
 
                 {/* Rate */}
                 <Box sx={{ mt: 4 }}>
                   {/* Pharmacist Rate Info */}
-                  {shift.rate_type && (
+                  {shift.rateType && (
                     <Typography variant="body1">
                       <strong>Rate:</strong> {rateLabel}
                     </Typography>
                   )}
 
                   {/* Owner Bonus for Other Staff */}
-                  {shift.owner_adjusted_rate && (
+                  {shift.ownerAdjustedRate && (
                     <Typography
                       variant="body1"
-                      sx={{ color: 'green', fontWeight: 'bold', mt: shift.rate_type ? 1 : 0 }}
+                      sx={{ color: 'green', fontWeight: 'bold', mt: shift.rateType ? 1 : 0 }}
                     >
-                      💰 Bonus: +{shift.owner_adjusted_rate} AUD/hr on top of Award Rate
+                      💰 Bonus: +{shift.ownerAdjustedRate} AUD/hr on top of Award Rate
                     </Typography>
                   )}
                 </Box>
@@ -545,7 +457,7 @@ export default function CommunityShiftsPage() {
                 {/* Employment Type */}
                 <Box sx={{ mt: 1 }}>
                   <Typography variant="body1">
-                    <strong>Emp. Type:</strong> {shift.employment_type.replace('_', ' ')}
+                    <strong>Emp. Type:</strong> {(shift.employmentType || 'UNKNOWN').replace('_', ' ')}
                   </Typography>
                 </Box>
 
@@ -555,9 +467,9 @@ export default function CommunityShiftsPage() {
                   <Typography variant="subtitle2">Time Slots</Typography>
 
                   {/* 1) Always list each slot */}
-                  {shift.slots.map(slot => {
+                  {slots.map(slot => {
                     const slotStatus = getSlotStatus(shift, slot);
-                    const isAssigned = shift.slot_assignments.some(a => a.slot_id === slot.id);
+                    const isAssigned = (shift.slotAssignments ?? []).some(a => a.slotId === slot.id);
 
                     return (
                       <Box
@@ -570,7 +482,7 @@ export default function CommunityShiftsPage() {
                         <Typography variant="body1">
                           {formatSlot(slot)}
                         </Typography>
-                        {!shift.single_user_only && (
+                        {!shift.singleUserOnly && (
                           <Box>
                             {slotStatus === 'None' && !isAssigned ? (
                               <>
@@ -604,7 +516,7 @@ export default function CommunityShiftsPage() {
 
 
                   {/* 2) “Express Interest in All Slots” only if more than one slot */}
-                  {!shift.single_user_only && shift.slots.length > 1 && (
+                  {!shift.singleUserOnly && slots.length > 1 && (
                     <Box display="flex" justifyContent="flex-end" sx={{ mt: 2 }}>
                       {shiftStatus === 'None' || shiftStatus === 'Mixed Status' || shiftStatus === 'Partially Assigned' ? (
                         <>
@@ -637,7 +549,7 @@ export default function CommunityShiftsPage() {
 
 
                   {/* 3) Single-user-only mode button */}
-                  {shift.single_user_only && (
+                  {shift.singleUserOnly && (
                     <Box display="flex" justifyContent="flex-end" sx={{ mt: 2 }}>
                       {shiftStatus === 'None' ? (
                         <>
@@ -669,11 +581,11 @@ export default function CommunityShiftsPage() {
                 </Box>
 
                 {/* Workload Tags */}
-                {shift.workload_tags.length > 0 && (
+                {workloadTags.length > 0 && (
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="subtitle2">Workload Tags</Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-                      {shift.workload_tags.map(tag => (
+                      {workloadTags.map(tag => (
                         <Chip key={tag} label={tag} size="small" />
                       ))}
                     </Box>
@@ -681,11 +593,11 @@ export default function CommunityShiftsPage() {
                 )}
 
                 {/* Must-Have */}
-                {shift.must_have.length > 0 && (
+                {mustHave.length > 0 && (
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="subtitle2">Must-Have</Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-                      {shift.must_have.map(skill => (
+                      {mustHave.map(skill => (
                         <Chip
                           key={skill}
                           label={skill}
@@ -698,17 +610,17 @@ export default function CommunityShiftsPage() {
                 )}
 
                 {/* Nice-to-Have */}
-                {shift.nice_to_have.length > 0 && (
+                {niceToHave.length > 0 && (
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="subtitle2">Nice-to-Have</Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-                      {shift.nice_to_have.map(skill => (
+                      {niceToHave.map(skill => (
                         <Chip key={skill} label={skill} color="default" size="small" />
                       ))}
                     </Box>
                     <Box sx={{ mt: 1, textAlign: 'left' }}>
                       <Typography variant="caption" color="textSecondary">
-                        Posted {formatDistanceToNow(dayjs.utc(shift.created_at).toDate(), { addSuffix: true })}
+                        Posted {formatDistanceToNow(dayjs.utc(shift.createdAt).toDate(), { addSuffix: true })}
                       </Typography>
                     </Box>
                   </Box>

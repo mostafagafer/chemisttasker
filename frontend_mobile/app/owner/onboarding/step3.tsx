@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import ProgressStepper from '../../../components/ProgressStepper';
-import { useOnboarding } from './context';
+import { useOnboarding } from './_context';
 
 const ONBOARDING_STEPS = ['Basic Info', 'Role Details', 'Profile Photo', 'Review'];
 
@@ -14,7 +14,7 @@ export default function OwnerOnboardingStep3() {
     const { data, updateData } = useOnboarding();
 
     const [profilePhoto, setProfilePhoto] = useState<string | null>(data.profile_photo || null);
-    const [loading, setLoading] = useState(false);
+    const loading = false;
 
     const pickImage = async () => {
         // Request permission

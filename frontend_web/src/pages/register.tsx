@@ -18,9 +18,8 @@ import {
   FormControlLabel,
 } from "@mui/material";
 import { Visibility, VisibilityOff } from "@mui/icons-material";
-import apiClient from "../utils/apiClient";
-import { API_ENDPOINTS } from "../constants/api";
 import AuthLayout from "../layouts/AuthLayout"; // Import the new layout
+import { register as registerUser } from "@chemisttasker/shared-core";
 
 type Role = "OWNER" | "PHARMACIST" | "OTHER_STAFF" | "EXPLORER";
 
@@ -64,7 +63,7 @@ export default function Register() {
         accepted_terms: acceptedTerms,
         captcha_token: captchaValue,
       };
-      await apiClient.post(API_ENDPOINTS.register, payload);
+      await registerUser(payload);
       alert("Account created successfully! Please check your email for the verification code.");
       navigate("/otp-verify", { state: { email: formData.email.toLowerCase() } });
     } catch (err: any) {

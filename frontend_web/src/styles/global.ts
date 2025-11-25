@@ -64,7 +64,7 @@ export const mainHeaderStyles: SxProps<Theme> = (theme: Theme) => ({
 });
 
 // header text
-export const headerStyles: SxProps<Theme> = (theme: Theme) => ({
+export const headerStyles: SxProps<Theme> = {
   lineHeight: { xs: 1.1, md: 1 },
   fontWeight: 600,
   fontSize: {
@@ -72,7 +72,7 @@ export const headerStyles: SxProps<Theme> = (theme: Theme) => ({
     md: "2.2rem",
   },
   mx: { xs: 2, md: 0 },
-});
+};
 
 // main subheader text
 export const mainSubHeaderStyles = (theme: Theme) => ({

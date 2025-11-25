@@ -18,8 +18,12 @@ import {
   Link,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import apiClient from '../../utils/apiClient';
-import { API_ENDPOINTS, API_BASE_URL } from '../../constants/api';
+import { API_BASE_URL } from '../../constants/api';
+import {
+  getExplorerOnboardingProfile,
+  updateExplorerOnboardingProfile,
+  createExplorerOnboardingProfile,
+} from '@chemisttasker/shared-core';
 
 interface FormData {
   username: string;
@@ -59,8 +63,6 @@ const REFEREE_REL_CHOICES = [
 
 export default function ExplorerOnboarding() {
   const navigate = useNavigate();
-  const detailUrl = API_ENDPOINTS.onboardingDetail('explorer');
-  const createUrl = API_ENDPOINTS.onboardingCreate('explorer');
 
   const [data, setData] = useState<FormData>({
     username: '',
@@ -93,10 +95,8 @@ export default function ExplorerOnboarding() {
     path.startsWith('http') ? path : `${API_BASE_URL}${path}`;
 
   useEffect(() => {
-    apiClient
-      .get(detailUrl)
-      .then(res => {
-        const d = res.data as any;
+    getExplorerOnboardingProfile()
+      .then((d: any) => {
         setData({
           username: d.username || '',
           first_name: d.first_name || '',
@@ -121,12 +121,12 @@ export default function ExplorerOnboarding() {
         setProfileExists(true);
       })
       .catch(err => {
-        if (err.response?.status !== 404) {
-          setError(err.response?.data?.detail || err.message);
+        if (err?.response?.status !== 404) {
+          setError(err?.response?.data?.detail || err?.message);
         }
       })
       .finally(() => setLoading(false));
-  }, [detailUrl]);
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
@@ -172,13 +172,9 @@ export default function ExplorerOnboarding() {
         else form.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
       });
 
-      const res = await apiClient.request({
-        method: profileExists ? 'patch' : 'post',
-        url: profileExists ? detailUrl : createUrl,
-        data: form,
-      });
-
-      const d = res.data as any;
+      const d = (profileExists
+        ? await updateExplorerOnboardingProfile(form)
+        : await createExplorerOnboardingProfile(form)) as any;
       setExistingGovId(d.government_id || existingGovId);
       setExistingResume(d.resume || existingResume);
       setProfileExists(true);

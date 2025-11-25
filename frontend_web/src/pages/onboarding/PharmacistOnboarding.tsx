@@ -22,8 +22,8 @@ import {
   MenuItem,
   InputAdornment
 } from '@mui/material';
-import apiClient from '../../utils/apiClient';
-import { API_ENDPOINTS, API_BASE_URL } from '../../constants/api';
+import { API_BASE_URL } from '../../constants/api';
+import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { useNavigate } from 'react-router-dom';
 // import { useRef } from 'react';
 
@@ -97,8 +97,7 @@ const REFEREE_REL_CHOICES = [
 
 export default function PharmacistOnboardingForm() {
   const navigate = useNavigate();
-  const detailUrl = API_ENDPOINTS.onboardingDetail('pharmacist');
-  const createUrl = API_ENDPOINTS.onboardingCreate('pharmacist');
+  const roleKey = 'pharmacist';
 
   const [data, setData] = useState<FormData>({
     username: '',
@@ -141,7 +140,6 @@ export default function PharmacistOnboardingForm() {
   const [existingTfnDeclaration, setExistingTfnDeclaration] = useState<string>('');
   const [existingResume, setExistingResume] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  const [profileExists, setProfileExists] = useState(false);
   const [error, setError] = useState('');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [tabIndex, setTabIndex] = useState(0);
@@ -150,10 +148,9 @@ export default function PharmacistOnboardingForm() {
     path.startsWith('http') ? path : `${API_BASE_URL}${path}`;
 
   useEffect(() => {
-    apiClient
-      .get(detailUrl)
+    getOnboardingDetail(roleKey)
       .then(res => {
-        const d = res.data as any;
+        const d = res as any;
         setData(prev => ({
           ...prev,
           username: d.username || '',
@@ -184,17 +181,15 @@ export default function PharmacistOnboardingForm() {
         setExistingGstFile(d.gst_file || '');
         setExistingTfnDeclaration(d.tfn_declaration || '');
         setExistingResume(d.resume || '');
-        setProfileExists(true);
       })
       .catch(err => {
-        if (err.response?.status !== 404) setError(err.response.data?.detail || err.message);
+        if (err.response?.status !== 404) setError(err.response?.data?.detail || err.message);
       })
       .finally(() => setLoading(false));
-  }, [detailUrl]);
+  }, [roleKey]);
 
   // const autoSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   // useEffect(() => {
-  //   if (!profileExists) return;
   //   if (loading) return;
   //   if (autoSaveTimeout.current) clearTimeout(autoSaveTimeout.current);
   //   autoSaveTimeout.current = setTimeout(() => {
@@ -251,14 +246,8 @@ export default function PharmacistOnboardingForm() {
         else form.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
       });
 
-      const res = await apiClient.request({
-        method: profileExists ? 'patch' : 'post',
-        url: profileExists ? detailUrl : createUrl,
-        data: form
-      });
-
-      const d = res.data as any;
-      setProfileExists(true);
+      const res = await updateOnboardingForm(roleKey, form);
+      const d = res as any;
       setExistingGovernmentId(d.government_id || existingGovernmentId);
       setExistingGstFile(d.gst_file || existingGstFile);
       setExistingTfnDeclaration(d.tfn_declaration || existingTfnDeclaration);

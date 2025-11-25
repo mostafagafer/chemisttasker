@@ -45,8 +45,11 @@ import {
 import LinkIcon from "@mui/icons-material/Link";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { useTheme } from "@mui/material/styles";
-import apiClient from "../../../../utils/apiClient";
-import { API_BASE_URL, API_ENDPOINTS } from "../../../../constants/api";
+import {
+  createMembershipInviteLinkService,
+  deleteMembershipService,
+  bulkInviteMembersService,
+} from "@chemisttasker/shared-core";
 import MembershipApplicationsPanel from "./MembershipApplicationsPanel";
 import { useAuth } from "../../../../contexts/AuthContext";
 
@@ -311,12 +314,12 @@ export default function StaffManager({
     setLinkSubmitting(true);
     try {
       const expires = Number(linkExpiry) || 14;
-      const res = await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipInviteLinks}`, {
+      const response = await createMembershipInviteLinkService({
         pharmacy: pharmacyId,
         category: "FULL_PART_TIME",
         expires_in_days: expires,
       });
-      const token = res.data?.token;
+      const token = response?.token ?? response?.data?.token ?? response;
       const url = `${window.location.origin}/membership/apply/${token}`;
       setLinkValue(url);
       setToast({ message: "Invite link generated", severity: "success" });
@@ -427,10 +430,8 @@ export default function StaffManager({
       }));
 
     try {
-      const response = await apiClient.post(`${API_BASE_URL}${API_ENDPOINTS.membershipBulkInvite}`, {
-        invitations: payload,
-      });
-      const errors = response?.data?.errors;
+      const response = await bulkInviteMembersService({ invitations: payload });
+      const errors = (response as any)?.errors;
       if (Array.isArray(errors) && errors.length > 0) {
         const first = errors[0];
         const message =
@@ -459,7 +460,7 @@ export default function StaffManager({
     if (!id) return;
     setDeleteLoadingId(id);
     try {
-      await apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.membershipDelete(String(id))}`);
+      await deleteMembershipService(String(id));
       setToast({ message: "Staff removed", severity: "success" });
       onMembershipsChanged();
     } catch (error: any) {

@@ -18,48 +18,13 @@ import {
   CircularProgress, // Import CircularProgress for dialog loading
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
-
-// Unified Interface Definitions (RE-ADDED)
-interface Slot {
-  id: number;
-  date: string;
-  start_time: string;
-  end_time: string;
-  is_recurring: boolean;
-  recurring_days: number[];
-  recurring_end_date: string | null;
-}
-
-interface Shift {
-  id: number;
-  pharmacy_detail: { name: string };
-  role_needed: string;
-  single_user_only: boolean;
-  slot_assignments: { slot_id: number; user_id: number }[];
-  slots: Slot[];
-}
-
-interface RatePreference {
-  weekday: string;
-  saturday: string;
-  sunday: string;
-  public_holiday: string;
-  early_morning: string;
-  late_night: string;
-}
-
-interface Profile {
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone_number?: string;
-  short_bio?: string;
-  resume?: string;
-  rate_preference?: RatePreference | null;
-}
+import {
+  Shift,
+  ShiftUser,
+  fetchConfirmedShifts,
+  viewAssignedShiftProfileService,
+} from '@chemisttasker/shared-core';
 
 const curvedPaperSx = {
   borderRadius: 3,
@@ -82,7 +47,7 @@ export default function ConfirmedShiftsPage() {
   // 1) State
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loadingShifts, setLoadingShifts] = useState(true); // Renamed for clarity
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<ShiftUser | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false); // New state for profile loading
   const [dialogOpen, setDialogOpen] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string }>({
@@ -106,25 +71,19 @@ export default function ConfirmedShiftsPage() {
   // 3) Load confirmed shifts
   useEffect(() => {
     setLoadingShifts(true);
-    apiClient
-      .get(API_ENDPOINTS.getConfirmedShifts)
-      .then(res => {
-        const data = Array.isArray(res.data?.results)
-          ? res.data.results
-          : Array.isArray(res.data)
-            ? res.data
-            : [];
+    fetchConfirmedShifts()
+      .then(data => {
         const filtered =
           scopedPharmacyId != null
-            ? data.filter((shift: any) =>
-                Number(shift.pharmacy_detail?.id ?? shift.pharmacy_id ?? shift.pharmacy) === scopedPharmacyId
-              )
+            ? data.filter((shift: Shift) => {
+                const targetId =
+                  shift.pharmacyDetail?.id ?? (shift as any).pharmacyId ?? shift.pharmacy ?? null;
+                return Number(targetId ?? NaN) === scopedPharmacyId;
+              })
             : data;
         setShifts(filtered);
       })
-      .catch(() =>
-        setSnackbar({ open: true, msg: 'Failed to load confirmed shifts' })
-      )
+      .catch(() => setSnackbar({ open: true, msg: 'Failed to load confirmed shifts' }))
       .finally(() => setLoadingShifts(false));
   }, [scopedPharmacyId]);
 
@@ -144,19 +103,18 @@ export default function ConfirmedShiftsPage() {
     setLoadingProfile(true); // Start loading profile data
     setDialogOpen(true); // Open the dialog immediately with a loading state
 
-    const url = API_ENDPOINTS.viewAssignedShiftProfile('confirmed', shiftId)
-    const payload = slotId == null
-      ? { user_id: userId }
-      : { slot_id: slotId, user_id: userId };
-
-    apiClient
-      .post(url, payload)
-      .then(res => {
-        setProfile(res.data);
+    viewAssignedShiftProfileService({
+      type: 'confirmed',
+      shiftId,
+      slotId: slotId ?? undefined,
+      userId,
+    })
+      .then(result => {
+        setProfile(result);
       })
       .catch((err: any) => {
-        console.error("Failed to load assigned profile:", err.response?.data || err);
-        setSnackbar({ open: true, msg: err.response?.data?.detail || 'Failed to load assigned profile' });
+        console.error("Failed to load assigned profile:", err);
+        setSnackbar({ open: true, msg: err?.response?.data?.detail || 'Failed to load assigned profile' });
         setDialogOpen(false); // Close dialog if fetch fails
       })
       .finally(() => {
@@ -170,7 +128,7 @@ export default function ConfirmedShiftsPage() {
       return (
         <Box sx={{ textAlign: 'center', py: 4 }}>
           {[...Array(3)].map((_, index) => (
-          <Paper key={index} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
+            <Paper key={index} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
               <Skeleton variant="text" width="70%" height={30} sx={{ mb: 1 }} />
               <Skeleton variant="text" width="50%" height={20} sx={{ mb: 2 }} />
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -193,68 +151,69 @@ export default function ConfirmedShiftsPage() {
 
     return (
       <>
-        {displayedShifts.map((shift: Shift) => ( // Explicitly type 'shift'
-          <Paper key={shift.id} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
-            <Typography variant="h6">{shift.pharmacy_detail.name}</Typography>
-            <Typography>Role: {shift.role_needed}</Typography>
+        {displayedShifts.map(shift => {
+          const assignments = shift.slotAssignments ?? [];
+          return (
+            <Paper key={shift.id} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
+              <Typography variant="h6">{shift.pharmacyDetail?.name ?? 'Unknown Pharmacy'}</Typography>
+              <Typography>Role: {shift.roleNeeded}</Typography>
 
-            <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
-              {shift.single_user_only ? (
-                <>
-                  {shift.slots.map((s: Slot) => ( // Explicitly type 's'
-                    <Typography key={s.id} variant="body2">
-                      {s.date} {s.start_time}–{s.end_time}
-                    </Typography>
-                  ))}
-                  {shift.slot_assignments.length > 0 && (
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        sx={gradientButtonSx}
-                        onClick={() =>
-                          openProfile(shift.id, null, shift.slot_assignments[0].user_id)
-                        }
-                      >
-                        View Assigned
-                      </Button>
-                    </Box>
-                  )}
-                </>
-              ) : (
-                shift.slots.map((slot: Slot) => { // Explicitly type 'slot'
-                  const assign = shift.slot_assignments.find(
-                    (a: { slot_id: number; user_id: number }) => a.slot_id === slot.id // Explicitly type 'a'
-                  );
-                  return assign ? (
-                    <Box
-                      key={slot.id}
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <Typography variant="body2">
-                        {slot.date} {slot.start_time}–{slot.end_time}
+              <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {shift.singleUserOnly ? (
+                  <>
+                    {(shift.slots ?? []).map(slot => (
+                      <Typography key={slot.id} variant="body2">
+                        {slot.date} {slot.startTime}{slot.endTime}
                       </Typography>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        sx={gradientButtonSx}
-                        onClick={() =>
-                          openProfile(shift.id, slot.id, assign.user_id)
-                        }
+                    ))}
+                    {assignments.length > 0 && assignments[0].userId != null && (
+                      <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          sx={gradientButtonSx}
+                          onClick={() =>
+                            openProfile(shift.id, null, assignments[0].userId)
+                          }
+                        >
+                          View Assigned
+                        </Button>
+                      </Box>
+                    )}
+                  </>
+                ) : (
+                  (shift.slots ?? []).map(slot => {
+                    const assign = assignments.find(entry => entry.slotId === slot.id);
+                    return assign ? (
+                      <Box
+                        key={slot.id}
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
                       >
-                        View Assigned
-                      </Button>
-                    </Box>
-                  ) : null;
-                })
-              )}
-            </Box>
-          </Paper>
-        ))}
+                        <Typography variant="body2">
+                          {slot.date} {slot.startTime}{slot.endTime}
+                        </Typography>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          sx={gradientButtonSx}
+                          onClick={() =>
+                            openProfile(shift.id, slot.id, assign.userId)
+                          }
+                        >
+                          View Assigned
+                        </Button>
+                      </Box>
+                    ) : null;
+                  })
+                )}
+              </Box>
+            </Paper>
+          );
+        })}
 
         {pageCount > 1 && (
           <Box display="flex" justifyContent="center" mt={4}>
@@ -301,20 +260,20 @@ export default function ConfirmedShiftsPage() {
           ) : profile ? (
             <>
               <Typography>
-                <strong>Name:</strong> {profile.first_name}{' '}
-                {profile.last_name}
+                <strong>Name:</strong> {profile.firstName}{' '}
+                {profile.lastName}
               </Typography>
               <Typography>
                 <strong>Email:</strong> {profile.email}
               </Typography>
-              {profile.phone_number && (
+              {profile.phoneNumber && (
                 <Typography>
-                  <strong>Phone:</strong> {profile.phone_number}
+                  <strong>Phone:</strong> {profile.phoneNumber}
                 </Typography>
               )}
-              {profile.short_bio && (
+              {profile.shortBio && (
                 <Typography>
-                  <strong>Bio:</strong> {profile.short_bio}
+                  <strong>Bio:</strong> {profile.shortBio}
                 </Typography>
               )}
               {profile.resume && (
@@ -322,18 +281,18 @@ export default function ConfirmedShiftsPage() {
                   Download CV
                 </Button>
               )}
-              {profile.rate_preference && (
+              {profile.ratePreference && (
                 <Box mt={2}>
                   <Typography variant="subtitle2" gutterBottom>
                     <strong>Rate Preference</strong>
                   </Typography>
                   <ul style={{ margin: 0, paddingLeft: 16 }}>
-                    <li>Weekday: {profile.rate_preference.weekday || "N/A"}</li>
-                    <li>Saturday: {profile.rate_preference.saturday || "N/A"}</li>
-                    <li>Sunday: {profile.rate_preference.sunday || "N/A"}</li>
-                    <li>Public Holiday: {profile.rate_preference.public_holiday || "N/A"}</li>
-                    <li>Early Morning: {profile.rate_preference.early_morning || "N/A"}</li>
-                    <li>Late Night: {profile.rate_preference.late_night || "N/A"}</li>
+                    <li>Weekday: {profile.ratePreference.weekday || "N/A"}</li>
+                    <li>Saturday: {profile.ratePreference.saturday || "N/A"}</li>
+                    <li>Sunday: {profile.ratePreference.sunday || "N/A"}</li>
+                    <li>Public Holiday: {profile.ratePreference.publicHoliday || "N/A"}</li>
+                    <li>Early Morning: {profile.ratePreference.earlyMorning || "N/A"}</li>
+                    <li>Late Night: {profile.ratePreference.lateNight || "N/A"}</li>
                   </ul>
                 </Box>
               )}

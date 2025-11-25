@@ -85,7 +85,16 @@ def _broadcast_notification_counter(user_id: int) -> None:
     _broadcast(user_id, "notification.counter", {"unread": unread})
 
 
-def broadcast_message_badge(participant: Participant) -> None:
+def broadcast_message_badge(
+    participant: Participant,
+    sender_membership_id: Optional[int] = None,
+    sender_user_id: Optional[int] = None,
+) -> None:
+    # Skip notifying the sender (by membership or user id) if provided
+    if sender_membership_id and participant.membership_id == sender_membership_id:
+        return
+    if sender_user_id and getattr(participant.membership, "user_id", None) == sender_user_id:
+        return
     user = getattr(participant.membership, "user", None)
     if not user or not user.is_active:
         return
@@ -128,5 +137,3 @@ def _calculate_unread_messages(participant: Participant) -> int:
     if participant.last_read_at:
         qs = qs.filter(created_at__gt=participant.last_read_at)
     return qs.count()
-
-

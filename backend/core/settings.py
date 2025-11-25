@@ -374,11 +374,13 @@ CHANNEL_LAYERS = {
         "CONFIG": {
             # channels_redis accepts URLs with redis:// or rediss:// (TLS)
             "hosts": [REDIS_URL],
-            # Keep queues short so idle rooms disappear instead of piling up in Redis.
+            # Increase TTLs so room membership doesn’t expire while users sit in a chat
             "capacity": 100,
             "channel_capacity": {"*": 50},
-            "expiry": 30,
-            "group_expiry": 60,
+            # Message TTL (seconds) on a channel; keep modest
+            "expiry": 600,
+            # Group membership TTL (seconds) – was 60, causing members to drop after 1 min
+            "group_expiry": 3600,
         },
     }
 }

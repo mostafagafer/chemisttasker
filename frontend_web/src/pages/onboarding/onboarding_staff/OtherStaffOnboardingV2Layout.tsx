@@ -10,8 +10,7 @@ import {
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import apiClient from "../../../utils/apiClient";
-import { API_ENDPOINTS } from "../../../constants/api";
+import { getOnboardingDetail } from "@chemisttasker/shared-core";
 
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
@@ -55,11 +54,9 @@ export default function OtherStaffOnboardingV2Layout() {
 
   // Load real progress from backend on mount
   React.useEffect(() => {
-    const url = API_ENDPOINTS.onboardingDetail("otherstaff");
-    apiClient
-      .get(url)
+    getOnboardingDetail("otherstaff")
       .then((res) => {
-        const p = res.data?.progress_percent ?? 0;
+        const p = (res as any)?.progress_percent ?? 0;
         setProgress(Number.isFinite(p) ? p : 0);
       })
       .catch(() => {

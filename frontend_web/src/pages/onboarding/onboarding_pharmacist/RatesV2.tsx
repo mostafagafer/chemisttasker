@@ -13,8 +13,7 @@ import {
   CircularProgress,
   Stack,
 } from '@mui/material';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
+import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 
 type RatePref = {
   weekday: string;
@@ -44,7 +43,7 @@ const emptyRates: RatePref = {
 
 export default function RatesV2() {
   // Keep the same detail endpoint style used in your V2 tabs
-  const url = API_ENDPOINTS.onboardingDetail('pharmacist');
+  const roleKey = 'pharmacist';
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -59,9 +58,9 @@ export default function RatesV2() {
       setLoading(true);
       setError('');
       try {
-        const res = await apiClient.get(url);
+        const res = await getOnboardingDetail(roleKey);
         if (!mounted) return;
-        const d: ApiData = res.data || {};
+        const d: ApiData = (res as any) || {};
         setRates(prev => ({ ...prev, ...(d.rate_preference || {}) }));
       } catch (e: any) {
         setError(e.response?.data?.detail || e.message || 'Failed to load rates');
@@ -70,7 +69,7 @@ export default function RatesV2() {
       }
     })();
     return () => { mounted = false; };
-  }, [url]);
+  }, [roleKey]);
 
   // keep string values (legacy pattern), strip non-numeric except "."
   const setField = (k: keyof RatePref) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -90,11 +89,9 @@ export default function RatesV2() {
       form.append('tab', 'rate');
       form.append('rate_preference', JSON.stringify(rates));
 
-      const res = await apiClient.patch(url, form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const res = await updateOnboardingForm(roleKey, form);
 
-      const d: ApiData = res.data || {};
+      const d: ApiData = (res as any) || {};
       setRates(prev => ({ ...prev, ...(d.rate_preference || {}) }));
       setSnack('Rates saved.');
     } catch (e: any) {

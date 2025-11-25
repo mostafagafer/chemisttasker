@@ -14,9 +14,8 @@ import {
 import { alpha, useTheme } from "@mui/material/styles";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import { Link as RouterLink } from "react-router-dom";
-import apiClient from "../../../utils/apiClient";
-import { API_ENDPOINTS } from "../../../constants/api";
 import { useAuth } from "../../../contexts/AuthContext";
+import { getExplorerDashboard, getOtherStaffDashboard, getPharmacistDashboard } from "@chemisttasker/shared-core";
 
 const formatShiftDate = (value?: string | null) => {
   if (!value) return "No date provided";
@@ -65,31 +64,34 @@ export default function OverviewPageStaff() {
   useEffect(() => {
     setLoading(true);
 
-    const endpoint = isPharmacist
-      ? API_ENDPOINTS.pharmacistDashboard
-      : isOtherStaff
-      ? API_ENDPOINTS.otherStaffDashboard
-      : isExplorer
-      ? API_ENDPOINTS.explorerDashboard
-      : API_ENDPOINTS.otherStaffDashboard;
-
-    apiClient
-      .get(endpoint)
-      .then((response) => {
-        setData(response.data);
+    const load = async () => {
+      try {
+        const result = isPharmacist
+          ? await getPharmacistDashboard()
+          : isOtherStaff
+          ? await getOtherStaffDashboard()
+          : await getExplorerDashboard();
+        setData(result as any);
         setError(null);
-      })
-      .catch((err) => {
+      } catch (err: any) {
         if (!isExplorer && err?.response?.status === 403) {
-          return apiClient.get(API_ENDPOINTS.explorerDashboard).then((fallbackResponse) => {
-            setData(fallbackResponse.data);
+          try {
+            const fallback = await getExplorerDashboard();
+            setData(fallback as any);
             setError(null);
-          });
+            return;
+          } catch {
+            // continue to error handling below
+          }
         }
         setError("Error loading dashboard.");
         setData(null);
-      })
-      .finally(() => setLoading(false));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void load();
   }, [isPharmacist, isOtherStaff, isExplorer]);
 
   const shifts = useMemo(() => data?.shifts ?? [], [data?.shifts]);

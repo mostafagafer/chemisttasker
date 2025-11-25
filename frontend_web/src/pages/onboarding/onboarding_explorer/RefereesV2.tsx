@@ -7,8 +7,7 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
+import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 
@@ -55,7 +54,7 @@ function StatusChip({
 }
 
 export default function RefereesV2() {
-  const url = API_ENDPOINTS.onboardingDetail('explorer');
+  const roleKey = 'explorer';
 
   const [data, setData] = React.useState<ApiData>({});
   const [loading, setLoading] = React.useState(true);
@@ -68,14 +67,14 @@ export default function RefereesV2() {
     setLoading(true);
     setError('');
     try {
-      const res = await apiClient.get(url);
-      setData(res.data || {});
+      const res = await getOnboardingDetail(roleKey);
+      setData((res as any) || {});
     } catch (e: any) {
-      setError(e.response?.data?.detail || e.message || 'Failed to load');
+      setError(e?.response?.data?.detail || e.message || 'Failed to load');
     } finally {
       setLoading(false);
     }
-  }, [url]);
+  }, [roleKey]);
 
   React.useEffect(() => { load(); }, [load]);
 
@@ -105,10 +104,8 @@ export default function RefereesV2() {
         if (v !== undefined && v !== null) fd.append(k, String(v));
       });
 
-      const res = await apiClient.patch(url, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setData(res.data);
+      const res = await updateOnboardingForm(roleKey, fd);
+      setData((res as any) || {});
       setSnack('Saved.');
     } catch (e: any) {
       const resp = e.response?.data;
@@ -137,19 +134,17 @@ export default function RefereesV2() {
         if (v !== undefined && v !== null) fd.append(k, String(v));
       });
 
-      const res = await apiClient.patch(url, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setData(res.data);
+      const res = await updateOnboardingForm(roleKey, fd);
+      setData((res as any) || {});
       setSnack('Reference emails sent.');
       // optional: small refresh delay, in case last_sent is updated async
       setTimeout(load, 900);
     } catch (e: any) {
-      const resp = e.response?.data;
+      const resp = e?.response?.data;
       setError(
         resp && typeof resp === 'object'
           ? Object.entries(resp).map(([k, v]) => `${k}: ${(v as any[]).join(', ')}`).join('\n')
-          : e.message
+          : e.message || 'Failed to send requests'
       );
     } finally {
       setSaving(false);

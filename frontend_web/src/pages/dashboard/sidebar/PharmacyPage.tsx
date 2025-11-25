@@ -40,18 +40,30 @@ import {
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/AddCircleOutline";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import { AxiosError, AxiosResponse } from "axios";
+import { AxiosError } from "axios";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useJsApiLoader, Autocomplete } from "@react-google-maps/api";
 import { useAuth } from "../../../contexts/AuthContext";
 import type { OrgMembership } from "../../../contexts/AuthContext";
-import apiClient from "../../../utils/apiClient";
-import { API_BASE_URL, API_ENDPOINTS } from "../../../constants/api";
+import { API_BASE_URL } from "../../../constants/api";
 import OwnerPharmaciesPage from "./owner/OwnerPharmaciesPage";
 import OwnerPharmacyDetailPage from "./owner/OwnerPharmacyDetailPage";
 import TopBar from "./owner/TopBar";
 import type { MembershipDTO, PharmacyAdminDTO, PharmacyDTO as OwnerPharmacyDTO } from "./owner/types";
 import { ORG_ROLES } from "../../../constants/roles";
+import {
+  claimOnboarding,
+  createPharmacy,
+  deletePharmacy,
+  fetchMembershipsByPharmacy,
+  fetchPharmaciesService,
+  fetchPharmacyAdminsService,
+  getOnboarding,
+  getPharmacyClaims,
+  updatePharmacy,
+  updatePharmacyClaim,
+  type MembershipSummary,
+} from "@chemisttasker/shared-core";
 
 const GOOGLE_LIBRARIES = ["places"] as Array<"places">;
 
@@ -91,16 +103,38 @@ type PharmacyApi = {
 
 type Pharmacy = Omit<PharmacyApi, "id"> & { id: string };
 
-interface PaginatedResponse<T> {
-  count: number;
-  next: string | null;
-  previous: string | null;
-  results: T[];
-}
-
-const normalizePharmacy = (raw: PharmacyApi): Pharmacy => ({
-  ...raw,
+const normalizePharmacy = (raw: any): Pharmacy => ({
   id: String(raw.id),
+  owner: raw.owner ?? raw.ownerId ?? 0,
+  name: raw.name ?? "",
+  email: raw.email ?? null,
+  street_address: raw.street_address ?? raw.streetAddress ?? "",
+  suburb: raw.suburb ?? "",
+  postcode: raw.postcode ?? "",
+  google_place_id: raw.google_place_id ?? raw.googlePlaceId ?? "",
+  latitude: raw.latitude ?? null,
+  longitude: raw.longitude ?? null,
+  state: raw.state ?? "",
+  chain: raw.chain ?? null,
+  abn: raw.abn ?? "",
+  methadone_s8_protocols: raw.methadone_s8_protocols ?? raw.methadoneS8Protocols ?? undefined,
+  qld_sump_docs: raw.qld_sump_docs ?? raw.qldSumpDocs ?? undefined,
+  sops: raw.sops ?? undefined,
+  induction_guides: raw.induction_guides ?? raw.inductionGuides ?? undefined,
+  employment_types: raw.employment_types ?? raw.employmentTypes ?? [],
+  roles_needed: raw.roles_needed ?? raw.rolesNeeded ?? [],
+  weekdays_start: raw.weekdays_start ?? raw.weekdaysStart ?? "",
+  weekdays_end: raw.weekdays_end ?? raw.weekdaysEnd ?? "",
+  saturdays_start: raw.saturdays_start ?? raw.saturdaysStart ?? "",
+  saturdays_end: raw.saturdays_end ?? raw.saturdaysEnd ?? "",
+  sundays_start: raw.sundays_start ?? raw.sundaysStart ?? "",
+  sundays_end: raw.sundays_end ?? raw.sundaysEnd ?? "",
+  public_holidays_start: raw.public_holidays_start ?? raw.publicHolidaysStart ?? "",
+  public_holidays_end: raw.public_holidays_end ?? raw.publicHolidaysEnd ?? "",
+  default_rate_type: raw.default_rate_type ?? raw.defaultRateType ?? null,
+  default_fixed_rate: raw.default_fixed_rate ?? raw.defaultFixedRate ?? null,
+  about: raw.about ?? "",
+  auto_publish_worker_requests: raw.auto_publish_worker_requests ?? raw.autoPublishWorkerRequests ?? false,
 });
 
 const toOwnerPharmacyDTO = (pharmacy: Pharmacy): OwnerPharmacyDTO => ({
@@ -439,8 +473,12 @@ export default function PharmacyPage() {
     setClaimsLoading(true);
     setClaimError(null);
     try {
-      const res = await apiClient.get(API_ENDPOINTS.organizationDashboard(organizationId));
-      const payload = Array.isArray(res.data?.pharmacy_claims) ? res.data.pharmacy_claims : [];
+      const res = await getPharmacyClaims({ organization: organizationId });
+      const payload = Array.isArray((res as any)?.results)
+        ? (res as any).results
+        : Array.isArray(res)
+        ? res
+        : [];
       setClaimItems(payload);
       setClaimError(null);
     } catch (err) {
@@ -458,13 +496,11 @@ export default function PharmacyPage() {
     setOwnerClaimsLoading(true);
     setOwnerClaimError(null);
     try {
-      const res = await apiClient.get(API_ENDPOINTS.pharmacyClaims, {
-        params: { owned_by_me: true },
-      });
-      const data = Array.isArray(res.data?.results)
-        ? res.data.results
-        : Array.isArray(res.data)
-        ? res.data
+      const res = await getPharmacyClaims({ owned_by_me: true });
+      const data = Array.isArray((res as any)?.results)
+        ? (res as any).results
+        : Array.isArray(res)
+        ? res
         : [];
       setOwnerClaims(data);
       setOwnerClaimError(null);
@@ -484,9 +520,7 @@ export default function PharmacyPage() {
     setClaimError(null);
     setClaimSubmitting(true);
     try {
-      await apiClient.post(API_ENDPOINTS.claimOnboarding, {
-        pharmacy_email: claimEmail.trim(),
-      });
+      await claimOnboarding({ pharmacy_email: claimEmail.trim() });
       setClaimEmail("");
       showSnackbar("Claim submitted!", "success");
       await loadOrganizationClaims();
@@ -522,7 +556,7 @@ export default function PharmacyPage() {
     }
     setOwnerResponding(true);
     try {
-      await apiClient.patch(API_ENDPOINTS.pharmacyClaimDetail(ownerDialog.claim.id), {
+      await updatePharmacyClaim(ownerDialog.claim.id, {
         status: ownerDialog.action,
         response_message: ownerDialog.note.trim() || undefined,
       });
@@ -571,19 +605,28 @@ export default function PharmacyPage() {
     async (pharmacyId: string) => {
       setMembershipsLoading((prev) => ({ ...prev, [pharmacyId]: true }));
       try {
-        const [membershipRes, adminRes]: [
-          AxiosResponse<PaginatedResponse<MembershipDTO>>,
-          AxiosResponse<PaginatedResponse<PharmacyAdminDTO>>
-        ] = await Promise.all([
-          apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.membershipList}?pharmacy_id=${pharmacyId}`),
-          apiClient.get(`${API_BASE_URL}${API_ENDPOINTS.pharmacyAdmins}?pharmacy=${pharmacyId}`),
+        const [memberSummaries, adminData] = await Promise.all([
+          fetchMembershipsByPharmacy(Number(pharmacyId)),
+          fetchPharmacyAdminsService({ pharmacy: pharmacyId }),
         ]);
-        const memberData = Array.isArray(membershipRes.data?.results)
-          ? membershipRes.data.results
-          : ((membershipRes.data as unknown) as MembershipDTO[]);
-        const adminData = Array.isArray(adminRes.data?.results)
-          ? adminRes.data.results
-          : ((adminRes.data as unknown) as PharmacyAdminDTO[]);
+        const memberData: MembershipDTO[] = memberSummaries.map((m: MembershipSummary) => ({
+          id: m.id,
+          pharmacy_id: m.pharmacyId ?? undefined,
+          pharmacy_name: m.pharmacyName ?? undefined,
+          role: m.role ?? undefined,
+          employment_type: m.employmentType ?? undefined,
+          invited_name: m.invitedName ?? undefined,
+          user_details: m.userDetails
+            ? {
+                email: m.userDetails.email ?? undefined,
+                first_name:
+                  (m.userDetails as any).first_name ?? (m.userDetails as any).firstName ?? undefined,
+                last_name:
+                  (m.userDetails as any).last_name ?? (m.userDetails as any).lastName ?? undefined,
+              }
+            : undefined,
+          is_pharmacy_owner: m.isPharmacyOwner ?? false,
+        }));
         setMembershipsByPharmacy((prev) => ({
           ...prev,
           [pharmacyId]: Array.isArray(memberData) ? memberData : [],
@@ -610,17 +653,14 @@ export default function PharmacyPage() {
   const loadPharmacies = useCallback(async () => {
     setIsFetching(true);
     try {
-      const res: AxiosResponse<PaginatedResponse<PharmacyApi>> = await apiClient.get(
-        `${API_BASE_URL}${API_ENDPOINTS.pharmacies}`
-      );
-      const data = Array.isArray(res.data?.results) ? res.data.results : [];
+      const data = await fetchPharmaciesService({});
       const normalized = data.map(normalizePharmacy);
       let accessible = normalized;
       if (isOrganizationUser && scopedOrgPharmacyIds && scopedOrgPharmacyIds.size > 0 && user?.role !== "ORG_ADMIN") {
-        accessible = normalized.filter((pharmacy) => scopedOrgPharmacyIds.has(Number(pharmacy.id)));
+        accessible = normalized.filter((pharmacy: Pharmacy) => scopedOrgPharmacyIds.has(Number(pharmacy.id)));
       }
       setPharmacies(scopePharmacies(accessible));
-      await Promise.all(accessible.map((p) => loadMembers(p.id)));
+      await Promise.all(accessible.map((p: Pharmacy) => loadMembers(p.id)));
       setInitialLoadComplete(true);
     } catch (err) {
       if (err instanceof AxiosError && err.response?.status === 404) {
@@ -650,8 +690,7 @@ export default function PharmacyPage() {
     }
 
     setIsFetching(true);
-    apiClient
-      .get(`${API_BASE_URL}${API_ENDPOINTS.onboardingDetail("owner")}`)
+    getOnboarding("owner")
       .then(() => loadPharmacies())
       .catch((err: unknown) => {
         if (err instanceof AxiosError && err.response?.status === 404) {
@@ -908,12 +947,11 @@ export default function PharmacyPage() {
       fd.append("organization", String(orgMem.organization_id));
     }
 
-    const urlBase = `${API_BASE_URL}${API_ENDPOINTS.pharmacies}`;
     try {
       setIsSaving(true);
       if (editing) {
-        const res = await apiClient.patch<PharmacyApi>(`${urlBase}${editing.id}/`, fd);
-        const saved = normalizePharmacy(res.data);
+        const res = await updatePharmacy(editing.id, fd);
+        const saved = normalizePharmacy(res);
         setPharmacies((prev) =>
           scopePharmacies(prev.map((p) => (p.id === saved.id ? saved : p)))
         );
@@ -923,8 +961,8 @@ export default function PharmacyPage() {
           setActivePharmacyId(saved.id);
         }
       } else {
-        const res = await apiClient.post<PharmacyApi>(urlBase, fd);
-        const saved = normalizePharmacy(res.data);
+        const res = await createPharmacy(fd);
+        const saved = normalizePharmacy(res);
         setPharmacies((prev) => {
           if (scopedPharmacyId != null && Number(saved.id) !== scopedPharmacyId) {
             return prev;
@@ -972,7 +1010,7 @@ export default function PharmacyPage() {
     const id = pendingDeletePharmacy.id;
     setIsDeletingPharmacy(true);
     try {
-      await apiClient.delete(`${API_BASE_URL}${API_ENDPOINTS.pharmacies}${id}/`);
+      await deletePharmacy(id);
       setPharmacies((prev) => prev.filter((p) => p.id !== id));
       setMembershipsByPharmacy((prev) => {
         const next = { ...prev };

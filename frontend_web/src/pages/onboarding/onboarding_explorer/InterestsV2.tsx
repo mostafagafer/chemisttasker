@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { Box, Typography, Checkbox, FormControlLabel, Button, Alert, Snackbar } from '@mui/material';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
+import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 
 const INTEREST_CHOICES: Array<{ value: string; label: string }> = [
   { value: 'SHADOWING',    label: 'Shadowing' },
@@ -15,7 +14,7 @@ type ApiData = {
 };
 
 export default function InterestsV2() {
-  const url = API_ENDPOINTS.onboardingDetail('explorer');
+  const roleKey = 'explorer';
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -28,18 +27,18 @@ export default function InterestsV2() {
     (async () => {
       setLoading(true); setError('');
       try {
-        const res = await apiClient.get(url);
+        const res = await getOnboardingDetail(roleKey);
         if (!mounted) return;
-        const d: ApiData = res.data || {};
+        const d: ApiData = (res as any) || {};
         setSelected(d.interests || []);
       } catch (e: any) {
-        setError(e.response?.data?.detail || e.message || 'Failed to load');
+        setError(e?.response?.data?.detail || e.message || 'Failed to load');
       } finally {
         setLoading(false);
       }
     })();
     return () => { mounted = false; };
-  }, [url]);
+  }, [roleKey]);
 
   const toggle = (code: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const checked = e.target.checked;
@@ -52,18 +51,16 @@ export default function InterestsV2() {
       const fd = new FormData();
       fd.append('tab', 'interests');
       fd.append('interests', JSON.stringify(selected));
-      const res = await apiClient.patch(url, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      const d: ApiData = res.data || {};
+      const res = await updateOnboardingForm(roleKey, fd);
+      const d: ApiData = (res as any) || {};
       setSelected(d.interests || []);
       setSnack('Interests saved.');
     } catch (e: any) {
-      const resp = e.response?.data;
+      const resp = e?.response?.data;
       setError(
         resp && typeof resp === 'object'
           ? Object.entries(resp).map(([k, v]) => `${k}: ${(v as any[]).join(', ')}`).join('\n')
-          : e.message
+          : e.message || 'Failed to save'
       );
     } finally {
       setSaving(false);

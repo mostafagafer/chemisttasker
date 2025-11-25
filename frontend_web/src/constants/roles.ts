@@ -1,5 +1,3 @@
-// src/constants/roles.ts
-
-export const ORG_ROLES = ['ORG_ADMIN', 'CHIEF_ADMIN', 'REGION_ADMIN'] as const;
-export type OrgRole = typeof ORG_ROLES[number];
+// Re-export shared-core role constants for web convenience
+export { ORG_ROLES, type OrgRole } from "@chemisttasker/shared-core";
 

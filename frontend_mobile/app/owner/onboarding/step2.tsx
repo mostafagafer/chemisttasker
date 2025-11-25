@@ -4,7 +4,7 @@ import { Text, TextInput, Button, RadioButton, Surface, Divider } from 'react-na
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ProgressStepper from '../../../components/ProgressStepper';
-import { useOnboarding } from './context';
+import { useOnboarding } from './_context';
 
 const ONBOARDING_STEPS = ['Basic Info', 'Role Details', 'Profile Photo', 'Review'];
 
@@ -23,7 +23,7 @@ export default function OwnerOnboardingStep2() {
         chain_pharmacy: data.chain_pharmacy || false,
     });
 
-    const [loading, setLoading] = useState(false);
+    const loading = false;
     const [error, setError] = useState('');
 
     const isPharmacist = formData.role === 'PHARMACIST';

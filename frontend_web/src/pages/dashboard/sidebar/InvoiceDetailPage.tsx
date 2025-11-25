@@ -6,12 +6,11 @@ import {
 } from '@mui/material';
 import { Add as AddIcon, Delete as DeleteIcon, Close as CloseIcon } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import { getInvoiceDetail, updateInvoice } from '@chemisttasker/shared-core';
 
 dayjs.extend(utc);
 
@@ -131,12 +130,11 @@ export default function InvoiceDetailPage() {
   const [lineItems, setLineItems] = useState<any[]>([]);
 
   // --- Fetch invoice data ---
-    useEffect(() => {
+  useEffect(() => {
     if (!id) return;
     setLoading(true);
-    apiClient.get(API_ENDPOINTS.invoiceDetail(Number(id)))
-        .then(res => {
-        const data = res.data;
+    getInvoiceDetail(Number(id))
+      .then((data: any) => {
         setInvoice(data);
         setExternal(data.external || false);
         setIssuerFirstName(data.issuer_first_name || '');
@@ -180,24 +178,24 @@ export default function InvoiceDetailPage() {
         }
 
         setLineItems(
-            (data.line_items || []).map((li: any) => {
+          (data.line_items || []).map((li: any) => {
             const times = parseDateTimeFromDescription(li.description || '');
             return {
-                ...li,
-                ...times,
-                quantity: Number(li.quantity || 0),
-                unit_price: Number(li.unit_price || 0),
-                discount: Number(li.discount || 0),
-                total: Number(li.total || 0),
+              ...li,
+              ...times,
+              quantity: Number(li.quantity || 0),
+              unit_price: Number(li.unit_price || 0),
+              discount: Number(li.discount || 0),
+              total: Number(li.total || 0),
             };
-            })
+          })
         );
-        })
-        .catch(() => {
+      })
+      .catch(() => {
         setSnackbar({ open: true, msg: 'Failed to load invoice' });
-        })
-        .finally(() => setLoading(false));
-    }, [id]);
+      })
+      .finally(() => setLoading(false));
+  }, [id]);
 
   // --- Totals ---
   const subtotal = lineItems
@@ -282,43 +280,42 @@ export default function InvoiceDetailPage() {
   const handleSave = () => {
     if (!invoice) return;
     setSubmitting(true);
-    apiClient
-      .put(API_ENDPOINTS.invoiceDetail(Number(id)), {
-        // All fields for save
-        external,
-        issuer_first_name: issuerFirstName,
-        issuer_last_name: issuerLastName,
-        issuer_abn: issuerAbn,
-        issuer_email: issuerEmail,
-        gst_registered: gstRegistered,
-        super_rate_snapshot: superRateSnapshot,
-        super_fund_name: superFundName,
-        super_usi: superUsi,
-        super_member_number: superMemberNumber,
-        bank_account_name: bankAccountName,
-        bsb,
-        account_number: accountNumber,
-        cc_emails: ccEmails,
-        invoice_date: invoiceDate,
-        due_date: dueDate,
-        pharmacy_name_snapshot: pharmacyNameSnapshot,
-        pharmacy_address_snapshot: pharmacyAddressSnapshot,
-        pharmacy_abn_snapshot: pharmacyAbnSnapshot,
-        // pharmacy_state_snapshot: pharmacyStateSnapshot,
-        bill_to_first_name: billToFirstName,
-        bill_to_last_name: billToLastName,
-        bill_to_email: billToEmail,
-        bill_to_abn: billToAbn,
-        custom_bill_to_name: customBillToName,
-        custom_bill_to_address: customBillToAddress,
-        line_items: lineItems.map(li => ({
-          ...li,
-          quantity: Number(li.quantity),
-          unit_price: Number(li.unit_price),
-          discount: Number(li.discount),
-          total: Number(li.total),
-        })),
-      })
+    updateInvoice(Number(id), {
+      // All fields for save
+      external,
+      issuer_first_name: issuerFirstName,
+      issuer_last_name: issuerLastName,
+      issuer_abn: issuerAbn,
+      issuer_email: issuerEmail,
+      gst_registered: gstRegistered,
+      super_rate_snapshot: superRateSnapshot,
+      super_fund_name: superFundName,
+      super_usi: superUsi,
+      super_member_number: superMemberNumber,
+      bank_account_name: bankAccountName,
+      bsb,
+      account_number: accountNumber,
+      cc_emails: ccEmails,
+      invoice_date: invoiceDate,
+      due_date: dueDate,
+      pharmacy_name_snapshot: pharmacyNameSnapshot,
+      pharmacy_address_snapshot: pharmacyAddressSnapshot,
+      pharmacy_abn_snapshot: pharmacyAbnSnapshot,
+      // pharmacy_state_snapshot: pharmacyStateSnapshot,
+      bill_to_first_name: billToFirstName,
+      bill_to_last_name: billToLastName,
+      bill_to_email: billToEmail,
+      bill_to_abn: billToAbn,
+      custom_bill_to_name: customBillToName,
+      custom_bill_to_address: customBillToAddress,
+      line_items: lineItems.map(li => ({
+        ...li,
+        quantity: Number(li.quantity),
+        unit_price: Number(li.unit_price),
+        discount: Number(li.discount),
+        total: Number(li.total),
+      })),
+    })
 .then(() => {
   setSnackbar({ open: true, msg: 'Saved successfully' });
   // Ensure user exists and has a role before navigating

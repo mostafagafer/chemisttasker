@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { Outlet, Navigate } from 'react-router-dom';
 import { WorkspaceProvider } from './contexts/WorkspaceContext'; // Add this import
+import { initSharedCoreApi } from './config/api';
 
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 
@@ -51,6 +52,8 @@ import HubDashboardWrapper from './layouts/HubDashboardWrapper';
 import OtherstaffDashboardWrapper from './layouts/otherStaffDashboard';
 import ExplorerDashboardWrapper from './layouts/explorerDashboard';
 import { OwnerShiftCenterPage, OrganizationShiftCenterPage, AdminShiftCenterPage } from './pages/dashboard/shiftCenter/ShiftCenterPage';
+
+initSharedCoreApi();
 
 
 

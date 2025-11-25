@@ -11,7 +11,7 @@ import {
   getOtherStaffNavDynamic,
   getExplorerNav,
 } from "./navigation";
-import apiClient from "./utils/apiClient";
+import { getOnboarding } from "@chemisttasker/shared-core";
 
 // ✨ HOOK 1: Your existing hook for onboarding progress
 function useOnboardingProgress(user: any, persona: string) {
@@ -31,10 +31,9 @@ function useOnboardingProgress(user: any, persona: string) {
           ? "otherstaff"
           : role.toLowerCase();
 
-      apiClient
-        .get(`/client-profile/${key}/onboarding/me/`)
-        .then((res) => {
-          if (isMounted) setProgress(res.data.progress_percent ?? 0);
+      getOnboarding(key as any)
+        .then((res: any) => {
+          if (isMounted) setProgress(res?.progress_percent ?? 0);
         })
         .catch(() => {
           if (isMounted) setProgress(0);

@@ -41,17 +41,24 @@ import {
 import Grid from '@mui/material/Grid';
 import { stepConnectorClasses } from '@mui/material/StepConnector';
 import { useNavigate, useLocation } from 'react-router-dom';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { Calendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import dayjs from 'dayjs';
 import { ORG_ROLES } from '../../../constants/roles';
+import {
+  PharmacySummary,
+  Shift,
+  EscalationLevelKey,
+  fetchPharmaciesService,
+  fetchActiveShiftDetailService,
+  createShift,
+  updateShift,
+} from '@chemisttasker/shared-core';
 
 // --- Interface Definitions ---
-interface Pharmacy { id: number; name: string; has_chain: boolean; claimed: boolean; }
+type PharmacyOption = PharmacySummary & { hasChain?: boolean; claimed?: boolean };
 interface SlotEntry {
   date: string; startTime: string; endTime: string; isRecurring: boolean;
   recurringDays: number[]; recurringEndDate: string;
@@ -166,7 +173,7 @@ const PostShiftPage: React.FC = () => {
   const isOrganizationUser = Boolean(orgMembership);
 
   // --- Form State ---
-  const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
+  const [pharmacies, setPharmacies] = useState<PharmacyOption[]>([]);
   const [pharmacyId, setPharmacyId] = useState<number | ''>(() =>
     scopedPharmacyId ?? ''
   );
@@ -232,60 +239,77 @@ const PostShiftPage: React.FC = () => {
 
   // --- Data Loading ---
   useEffect(() => {
-    apiClient.get(API_ENDPOINTS.pharmacies)
-      .then((res) => {
-        const payload = Array.isArray(res.data?.results)
-          ? res.data.results
-          : Array.isArray(res.data)
-          ? res.data
-          : [];
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const list = await fetchPharmaciesService({});
         const filtered =
           scopedPharmacyId != null
-            ? payload.filter(
-                (item: any) =>
-                  Number(item.id ?? item.pharmacy_id ?? item.pk ?? item.pharmacy) ===
-                  scopedPharmacyId
-              )
-            : payload;
-        setPharmacies(filtered);
-      })
-      .catch(() => showSnackbar('Failed to load pharmacies', 'error'));
+            ? list.filter((item: PharmacyOption) => Number(item.id) === scopedPharmacyId)
+            : list;
+        if (!cancelled) {
+          setPharmacies(filtered as PharmacyOption[]);
+        }
+      } catch {
+        if (!cancelled) {
+          showSnackbar('Failed to load pharmacies', 'error');
+        }
+      }
 
-    if (editingShiftId) {
-      apiClient.get(`${API_ENDPOINTS.getActiveShifts}${editingShiftId}/`)
-        .then(res => {
-          const data = res.data;
-          if (scopedPharmacyId != null && data.pharmacy !== scopedPharmacyId) {
+      if (editingShiftId) {
+        try {
+          const detail = await fetchActiveShiftDetailService(Number(editingShiftId));
+          const detailPharmacyId =
+            detail.pharmacy ?? detail.pharmacyId ?? detail.pharmacyDetail?.id ?? null;
+          if (scopedPharmacyId != null && detailPharmacyId !== scopedPharmacyId) {
             showSnackbar('You do not have access to this shift.', 'error');
             navigate(-1);
             return;
           }
-          setPharmacyId(scopedPharmacyId ?? data.pharmacy);
-          setEmploymentType(data.employment_type);
-          setRoleNeeded(data.role_needed);
-          setDescription(data.description || '');
-          setWorkloadTags(data.workload_tags || []);
-          setMustHave(data.must_have || []);
-          setNiceToHave(data.nice_to_have || []);
-          setVisibility(data.visibility);
-          setRateType(data.rate_type || '');
-          setFixedRate(data.fixed_rate || '');
-          setOwnerAdjustedRate(data.owner_adjusted_rate || '');
-          setSingleUserOnly(data.single_user_only || false);
-          setPostAnonymously(Boolean(data.post_anonymously));
+          if (cancelled) {
+            return;
+          }
+          setPharmacyId(scopedPharmacyId ?? detailPharmacyId ?? '');
+          setEmploymentType(detail.employmentType ?? '');
+          setRoleNeeded(detail.roleNeeded ?? '');
+          setDescription(detail.description ?? '');
+          setWorkloadTags(detail.workloadTags ?? []);
+          setMustHave(detail.mustHave ?? []);
+          setNiceToHave(detail.niceToHave ?? []);
+          setVisibility(detail.visibility ?? 'FULL_PART_TIME');
+          setRateType(detail.rateType ?? '');
+          setFixedRate(detail.fixedRate ?? '');
+          setOwnerAdjustedRate(detail.ownerAdjustedRate ? String(detail.ownerAdjustedRate) : '');
+          setSingleUserOnly(Boolean(detail.singleUserOnly));
+          setPostAnonymously(Boolean(detail.postAnonymously));
           setEscalationDates({
-            LOCUM_CASUAL: toInputDateTimeLocal(data.escalate_to_locum_casual),
-            OWNER_CHAIN: toInputDateTimeLocal(data.escalate_to_owner_chain),
-            ORG_CHAIN: toInputDateTimeLocal(data.escalate_to_org_chain),
-            PLATFORM: toInputDateTimeLocal(data.escalate_to_platform),
+            LOCUM_CASUAL: toInputDateTimeLocal(detail.escalateToLocumCasual),
+            OWNER_CHAIN: toInputDateTimeLocal(detail.escalateToOwnerChain),
+            ORG_CHAIN: toInputDateTimeLocal(detail.escalateToOrgChain),
+            PLATFORM: toInputDateTimeLocal(detail.escalateToPlatform),
           });
-          setSlots((data.slots || []).map((s: any) => ({
-              date: s.date, startTime: s.start_time, endTime: s.end_time, isRecurring: s.is_recurring,
-              recurringDays: s.recurring_days || [], recurringEndDate: s.recurring_end_date || '',
+          setSlots((detail.slots ?? []).map((slot: NonNullable<Shift['slots']>[number]) => ({
+            date: slot.date,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            isRecurring: Boolean(slot.isRecurring),
+            recurringDays: slot.recurringDays ?? [],
+            recurringEndDate: slot.recurringEndDate ?? '',
           })));
-        })
-        .catch(() => showSnackbar('Failed to load shift for editing', 'error'));
-    }
+        } catch {
+          if (!cancelled) {
+            showSnackbar('Failed to load shift for editing', 'error');
+          }
+        }
+      }
+    };
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
   }, [editingShiftId, scopedPharmacyId, navigate]);
 
 
@@ -294,12 +318,12 @@ const PostShiftPage: React.FC = () => {
       setPharmacyId(scopedPharmacyId);
     }
   }, [scopedPharmacyId]);
-  const allowedVis = useMemo(() => {
+  const allowedVis = useMemo<EscalationLevelKey[]>(() => {
     const p = pharmacies.find(x => x.id === pharmacyId);
     if (!p) return [];
 
-    const tiers = ['FULL_PART_TIME', 'LOCUM_CASUAL'];
-    if (p.has_chain) {
+    const tiers: EscalationLevelKey[] = ['FULL_PART_TIME', 'LOCUM_CASUAL'];
+    if (p.hasChain) {
       tiers.push('OWNER_CHAIN');
     }
     if (p.claimed) {
@@ -440,75 +464,75 @@ const PostShiftPage: React.FC = () => {
     }
   }, [calendarEvents, slots.length]);
 
-const eventStyleGetter = useCallback((_event: CalendarEvent, _start: Date, _end: Date, _isSelected: boolean) => {
+  const eventStyleGetter = useCallback((_event: CalendarEvent, _start: Date, _end: Date, _isSelected: boolean) => {
     const backgroundColor = '#8B5CF6'; // A slightly lighter purple
     const style = {
-        backgroundColor,
-        borderRadius: '6px',
-        color: 'white',
-        border: '1px solid #6D28D9',
-        boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
-        padding: '2px 5px',
+      backgroundColor,
+      borderRadius: '6px',
+      color: 'white',
+      border: '1px solid #6D28D9',
+      boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+      padding: '2px 5px',
     };
     return { style };
-}, []);
+  }, []);
 
-const handleAddSlot = () => {
-  if (!slotStartTime || !slotEndTime) return showSnackbar('Please select a start and end time.', 'error');
-  if (new Date(`1970-01-01T${slotEndTime}`) <= new Date(`1970-01-01T${slotStartTime}`)) return showSnackbar('End time must be after start time.', 'error');
+  const handleAddSlot = () => {
+    if (!slotStartTime || !slotEndTime) return showSnackbar('Please select a start and end time.', 'error');
+    if (new Date(`1970-01-01T${slotEndTime}`) <= new Date(`1970-01-01T${slotStartTime}`)) return showSnackbar('End time must be after start time.', 'error');
 
-  const baseDates = selectedDates.length ? selectedDates : slotDate ? [slotDate] : [];
-  if (!baseDates.length) return showSnackbar('Select at least one date from the calendar.', 'error');
+    const baseDates = selectedDates.length ? selectedDates : slotDate ? [slotDate] : [];
+    if (!baseDates.length) return showSnackbar('Select at least one date from the calendar.', 'error');
 
-  if (isRecurring && (!recurringEndDate || recurringDays.length === 0)) {
-    return showSnackbar('Please complete the recurrence details.', 'error');
-  }
+    if (isRecurring && (!recurringEndDate || recurringDays.length === 0)) {
+      return showSnackbar('Please complete the recurrence details.', 'error');
+    }
 
-  if (isRecurring && baseDates.length > 1) {
-    return showSnackbar('Recurring schedules can only start from a single date selection.', 'error');
-  }
+    if (isRecurring && baseDates.length > 1) {
+      return showSnackbar('Recurring schedules can only start from a single date selection.', 'error');
+    }
 
-  const validDates = baseDates.filter((date) => !dayjs(date).isBefore(todayStart, 'day'));
-  if (!validDates.length) {
-    showSnackbar('Cannot schedule entries in the past.', 'error');
-    return;
-  }
-  if (validDates.length < baseDates.length) {
-    showSnackbar('Past dates were ignored.', 'error');
-  }
+    const validDates = baseDates.filter((date) => !dayjs(date).isBefore(todayStart, 'day'));
+    if (!validDates.length) {
+      showSnackbar('Cannot schedule entries in the past.', 'error');
+      return;
+    }
+    if (validDates.length < baseDates.length) {
+      showSnackbar('Past dates were ignored.', 'error');
+    }
 
-  const newEntries = validDates.map((date) => ({
-    date,
-    startTime: slotStartTime,
-    endTime: slotEndTime,
-    isRecurring: isRecurring && validDates.length === 1,
-    recurringDays: isRecurring ? recurringDays : [],
-    recurringEndDate: isRecurring ? recurringEndDate : '',
-  }));
+    const newEntries = validDates.map((date) => ({
+      date,
+      startTime: slotStartTime,
+      endTime: slotEndTime,
+      isRecurring: isRecurring && validDates.length === 1,
+      recurringDays: isRecurring ? recurringDays : [],
+      recurringEndDate: isRecurring ? recurringEndDate : '',
+    }));
 
-  const existingKeys = new Set(slots.map((s) => `${s.date}-${s.startTime}-${s.endTime}-${s.isRecurring}-${s.recurringDays.join(',')}`));
-  const filtered = newEntries.filter(
-    (entry) => !existingKeys.has(`${entry.date}-${entry.startTime}-${entry.endTime}-${entry.isRecurring}-${entry.recurringDays.join(',')}`)
-  );
+    const existingKeys = new Set(slots.map((s) => `${s.date}-${s.startTime}-${s.endTime}-${s.isRecurring}-${s.recurringDays.join(',')}`));
+    const filtered = newEntries.filter(
+      (entry) => !existingKeys.has(`${entry.date}-${entry.startTime}-${entry.endTime}-${entry.isRecurring}-${entry.recurringDays.join(',')}`)
+    );
 
-  if (!filtered.length) {
-    showSnackbar('Those timetable entries already exist.', 'error');
-    return;
-  }
+    if (!filtered.length) {
+      showSnackbar('Those timetable entries already exist.', 'error');
+      return;
+    }
 
-  setSlots((prev) => [...prev, ...filtered]);
-  showSnackbar(`${filtered.length} timetable entr${filtered.length > 1 ? 'ies' : 'y'} added.`);
+    setSlots((prev) => [...prev, ...filtered]);
+    showSnackbar(`${filtered.length} timetable entr${filtered.length > 1 ? 'ies' : 'y'} added.`);
 
-  setSelectedDates([]);
-  setIsRecurring(false);
-  setRecurringDays([]);
-  setRecurringEndDate('');
-};
+    setSelectedDates([]);
+    setIsRecurring(false);
+    setRecurringDays([]);
+    setRecurringEndDate('');
+  };
 
   const handleSubmit = async () => {
     if (!pharmacyId || !roleNeeded || !employmentType) return showSnackbar('Please fill all required fields in Step 1.', 'error');
     if (slots.length === 0) return showSnackbar('Please add at least one schedule entry.', 'error');
-    
+
     setSubmitting(true);
     const payload = {
       pharmacy: pharmacyId, role_needed: roleNeeded, description, employment_type: employmentType,
@@ -531,10 +555,10 @@ const handleAddSlot = () => {
 
     try {
       if (editingShiftId) {
-        await apiClient.patch(`${API_ENDPOINTS.getActiveShifts}${editingShiftId}/`, payload);
+        await updateShift(editingShiftId, payload);
         showSnackbar('Shift updated successfully!');
       } else {
-        await apiClient.post(API_ENDPOINTS.getActiveShifts, payload);
+        await createShift(payload);
         showSnackbar('Shift posted successfully!');
       }
 
@@ -556,293 +580,293 @@ const handleAddSlot = () => {
     const workloadOptions = ['Sole Pharmacist', 'High Script Load', 'Webster Packs'];
     const skillOptions = ['Vaccination', 'Methadone', 'CPR', 'First Aid', 'Anaphylaxis', 'Credentialed Badge', 'PDL Insurance'];
     const ESCALATION_LABELS: Record<string, string> = { FULL_PART_TIME: 'Pharmacy Members', LOCUM_CASUAL: 'Favourite Staff', OWNER_CHAIN: 'Owner Chain', ORG_CHAIN: 'Organization', PLATFORM: 'Platform (Public)' };
-  const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2 } };
+    const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2 } };
 
     switch (step) {
       case 0: return (
         <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
-            <Grid size={12}>
-              <FormControl fullWidth size="small" sx={fieldSx}>
-                <InputLabel>Pharmacy *</InputLabel>
-                <Select
-                  value={pharmacyId}
-                  label="Pharmacy *"
-                  onChange={e => setPharmacyId(Number(e.target.value))}
-                  disabled={scopedPharmacyId != null}
-                >
-                  {pharmacies.map(p => (
-                    <MenuItem key={p.id} value={p.id}>
-                      {p.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <FormControl fullWidth size="small" sx={fieldSx}>
-                <InputLabel>Employment Type *</InputLabel>
-                <Select
-                  value={employmentType}
-                  label="Employment Type *"
-                  onChange={e => setEmploymentType(e.target.value)}
-                >
-                  <MenuItem value="LOCUM">Locum</MenuItem>
-                  <MenuItem value="FULL_TIME">Full-Time</MenuItem>
-                  <MenuItem value="PART_TIME">Part-Time</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <FormControl fullWidth size="small" sx={fieldSx}>
-                <InputLabel>Role Needed *</InputLabel>
-                <Select
-                  value={roleNeeded}
-                  label="Role Needed *"
-                  onChange={e => setRoleNeeded(e.target.value)}
-                >
-                  <MenuItem value="PHARMACIST">Pharmacist</MenuItem>
-                  <MenuItem value="TECHNICIAN">Dispensary Technician</MenuItem>
-                  <MenuItem value="ASSISTANT">Assistant</MenuItem>
-                  <MenuItem value="INTERN">Intern Pharmacist</MenuItem>
-                  <MenuItem value="STUDENT">Pharmacy Student</MenuItem>
-                  <MenuItem value="EXPLORER">Explorer</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid size={12}>
-              <TextField
-                label="Shift Description"
-                multiline
-                minRows={4}
-                value={description}
-                onChange={e => setDescription(e.target.value)}
-                fullWidth
-                placeholder="Provide key responsibilities or context..."
-                size="small"
-                sx={fieldSx}
-              />
-            </Grid>
-            <Grid size={12}>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                Workload Tags
-              </Typography>
-              <Stack direction="row" flexWrap="wrap" gap={1.5}>
-                {workloadOptions.map(tag => {
-                  const selected = workloadTags.includes(tag);
-                  return (
-                    <Chip
-                      key={tag}
-                      label={tag}
-                      onClick={() =>
-                        setWorkloadTags(current =>
-                          selected ? current.filter(x => x !== tag) : [...current, tag]
-                        )
-                      }
-                      variant={selected ? 'filled' : 'outlined'}
-                      color={selected ? 'primary' : 'default'}
-                      clickable
-                      sx={{
-                        borderRadius: '999px',
-                        fontWeight: 600,
-                        px: 1.5,
-                        py: 0.5,
-                      }}
-                    />
-                  );
-                })}
-              </Stack>
-            </Grid>
+          <Grid size={12}>
+            <FormControl fullWidth size="small" sx={fieldSx}>
+              <InputLabel>Pharmacy *</InputLabel>
+              <Select
+                value={pharmacyId}
+                label="Pharmacy *"
+                onChange={e => setPharmacyId(Number(e.target.value))}
+                disabled={scopedPharmacyId != null}
+              >
+                {pharmacies.map(p => (
+                  <MenuItem key={p.id} value={p.id}>
+                    {p.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <FormControl fullWidth size="small" sx={fieldSx}>
+              <InputLabel>Employment Type *</InputLabel>
+              <Select
+                value={employmentType}
+                label="Employment Type *"
+                onChange={e => setEmploymentType(e.target.value)}
+              >
+                <MenuItem value="LOCUM">Locum</MenuItem>
+                <MenuItem value="FULL_TIME">Full-Time</MenuItem>
+                <MenuItem value="PART_TIME">Part-Time</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <FormControl fullWidth size="small" sx={fieldSx}>
+              <InputLabel>Role Needed *</InputLabel>
+              <Select
+                value={roleNeeded}
+                label="Role Needed *"
+                onChange={e => setRoleNeeded(e.target.value)}
+              >
+                <MenuItem value="PHARMACIST">Pharmacist</MenuItem>
+                <MenuItem value="TECHNICIAN">Dispensary Technician</MenuItem>
+                <MenuItem value="ASSISTANT">Assistant</MenuItem>
+                <MenuItem value="INTERN">Intern Pharmacist</MenuItem>
+                <MenuItem value="STUDENT">Pharmacy Student</MenuItem>
+                <MenuItem value="EXPLORER">Explorer</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid size={12}>
+            <TextField
+              label="Shift Description"
+              multiline
+              minRows={4}
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              fullWidth
+              placeholder="Provide key responsibilities or context..."
+              size="small"
+              sx={fieldSx}
+            />
+          </Grid>
+          <Grid size={12}>
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+              Workload Tags
+            </Typography>
+            <Stack direction="row" flexWrap="wrap" gap={1.5}>
+              {workloadOptions.map(tag => {
+                const selected = workloadTags.includes(tag);
+                return (
+                  <Chip
+                    key={tag}
+                    label={tag}
+                    onClick={() =>
+                      setWorkloadTags(current =>
+                        selected ? current.filter(x => x !== tag) : [...current, tag]
+                      )
+                    }
+                    variant={selected ? 'filled' : 'outlined'}
+                    color={selected ? 'primary' : 'default'}
+                    clickable
+                    sx={{
+                      borderRadius: '999px',
+                      fontWeight: 600,
+                      px: 1.5,
+                      py: 0.5,
+                    }}
+                  />
+                );
+              })}
+            </Stack>
+          </Grid>
         </Grid>
       );
       case 1: return (
         <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
-            <Grid size={12}>
-              <Typography variant="h6" sx={{ mb: 1 }}>
-                Must-Have Skills
-              </Typography>
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                  gap: 1.5,
-                }}
-              >
-                {skillOptions.map(s => (
-                  <FormControlLabel
-                    key={`must-${s}`}
-                    control={
-                      <Checkbox
-                        checked={mustHave.includes(s)}
-                        onChange={() =>
-                          setMustHave(current =>
-                            current.includes(s)
-                              ? current.filter(x => x !== s)
-                              : [...current, s]
-                          )
-                        }
-                      />
-                    }
-                    label={s}
-                  />
-                ))}
-              </Box>
-            </Grid>
-            <Grid size={12}>
-              <Typography variant="h6" sx={{ mb: 1 }}>
-                Nice-to-Have Skills
-              </Typography>
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                  gap: 1.5,
-                }}
-              >
-                {skillOptions.map(s => (
-                  <FormControlLabel
-                    key={`nice-${s}`}
-                    control={
-                      <Checkbox
-                        checked={niceToHave.includes(s)}
-                        onChange={() =>
-                          setNiceToHave(current =>
-                            current.includes(s)
-                              ? current.filter(x => x !== s)
-                              : [...current, s]
-                          )
-                        }
-                      />
-                    }
-                    label={s}
-                  />
-                ))}
-              </Box>
-            </Grid>
+          <Grid size={12}>
+            <Typography variant="h6" sx={{ mb: 1 }}>
+              Must-Have Skills
+            </Typography>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: 1.5,
+              }}
+            >
+              {skillOptions.map(s => (
+                <FormControlLabel
+                  key={`must-${s}`}
+                  control={
+                    <Checkbox
+                      checked={mustHave.includes(s)}
+                      onChange={() =>
+                        setMustHave(current =>
+                          current.includes(s)
+                            ? current.filter(x => x !== s)
+                            : [...current, s]
+                        )
+                      }
+                    />
+                  }
+                  label={s}
+                />
+              ))}
+            </Box>
+          </Grid>
+          <Grid size={12}>
+            <Typography variant="h6" sx={{ mb: 1 }}>
+              Nice-to-Have Skills
+            </Typography>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: 1.5,
+              }}
+            >
+              {skillOptions.map(s => (
+                <FormControlLabel
+                  key={`nice-${s}`}
+                  control={
+                    <Checkbox
+                      checked={niceToHave.includes(s)}
+                      onChange={() =>
+                        setNiceToHave(current =>
+                          current.includes(s)
+                            ? current.filter(x => x !== s)
+                            : [...current, s]
+                        )
+                      }
+                    />
+                  }
+                  label={s}
+                />
+              ))}
+            </Box>
+          </Grid>
         </Grid>
       );
       case 2:
         const startIdx = allowedVis.indexOf(visibility);
         return (
-            <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
-                <Grid size={12}>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                    Define who sees this shift and when it escalates to wider groups.
-                  </Typography>
-                </Grid>
-                <Grid size={12}>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={postAnonymously}
-                        onChange={(_, checked) => setPostAnonymously(checked)}
-                      />
-                    }
-                    label={
-                      <Box>
-                        <Typography
-                          variant="body1"
-                          sx={{ display: 'block', fontWeight: 500 }}
-                        >
-                          Hide pharmacy name from applicants
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          When enabled, eligible workers only see the suburb while applying.
-                        </Typography>
-                      </Box>
-                    }
-                    sx={{ alignItems: 'flex-start' }}
-                  />
-                </Grid>
-                <Grid size={12}>
-                  <FormControl fullWidth size="small" sx={fieldSx}>
-                    <InputLabel>Initial Audience</InputLabel>
-                    <Select
-                      value={visibility}
-                      label="Initial Audience"
-                      onChange={e => setVisibility(e.target.value)}
-                    >
-                      {allowedVis.map(opt => (
-                        <MenuItem key={opt} value={opt}>
-                          {ESCALATION_LABELS[opt]}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                {startIdx > -1 && allowedVis.slice(startIdx + 1).map(tier => (
-                    <Grid key={tier} size={{ xs: 12, sm: 6 }}>
-                      <TextField
-                        label={`Escalate to ${ESCALATION_LABELS[tier]}`}
-                        type="datetime-local"
-                        value={escalationDates[tier] || ''}
-                        onChange={e => setEscalationDates(d => ({ ...d, [tier]: e.target.value }))}
-                        InputLabelProps={{ shrink: true }}
-                        fullWidth
-                        size="small"
-                        sx={fieldSx}
-                      />
-                    </Grid>
-                ))}
+          <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
+            <Grid size={12}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Define who sees this shift and when it escalates to wider groups.
+              </Typography>
             </Grid>
+            <Grid size={12}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={postAnonymously}
+                    onChange={(_, checked) => setPostAnonymously(checked)}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography
+                      variant="body1"
+                      sx={{ display: 'block', fontWeight: 500 }}
+                    >
+                      Hide pharmacy name from applicants
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      When enabled, eligible workers only see the suburb while applying.
+                    </Typography>
+                  </Box>
+                }
+                sx={{ alignItems: 'flex-start' }}
+              />
+            </Grid>
+            <Grid size={12}>
+              <FormControl fullWidth size="small" sx={fieldSx}>
+                <InputLabel>Initial Audience</InputLabel>
+                <Select
+                  value={visibility}
+                  label="Initial Audience"
+                  onChange={e => setVisibility(e.target.value)}
+                >
+                  {allowedVis.map(opt => (
+                    <MenuItem key={opt} value={opt}>
+                      {ESCALATION_LABELS[opt]}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            {startIdx > -1 && allowedVis.slice(startIdx + 1).map(tier => (
+              <Grid key={tier} size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label={`Escalate to ${ESCALATION_LABELS[tier]}`}
+                  type="datetime-local"
+                  value={escalationDates[tier] || ''}
+                  onChange={e => setEscalationDates(d => ({ ...d, [tier]: e.target.value }))}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                  size="small"
+                  sx={fieldSx}
+                />
+              </Grid>
+            ))}
+          </Grid>
         );
       case 3: return (
         <>
-            {roleNeeded === 'PHARMACIST' ? (
-                <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <FormControl fullWidth size="small" sx={fieldSx}>
-                        <InputLabel>Rate Type</InputLabel>
-                        <Select
-                          value={rateType}
-                          label="Rate Type"
-                          onChange={e => setRateType(e.target.value)}
-                        >
-                          <MenuItem value="FIXED">Fixed Rate</MenuItem>
-                          <MenuItem value="FLEXIBLE">Flexible Rate</MenuItem>
-                          <MenuItem value="PHARMACIST_PROVIDED">Worker Specifies Rate</MenuItem>
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                    {rateType === 'FIXED' && (
-                      <Grid size={{ xs: 12, sm: 6 }}>
-                        <TextField
-                          label="Fixed Rate ($/hr)"
-                          type="number"
-                          value={fixedRate}
-                          onChange={e => setFixedRate(e.target.value)}
-                          fullWidth
-                          size="small"
-                          sx={fieldSx}
-                        />
-                      </Grid>
-                    )}
+          {roleNeeded === 'PHARMACIST' ? (
+            <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControl fullWidth size="small" sx={fieldSx}>
+                  <InputLabel>Rate Type</InputLabel>
+                  <Select
+                    value={rateType}
+                    label="Rate Type"
+                    onChange={e => setRateType(e.target.value)}
+                  >
+                    <MenuItem value="FIXED">Fixed Rate</MenuItem>
+                    <MenuItem value="FLEXIBLE">Flexible Rate</MenuItem>
+                    <MenuItem value="PHARMACIST_PROVIDED">Worker Specifies Rate</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              {rateType === 'FIXED' && (
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField
+                    label="Fixed Rate ($/hr)"
+                    type="number"
+                    value={fixedRate}
+                    onChange={e => setFixedRate(e.target.value)}
+                    fullWidth
+                    size="small"
+                    sx={fieldSx}
+                  />
                 </Grid>
-            ) : (
-                <Stack spacing={3}>
-                    <Typography
-                      variant="body1"
-                      align="center"
-                      sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}
-                    >
-                      Rate is set by government award
-                      <Tooltip title="View pay guide">
-                        <IconButton size="small" href="#" target="_blank">
-                          <InfoIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </Typography>
-                    <TextField
-                      label="Owner Bonus ($/hr, optional)"
-                      type="number"
-                      value={ownerAdjustedRate}
-                      onChange={e => setOwnerAdjustedRate(e.target.value)}
-                      fullWidth
-                      helperText="This bonus is added to the award rate."
-                      size="small"
-                      sx={fieldSx}
-                    />
-                </Stack>
-            )}
+              )}
+            </Grid>
+          ) : (
+            <Stack spacing={3}>
+              <Typography
+                variant="body1"
+                align="center"
+                sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}
+              >
+                Rate is set by government award
+                <Tooltip title="View pay guide">
+                  <IconButton size="small" href="#" target="_blank">
+                    <InfoIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Typography>
+              <TextField
+                label="Owner Bonus ($/hr, optional)"
+                type="number"
+                value={ownerAdjustedRate}
+                onChange={e => setOwnerAdjustedRate(e.target.value)}
+                fullWidth
+                helperText="This bonus is added to the award rate."
+                size="small"
+                sx={fieldSx}
+              />
+            </Stack>
+          )}
         </>
       );
       case 4: {
@@ -1239,80 +1263,80 @@ const handleAddSlot = () => {
 
   return (
     <ThemeProvider theme={theme}>
-    <Container maxWidth="md" sx={{ py: 4, bgcolor: '#F9FAFB', minHeight: '100vh' }}>
-      <Paper sx={{ p: { xs: 2, md: 4 }, borderRadius: 4, boxShadow: '0 8px 32px 0 rgba(0,0,0,0.1)' }}>
-        <Typography variant="h4" gutterBottom align="center" fontWeight={600}>{editingShiftId ? 'Edit Shift' : 'Create a New Shift'}</Typography>
-        <Typography variant="body1" color="text.secondary" align="center" mb={4}>Follow the steps to post a new shift opportunity.</Typography>
+      <Container maxWidth="md" sx={{ py: 4, bgcolor: '#F9FAFB', minHeight: '100vh' }}>
+        <Paper sx={{ p: { xs: 2, md: 4 }, borderRadius: 4, boxShadow: '0 8px 32px 0 rgba(0,0,0,0.1)' }}>
+          <Typography variant="h4" gutterBottom align="center" fontWeight={600}>{editingShiftId ? 'Edit Shift' : 'Create a New Shift'}</Typography>
+          <Typography variant="body1" color="text.secondary" align="center" mb={4}>Follow the steps to post a new shift opportunity.</Typography>
 
-        <Stepper
-          activeStep={activeStep}
-          alternativeLabel={!isMobile}
-          orientation={isMobile ? 'vertical' : 'horizontal'}
-          connector={<StepConnectorStyled />}
-          sx={{ mb: 5, px: { xs: 1, sm: 4 } }}
-        >
-          {steps.map((step, index) => (
-            <Step key={step.label}>
-              <StepLabel StepIconComponent={StepIconComponent}>
-                <Typography
-                  variant="body2"
-                  fontWeight={activeStep === index ? 700 : 500}
-                  color={activeStep === index ? 'text.primary' : 'text.secondary'}
-                >
-                  {step.label}
-                </Typography>
-              </StepLabel>
-            </Step>
-          ))}
-        </Stepper>
-
-        <Box sx={{ minHeight: 350, px: { xs: 0, md: 3 } }}>
-          <Typography variant="h5" fontWeight={500} gutterBottom>{steps[activeStep].label}</Typography>
-          {renderStepContent(activeStep)}
-        </Box>
-
-        <Stack
-          direction={{ xs: 'column-reverse', sm: 'row' }}
-          spacing={{ xs: 2, sm: 3 }}
-          justifyContent="space-between"
-          alignItems={{ xs: 'stretch', sm: 'center' }}
-          sx={{ mt: 5, pt: 3, borderTop: '1px solid #eee' }}
-        >
-          <Button
-            onClick={() => setActiveStep(p => p - 1)}
-            disabled={activeStep === 0}
-            variant="text"
-            sx={{ minWidth: 120 }}
+          <Stepper
+            activeStep={activeStep}
+            alternativeLabel={!isMobile}
+            orientation={isMobile ? 'vertical' : 'horizontal'}
+            connector={<StepConnectorStyled />}
+            sx={{ mb: 5, px: { xs: 1, sm: 4 } }}
           >
-            Back
-          </Button>
-          {activeStep < steps.length - 1 ? (
+            {steps.map((step, index) => (
+              <Step key={step.label}>
+                <StepLabel StepIconComponent={StepIconComponent}>
+                  <Typography
+                    variant="body2"
+                    fontWeight={activeStep === index ? 700 : 500}
+                    color={activeStep === index ? 'text.primary' : 'text.secondary'}
+                  >
+                    {step.label}
+                  </Typography>
+                </StepLabel>
+              </Step>
+            ))}
+          </Stepper>
+
+          <Box sx={{ minHeight: 350, px: { xs: 0, md: 3 } }}>
+            <Typography variant="h5" fontWeight={500} gutterBottom>{steps[activeStep].label}</Typography>
+            {renderStepContent(activeStep)}
+          </Box>
+
+          <Stack
+            direction={{ xs: 'column-reverse', sm: 'row' }}
+            spacing={{ xs: 2, sm: 3 }}
+            justifyContent="space-between"
+            alignItems={{ xs: 'stretch', sm: 'center' }}
+            sx={{ mt: 5, pt: 3, borderTop: '1px solid #eee' }}
+          >
             <Button
-              onClick={() => setActiveStep(p => p + 1)}
-              variant="contained"
-              fullWidth={isMobile}
-              sx={{ minWidth: isMobile ? '100%' : 140, borderRadius: 2 }}
+              onClick={() => setActiveStep(p => p - 1)}
+              disabled={activeStep === 0}
+              variant="text"
+              sx={{ minWidth: 120 }}
             >
-              Next
+              Back
             </Button>
-          ) : (
-            <Button
-              variant="contained"
-              color="success"
-              onClick={handleSubmit}
-              disabled={submitting}
-              fullWidth={isMobile}
-              sx={{ minWidth: isMobile ? '100%' : 160, borderRadius: 2 }}
-            >
-              {submitting ? 'Submitting...' : (editingShiftId ? 'Update Shift' : 'Post Shift')}
-            </Button>
-          )}
-        </Stack>
-      </Paper>
-      <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar(s => ({ ...s, open: false }))}>
-        <Alert onClose={() => setSnackbar(s => ({ ...s, open: false }))} severity={snackbar.severity} sx={{ width: '100%' }}>{snackbar.message}</Alert>
-      </Snackbar>
-    </Container>
+            {activeStep < steps.length - 1 ? (
+              <Button
+                onClick={() => setActiveStep(p => p + 1)}
+                variant="contained"
+                fullWidth={isMobile}
+                sx={{ minWidth: isMobile ? '100%' : 140, borderRadius: 2 }}
+              >
+                Next
+              </Button>
+            ) : (
+              <Button
+                variant="contained"
+                color="success"
+                onClick={handleSubmit}
+                disabled={submitting}
+                fullWidth={isMobile}
+                sx={{ minWidth: isMobile ? '100%' : 160, borderRadius: 2 }}
+              >
+                {submitting ? 'Submitting...' : (editingShiftId ? 'Update Shift' : 'Post Shift')}
+              </Button>
+            )}
+          </Stack>
+        </Paper>
+        <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar(s => ({ ...s, open: false }))}>
+          <Alert onClose={() => setSnackbar(s => ({ ...s, open: false }))} severity={snackbar.severity} sx={{ width: '100%' }}>{snackbar.message}</Alert>
+        </Snackbar>
+      </Container>
     </ThemeProvider>
   );
 };

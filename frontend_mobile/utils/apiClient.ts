@@ -27,7 +27,7 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use(
     async (config) => {
         try {
-            const token = await AsyncStorage.getItem('accessToken');
+            const token = await AsyncStorage.getItem('ACCESS_KEY');
             if (token) {
                 config.headers.Authorization = `Bearer ${token}`;
             }
@@ -52,14 +52,14 @@ apiClient.interceptors.response.use(
             originalRequest._retry = true;
 
             try {
-                const refreshToken = await AsyncStorage.getItem('refreshToken');
+                const refreshToken = await AsyncStorage.getItem('REFRESH_KEY');
                 if (refreshToken) {
                     const response = await axios.post(`${API_BASE_URL}/users/token/refresh/`, {
                         refresh: refreshToken,
                     });
 
                     const { access } = response.data;
-                    await AsyncStorage.setItem('accessToken', access);
+                    await AsyncStorage.setItem('ACCESS_KEY', access);
 
                     // Retry original request with new token
                     originalRequest.headers.Authorization = `Bearer ${access}`;
@@ -67,7 +67,7 @@ apiClient.interceptors.response.use(
                 }
             } catch (refreshError) {
                 // Refresh failed, clear tokens and redirect to login
-                await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'user']);
+                await AsyncStorage.multiRemove(['ACCESS_KEY', 'REFRESH_KEY', 'user']);
                 // You can emit an event here to notify the app to navigate to login
                 return Promise.reject(refreshError);
             }

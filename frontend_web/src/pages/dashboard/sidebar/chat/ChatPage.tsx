@@ -2,8 +2,7 @@ import { useEffect, useMemo, useRef, useState, FC, useCallback, SyntheticEvent }
 import { Box, CircularProgress, Typography, Snackbar, Button } from '@mui/material';
 import Alert, { AlertColor } from '@mui/material/Alert';
 import ChatIcon from '@mui/icons-material/Chat';
-import apiClient from '../../../../utils/apiClient';
-import { API_ENDPOINTS, API_BASE_URL } from '../../../../constants/api';
+import { API_BASE_URL } from '../../../../constants/api';
 import { useAuth } from '../../../../contexts/AuthContext';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -14,10 +13,44 @@ import { ChatSidebar } from './ChatSidebar';
 import { ConversationPanel } from './ConversationPanel';
 import { NewChatModal } from './NewChatModal';
 import './chat.css';
+import {
+  fetchRooms,
+  fetchShiftContacts,
+  fetchRoomMessagesService,
+  fetchRoomMessagesByUrl,
+  sendRoomMessageService,
+  markRoomAsReadService,
+  startDirectMessageByMembership,
+  startDirectMessageByUser,
+  getOrCreatePharmacyGroup,
+  deleteRoomService,
+  toggleRoomPinService,
+  fetchChatParticipants,
+  fetchMyMemberships,
+  fetchMembershipsByPharmacy,
+  updateMessageService,
+  deleteMessageService,
+  reactToMessageService,
+} from '@chemisttasker/shared-core';
 
 dayjs.extend(utc);
 
 type Pharmacy = { id: number; name: string };
+type ShiftContact = {
+  pharmacy_id: number | null;
+  pharmacy_name: string;
+  pharmacies?: Array<{ id: number; name: string }>;
+  shift_id?: number | null;
+  shift_date?: string | null;
+  role: string;
+  user: {
+    id: number;
+    first_name?: string | null;
+    last_name?: string | null;
+    email?: string | null;
+    profile_photo_url?: string | null;
+  };
+};
 
 type RoomMessagesState = {
   messages: ChatMessage[];
@@ -46,23 +79,6 @@ const makeWsUrl = (path: string, token?: string | null) => {
   return url.toString();
 };
 
-const EP_ANY = API_ENDPOINTS as any;
-const EP = {
-  rooms: API_ENDPOINTS?.rooms ?? '/client-profile/rooms/',
-  myMemberships: API_ENDPOINTS?.myMemberships ?? '/client-profile/my-memberships/',
-  memberships: API_ENDPOINTS?.memberships ?? '/client-profile/memberships/',
-  roomMessages: (roomId: number) =>
-    (EP_ANY?.roomMessages?.(roomId)) ?? `/client-profile/rooms/${roomId}/messages/`,
-  roomMarkRead: (roomId: number) =>
-    (EP_ANY?.roomMarkRead?.(roomId)) ?? `/client-profile/rooms/${roomId}/read/`,
-  getOrCreateDM: '/client-profile/rooms/get-or-create-dm/',
-  getOrCreateDmByUser: '/client-profile/rooms/get-or-create-dm-by-user/', // Ensure this exists in your constants
-  getOrCreateGroup:
-    EP_ANY['getOrCreateGroup'] ??
-    EP_ANY['getOrCreategroup'] ??
-    '/client-profile/rooms/get-or-create-group/',
-};
-
 type ChatPageProps = {
   initialFilter?: 'all' | 'group' | 'dm' | 'shift';
 };
@@ -74,6 +90,7 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   const [myMemberships, setMyMemberships] = useState<any[]>([]);
   const [memberCache, setMemberCache] = useState<MemberCache>({});
+  const [shiftContacts, setShiftContacts] = useState<ShiftContact[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<number | null>(null);
   const [messagesMap, setMessagesMap] = useState<Record<number, RoomMessagesState>>({});
   const [myMembershipIdInActiveRoom, setMyMembershipIdInActiveRoom] = useState<number | null>(null);
@@ -173,65 +190,73 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
     const loadInitial = async () => {
       setIsLoading(true);
       try {
-        const [membershipsRes, roomsRes, participantsRes] = await Promise.all([
-          apiClient.get(EP.myMemberships),
-          apiClient.get(EP.rooms),
-          apiClient.get(API_ENDPOINTS.chatParticipants) 
+        const [memberships, roomsList, participants, shifts] = await Promise.all([
+          fetchMyMemberships({}),
+          fetchRooms(),
+          fetchChatParticipants(),
+          fetchShiftContacts(),
         ]);
 
-        const allParticipants: any[] = participantsRes.data?.results ?? participantsRes.data ?? [];
-        const pCache = allParticipants.reduce((acc: Record<number, any>, m: any) => {
-            if (m.user_details) {
-                acc[m.id] = {
-                    details: m.user_details,
-                    role: m.role,
-                    employment_type: m.employment_type,
-                    invited_name: m.invited_name,
-                    is_admin: m.is_admin === true, // <-- keep per-participant admin flag
-                };
-            }
-            return acc;
+        const pCache = participants.reduce((acc: Record<number, CachedMember>, participant: any) => {
+          const details = participant.userDetails || participant.user_details || participant.user || {};
+          acc[participant.id] = {
+            details: {
+              id: details.id,
+              first_name: details.first_name ?? details.firstName ?? null,
+              last_name: details.last_name ?? details.lastName ?? null,
+              email: details.email ?? null,
+              profile_photo_url: details.profile_photo_url ?? details.profilePhotoUrl ?? null,
+            },
+            role: participant.role ?? '',
+            employment_type: participant.employmentType ?? '',
+            invited_name: participant.invitedName,
+            is_admin: participant.isAdmin,
+          };
+          return acc;
         }, {});
         setParticipantCache(pCache);
 
-        const allMyMemberships: any[] = membershipsRes.data?.results ?? membershipsRes.data ?? [];
-        setMyMemberships(allMyMemberships);
+        setMyMemberships(memberships);
 
         const uniquePharmacies = new Map<number, Pharmacy>();
-        allMyMemberships.forEach(m => {
-          if (m.pharmacy_detail) uniquePharmacies.set(m.pharmacy_detail.id, m.pharmacy_detail);
+        memberships.forEach((membership: any) => {
+          const detail = membership.pharmacyDetail;
+          if (detail) {
+            uniquePharmacies.set(detail.id, { id: detail.id, name: detail.name });
+          }
         });
         const pharms = Array.from(uniquePharmacies.values());
         setPharmacies(pharms);
 
-        const cachePromises = pharms.map(pharmacy =>
-          apiClient
-            .get(`${EP.memberships}?pharmacy_id=${pharmacy.id}`)
-            .then(res => {
-              const items = res.data?.results ?? res.data ?? [];
-              const map = items.reduce((acc: Record<number, CachedMember>, m: any) => {
-                if (m.user_details) {
-                    acc[m.id] = { 
-                        details: m.user_details, 
-                        role: m.role, 
-                        employment_type: m.employment_type,
-                        invited_name: m.invited_name,
-                    };
-                }
-                return acc;
-              }, {});
-              return { pid: pharmacy.id, map };
-            })
+        const cacheParts = await Promise.all(
+          pharms.map(async (pharmacy) => {
+            const items = await fetchMembershipsByPharmacy(pharmacy.id);
+            const map = items.reduce((acc: Record<number, CachedMember>, m: any) => {
+              const details = m.userDetails || m.user_details || m.user || {};
+              acc[m.id] = {
+                details: {
+                  id: details.id,
+                  first_name: details.first_name ?? details.firstName ?? null,
+                  last_name: details.last_name ?? details.lastName ?? null,
+                  email: details.email ?? null,
+                  profile_photo_url: details.profile_photo_url ?? details.profilePhotoUrl ?? null,
+                },
+                role: m.role ?? '',
+                employment_type: m.employmentType ?? '',
+                invited_name: m.invitedName ?? m.invited_name ?? undefined,
+              };
+              return acc;
+            }, {});
+            return { pid: pharmacy.id, map };
+          }),
         );
-        const cacheParts = await Promise.all(cachePromises);
         setMemberCache(Object.fromEntries(cacheParts.map(({ pid, map }) => [pid, map])));
-        
-        const initialRooms: ChatRoom[] = roomsRes.data?.results ?? roomsRes.data ?? [];
-        initialRooms.sort(
-          (a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf()
+        setShiftContacts((shifts as any) || []);
+
+        const initialRooms = [...roomsList].sort(
+          (a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf(),
         );
         setRooms(initialRooms);
-
       } catch (e) {
         console.error('loadInitial error', e);
       } finally {
@@ -262,30 +287,29 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
     });
 
     if (messagesMap[activeRoomId]) {
-      apiClient.post(EP.roomMarkRead(activeRoomId)).catch(() => {});
+      markRoomAsReadService(activeRoomId).catch(() => {});
       return;
     };
     
     const run = async () => {
       setIsLoadingMessages(true); // <-- FIX: Set loading ON
       try {
-        const res = await apiClient.get(EP.roomMessages(activeRoomId));
-        const newMessages: ChatMessage[] = (res.data?.results ?? res.data ?? []).reverse();
-        
-        const mappedMessages = newMessages.map(msg => {
-            if (msg.attachment_url && msg.attachment_url.startsWith('/')) {
-                return { ...msg, attachment_url: `${BACKEND_MEDIA_URL}${msg.attachment_url}` };
-            }
-            return msg;
-        });
+        const { messages, next } = await fetchRoomMessagesService(activeRoomId);
+        const mappedMessages = messages
+          .reverse()
+          .map((msg: ChatMessage) =>
+            msg.attachment_url && msg.attachment_url.startsWith('/')
+              ? { ...msg, attachment_url: `${BACKEND_MEDIA_URL}${msg.attachment_url}` }
+              : msg,
+          );
 
-        setMessagesMap(prev => ({ 
-          ...prev, 
+        setMessagesMap((prev) => ({
+          ...prev,
           [activeRoomId]: {
             messages: mappedMessages,
-            nextUrl: res.data?.next || null,
-            hasMore: !!res.data?.next,
-          }
+            nextUrl: next ?? null,
+            hasMore: Boolean(next),
+          },
         }));
       } catch (e) { 
         console.error('fetch messages error', e);
@@ -297,38 +321,39 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
     run();
   }, [activeRoomId]);
 
+  // Keep my membership id for the active room in sync without re-triggering the websocket effect.
+  useEffect(() => {
+    const nextId = rooms.find(r => r.id === activeRoomId)?.my_membership_id || null;
+    setMyMembershipIdInActiveRoom(prev => (prev === nextId ? prev : nextId));
+  }, [rooms, activeRoomId]);
+
   useEffect(() => {
     if (wsRef.current) wsRef.current.close();
-    
-    const activeRoom = rooms.find(r => r.id === activeRoomId);
-    if (activeRoom) {
-      setMyMembershipIdInActiveRoom(activeRoom.my_membership_id || null);
-    } else {
-      setMyMembershipIdInActiveRoom(null);
-    }
-    
+
     if (!activeRoomId || !accessToken) return;
 
     const ws = new WebSocket(makeWsUrl(`/ws/chat/rooms/${activeRoomId}/`, accessToken));
     wsRef.current = ws;
 
     ws.onopen = () => {
-      apiClient.post(EP.roomMarkRead(activeRoomId)).then(res => {
-          const newLastRead = res.data?.last_read_at;
-          setRooms(prev => prev.map(r => 
-              (r.id === activeRoomId ? { ...r, unread_count: 0, my_last_read_at: newLastRead } : r)
-          ));
-          refreshUnreadCount(); 
-      }).catch(() => {});
+      markRoomAsReadService(activeRoomId)
+        .then((newLastRead) => {
+          setRooms((prev) =>
+            prev.map((r) =>
+              r.id === activeRoomId ? { ...r, unread_count: 0, my_last_read_at: newLastRead ?? null } : r,
+            ),
+          );
+          refreshUnreadCount();
+        })
+        .catch(() => {});
     };
 
     ws.onmessage = (evt) => {
       try {
         const payload = JSON.parse(evt.data);
         if (payload.type === 'ready' && payload.membership) {
-          if (!myMembershipIdInActiveRoom) {
-             setMyMembershipIdInActiveRoom(payload.membership);
-          }
+          // Only set once; avoid triggering websocket re-creations
+          setMyMembershipIdInActiveRoom(prev => prev ?? payload.membership);
           return;
         }
         if (payload.type === 'message.created') {
@@ -463,11 +488,12 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
         }
       } catch (e) { console.error('ws onmessage error', e); }
     };
+    ws.onerror = (_err) => {};
     ws.onclose = () => {
       lastTypingSentRef.current = false;
     };
     return () => ws.close();
-  }, [activeRoomId, accessToken, refreshUnreadCount, resolveRoomName, pushToast, myMembershipIdInActiveRoom, user?.id]);
+  }, [activeRoomId, accessToken, refreshUnreadCount, resolveRoomName, pushToast, user?.id]);
 
 
   useEffect(() => {
@@ -476,26 +502,22 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
     if (startDmWithUser) {
       const partnerUserId = Number(startDmWithUser);
 
-      apiClient.post(EP.getOrCreateDmByUser, { partner_user_id: partnerUserId })
-        .then(res => {
-          const newOrExistingRoom: ChatRoom = res.data;
-          
-          setRooms(prevRooms => {
-            if (prevRooms.some(r => r.id === newOrExistingRoom.id)) {
+      startDirectMessageByUser(partnerUserId)
+        .then((room) => {
+          setRooms((prevRooms) => {
+            if (prevRooms.some((r) => r.id === room.id)) {
               return prevRooms;
             }
-            return [newOrExistingRoom, ...prevRooms];
+            return [room, ...prevRooms];
           });
-          
-          setActiveRoomId(newOrExistingRoom.id);
-          
-          searchParams.delete('startDmWithUser');
-          setSearchParams(searchParams);
+          setActiveRoomId(room.id);
         })
-        .catch(err => {
-          console.error("Failed to start DM from URL", err);
-          pushToast(err.response?.data?.detail || "Could not start the chat.", 'error');
-          
+        .catch((err) => {
+          console.error('Failed to start DM from URL', err);
+          const message = err instanceof Error ? err.message : 'Could not start the chat.';
+          pushToast(message, 'error');
+        })
+        .finally(() => {
           searchParams.delete('startDmWithUser');
           setSearchParams(searchParams);
         });
@@ -503,8 +525,17 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
   }, [searchParams, setSearchParams]);
 
   const handleSendText = async (body: string) => {
-    if (!activeRoomId) return;
-    try { await apiClient.post(EP.roomMessages(activeRoomId), { body }); } catch (e) { console.error('send text error', e); }
+    const targetRoom = activeRoomId ? rooms.find(r => r.id === activeRoomId) : null;
+    if (!targetRoom) {
+      pushToast('Select or create a conversation first.', 'error');
+      return;
+    }
+    try {
+      await sendRoomMessageService(targetRoom.id, { body });
+      // Rely on the websocket message.created event to update UI (prevents sender duplicates)
+    } catch (e) {
+      console.error('send text error', e);
+    }
   };
 
   const handleSendAttachment = async (files: File[], body?: string) => {
@@ -515,7 +546,8 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
       files.forEach(file => {
         form.append('attachment', file);
       });
-      await apiClient.post(EP.roomMessages(activeRoomId), form, { headers: { 'Content-Type': 'multipart/form-data' }, });
+      await sendRoomMessageService(activeRoomId, form);
+      // Rely on websocket delivery to render the attachment once created
     } catch (e) { console.error('send attachment error', e); }
   };
 
@@ -525,22 +557,20 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
     if (!roomState || !roomState.hasMore || !roomState.nextUrl) return;
     setIsLoadingMore(true);
     try {
-      const res = await apiClient.get(roomState.nextUrl);
-      const olderMessages: ChatMessage[] = (res.data?.results ?? []).reverse();
-      const mappedMessages = olderMessages.map(msg => {
-          if (msg.attachment_url && msg.attachment_url.startsWith('/')) {
-              return { ...msg, attachment_url: `${BACKEND_MEDIA_URL}${msg.attachment_url}` };
-          }
-          return msg;
-      });
+      const { messages, next } = await fetchRoomMessagesByUrl(roomState.nextUrl);
+      const mappedMessages = messages.reverse().map((msg: ChatMessage) =>
+        msg.attachment_url && msg.attachment_url.startsWith('/')
+          ? { ...msg, attachment_url: `${BACKEND_MEDIA_URL}${msg.attachment_url}` }
+          : msg,
+      );
       setMessagesMap(prev => {
           const currentRoom = prev[activeRoomId];
           return {
               ...prev,
               [activeRoomId]: {
                   messages: [...mappedMessages, ...currentRoom.messages],
-                  nextUrl: res.data?.next || null,
-                  hasMore: !!res.data?.next,
+                  nextUrl: next ?? null,
+                  hasMore: Boolean(next),
               }
           };
       });
@@ -589,36 +619,84 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
         setActiveRoomId(existingRoom.id);
     } else {
     try {
-        const res = await apiClient.post(EP.getOrCreateDM, {
-            partner_membership_id: partnerMembershipId
-        });
-        handleSaveRoom(res.data);
-        pushToast(`Direct message with ${resolveRoomName(res.data)} ready`, 'success', res.data.id);
-    } catch (e: any) {
+        const room = await startDirectMessageByMembership(partnerMembershipId, null);
+        handleSaveRoom(room);
+        setActiveRoomId(room.id);
+        pushToast(`Direct message with ${resolveRoomName(room)} ready`, 'success', room.id);
+    } catch (e) {
         console.error('Failed to get or create DM', e);
-        pushToast(e.response?.data?.detail || 'Could not start the chat.', 'error');
+        const message = e instanceof Error ? e.message : 'Could not start the chat.';
+        pushToast(message, 'error');
     }
     }
   };
+
+  const resolveUserIdFromMembership = useCallback(
+    (membershipId: number | null | undefined): number | undefined => {
+      if (!membershipId) return undefined;
+      const cached = participantCache[membershipId]?.details;
+      if (cached?.id) return cached.id;
+      for (const pid in memberCache) {
+        const rec = memberCache[Number(pid)]?.[membershipId]?.details;
+        if (rec?.id) return rec.id;
+      }
+      return undefined;
+    },
+    [participantCache, memberCache],
+  );
   
   const handleSelectRoom = async (d: { type: 'dm' | 'group'; id: number } | { type: 'pharmacy'; id: number }) => {
     if ('type' in d && d.type === 'pharmacy') {
       const existing = rooms.find(r => r.type === 'GROUP' && r.pharmacy === d.id);
       if (existing) { setActiveRoomId(existing.id); return; }
       try {
-        const res = await apiClient.post(EP.getOrCreateGroup, { pharmacy_id: d.id });
-        const room: ChatRoom = res.data;
-        setRooms(prev => (prev.some(r => r.id === room.id) ? prev : [room, ...prev]));
-        setActiveRoomId(room.id);
+        const room = await getOrCreatePharmacyGroup(d.id);
+        const enrichedRoom = (room as any).created_by_user_id
+          ? room
+          : { ...(room as any), created_by_user_id: user?.id ?? (room as any)?.created_by ?? (room as any)?.createdBy };
+        setRooms(prev => (prev.some(r => r.id === enrichedRoom.id) ? prev : [enrichedRoom, ...prev]));
+        setActiveRoomId(enrichedRoom.id);
       } catch (e) { console.error('get-or-create-group error', e); }
       return;
     }
     setActiveRoomId(d.id);
   };
 
+  const handleSelectShiftContact = async (contact: ShiftContact) => {
+    const partnerUserId = contact.user.id;
+
+    // Try to find an existing DM with this user.
+    const existingDm = rooms.find((room) => {
+      if (room.type !== 'DM' || !Array.isArray(room.participant_ids)) return false;
+      // Prefer the non-me participant if my_membership_id is known.
+      const partnerMembershipId = room.participant_ids.find((id) => id !== room.my_membership_id);
+      const partnerId = resolveUserIdFromMembership(partnerMembershipId);
+      if (partnerId && partnerId === partnerUserId) return true;
+      // Fallback: scan all participant memberships for a matching user id.
+      for (const mid of room.participant_ids) {
+        const uid = resolveUserIdFromMembership(mid);
+        if (uid === partnerUserId) return true;
+      }
+      return false;
+    });
+    if (existingDm) {
+      await handleSelectRoom({ type: 'dm', id: existingDm.id });
+      return;
+    }
+
+    try {
+      const room = await startDirectMessageByUser(partnerUserId);
+      handleSaveRoom(room);
+      await handleSelectRoom({ type: 'dm', id: room.id });
+    } catch (error) {
+      console.error('Failed to open shift contact chat', error);
+      pushToast('Could not open chat for this shift contact', 'error');
+    }
+  };
+
   const handleEditMessage = async (messageId: number, newBody: string) => {
     try {
-      await apiClient.patch(`/client-profile/messages/${messageId}/`, { body: newBody });
+      await updateMessageService(messageId, newBody);
     } catch (e) {
       console.error('Failed to edit message', e);
     }
@@ -627,7 +705,7 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
   const handleDeleteMessage = async (messageId: number) => {
     if (window.confirm('Are you sure you want to delete this message? This cannot be undone.')) {
       try {
-        await apiClient.delete(`/client-profile/messages/${messageId}/`);
+        await deleteMessageService(messageId);
       } catch (e) {
         console.error('Failed to delete message', e);
       }
@@ -636,7 +714,7 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
 
   const handleReact = async (messageId: number, reaction: string) => {
     try {
-      await apiClient.post(`/client-profile/messages/${messageId}/react/`, { reaction });
+      await reactToMessageService(messageId, reaction);
     } catch (e) {
       console.error('Failed to send reaction', e);
     }
@@ -644,25 +722,47 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
   
   const handleTogglePin = async (roomId: number, target: 'conversation' | 'message', messageId?: number) => {
     try {
-      const payload: { target: string, message_id?: number } = { target };
-      if (messageId) {
-        payload.message_id = messageId;
+      // API expects snake_case for message_id
+      const body: any = { target };
+      if (target === 'message') {
+        body.message_id = messageId;
       }
-      const res = await apiClient.post(`${EP.rooms}${roomId}/toggle-pin/`, payload);
+      const response = await toggleRoomPinService(roomId, body);
 
       // Optimistically update the UI
       setRooms(prevRooms => {
         return prevRooms.map(room => {
-          if (room.id === roomId) {
-            if (target === 'conversation') {
-              return { ...room, is_pinned: res.data.is_pinned };
-            }
-            // For message pinning, the response contains the updated room object
-            return res.data;
+          if (room.id !== roomId) return room;
+          if (target === 'conversation') {
+            const isPinned = typeof response?.is_pinned === 'boolean' ? response.is_pinned : room.is_pinned;
+            return { ...room, is_pinned: isPinned };
           }
-          return room;
+          // message pin returns updated room (with pinned_message)
+          return response?.id ? response : room;
         });
       });
+
+      if (target === 'message') {
+        // Update pinned_message and message flags in the active room state
+        const pinnedId = response?.pinned_message?.id ?? null;
+        setMessagesMap(prev => {
+          const roomState = prev[roomId];
+          if (!roomState) return prev;
+          return {
+            ...prev,
+            [roomId]: {
+              ...roomState,
+              messages: roomState.messages.map(m => ({
+                ...m,
+                is_pinned: m.id === pinnedId,
+              })),
+            },
+          };
+        });
+
+        // Also ensure the active room object carries the updated pinned_message immediately
+        setRooms(prev => prev.map(r => (r.id === roomId && response?.id ? response : r)));
+      }
     } catch (e) {
       console.error('Failed to toggle pin', e);
       pushToast('Unable to update pin state. Please try again.', 'error');
@@ -686,10 +786,7 @@ const handleDeleteChat = async (roomId: number, roomName: string) => {
   if (!window.confirm(question)) return;
 
   try {
-    // Backend perform_destroy now handles:
-    // - DM: delete-for-me (remove my participant)
-    // - GROUP: hard delete (subject to your permission checks)
-    await apiClient.delete(`${EP.rooms}${roomId}/`);
+    await deleteRoomService(roomId);
 
     setRooms(prevRooms => prevRooms.filter(r => r.id !== roomId));
     if (activeRoomId === roomId) {
@@ -704,16 +801,26 @@ const handleDeleteChat = async (roomId: number, roomName: string) => {
 
 
   const handleSaveRoom = (savedRoom: ChatRoom) => {
+    // Ensure creator id is present locally when we know it (helps UI permissions)
+    const creatorId =
+      (savedRoom as any).created_by_user_id ??
+      (savedRoom as any).createdByUserId ??
+      (savedRoom as any).created_by ??
+      (savedRoom as any).createdBy ??
+      user?.id;
+    const enrichedRoom =
+      creatorId && !(savedRoom as any).created_by_user_id ? { ...(savedRoom as any), created_by_user_id: creatorId } : savedRoom;
+
     setRooms(prevRooms => {
-        const roomExists = prevRooms.some(room => room.id === savedRoom.id);
+        const roomExists = prevRooms.some(room => room.id === enrichedRoom.id);
         if (roomExists) {
-            const updatedRooms = prevRooms.map(r => (r.id === savedRoom.id ? savedRoom : r));
+            const updatedRooms = prevRooms.map(r => (r.id === enrichedRoom.id ? enrichedRoom : r));
             return [...updatedRooms].sort((a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf());
         }
-        const newRooms = [savedRoom, ...prevRooms];
+        const newRooms = [enrichedRoom, ...prevRooms];
         return newRooms.sort((a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf());
     });
-    setActiveRoomId(savedRoom.id);
+    setActiveRoomId(enrichedRoom.id);
   };
   
   const handleCloseModal = () => {
@@ -745,9 +852,12 @@ const handleDeleteChat = async (roomId: number, roomName: string) => {
         onNewChat={() => setIsModalOpen(true)}
         onEdit={handleOpenEditModal}
         onDelete={handleDeleteChat}
+        onTogglePinConversation={(roomId) => handleTogglePin(roomId, 'conversation')}
         canCreateChat={canCreateChat}
         currentUserId={user?.id}
         initialFilter={initialFilter}
+        shiftContacts={shiftContacts}
+        onSelectShiftContact={handleSelectShiftContact}
         getLatestMessage={(roomId) => {
           const roomState = messagesMap[roomId];
           const arr = roomState?.messages;

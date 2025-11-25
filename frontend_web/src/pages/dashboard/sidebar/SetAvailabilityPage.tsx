@@ -17,33 +17,28 @@ import {
   Paper,
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
+import {
+  UserAvailability,
+  UserAvailabilityPayload,
+  fetchUserAvailabilityService,
+  createUserAvailabilityService,
+  deleteUserAvailabilityService,
+} from '@chemisttasker/shared-core';
 
-interface AvailabilityEntry {
-  id: number;
-  date: string;
-  startTime: string;
-  endTime: string;
-  isAllDay: boolean;
-  isRecurring: boolean;
-  recurringDays: number[];
-  recurringEndDate: string;
-  notes: string;
-}
+const createEmptyEntry = (): Omit<UserAvailability, 'id'> => ({
+  date: '',
+  startTime: '09:00',
+  endTime: '17:00',
+  isAllDay: false,
+  isRecurring: false,
+  recurringDays: [],
+  recurringEndDate: '',
+  notes: '',
+});
 
 export default function SetAvailabilityPage() {
-  const [availabilityEntries, setAvailabilityEntries] = useState<AvailabilityEntry[]>([]);
-  const [currentEntry, setCurrentEntry] = useState<Omit<AvailabilityEntry, 'id'>>( {
-    date: '',
-    startTime: '09:00',
-    endTime: '17:00',
-    isAllDay: false,
-    isRecurring: false,
-    recurringDays: [],
-    recurringEndDate: '',
-    notes: '',
-  });
+  const [availabilityEntries, setAvailabilityEntries] = useState<UserAvailability[]>([]);
+  const [currentEntry, setCurrentEntry] = useState<Omit<UserAvailability, 'id'>>(createEmptyEntry());
   const [loading, setLoading] = useState(false);
 
   // Snackbar state
@@ -65,20 +60,8 @@ export default function SetAvailabilityPage() {
   useEffect(() => {
     const fetchAvailability = async () => {
       try {
-        const res = await apiClient.get(API_ENDPOINTS.userAvailabilityList);
-        const rawResults = Array.isArray(res.data) ? res.data : res.data?.results ?? [];
-        const data: AvailabilityEntry[] = rawResults.map((a: any) => ({
-          id: a.id,
-          date: a.date,
-          startTime: a.start_time,
-          endTime: a.end_time,
-          isAllDay: a.is_all_day,
-          isRecurring: a.is_recurring,
-          recurringDays: a.recurring_days || [],
-          recurringEndDate: a.recurring_end_date || '',
-          notes: a.notes || '',
-        }));
-        setAvailabilityEntries(data);
+        const entries = await fetchUserAvailabilityService();
+        setAvailabilityEntries(entries);
       } catch {
         showSnackbar('Failed to load availability', 'error');
       }
@@ -114,39 +97,19 @@ export default function SetAvailabilityPage() {
 
     setLoading(true);
     try {
-      const res = await apiClient.post(API_ENDPOINTS.userAvailabilityList, {
+      const payload: UserAvailabilityPayload = {
         date: currentEntry.date,
         start_time: currentEntry.startTime,
         end_time: currentEntry.endTime,
         is_all_day: currentEntry.isAllDay,
         is_recurring: currentEntry.isRecurring,
         recurring_days: currentEntry.isRecurring ? currentEntry.recurringDays : [],
-        recurring_end_date: currentEntry.isRecurring ? currentEntry.recurringEndDate : null,
+        recurring_end_date: currentEntry.isRecurring ? currentEntry.recurringEndDate || null : null,
         notes: currentEntry.notes,
-      });
-      const a = res.data;
-      const newEntry: AvailabilityEntry = {
-        id: a.id,
-        date: a.date,
-        startTime: a.start_time,
-        endTime: a.end_time,
-        isAllDay: a.is_all_day,
-        isRecurring: a.is_recurring,
-        recurringDays: a.recurring_days || [],
-        recurringEndDate: a.recurring_end_date || '',
-        notes: a.notes || '',
       };
-      setAvailabilityEntries(prev => [...prev, newEntry]);
-      setCurrentEntry({
-        date: '',
-        startTime: '09:00',
-        endTime: '17:00',
-        isAllDay: false,
-        isRecurring: false,
-        recurringDays: [],
-        recurringEndDate: '',
-        notes: '',
-      });
+      const createdEntry = await createUserAvailabilityService(payload);
+      setAvailabilityEntries(prev => [...prev, createdEntry]);
+      setCurrentEntry(createEmptyEntry());
       showSnackbar('Time slot added', 'success');
     } catch {
       showSnackbar('Failed to save slot', 'error');
@@ -157,7 +120,7 @@ export default function SetAvailabilityPage() {
 
   const handleDeleteEntry = async (id: number) => {
     try {
-      await apiClient.delete(API_ENDPOINTS.userAvailabilityDetail(id));
+      await deleteUserAvailabilityService(id);
       setAvailabilityEntries(prev => prev.filter(e => e.id !== id));
       showSnackbar('Slot deleted', 'success');
     } catch {
@@ -263,7 +226,7 @@ export default function SetAvailabilityPage() {
             label="Notes"
             multiline
             rows={3}
-            value={currentEntry.notes}
+            value={currentEntry.notes ?? ''}
             onChange={e => setCurrentEntry({ ...currentEntry, notes: e.target.value })}
           />
           <Button

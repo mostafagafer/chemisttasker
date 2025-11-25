@@ -26,10 +26,11 @@ backend/staticfiles/
 # Management scripts (if you want to keep these local)
 management/
 
+
 # ─── Frontend (Vite / Node) ────────────────────────────────────────
-frontend_web/node_modules/
-frontend_web/dist/
-frontend_web/build/
+node_modules/
+dist/
+build/
 
 # Local env for frontend
 frontend_web/.env

@@ -4,7 +4,7 @@ import { Text, TextInput, Button, Surface, SegmentedButtons, Menu } from 'react-
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DatePickerModal } from 'react-native-paper-dates';
-import apiClient from '../../../utils/apiClient';
+import { getPharmacies, createShift } from '@chemisttasker/shared-core';
 
 interface Pharmacy {
     id: number;
@@ -38,8 +38,13 @@ export default function CreateShiftScreen() {
 
     const fetchPharmacies = async () => {
         try {
-            const response = await apiClient.get('/client-profile/pharmacies/');
-            setPharmacies(response.data);
+            const response = await getPharmacies();
+            const list = Array.isArray((response as any)?.results)
+                ? (response as any).results
+                : Array.isArray(response)
+                    ? (response as any)
+                    : [];
+            setPharmacies(list as Pharmacy[]);
         } catch (err: any) {
             console.error('Error fetching pharmacies:', err);
         } finally {
@@ -67,7 +72,7 @@ export default function CreateShiftScreen() {
                 description: formData.description,
             };
 
-            await apiClient.post('/client-profile/shifts/', submitData);
+            await createShift(submitData as any);
 
             Alert.alert(
                 'Success',

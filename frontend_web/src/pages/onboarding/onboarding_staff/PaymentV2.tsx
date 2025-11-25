@@ -8,8 +8,7 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
+import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 
@@ -57,7 +56,7 @@ const onlyDigits = (s: string) => (s || '').replace(/\D/g, '');
 
 
 export default function PaymentV2() {
-  const url = API_ENDPOINTS.onboardingDetail('otherstaff');
+  const roleKey = 'otherstaff';
 
   const [data, setData] = React.useState<ApiData>({});
   const [loading, setLoading] = React.useState(true);
@@ -89,8 +88,8 @@ export default function PaymentV2() {
     setLoading(true);
     setError('');
     try {
-      const res = await apiClient.get(url);
-      const d: ApiData = res.data || {};
+      const res = await getOnboardingDetail(roleKey);
+      const d: ApiData = (res as any) || {};
       setData(d);
 
       // preselect preference if empty
@@ -115,7 +114,7 @@ export default function PaymentV2() {
     } finally {
       setLoading(false);
     }
-  }, [url]);
+  }, [roleKey]);
 
   React.useEffect(() => { load(); }, [load]);
 
@@ -192,8 +191,8 @@ export default function PaymentV2() {
       // enforce server-side too by sending submitted_for_verification to run validations
       fd.append('submitted_for_verification', 'true');
 
-      const res = await apiClient.patch(url, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setData(res.data);
+      const res = await updateOnboardingForm(roleKey, fd);
+      setData(res as any);
       setTfnInput(''); // do not persist raw TFN in UI
       setSnack('TFN & Super saved.');
     } catch (e: any) {
@@ -219,8 +218,8 @@ export default function PaymentV2() {
       if (data.super_usi != null)           fd.append('super_usi', String(data.super_usi));
       if (data.super_member_number != null) fd.append('super_member_number', String(data.super_member_number));
 
-      const res = await apiClient.patch(url, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setData(res.data);
+      const res = await updateOnboardingForm(roleKey, fd);
+      setData(res as any);
       setSnack('Saved.');
     } catch (e: any) {
       const resp = e.response?.data;
@@ -244,8 +243,8 @@ export default function PaymentV2() {
       fd.append('abn', abnInput.trim());
       fd.append('submitted_for_verification', 'true'); // trigger scrape task
 
-      const res = await apiClient.patch(url, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setData(res.data);
+      const res = await updateOnboardingForm(roleKey, fd);
+      setData(res as any);
       setSnack('ABN check queued. Refreshing…');
       // small refetch loop to pull results (simple & pragmatic)
       setTimeout(load, 1200);
@@ -270,8 +269,8 @@ export default function PaymentV2() {
       fd.append('payment_preference', 'ABN');
       fd.append('abn_entity_confirmed', 'true');
 
-      const res = await apiClient.patch(url, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setData(res.data);
+      const res = await updateOnboardingForm(roleKey, fd);
+      setData(res as any);
       setSnack('ABN confirmed.');
     } catch (e: any) {
       const resp = e.response?.data;

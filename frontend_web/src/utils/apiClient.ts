@@ -1,7 +1,7 @@
 // src/utils/apiClient.ts
 import axios, { AxiosError, AxiosResponse } from 'axios';
 import type { InternalAxiosRequestConfig } from 'axios';
-import { getAccessToken, clearTokens } from './tokenService';
+import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './tokenService';
 import { API_BASE_URL } from '../constants/api';
 
 const apiClient = axios.create({
@@ -49,7 +49,31 @@ apiClient.interceptors.response.use(
     }
     return response;
   },
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
+    const originalRequest: any = error.config || {};
+
+    // Attempt refresh once on 401
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+      try {
+        const refresh = getRefreshToken();
+        if (refresh) {
+          const resp = await axios.post(`${API_BASE_URL}/users/token/refresh/`, { refresh });
+          const nextAccess = (resp.data as any)?.access;
+          const nextRefresh = (resp.data as any)?.refresh ?? refresh;
+          if (nextAccess) {
+            setTokens(nextAccess, nextRefresh);
+            originalRequest.headers = originalRequest.headers ?? {};
+            originalRequest.headers.Authorization = `Bearer ${nextAccess}`;
+            return apiClient(originalRequest);
+          }
+        }
+      } catch (refreshErr) {
+        // fall through to logout behaviour
+        console.error('Token refresh failed', refreshErr);
+      }
+    }
+
     if (error.response?.status === 401) {
       clearTokens();
       if (window.location.pathname !== '/login') {

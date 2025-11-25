@@ -8,13 +8,17 @@ import {
 } from '@mui/material';
 import { Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
 import { useSearchParams } from 'react-router-dom';
+import {
+  getOnboarding,
+  getMyHistoryShifts,
+  previewInvoice,
+  generateInvoice,
+} from '@chemisttasker/shared-core';
 
 dayjs.extend(utc);
 
@@ -223,12 +227,11 @@ export default function InvoiceGeneratePage() {
 // ─── A) Load issuer details once on mount ─────────────
 useEffect(() => {
   if (!user) return;
-  apiClient
-    .get(API_ENDPOINTS.onboardingDetail(user.role.toLowerCase()))
-    .then(res => {
-      setIssuerFirstName(res.data.first_name);
-      setIssuerLastName(res.data.last_name);
-      setIssuerAbn(res.data.abn ?? '');
+  getOnboarding(user.role.toLowerCase())
+    .then((res: any) => {
+      setIssuerFirstName(res.first_name);
+      setIssuerLastName(res.last_name);
+      setIssuerAbn(res.abn ?? '');
     })
     .catch(() => {
       // handle error if needed
@@ -240,16 +243,14 @@ useEffect(() => {
   if (mode !== 'internal') return;
   setLoadingShifts(true);
 
-  apiClient.get<Shift[]>(API_ENDPOINTS.getMyHistoryShifts)
-    .then(res => {
-      const arr = Array.isArray(res.data)
-        ? res.data
-        : Array.isArray((res as any)?.data?.results)
-        ? (res as any).data.results
-        : Array.isArray((res as any)?.results)
-        ? (res as any).results
+  getMyHistoryShifts()
+    .then((res: any) => {
+      const arr = Array.isArray(res?.results)
+        ? res.results
+        : Array.isArray(res)
+        ? res
         : [];
-      setShifts(arr);
+      setShifts(arr as any);
       setShiftError(null);
     })
     .catch(() => {
@@ -293,9 +294,8 @@ useEffect(() => {
   const roleForOnboard = (shift as any).created_by_role?.toLowerCase() 
     ?? user.role.toLowerCase();
   if (shift.created_by_email) {
-    apiClient
-      .get(API_ENDPOINTS.onboardingDetail(roleForOnboard))
-      .then(r => setBillToAbn(r.data.abn ?? ''))
+    getOnboarding(roleForOnboard)
+      .then(r => setBillToAbn((r as any).abn ?? ''))
       .catch(() => setBillToAbn(''));
   } else {
     setBillToAbn('');
@@ -303,9 +303,9 @@ useEffect(() => {
 
   // — Expand recurring slots & build serviceRows —
   // ─ 🔥 New logic: fetch backend-calculated line items ─
-  apiClient.get(API_ENDPOINTS.invoicePreview(shift.id))
-    .then(res => {
-      const backendItems = res.data;
+  previewInvoice(shift.id)
+    .then((res: any) => {
+      const backendItems = Array.isArray(res) ? res : [];
 
       const manualExtras = lineItems.filter(
         li => !li.shiftSlotId && li.category !== 'Superannuation'
@@ -514,16 +514,13 @@ const handleGenerate = () => {
   ));
 
   setSubmitting(true);
-  apiClient.post(API_ENDPOINTS.generateInvoice, fd, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  })
-  .then(() => {
-    // If you have the role in context:
-    const role = user?.role?.toLowerCase() ?? 'pharmacist'; // fallback if needed
-    navigate(`/dashboard/${role}/invoice`);
-  })
-  .catch(ex => setSubmitError(ex.response?.data?.error || 'Server error'))
-  .finally(() => setSubmitting(false));
+  generateInvoice(fd)
+    .then(() => {
+      const role = user?.role?.toLowerCase() ?? 'pharmacist';
+      navigate(`/dashboard/${role}/invoice`);
+    })
+    .catch((ex: any) => setSubmitError(ex?.response?.data?.error || 'Server error'))
+    .finally(() => setSubmitting(false));
 };
 
 

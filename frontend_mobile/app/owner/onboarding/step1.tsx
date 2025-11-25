@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text, TextInput, Button, Surface } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ProgressStepper from '../../../components/ProgressStepper';
-import { useOnboarding } from './context';
+import { useOnboarding } from './_context';
 
 const ONBOARDING_STEPS = ['Basic Info', 'Role Details', 'Profile Photo', 'Review'];
 
@@ -16,7 +16,7 @@ export default function OwnerOnboardingStep1() {
         phone_number: data.phone_number || '',
     });
 
-    const [loading, setLoading] = useState(false);
+    const loading = false;
     const [error, setError] = useState('');
 
     const handleNext = async () => {
@@ -57,7 +57,7 @@ export default function OwnerOnboardingStep1() {
                             Basic Information
                         </Text>
                         <Text variant="bodyMedium" style={styles.subtitle}>
-                            Let's start with your contact details
+                            Let&apos;s start with your contact details
                         </Text>
 
                         {error ? (
@@ -79,7 +79,7 @@ export default function OwnerOnboardingStep1() {
                             />
 
                             <Text variant="bodySmall" style={styles.helperText}>
-                                We'll use this to send you shift notifications and updates
+                                We&apos;ll use this to send you shift notifications and updates
                             </Text>
                         </View>
                     </Surface>

@@ -25,11 +25,10 @@ import SendIcon from '@mui/icons-material/Send';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import CloseIcon from '@mui/icons-material/Close';
 import { useNavigate } from 'react-router-dom';
-import apiClient from '../../../utils/apiClient';
-import { API_ENDPOINTS } from '../../../constants/api';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { useAuth } from '../../../contexts/AuthContext';
+import { deleteInvoice, getInvoicePdfUrl, getInvoices, sendInvoiceEmail } from '@chemisttasker/shared-core';
 
 dayjs.extend(utc);
 
@@ -72,11 +71,14 @@ export default function InvoiceManagePage() {
   const [menuInvoiceId, setMenuInvoiceId] = useState<number | null>(null);
 
   useEffect(() => {
-    apiClient
-      .get(API_ENDPOINTS.invoices)
+    getInvoices()
       .then((res) => {
-        // Sort descending by invoice_date
-        const sorted: Invoice[] = res.data.sort(
+        const list = Array.isArray((res as any)?.results)
+          ? (res as any).results
+          : Array.isArray(res as any)
+          ? (res as any)
+          : [];
+        const sorted: Invoice[] = list.sort(
           (a: Invoice, b: Invoice) =>
             dayjs.utc(b.invoice_date).valueOf() -
             dayjs.utc(a.invoice_date).valueOf()
@@ -127,7 +129,7 @@ export default function InvoiceManagePage() {
   const handleDelete = async () => {
     if (!menuInvoiceId) return;
     try {
-      await apiClient.delete(API_ENDPOINTS.invoiceDetail(menuInvoiceId));
+      await deleteInvoice(menuInvoiceId);
       setInvoices((prev) =>
         prev.filter((inv) => inv.id !== menuInvoiceId)
       );
@@ -151,44 +153,28 @@ export default function InvoiceManagePage() {
   // };
 
 
-    // Send (real)
-    const handleSend = async () => {
-      if (!menuInvoiceId) return;
-      try {
-        await apiClient.post(API_ENDPOINTS.sendInvoice(menuInvoiceId));
-        // Optimistically mark as sent
-        setInvoices(prev =>
-          prev.map(inv => inv.id === menuInvoiceId ? { ...inv, status: 'sent' } : inv)
-        );
-        setSnackbar({ open: true, msg: `Invoice #${menuInvoiceId} sent.` });
-      } catch {
-        setSnackbar({ open: true, msg: 'Failed to send invoice.' });
-      } finally {
-        handleMenuClose();
-      }
+  // Send (real)
+  const handleSend = async () => {
+    if (!menuInvoiceId) return;
+    try {
+      await sendInvoiceEmail(menuInvoiceId);
+      setInvoices(prev =>
+        prev.map(inv => inv.id === menuInvoiceId ? { ...inv, status: 'sent' } : inv)
+      );
+      setSnackbar({ open: true, msg: `Invoice #${menuInvoiceId} sent.` });
+    } catch {
+      setSnackbar({ open: true, msg: 'Failed to send invoice.' });
+    } finally {
+      handleMenuClose();
+    }
   };
 
 
   // PDF (stub)
   const handlePdf = async () => {
     if (!menuInvoiceId) return;
-    try {
-      // Fetch PDF from backend as a blob
-      const response = await apiClient.get(
-          API_ENDPOINTS.invoicePdf(menuInvoiceId),
-        { responseType: 'blob' }
-      );
-      // Create a URL and trigger download
-      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `invoice_${menuInvoiceId}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (err) {
-      setSnackbar({ open: true, msg: 'PDF download failed.' });
-    }
+    const url = getInvoicePdfUrl(menuInvoiceId);
+    window.open(url, '_blank');
     handleMenuClose();
   };
 

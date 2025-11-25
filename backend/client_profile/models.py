@@ -1893,6 +1893,7 @@ class Conversation(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=['created_by', 'updated_at']),
+            models.Index(fields=['updated_at']),
             models.Index(fields=['pharmacy']),
             models.Index(fields=['dm_key']),
         ]
@@ -1922,6 +1923,14 @@ class Participant(models.Model):
 
     # FIX: Add is_pinned field to track pinning on a per-user basis.
     is_pinned = models.BooleanField(default=False)
+    # Per-user pinned message (replaces global conversation.pinned_message for user-specific pins)
+    pinned_message = models.ForeignKey(
+        'client_profile.Message',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pinned_by_participants'
+    )
 
     class Meta:
         unique_together = [('conversation', 'membership')]
@@ -1965,6 +1974,7 @@ class Message(models.Model):
         indexes = [
             models.Index(fields=['conversation', 'created_at']),
             models.Index(fields=['sender']),
+            models.Index(fields=['conversation', 'id']),
         ]
 
     def __str__(self):

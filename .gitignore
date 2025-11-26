@@ -14,6 +14,7 @@ db.sqlite3
 openapi.yaml
 # dotenv files
 .env
+.env.production
 
 # Django media/static
 backend/media/
@@ -35,6 +36,8 @@ build/
 # Local env for frontend
 frontend_web/.env
 frontend_web/.env.production
+frontend_web_old/.env
+frontend_web_old/.env.production
 
 # ─── Miscellaneous ─────────────────────────────────────────────────
 # OS and editor

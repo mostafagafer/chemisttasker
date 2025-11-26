@@ -93,7 +93,7 @@ urlpatterns = [
     path('magic/memberships/<str:token>/apply/', SubmitMembershipApplication.as_view(), name='magic-membership-apply'),
 
     path('dashboard/organization/', OrganizationDashboardView.as_view(), name='organization-dashboard'),
-    path('dashboard/organization/<int:organization_pk>/',OrganizationDashboardView.as_view(), name='organization-dashboard'),
+    path('dashboard/organization/<int:organization_pk>/',OrganizationDashboardView.as_view(), name='organization-dashboard-detail'),
     path('dashboard/owner/', OwnerDashboard.as_view()),
     path('dashboard/pharmacist/', PharmacistDashboard.as_view()),
     path('dashboard/otherstaff/', OtherStaffDashboard.as_view()),

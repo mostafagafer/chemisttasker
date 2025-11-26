@@ -1,6 +1,9 @@
 """Unified Pharmacy/Organization hub API views."""
 
+import json
 import mimetypes
+from collections.abc import Mapping
+from django.http import QueryDict
 
 from django.conf import settings
 from django.db import transaction
@@ -414,6 +417,78 @@ class HubScopeResolver:
         return membership
 
 
+class HubScopedViewSetMixin:
+    """Shared scope resolution helpers for hub viewsets."""
+
+    def _normalize_params(self, params):
+        if isinstance(params, QueryDict):
+            normalized = {}
+            for key, values in params.lists():
+                norm_key = key[:-2] if key.endswith("[]") else key
+                normalized[norm_key] = values if len(values) > 1 else values[0]
+            return normalized
+        if isinstance(params, Mapping):
+            return params
+        if isinstance(params, str):
+            try:
+                parsed = json.loads(params)
+            except Exception:
+                raise ValidationError({"non_field_errors": ["Invalid JSON body."]})
+            if not isinstance(parsed, Mapping):
+                raise ValidationError({"non_field_errors": ["Invalid data. Expected an object."]})
+            return parsed
+        raise ValidationError({"non_field_errors": ["Invalid data. Expected an object."]})
+
+    def _resolve_scope_from_params(self, params):
+        params = self._normalize_params(params)
+        scope_type = params.get("scope") or params.get("scope_type")
+        if not scope_type:
+            raise ValidationError(
+                {"scope": "Provide a scope (pharmacy, group, or organization)."}
+            )
+        resolver = HubScopeResolver(self.request.user)
+        if scope_type == "pharmacy":
+            pharmacy_id = params.get("pharmacy_id") or params.get("scope_id")
+            if not pharmacy_id:
+                raise ValidationError({"pharmacy_id": "This field is required."})
+            return resolver.pharmacy_scope(pharmacy_id)
+        if scope_type == "group":
+            group_id = params.get("group_id") or params.get("scope_id")
+            if not group_id:
+                raise ValidationError({"group_id": "This field is required."})
+            return resolver.group_scope(group_id)
+        if scope_type == "organization":
+            organization_id = params.get("organization_id") or params.get("scope_id")
+            if not organization_id:
+                raise ValidationError({"organization_id": "This field is required."})
+            return resolver.organization_scope(organization_id)
+        raise ValidationError({"scope": "Invalid scope type."})
+
+    def _apply_scope_filter(self, queryset, scope):
+        if scope["scope_type"] == "group":
+            return queryset.filter(community_group=scope["community_group"])
+        if scope["scope_type"] == "pharmacy":
+            return queryset.filter(
+                pharmacy=scope["pharmacy"], community_group__isnull=True
+            )
+        return queryset.filter(organization=scope["organization"])
+
+    def _prepare_serializer_context(self, scope, extra_context=None):
+        context = {
+            "pharmacy": scope.get("pharmacy"),
+            "organization": scope.get("organization"),
+            "community_group": scope.get("community_group"),
+            "request_membership": scope.get("request_membership"),
+            "has_admin_permissions": scope.get("has_admin_permissions", False),
+            "has_group_admin_permissions": scope.get(
+                "has_group_admin_permissions", False
+            ),
+        }
+        if extra_context:
+            context.update(extra_context)
+        self.extra_serializer_context = context
+
+
 class HubContextBuilder:
     def __init__(self, user):
         self.user = user
@@ -701,7 +776,7 @@ class HubCommunityGroupViewSet(
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class HubPostViewSet(HubAttachmentMixin, viewsets.ModelViewSet):
+class HubPostViewSet(HubAttachmentMixin, HubScopedViewSetMixin, viewsets.ModelViewSet):
     serializer_class = HubPostSerializer
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -728,51 +803,6 @@ class HubPostViewSet(HubAttachmentMixin, viewsets.ModelViewSet):
         context = super().get_serializer_context()
         context.update(getattr(self, "extra_serializer_context", {}))
         return context
-
-    def _resolve_scope_from_params(self, params):
-        scope_type = params.get("scope") or params.get("scope_type")
-        if not scope_type:
-            raise ValidationError(
-                {"scope": "Provide a scope (pharmacy, group, or organization)."}
-            )
-        resolver = HubScopeResolver(self.request.user)
-        if scope_type == "pharmacy":
-            pharmacy_id = params.get("pharmacy_id") or params.get("scope_id")
-            if not pharmacy_id:
-                raise ValidationError({"pharmacy_id": "This field is required."})
-            return resolver.pharmacy_scope(pharmacy_id)
-        if scope_type == "group":
-            group_id = params.get("group_id") or params.get("scope_id")
-            if not group_id:
-                raise ValidationError({"group_id": "This field is required."})
-            return resolver.group_scope(group_id)
-        if scope_type == "organization":
-            organization_id = params.get("organization_id") or params.get("scope_id")
-            if not organization_id:
-                raise ValidationError({"organization_id": "This field is required."})
-            return resolver.organization_scope(organization_id)
-        raise ValidationError({"scope": "Invalid scope type."})
-
-    def _apply_scope_filter(self, queryset, scope):
-        if scope["scope_type"] == "group":
-            return queryset.filter(community_group=scope["community_group"])
-        if scope["scope_type"] == "pharmacy":
-            return queryset.filter(
-                pharmacy=scope["pharmacy"], community_group__isnull=True
-            )
-        return queryset.filter(organization=scope["organization"])
-
-    def _prepare_serializer_context(self, scope):
-        self.extra_serializer_context = {
-            "pharmacy": scope.get("pharmacy"),
-            "organization": scope.get("organization"),
-            "community_group": scope.get("community_group"),
-            "request_membership": scope.get("request_membership"),
-            "has_admin_permissions": scope.get("has_admin_permissions", False),
-            "has_group_admin_permissions": scope.get(
-                "has_group_admin_permissions", False
-            ),
-        }
 
     def _notify_tagged_members(self, post, memberships):
         if not memberships:
@@ -868,11 +898,12 @@ class HubPostViewSet(HubAttachmentMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
     def create(self, request, *args, **kwargs):
-        self.scope_context = self._resolve_scope_from_params(request.data)
+        data = self._normalize_params(request.data)
+        self.scope_context = self._resolve_scope_from_params(data)
         resolver = HubScopeResolver(request.user)
         membership = resolver.ensure_author_membership(self.scope_context)
         self._prepare_serializer_context(self.scope_context)
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
         scope_type = self.scope_context.get("scope_type")
         pharmacy = None
@@ -986,6 +1017,7 @@ class HubPostViewSet(HubAttachmentMixin, viewsets.ModelViewSet):
 
 
 class HubPollViewSet(
+    HubScopedViewSetMixin,
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
@@ -1012,45 +1044,6 @@ class HubPollViewSet(
         context.update(getattr(self, "extra_serializer_context", {}))
         return context
 
-    def _resolve_scope_from_params(self, params):
-        scope_type = params.get("scope") or params.get("scope_type")
-        if not scope_type:
-            raise ValidationError({"scope": "Provide a scope (pharmacy, group, or organization)."})
-        resolver = HubScopeResolver(self.request.user)
-        if scope_type == "pharmacy":
-            pharmacy_id = params.get("pharmacy_id") or params.get("scope_id")
-            if not pharmacy_id:
-                raise ValidationError({"pharmacy_id": "This field is required."})
-            return resolver.pharmacy_scope(pharmacy_id)
-        if scope_type == "group":
-            group_id = params.get("group_id") or params.get("scope_id")
-            if not group_id:
-                raise ValidationError({"group_id": "This field is required."})
-            return resolver.group_scope(group_id)
-        if scope_type == "organization":
-            organization_id = params.get("organization_id") or params.get("scope_id")
-            if not organization_id:
-                raise ValidationError({"organization_id": "This field is required."})
-            return resolver.organization_scope(organization_id)
-        raise ValidationError({"scope": "Invalid scope type."})
-
-    def _apply_scope_filter(self, queryset, scope):
-        if scope["scope_type"] == "group":
-            return queryset.filter(community_group=scope["community_group"])
-        if scope["scope_type"] == "pharmacy":
-            return queryset.filter(pharmacy=scope["pharmacy"], community_group__isnull=True)
-        return queryset.filter(organization=scope["organization"])
-
-    def _prepare_serializer_context(self, scope):
-        self.extra_serializer_context = {
-            "pharmacy": scope.get("pharmacy"),
-            "organization": scope.get("organization"),
-            "community_group": scope.get("community_group"),
-            "request_membership": scope.get("request_membership"),
-            "has_admin_permissions": scope.get("has_admin_permissions", False),
-            "request_user": self.request.user,
-        }
-
     def _set_vote_cache(self, polls):
         if not polls:
             return
@@ -1063,7 +1056,7 @@ class HubPollViewSet(
     def list(self, request, *args, **kwargs):
         scope = self._resolve_scope_from_params(request.query_params)
         queryset = self._apply_scope_filter(self.get_queryset(), scope)
-        self._prepare_serializer_context(scope)
+        self._prepare_serializer_context(scope, {"request_user": self.request.user})
         page = self.paginate_queryset(queryset)
         polls = page if page is not None else queryset
         self._set_vote_cache(polls)
@@ -1073,12 +1066,21 @@ class HubPollViewSet(
         return Response(serializer.data)
 
     def create(self, request, *args, **kwargs):
-        scope = self._resolve_scope_from_params(request.data)
+        data = self._normalize_params(request.data)
+        labels = self._coerce_option_labels(
+            data.get("option_labels")
+            or data.get("options")
+            or data.get("choices")
+            or data.get("labels")
+        )
+        if labels is not None:
+            data["option_labels"] = labels
+        scope = self._resolve_scope_from_params(data)
         resolver = HubScopeResolver(request.user)
         membership = scope.get("request_membership") or resolver.ensure_author_membership(scope)
         scope["request_membership"] = membership
-        self._prepare_serializer_context(scope)
-        serializer = self.get_serializer(data=request.data)
+        self._prepare_serializer_context(scope, {"request_user": self.request.user})
+        serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
         poll = serializer.save()
         refreshed = self.get_queryset().get(pk=poll.pk)
@@ -1090,7 +1092,7 @@ class HubPollViewSet(
     def retrieve(self, request, *args, **kwargs):
         poll = self.get_object()
         scope = HubScopeResolver(request.user).from_poll(poll)
-        self._prepare_serializer_context(scope)
+        self._prepare_serializer_context(scope, {"request_user": self.request.user})
         self._set_vote_cache([poll])
         serializer = self.get_serializer(poll)
         return Response(serializer.data)
@@ -1141,10 +1143,34 @@ class HubPollViewSet(
                     vote_count=F("vote_count") + 1
                 )
         refreshed = self.get_queryset().get(pk=poll.pk)
-        self._prepare_serializer_context(scope)
+        self._prepare_serializer_context(scope, {"request_user": self.request.user})
         self._set_vote_cache([refreshed])
         serializer = self.get_serializer(refreshed)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def _coerce_option_labels(self, raw):
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            tokens = raw.replace("\r", "").replace("\n", ",").split(",")
+            labels = [token.strip() for token in tokens if token.strip()]
+            return labels if labels else None
+        if isinstance(raw, list):
+            labels = []
+            for item in raw:
+                if isinstance(item, str):
+                    label = item.strip()
+                elif isinstance(item, Mapping):
+                    label = str(item.get("label") or item.get("value") or "").strip()
+                else:
+                    label = ""
+                if label:
+                    labels.append(label)
+            return labels if labels else None
+        if isinstance(raw, Mapping):
+            labels = [str(v).strip() for v in raw.values() if str(v).strip()]
+            return labels if labels else None
+        return None
 
 
 class HubCommentViewSet(

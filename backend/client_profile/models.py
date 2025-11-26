@@ -2390,14 +2390,15 @@ class PharmacyHubComment(models.Model):
         return f"HubComment#{self.pk} post={self.post_id}"
 
 
-class PharmacyHubCommentReaction(models.Model):
-    class ReactionType(models.TextChoices):
-        LIKE = "LIKE", "Like"
-        CELEBRATE = "CELEBRATE", "Celebrate"
-        SUPPORT = "SUPPORT", "Support"
-        INSIGHTFUL = "INSIGHTFUL", "Insightful"
-        LOVE = "LOVE", "Love"
+class HubReactionType(models.TextChoices):
+    LIKE = "LIKE", "Like"
+    CELEBRATE = "CELEBRATE", "Celebrate"
+    SUPPORT = "SUPPORT", "Support"
+    INSIGHTFUL = "INSIGHTFUL", "Insightful"
+    LOVE = "LOVE", "Love"
 
+
+class PharmacyHubCommentReaction(models.Model):
     comment = models.ForeignKey(
         PharmacyHubComment,
         on_delete=models.CASCADE,
@@ -2410,8 +2411,8 @@ class PharmacyHubCommentReaction(models.Model):
     )
     reaction_type = models.CharField(
         max_length=16,
-        choices=ReactionType.choices,
-        default=ReactionType.LIKE,
+        choices=HubReactionType.choices,
+        default=HubReactionType.LIKE,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -2430,13 +2431,6 @@ class PharmacyHubCommentReaction(models.Model):
 
 
 class PharmacyHubReaction(models.Model):
-    class ReactionType(models.TextChoices):
-        LIKE = "LIKE", "Like"
-        CELEBRATE = "CELEBRATE", "Celebrate"
-        SUPPORT = "SUPPORT", "Support"
-        INSIGHTFUL = "INSIGHTFUL", "Insightful"
-        LOVE = "LOVE", "Love"
-
     post = models.ForeignKey(
         PharmacyHubPost,
         on_delete=models.CASCADE,
@@ -2449,8 +2443,8 @@ class PharmacyHubReaction(models.Model):
     )
     reaction_type = models.CharField(
         max_length=16,
-        choices=ReactionType.choices,
-        default=ReactionType.LIKE,
+        choices=HubReactionType.choices,
+        default=HubReactionType.LIKE,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

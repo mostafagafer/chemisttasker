@@ -1428,10 +1428,27 @@ class MembershipViewSet(viewsets.ModelViewSet):
         visible_pharmacies = (owned_pharmacies | org_pharmacies | admin_pharmacies | member_pharmacies).distinct()
 
         # 2. Base the Membership query on these visible pharmacies.
-        qs = Membership.objects.filter(pharmacy__in=visible_pharmacies, is_active=True)
+        qs = (
+            Membership.objects.filter(pharmacy__in=visible_pharmacies, is_active=True)
+            .select_related(
+                "user",
+                "invited_by",
+                "pharmacy",
+                "pharmacy__owner",
+                "pharmacy__organization",
+            )
+            .prefetch_related(
+                "pharmacy__chains",
+                "pharmacy__claims",
+            )
+        )
 
         # 3. Apply the optional query filters from the request.
-        pharmacy_id = self.request.query_params.get('pharmacy_id')
+        pharmacy_id = (
+            self.request.query_params.get('pharmacy_id')
+            or self.request.query_params.get('pharmacy')
+            or self.request.query_params.get('pharmacy_pk')
+        )
         chain_id = self.request.query_params.get('chain_id')
         organization_id = self.request.query_params.get('organization')
         

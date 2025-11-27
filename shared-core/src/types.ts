@@ -187,6 +187,7 @@ export interface OrganizationContextApi {
     cover_image_url: string | null;
     can_manage_profile: boolean;
     is_org_admin?: boolean;
+    member_count?: number;
 }
 
 export interface HubContextApi {

@@ -787,6 +787,7 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
             {chatsToDisplay.pinnedChats.map(room => {
               const displayName = getDisplayName(room);
               const avatar = getRoomAvatar(room, displayName);
+              const allowEditDelete = !room.pharmacy && isRoomAdmin(room);
               return (
                 <ChatListItem
                   key={`pinned-${room.id}`}
@@ -801,7 +802,7 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
                   currentUserId={currentUserId}
                   onEdit={onEdit}
                   onDelete={onDelete}
-                  canEditDelete={isRoomAdmin(room)}
+                  canEditDelete={allowEditDelete}
                   onTogglePin={onTogglePinConversation}
                 />
               );
@@ -857,6 +858,7 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
             {chatsToDisplay.shiftChats.map(room => {
               const displayName = getDisplayName(room);
               const avatar = getRoomAvatar(room, displayName);
+              const allowEditDelete = !room.pharmacy && isRoomAdmin(room);
               return (
                 <ChatListItem
                   key={`shift-${room.id}`}
@@ -871,7 +873,7 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
                   currentUserId={currentUserId}
                   onEdit={onEdit}
                   onDelete={onDelete}
-                  canEditDelete={isRoomAdmin(room)}
+                  canEditDelete={allowEditDelete}
                   onTogglePin={onTogglePinConversation}
                 />
               );
@@ -885,6 +887,7 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
             {chatsToDisplay.groupChats.map(room => {
               const displayName = getDisplayName(room);
               const avatar = getRoomAvatar(room, displayName);
+              const allowEditDelete = !room.pharmacy && isRoomAdmin(room);
               return (
                 <ChatListItem
                   key={`group-${room.id}`}
@@ -899,7 +902,7 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
                   currentUserId={currentUserId}
                   onEdit={onEdit}
                   onDelete={onDelete}
-                  canEditDelete={isRoomAdmin(room)}
+                  canEditDelete={allowEditDelete}
                   onTogglePin={onTogglePinConversation}
                 />
               );
@@ -913,6 +916,7 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
             {chatsToDisplay.dmChats.map(room => {
               const displayName = getDisplayName(room);
               const avatar = getRoomAvatar(room, displayName);
+              const allowEditDelete = !room.pharmacy && isRoomAdmin(room);
               return (
                 <ChatListItem
                   key={`dm-${room.id}`}
@@ -927,7 +931,7 @@ export const ChatSidebar: FC<ChatSidebarProps> = ({
                   currentUserId={currentUserId}
                   onEdit={onEdit}
                   onDelete={onDelete}
-                  canEditDelete={isRoomAdmin(room)}
+                  canEditDelete={allowEditDelete}
                   onTogglePin={onTogglePinConversation}
                 />
               );

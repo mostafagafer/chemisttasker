@@ -144,7 +144,7 @@ def get_user_pharmacy_permissions(user):
     org_admin_org_ids = set(
         OrganizationMembership.objects.filter(
             user=user,
-            role__in=HubScopeResolver.org_access_roles,
+            role__in=HubScopeResolver.org_admin_roles,
         ).values_list("organization_id", flat=True)
     )
     if org_admin_org_ids:
@@ -170,6 +170,7 @@ def get_user_pharmacy_permissions(user):
 
 class HubScopeResolver:
     org_access_roles = ("ORG_ADMIN", "REGION_ADMIN", "SHIFT_MANAGER")
+    # Only true organization admins should be treated as org admins
     org_admin_roles = ("ORG_ADMIN",)
 
     def __init__(self, user):
@@ -469,9 +470,17 @@ class HubScopedViewSetMixin:
             return queryset.filter(community_group=scope["community_group"])
         if scope["scope_type"] == "pharmacy":
             return queryset.filter(
-                pharmacy=scope["pharmacy"], community_group__isnull=True
+                pharmacy=scope["pharmacy"],
+                community_group__isnull=True,
+                organization__isnull=True,
             )
-        return queryset.filter(organization=scope["organization"])
+        # Organization scope: only org-tagged posts (organization set, pharmacy NULL), exclude group posts
+        org = scope.get("organization")
+        return queryset.filter(
+            organization=org,
+            pharmacy__isnull=True,
+            community_group__isnull=True,
+        )
 
     def _prepare_serializer_context(self, scope, extra_context=None):
         context = {
@@ -509,7 +518,11 @@ class HubContextBuilder:
                 "pharmacy_permissions": pharmacy_permissions,
             },
         ).data
-        organizations, organization_permissions = self._organizations(
+        (
+            organizations,
+            organization_permissions,
+            organization_member_counts,
+        ) = self._organizations(
             pharmacy_list, pharmacy_permissions, org_admin_org_ids
         )
         organization_data = HubOrganizationSerializer(
@@ -518,6 +531,7 @@ class HubContextBuilder:
             context={
                 "request": request,
                 "organization_permissions": organization_permissions,
+                "organization_member_counts": organization_member_counts,
             },
         ).data
         community_groups, org_groups = self._groups(
@@ -542,14 +556,16 @@ class HubContextBuilder:
                 continue
             entry = lookup.setdefault(
                 pharmacy.organization.id,
-                {"organization": pharmacy.organization, "can_manage_profile": False},
+                {
+                    "organization": pharmacy.organization,
+                    "can_manage_profile": False,
+                    "is_org_admin": False,
+                },
             )
-            perms = pharmacy_permissions.get(pharmacy.id, {})
-            if perms.get("is_org_admin") or perms.get("is_owner") or perms.get("has_admin_permissions"):
-                entry["can_manage_profile"] = True
         for org_id in org_admin_org_ids:
             if org_id in lookup:
                 lookup[org_id]["can_manage_profile"] = True
+                lookup[org_id]["is_org_admin"] = True
                 continue
             organization = Organization.objects.filter(pk=org_id).first()
             if not organization:
@@ -557,13 +573,53 @@ class HubContextBuilder:
             lookup[org_id] = {
                 "organization": organization,
                 "can_manage_profile": True,
+                "is_org_admin": True,
             }
         organizations = [entry["organization"] for entry in lookup.values()]
         permissions = {
-            org_id: {"can_manage_profile": entry["can_manage_profile"]}
+            org_id: {
+                "can_manage_profile": entry["can_manage_profile"],
+                "is_org_admin": entry.get("is_org_admin", False),
+            }
             for org_id, entry in lookup.items()
         }
-        return organizations, permissions
+
+        # Compute member counts per organization (distinct users across org staff + all pharmacies in the org)
+        member_counts = {}
+        if organizations:
+            org_ids = [org.id for org in organizations]
+            # distinct users from org memberships
+            org_staff = (
+                OrganizationMembership.objects.filter(organization_id__in=org_ids)
+                .values_list("user_id", flat=True)
+            )
+            # distinct users from pharmacy memberships under those orgs
+            pharm_members = (
+                Membership.objects.filter(
+                    is_active=True,
+                    pharmacy__organization_id__in=org_ids,
+                )
+                .values_list("user_id", flat=True)
+            )
+            # Build per-org user sets to avoid double counting
+            staff_by_org = {}
+            for org_id, user_id in OrganizationMembership.objects.filter(
+                organization_id__in=org_ids
+            ).values_list("organization_id", "user_id"):
+                staff_by_org.setdefault(org_id, set()).add(user_id)
+            members_by_org = {}
+            for org_id, user_id in Membership.objects.filter(
+                is_active=True,
+                pharmacy__organization_id__in=org_ids,
+            ).values_list("pharmacy__organization_id", "user_id"):
+                members_by_org.setdefault(org_id, set()).add(user_id)
+            for org_id in org_ids:
+                users = set()
+                users.update(staff_by_org.get(org_id, set()))
+                users.update(members_by_org.get(org_id, set()))
+                member_counts[org_id] = len(users)
+
+        return organizations, permissions, member_counts
 
     def _groups(self, request, pharmacy_list, pharmacy_permissions, membership_by_pharmacy):
         pharmacy_ids = [pharmacy.id for pharmacy in pharmacy_list]
@@ -913,6 +969,7 @@ class HubPostViewSet(HubAttachmentMixin, HubScopedViewSetMixin, viewsets.ModelVi
             pharmacy = self.scope_context.get("pharmacy")
         elif scope_type == "organization":
             organization = self.scope_context.get("organization")
+            pharmacy = None  # org-only post
         elif scope_type == "group":
             pharmacy = self.scope_context.get("pharmacy")
             community_group = self.scope_context.get("community_group")
@@ -937,13 +994,8 @@ class HubPostViewSet(HubAttachmentMixin, HubScopedViewSetMixin, viewsets.ModelVi
         scope = resolver.from_post(instance)
         self._prepare_serializer_context(scope)
         membership = scope.get("request_membership")
-        can_manage = scope.get("has_admin_permissions") or (
-            scope.get("has_group_admin_permissions") and scope["scope_type"] == "group"
-        )
-        if not can_manage and instance.author_membership_id != getattr(
-            membership, "id", None
-        ):
-            raise PermissionDenied("You cannot edit this post.")
+        if instance.author_membership_id != getattr(membership, "id", None):
+            raise PermissionDenied("Only the author can edit this post.")
         if instance.deleted_at:
             raise PermissionDenied("You cannot edit a deleted post.")
         extra = {}
@@ -966,13 +1018,8 @@ class HubPostViewSet(HubAttachmentMixin, HubScopedViewSetMixin, viewsets.ModelVi
         resolver = HubScopeResolver(request.user)
         scope = resolver.from_post(instance)
         membership = scope.get("request_membership")
-        can_manage = scope.get("has_admin_permissions") or (
-            scope.get("has_group_admin_permissions") and scope["scope_type"] == "group"
-        )
-        if not can_manage and instance.author_membership_id != getattr(
-            membership, "id", None
-        ):
-            raise PermissionDenied("You cannot delete this post.")
+        if instance.author_membership_id != getattr(membership, "id", None):
+            raise PermissionDenied("Only the author can delete this post.")
         if not instance.deleted_at:
             instance.soft_delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -1052,6 +1099,21 @@ class HubPollViewSet(
             votes = prefetched.get("votes")
             if votes is not None:
                 poll._prefetched_votes = list(votes)
+
+    def _apply_scope_filter(self, queryset, scope):
+        if scope["scope_type"] == "group":
+            return queryset.filter(community_group=scope["community_group"])
+        if scope["scope_type"] == "pharmacy":
+            return queryset.filter(
+                pharmacy=scope["pharmacy"],
+                community_group__isnull=True
+            )
+        # Organization scope: include polls tied to the org or any pharmacy within the org, excluding group polls
+        org = scope.get("organization")
+        return queryset.filter(
+            Q(organization=org) | Q(pharmacy__organization=org),
+            community_group__isnull=True,
+        )
 
     def list(self, request, *args, **kwargs):
         scope = self._resolve_scope_from_params(request.query_params)

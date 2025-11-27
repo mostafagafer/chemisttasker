@@ -70,13 +70,13 @@ import {
   updatePharmacyHubProfile,
   updateOrganizationHubProfile,
   fetchPharmacyGroupMembers,
-  fetchOrganizationGroupMembers,
   fetchHubGroup,
   fetchHubGroupMembers,
   fetchHubComments,
   createHubComment,
   reactToHubComment,
   removeHubCommentReaction,
+  fetchOrganizationMembers,
 } from '../../../../api/hub';
 import {
   HubContext,
@@ -209,6 +209,10 @@ export default function HubPage() {
   const pharmacies = useMemo(() => hubContext?.pharmacies || [], [hubContext]);
   const communityGroups = useMemo(() => hubContext?.communityGroups || [], [hubContext]);
   const organizationGroups = useMemo(() => hubContext?.organizationGroups || [], [hubContext]);
+  const filteredCommunityGroups = useMemo(
+    () => communityGroups.filter((group) => !group.organizationId),
+    [communityGroups],
+  );
   const organizations = useMemo(() => hubContext?.organizations || [], [hubContext]);
 
   const selectedPharmacy = useMemo(
@@ -274,7 +278,9 @@ export default function HubPage() {
   const canCreateOrganizationGroup = Boolean(selectedOrganization?.canManageProfile);
   const canManagePharmacyProfile = Boolean(selectedPharmacy?.canManageProfile);
   const showOrgSettings = Boolean(
-    selectedOrganization?.canManageProfile && isOrganizationContext && selectedOrganization?.isOrgAdmin,
+    selectedOrganization?.canManageProfile &&
+    selectedOrganization?.isOrgAdmin &&
+    isOrganizationContext
   );
   const canPharmacyPost = Boolean(selectedPharmacy?.canCreatePost);
 
@@ -307,7 +313,8 @@ export default function HubPage() {
     if (!selectedOrganization?.id) {
       return Promise.resolve<HubGroupMemberOption[]>([]);
     }
-    return fetchOrganizationGroupMembers(selectedOrganization.id);
+    // Use full org member list (org staff + all pharmacy members under the org).
+    return fetchOrganizationMembers(selectedOrganization.id);
   }, [selectedOrganization?.id]);
 
   const openCommunityGroupModal = useCallback(() => {
@@ -544,7 +551,7 @@ export default function HubPage() {
         pharmacies={pharmacies}
         selectedPharmacyId={selectedPharmacyId}
         onPharmacyChange={handlePharmacyChange}
-        communityGroups={communityGroups}
+        communityGroups={filteredCommunityGroups}
         organizationGroups={filteredOrganizationGroups}
         selectedViewId={selectedView.id}
         onSelectView={setSelectedView}
@@ -591,7 +598,7 @@ export default function HubPage() {
         ) : selectedView.type === 'group' ? (
           <GroupContent
             pharmacy={selectedPharmacy}
-            group={communityGroups.find((g) => g.id === selectedView.id)}
+            group={filteredCommunityGroups.find((g) => g.id === selectedView.id)}
             scope={{ type: 'group', id: selectedView.id as number }}
             onEditGroup={handleRequestEditGroup}
             onDeleteGroup={handleDeleteGroup}
@@ -1405,7 +1412,7 @@ function OrgGroupContent({ group, scope, onEditGroup, onDeleteGroup }: OrgGroupC
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
             <TagIcon sx={{ fontSize: 32, opacity: 0.8 }} />
-            <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold' }}>{group.name} (Org)</Typography>
+            <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold' }}>{group.name} </Typography>
             {group.isCreator && (
               <Chip
                 label="Created by you"
@@ -1510,7 +1517,8 @@ function CreateGroupModal({
           );
           results = responses.flat();
         } else {
-          results = await fetchOrganizationGroupMembers(scope.organizationId);
+          // For organization groups, load the full org roster (org staff + all pharmacy members under the org).
+          results = await fetchOrganizationMembers(scope.organizationId);
         }
         if (isMounted) {
           setMembers(results);
@@ -2080,6 +2088,8 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
   const authorRole = post.author.role?.trim() || null;
   const authorJobTitle = post.author.jobTitle?.trim() || null;
   const authorLabel = formatMemberLabel(authorName, authorRole, authorJobTitle, 'Unknown User');
+  const isAuthor = Boolean(user?.id && post.author?.user?.id === user.id);
+  const canEditDelete = isAuthor; // backend now restricts edit/delete to the author only
   const postTimestamp = formatHubDate(post.createdAt);
 
   const renderAttachment = (attachment: HubAttachment) => {
@@ -2273,7 +2283,7 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
                   {postTimestamp}
                 </Typography>
               </Box>
-              {post.canManage && (
+              {canEditDelete && (
                 <>
                   <IconButton size="small" onClick={(event) => setOptionsAnchorEl(event.currentTarget)}>
                     <MoreVertIcon fontSize="small" />

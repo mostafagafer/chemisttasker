@@ -7,6 +7,7 @@ export {
   fetchHubGroup,
   fetchPharmacyGroupMembers,
   fetchOrganizationGroupMembers,
+  fetchOrganizationMembers,
   fetchHubGroupMembers,
   removeHubReaction,
 } from "@chemisttasker/shared-core";

@@ -77,6 +77,31 @@ export default function App() {
     return activeAdminPharmacyId ?? fallbackAdminAssignment?.pharmacy_id ?? null;
   }, [activeAdminPharmacyId, fallbackAdminAssignment]);
 
+  const hasOrgRole = useMemo(() => {
+    if (!user) return false;
+    const memberships = Array.isArray(user.memberships) ? user.memberships : [];
+    return memberships.some(
+      (m: any) =>
+        m?.role &&
+        ["ORG_ADMIN", "ORG_OWNER", "ORG_STAFF", "CHIEF_ADMIN", "REGION_ADMIN"].includes(
+          m.role
+        )
+    );
+  }, [user]);
+
+  // If the user has an org role, land them on org dashboard (and avoid the admin route flash)
+  useEffect(() => {
+    if (!user || !hasOrgRole) return;
+    const path = location.pathname || "";
+    const isOrgPath = path.includes("/dashboard/organization/");
+    // Allow org users to open non-org pages like Pharmacy Hub without being forced away.
+    const orgBypassPrefixes = ["/dashboard/pharmacy-hub"];
+    const isBypassed = orgBypassPrefixes.some((p) => path.startsWith(p));
+    if (!isOrgPath && !isBypassed) {
+      navigate("/dashboard/organization/overview", { replace: true });
+    }
+  }, [user, hasOrgRole, location.pathname, navigate]);
+
   useEffect(() => {
     if (!user) {
       prevPersonaRef.current = null;
@@ -121,11 +146,6 @@ export default function App() {
     if (!user) return [];
     
     const hasUnreadMessages = unreadCount > 0;
-
-    const memberships = Array.isArray(user.memberships) ? user.memberships : [];
-    const hasOrgRole = memberships.some(
-      (m: any) => m?.role && ["ORG_ADMIN", "ORG_OWNER", "ORG_STAFF", "CHIEF_ADMIN", "REGION_ADMIN"].includes(m.role)
-    );
 
     if (hasOrgRole) {
       return getOrganizationNav(hasUnreadMessages);

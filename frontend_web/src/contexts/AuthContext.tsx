@@ -219,7 +219,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const activeAdminPharmacyId = activeAdminAssignment?.pharmacy_id ?? null;
 
-  const isAdminUser = adminAssignments.length > 0 || ownedPharmacyIds.size > 0 || user?.role === "OWNER";
+  // Only treat the user as having an admin persona when there is an explicit admin assignment.
+  // Owner memberships alone should not trigger the persona switcher.
+  const isAdminUser = adminAssignments.length > 0;
 
   useEffect(() => {
     try {

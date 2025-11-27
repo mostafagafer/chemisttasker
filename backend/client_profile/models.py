@@ -2162,6 +2162,8 @@ class PharmacyHubPost(models.Model):
         "client_profile.Pharmacy",
         on_delete=models.CASCADE,
         related_name="hub_posts",
+        null=True,
+        blank=True,
     )
     author_membership = models.ForeignKey(Membership, on_delete=models.SET_NULL, null=True, blank=True)
 

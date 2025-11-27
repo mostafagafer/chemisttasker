@@ -529,6 +529,10 @@ export default function TopBarActions() {
       if (!assignment || assignment.id == null) {
         return;
       }
+      // Skip pure owner-only records; the switcher is only for explicit admin personas.
+      if (assignment.admin_level === "OWNER") {
+        return;
+      }
       const rawName = typeof assignment.pharmacy_name === "string" ? assignment.pharmacy_name.trim() : "";
       const pharmacyName = rawName || `Pharmacy #${assignment.pharmacy_id}`;
       const jobTitle = assignment.job_title?.trim();

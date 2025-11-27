@@ -4351,22 +4351,23 @@ class ConversationListSerializer(serializers.ModelSerializer):
     def get_title(self, obj: Conversation) -> str:
             # --- START OF FIX ---
             # Prioritize the pharmacy link to guarantee the correct name for community chats.
-            if hasattr(obj, 'pharmacy') and obj.pharmacy:
-                return obj.pharmacy.name
-            
-            # Fallback for DMs and custom groups that use the title field.
-            if obj.type == Conversation.Type.DM:
-                request = self.context.get("request")
-                if request and hasattr(request, 'user'):
-                    # This correctly finds the other user's name for DMs
-                    other_participant = obj.participants.exclude(membership__user=request.user).first()
-                    if other_participant:
-                        partner_user = other_participant.membership.user
+        if hasattr(obj, 'pharmacy') and obj.pharmacy:
+            return obj.pharmacy.name
+        
+        # Fallback for DMs and custom groups that use the title field.
+        if obj.type == Conversation.Type.DM:
+            request = self.context.get("request")
+            if request and hasattr(request, 'user'):
+                # This correctly finds the other user's name for DMs
+                other_participant = obj.participants.exclude(membership__user=request.user).first()
+                if other_participant and getattr(other_participant, "membership", None):
+                    partner_user = getattr(other_participant.membership, "user", None)
+                    if partner_user:
                         return partner_user.get_full_name() or partner_user.email
-            
-            # If it's a custom group or a DM where the partner can't be found, use the stored title.
-            if obj.title:
-                return obj.title
+        
+        # If it's a custom group or a DM where the partner can't be found, use the stored title.
+        if obj.title:
+            return obj.title
             
             # Final fallback.
             return "Group Chat"
@@ -4640,6 +4641,8 @@ class HubOrganizationSerializer(serializers.ModelSerializer):
     cover_image = serializers.ImageField(read_only=True)
     cover_image_url = serializers.SerializerMethodField()
     can_manage_profile = serializers.SerializerMethodField()
+    member_count = serializers.SerializerMethodField()
+    is_org_admin = serializers.SerializerMethodField()
 
     class Meta:
         model = Organization
@@ -4650,6 +4653,8 @@ class HubOrganizationSerializer(serializers.ModelSerializer):
             "cover_image",
             "cover_image_url",
             "can_manage_profile",
+            "is_org_admin",
+            "member_count",
         ]
         read_only_fields = fields
 
@@ -4659,6 +4664,14 @@ class HubOrganizationSerializer(serializers.ModelSerializer):
     def get_can_manage_profile(self, obj):
         perms = self.context.get("organization_permissions", {})
         return perms.get(obj.id, {}).get("can_manage_profile", False)
+
+    def get_member_count(self, obj):
+        counts = self.context.get("organization_member_counts", {})
+        return counts.get(obj.id, 0)
+
+    def get_is_org_admin(self, obj):
+        perms = self.context.get("organization_permissions", {})
+        return perms.get(obj.id, {}).get("is_org_admin", False)
 
 
 class HubPharmacyProfileSerializer(serializers.ModelSerializer):
@@ -5228,11 +5241,7 @@ class HubPostSerializer(serializers.ModelSerializer):
 
     def get_can_manage(self, obj):
         membership = self.context.get("request_membership")
-        if membership and membership == obj.author_membership:
-            return True
-        if self.context.get("has_admin_permissions", False):
-            return True
-        return self.context.get("has_group_admin_permissions", False)
+        return bool(membership and membership == obj.author_membership)
 
     def get_edited_by(self, obj):
         user = getattr(obj, "last_edited_by", None)
@@ -5486,255 +5495,4 @@ class HubReactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = PharmacyHubReaction
         fields = ["reaction_type"]
-
-# class PharmacistOnboardingSerializer(RemoveOldFilesMixin, SyncUserMixin, serializers.ModelSerializer):
-#     file_fields = ['government_id', 'gst_file', 'tfn_declaration', 'resume']
-
-#     username   = serializers.CharField(source='user.username',   required=False)
-#     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
-#     last_name  = serializers.CharField(source='user.last_name',  required=False, allow_blank=True)
-#     progress_percent = serializers.SerializerMethodField()
-
-#     class Meta:
-#         model  = PharmacistOnboarding
-#         fields = [
-#             'username', 'first_name', 'last_name',
-#             'government_id', 'ahpra_number', 'phone_number', 'short_bio', 'resume',
-#             'skills', 'software_experience', 'payment_preference',
-#             'abn', 'gst_registered', 'gst_file',
-#             'tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number',
-
-#             'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
-#             'referee2_name', 'referee2_relation', 'referee2_email', 'referee2_confirmed',
-
-#             'rate_preference', 'verified', 'member_of_chain', 'progress_percent',
-#             'submitted_for_verification',
-#             'gov_id_verified', 'gov_id_verification_note',
-#             'gst_file_verified', 'gst_file_verification_note',
-#             'tfn_declaration_verified', 'tfn_declaration_verification_note',
-#             'abn_verified', 'abn_verification_note',
-#             'ahpra_verified',
-#             'ahpra_registration_status',
-#             'ahpra_registration_type',
-#             'ahpra_expiry_date',
-#             'ahpra_verification_note',
-#         ]
-#         extra_kwargs = {
-#             'verified':        {'read_only': True},
-#             'member_of_chain': {'read_only': True},
-#             'submitted_for_verification': {'required': False},
-#             'first_name': {'required': False, 'allow_blank': True},
-#             'last_name':  {'required': False, 'allow_blank': True},
-#             'government_id': {'required': False, 'allow_null': True},
-#             'ahpra_number': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'payment_preference': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'referee1_name': {'required': False, 'allow_blank': True},
-#             'referee1_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'referee1_email': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'referee1_confirmed': {'required': False},
-#             'referee2_name': {'required': False, 'allow_blank': True},
-#             'referee2_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'referee2_email': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'referee2_confirmed': {'required': False},
-#             'resume': {'required': False, 'allow_null': True},
-#             'short_bio': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'abn': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'gst_file': {'required': False, 'allow_null': True},
-#             'tfn_declaration': {'required': False, 'allow_null': True},
-#             'super_fund_name': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'super_usi': {'required': False, 'allow_blank': True, 'allow_null': True},
-#             'super_member_number': {'required': False, 'allow_blank': True, 'allow_null': True},
-#         }
-
-#         read_only_fields = [
-#             'gov_id_verified', 'gov_id_verification_note',
-#             'gst_file_verified', 'gst_file_verification_note',
-#             'tfn_declaration_verified', 'tfn_declaration_verification_note',
-#             'abn_verified', 'abn_verification_note',
-#             'ahpra_verified',
-#             'ahpra_registration_status',
-#             'ahpra_registration_type',
-#             'ahpra_expiry_date',
-#             'ahpra_verification_note',
-#             'verified',
-#             'progress_percent',
-#         ]
-
-#     def _schedule_verification(self, instance):
-#         """Helper to cancel any old tasks and schedule a new one."""
-#         # This is CRITICAL to prevent race conditions from multiple saves.
-#         Schedule.objects.filter(
-#             func='client_profile.tasks.run_all_verifications',
-#             args=f"'{instance._meta.model_name}',{instance.pk}"
-#         ).delete()
-#         Schedule.objects.create(
-#             func='client_profile.tasks.run_all_verifications',
-#             args=f"'{instance._meta.model_name}',{instance.pk}",
-#             schedule_type=Schedule.ONCE,
-#             next_run=timezone.now() + timedelta(seconds=10)
-#         )
-
-#     def create(self, validated_data):
-#         user_data = validated_data.pop('user', {})
-#         user = self.context['request'].user
-#         self.sync_user_fields(user_data, user)
-#         instance = PharmacistOnboarding.objects.create(user=user, **validated_data)
-#         if validated_data.get('submitted_for_verification', False):
-#             self._schedule_verification(instance)
-#         return instance
-
-#     def update(self, instance, validated_data):
-#         user_data = validated_data.pop('user', {})
-#         self.sync_user_fields(user_data, instance.user)
-
-#         # IMPORTANT: Check for changes *before* saving the instance
-#         submitted_before = instance.submitted_for_verification
-        
-#         # Check which specific groups of fields have changed
-#         ahpra_changed = verification_fields_changed(instance, validated_data, ["ahpra_number"])
-#         gov_id_changed = verification_fields_changed(instance, validated_data, ["government_id"])
-#         payment_changed = verification_fields_changed(instance, validated_data, ["payment_preference", "abn", "gst_registered", "gst_file", "tfn_declaration"])
-#         referee1_changed = verification_fields_changed(instance, validated_data, ["referee1_name", "referee1_relation", "referee1_email"])
-#         referee2_changed = verification_fields_changed(instance, validated_data, ["referee2_name", "referee2_relation", "referee2_email"])
-
-#         # Apply the user's changes to the instance
-#         instance = super().update(instance, validated_data)
-
-#         # Now, check if we need to do any resets
-#         submitted_now = instance.submitted_for_verification
-#         needs_reschedule = False
-#         update_fields = []
-
-#         # On first-time submission, reset everything
-#         if not submitted_before and submitted_now:
-#             needs_reschedule = True
-#             # Reset all verification fields
-#             for f in instance._meta.fields:
-#                 if f.name.endswith('_verified') or f.name.endswith('_verification_note'):
-#                     setattr(instance, f.name, False if f.name.endswith('_verified') else "")
-#                     update_fields.append(f.name)
-#             # Reset referee statuses
-#             instance.referee1_confirmed, instance.referee1_rejected = False, False
-#             instance.referee2_confirmed, instance.referee2_rejected = False, False
-#             update_fields.extend(['referee1_confirmed', 'referee1_rejected', 'referee2_confirmed', 'referee2_rejected'])
-#         else: # For subsequent updates, only reset what changed
-#             if ahpra_changed:
-#                 instance.ahpra_verified, instance.ahpra_verification_note = False, ""
-#                 update_fields.extend(['ahpra_verified', 'ahpra_verification_note'])
-#                 needs_reschedule = True
-#             if gov_id_changed:
-#                 instance.gov_id_verified, instance.gov_id_verification_note = False, ""
-#                 update_fields.extend(['gov_id_verified', 'gov_id_verification_note'])
-#                 needs_reschedule = True
-#             if payment_changed:
-#                 instance.abn_verified, instance.abn_verification_note = False, ""
-#                 instance.gst_file_verified, instance.gst_file_verification_note = False, ""
-#                 instance.tfn_declaration_verified, instance.tfn_declaration_verification_note = False, ""
-#                 update_fields.extend(['abn_verified', 'abn_verification_note', 'gst_file_verified', 'gst_file_verification_note', 'tfn_declaration_verified', 'tfn_declaration_verification_note'])
-#                 needs_reschedule = True
-#             if referee1_changed:
-#                 instance.referee1_confirmed, instance.referee1_rejected = False, False
-#                 update_fields.extend(['referee1_confirmed', 'referee1_rejected'])
-#                 needs_reschedule = True
-#             if referee2_changed:
-#                 instance.referee2_confirmed, instance.referee2_rejected = False, False
-#                 update_fields.extend(['referee2_confirmed', 'referee2_rejected'])
-#                 needs_reschedule = True
-
-#         # If any resets were performed, save them
-#         if needs_reschedule:
-#             instance.verified = False
-#             update_fields.append('verified')
-#             instance.save(update_fields=list(set(update_fields)))
-#             self._schedule_verification(instance)
-            
-#         return instance
-
-
-#     def validate(self, data):
-#         submit = data.get('submitted_for_verification') \
-#             or (self.instance and getattr(self.instance, 'submitted_for_verification', False))
-#         errors = {}
-
-#         must_have = [
-#             'username', 'first_name', 'last_name',
-#             'government_id', 'ahpra_number', 'phone_number', 'payment_preference',
-#             'referee1_name', 'referee1_relation', 'referee1_email',
-#             'referee2_name', 'referee2_relation', 'referee2_email',
-#         ]
-
-#         user_data = data.get('user', {})
-
-#         if submit:
-#             for f in must_have:
-#                 if f in ['username', 'first_name', 'last_name']:
-#                     val = (
-#                         user_data.get(f)
-#                         or (self.instance and hasattr(self.instance, 'user') and getattr(self.instance.user, f, None))
-#                     )
-#                     if not val:
-#                         errors[f] = 'This field is required to submit for verification.'
-#                 else:
-#                     value = data.get(f)
-#                     if value is None and self.instance:
-#                         value = getattr(self.instance, f, None)
-#                     if not value:
-#                         errors[f] = 'This field is required to submit for verification.'
-
-#             pay = data.get('payment_preference') or (self.instance and getattr(self.instance, 'payment_preference', None))
-#             if pay:
-#                 if pay.lower() == "abn":
-#                     abn = data.get('abn') or (self.instance and getattr(self.instance, 'abn', None))
-#                     if not abn:
-#                         errors['abn'] = 'ABN required when payment preference is ABN.'
-#                     gst = data.get('gst_registered')
-#                     if gst is None and self.instance:
-#                         gst = getattr(self.instance, 'gst_registered', None)
-#                     if gst:
-#                         gst_file = data.get('gst_file') or (self.instance and getattr(self.instance, 'gst_file', None))
-#                         if not gst_file:
-#                             errors['gst_file'] = 'GST certificate required if GST registered.'
-#                 elif pay.lower() == "tfn":
-#                     for f in ['tfn_declaration', 'super_fund_name', 'super_usi', 'super_member_number']:
-#                         val = data.get(f)
-#                         if val is None and self.instance:
-#                             val = getattr(self.instance, f, None)
-#                         if not val:
-#                             errors[f] = f'{f.replace("_", " ").title()} required when payment preference is TFN.'
-
-#         if errors:
-#             raise serializers.ValidationError(errors)
-#         return data
-
-#     def get_progress_percent(self, obj):
-#         required_fields = [
-#             obj.user.username,
-#             obj.user.first_name,
-#             obj.user.last_name,
-#             obj.phone_number,
-#             obj.payment_preference,
-#             obj.resume,
-#             obj.short_bio,
-#             obj.referee1_confirmed,
-#             obj.referee2_confirmed,
-#             obj.gov_id_verified,
-#             obj.ahpra_verified,
-#         ]
-#         # ABN/GST
-#         if obj.payment_preference and obj.payment_preference.lower() == "abn":
-#             required_fields.append(obj.abn_verified)
-#             if obj.gst_registered is True:
-#                 required_fields.append(obj.gst_file_verified)
-#         # TFN
-#         if obj.payment_preference and obj.payment_preference.lower() == "tfn":
-#             required_fields.append(obj.tfn_declaration_verified)
-#             required_fields.append(obj.super_fund_name)
-#             required_fields.append(obj.super_usi)
-#             required_fields.append(obj.super_member_number)
-
-#         filled = sum(bool(field) for field in required_fields)
-#         percent = int(100 * filled / len(required_fields))
-#         return percent
-
 

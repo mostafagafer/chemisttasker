@@ -15,7 +15,12 @@ function getApiConfig() {
 }
 async function fetchApi(endpoint, options = {}) {
     const { baseURL, getToken } = getApiConfig();
-    const token = await getToken();
+    const includeAuth = !options.skipAuth;
+    // Remove the marker so it isn't sent as a header
+    if ('skipAuth' in options) {
+        delete options.skipAuth;
+    }
+    const token = includeAuth ? await getToken() : null;
     const headers = {};
     if (options.headers) {
         const existingHeaders = options.headers;
@@ -252,10 +257,10 @@ export function getCurrentUser() {
     return fetchApi('/users/me/');
 }
 export function passwordReset(email) {
-    return fetchApi('/users/password-reset/', { method: 'POST', body: JSON.stringify({ email }) });
+    return fetchApi('/users/password-reset/', { method: 'POST', body: JSON.stringify({ email }), skipAuth: true });
 }
 export function passwordResetConfirm(data) {
-    return fetchApi('/users/password-reset-confirm/', { method: 'POST', body: JSON.stringify(data) });
+    return fetchApi('/users/password-reset-confirm/', { method: 'POST', body: JSON.stringify(data), skipAuth: true });
 }
 export function inviteOrgUser(data) {
     return fetchApi('/users/invite-org-user/', { method: 'POST', body: JSON.stringify(data) });
@@ -1440,6 +1445,7 @@ const mapOrganization = (api) => ({
     coverImageUrl: api.cover_image_url,
     canManageProfile: api.can_manage_profile,
     isOrgAdmin: api.is_org_admin,
+    memberCount: api.member_count ?? 0,
 });
 const mapGroupMember = (api) => ({
     membershipId: api.membership_id,
@@ -1579,12 +1585,14 @@ export async function voteHubPollService(pollId, optionId) {
 }
 export async function createHubPostService(scope, payload) {
     const { data, isMultipart } = buildPostFormData(payload, scope);
-    const response = await createHubPost(isMultipart ? data : JSON.stringify(data));
+    // Avoid double stringification: createHubPost will JSON.stringify non-FormData bodies.
+    const response = await createHubPost(isMultipart ? data : data);
     return mapPost(response);
 }
 export async function updateHubPostService(postId, payload) {
     const { data, isMultipart } = buildPostFormData(payload);
-    const response = await updateHubPost(postId, isMultipart ? data : JSON.stringify(data));
+    // Avoid double stringification: updateHubPost will JSON.stringify non-FormData bodies.
+    const response = await updateHubPost(postId, isMultipart ? data : data);
     return mapPost(response);
 }
 export async function deleteHubPostService(postId) {
@@ -1726,6 +1734,31 @@ export async function fetchOrganizationGroupMembers(organizationId) {
         pharmacyId: member.pharmacy_id ?? null,
         pharmacyName: member.pharmacy_name ?? null,
         jobTitle: member.job_title ?? null,
+        }));
+}
+// Organization members: org staff + all pharmacy members under the org.
+export async function fetchOrganizationMembers(organizationId) {
+    const data = await fetchApi(`/client-profile/memberships/?organization=${organizationId}&page_size=500`);
+    const list = asList(data.results ?? data);
+    return list.map((member) => mapOptionFromSource({
+        membershipId: member.id,
+        userId: member.user_details?.id ?? null,
+        fullName: (() => {
+            const preferred = member.user_details?.full_name;
+            const composed = `${member.user_details?.first_name ?? ''} ${member.user_details?.last_name ?? ''}`.trim();
+            const fallback = member.user_details?.email;
+            if (preferred && preferred.trim()) return preferred;
+            if (composed) return composed;
+            if (fallback) return fallback;
+            return 'Member';
+        })(),
+        email: member.user_details?.email ?? null,
+        role: member.role ?? null,
+        employmentType: member.employment_type ?? null,
+        pharmacyId: member.pharmacy_detail?.id ?? null,
+        pharmacyName: member.pharmacy_detail?.name ?? null,
+        jobTitle: member.job_title ?? null,
+        profilePhotoUrl: member.user_details?.profile_photo_url ?? null,
     }));
 }
 export async function fetchHubGroupMembers(groupId) {

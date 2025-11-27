@@ -383,7 +383,9 @@ class OwnerOnboardingClaim(APIView):
             'detail': 'Pharmacy created and invitation sent.',
             'pharmacy': serialized,
             'user_id': user.id,
-            'membership_id': membership.id,
+            # return both: org-scoped membership and pharmacy ownership membership
+            'organization_membership_id': membership.id,
+            'pharmacy_membership_id': pharmacy_membership.id,
         }
 
     def post(self, request):
@@ -461,56 +463,6 @@ class OwnerOnboardingClaim(APIView):
             PharmacyClaimSerializer(claim, context={'request': request}).data,
             status=status.HTTP_201_CREATED,
         )
-
-# class PharmacistOnboardingCreateView(CreateAPIView):
-#     parser_classes = [MultiPartParser, FormParser]
-#     serializer_class   = PharmacistOnboardingSerializer
-#     permission_classes = [permissions.IsAuthenticated, IsPharmacist, IsOTPVerified]
-
-#     def perform_create(self, serializer):
-#         serializer.save()
-
-# class PharmacistOnboardingDetailView(RetrieveUpdateAPIView):
-#     parser_classes = [MultiPartParser, FormParser]
-#     serializer_class   = PharmacistOnboardingSerializer
-#     permission_classes = [permissions.IsAuthenticated, IsPharmacist, IsOTPVerified]
-
-#     def get_object(self):
-#         try:
-#             return PharmacistOnboarding.objects.get(user=self.request.user)
-#         except PharmacistOnboarding.DoesNotExist:
-#             raise NotFound("Pharmacist onboarding profile not found.")
-
-# class RefereeConfirmView(APIView):
-#     def post(self, request, profile_pk, ref_idx, *args, **kwargs):
-#         onboarding_models = [PharmacistOnboarding, OtherStaffOnboarding, ExplorerOnboarding]
-#         instance, model_name = None, None
-#         for Model in onboarding_models:
-#             try:
-#                 instance = Model.objects.get(pk=profile_pk)
-#                 model_name = Model._meta.model_name
-#                 break
-#             except Model.DoesNotExist: continue
-#         if not instance: return Response({'detail': 'Onboarding profile not found.'}, status=404)
-
-#         if str(ref_idx) == "1":
-#             instance.referee1_confirmed = True
-#             instance.referee1_rejected = False
-#         elif str(ref_idx) == "2":
-#             instance.referee2_confirmed = True
-#             instance.referee2_rejected = False
-#         else: return Response({'detail': 'Invalid referee index.'}, status=400)
-#         instance.save()
-
-#         # FIX: Cancel any old, scheduled tasks to prevent race conditions.
-#         Schedule.objects.filter(
-#             func='client_profile.tasks.final_evaluation',
-#             args=f"'{model_name}',{instance.pk}"
-#         ).delete()
-
-#         # Now, safely trigger a new, immediate evaluation.
-#         async_task('client_profile.tasks.final_evaluation', model_name, instance.pk)
-#         return Response({'success': True, 'message': 'Referee confirmed.'}, status=200)
 
 class RefereeSubmitResponseView(generics.CreateAPIView):
     """
@@ -1481,16 +1433,47 @@ class MembershipViewSet(viewsets.ModelViewSet):
             except (TypeError, ValueError):
                 qs = qs.none()
             else:
-                if organization_id_int in full_org_ids:
-                    qs = qs.filter(pharmacy__organization_id=organization_id_int)
-                elif organization_id_int in scoped_org_map:
-                    allowed_ids = scoped_org_map.get(organization_id_int, set())
-                    if allowed_ids:
-                        qs = qs.filter(pharmacy_id__in=allowed_ids)
+                # Allow any org staff OR any pharmacy member whose pharmacy belongs to this org
+                is_org_staff = OrganizationMembership.objects.filter(
+                    user=user, organization_id=organization_id_int
+                ).exists()
+                is_org_pharmacy_member = Membership.objects.filter(
+                    user=user,
+                    is_active=True,
+                    pharmacy__organization_id=organization_id_int,
+                ).exists()
+                is_org_member = is_org_staff or is_org_pharmacy_member
+
+                if is_org_member:
+                    # User is part of this org (staff or pharmacy member); show ALL members of ALL pharmacies in the org.
+                    qs = (
+                        Membership.objects.filter(
+                            pharmacy__organization_id=organization_id_int,
+                            is_active=True,
+                        )
+                        .select_related(
+                            "user",
+                            "invited_by",
+                            "pharmacy",
+                            "pharmacy__owner",
+                            "pharmacy__organization",
+                        )
+                        .prefetch_related(
+                            "pharmacy__chains",
+                            "pharmacy__claims",
+                        )
+                    )
+                else:
+                    if organization_id_int in full_org_ids:
+                        qs = qs.filter(pharmacy__organization_id=organization_id_int)
+                    elif organization_id_int in scoped_org_map:
+                        allowed_ids = scoped_org_map.get(organization_id_int, set())
+                        if allowed_ids:
+                            qs = qs.filter(pharmacy_id__in=allowed_ids)
+                        else:
+                            qs = qs.none()
                     else:
                         qs = qs.none()
-                else:
-                    qs = qs.none()
 
         return qs.distinct()
 

@@ -15,10 +15,18 @@ interface AuthLayoutProps {
   children: ReactNode;
   title: string;
   maxWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | false;
+  noCard?: boolean;
+  showTitle?: boolean;
 }
 
-export default function AuthLayout({ children, title, maxWidth = 'sm' }: AuthLayoutProps) {
-  // 🔒 Local, hard-light theme ONLY for auth pages (doesn't affect dashboards)
+export default function AuthLayout({
+  children,
+  title,
+  maxWidth = 'sm',
+  noCard = false,
+  showTitle = true,
+}: AuthLayoutProps) {
+  // Local, hard-light theme ONLY for auth pages (doesn't affect dashboards)
   const authTheme = useMemo(
     () =>
       createTheme({
@@ -33,7 +41,7 @@ export default function AuthLayout({ children, title, maxWidth = 'sm' }: AuthLay
         components: {
           MuiCssBaseline: {
             styleOverrides: {
-              ':root': { colorScheme: 'light' }, // ignore OS/dark prefs here
+              ':root': { colorScheme: 'light' },
               html: { backgroundColor: '#ffffff' },
               body: { backgroundColor: '#ffffff', color: '#0f172a' },
               '#root': { backgroundColor: '#ffffff' },
@@ -75,40 +83,41 @@ export default function AuthLayout({ children, title, maxWidth = 'sm' }: AuthLay
           position: 'relative',
           width: '100%',
           minHeight: '100vh',
-          bgcolor: 'background.default', // pure white
+          bgcolor: 'background.default',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           py: { xs: 4, md: 6 },
         }}
       >
-        {/* ✅ Keep your animated background (no overlays, no removal) */}
         <AnimatedBackground />
 
-        <Container
-          maxWidth={maxWidth}
-          sx={{ position: 'relative', zIndex: 2 }}
-        >
-          <Paper
-            sx={{
-              p: { xs: 3, sm: 4 },
-              width: '100%',
-              // a bright “glass” card that stays white on top of animation
-              bgcolor: 'rgba(255,255,255,0.96)',
-              backdropFilter: 'blur(10px)',
-            }}
-          >
-            <Typography
-              variant="h4"
-              textAlign="center"
-              mb={3}
-              fontWeight={700}
-              sx={{ color: 'text.primary' }}
+        <Container maxWidth={maxWidth} sx={{ position: 'relative', zIndex: 2 }}>
+          {noCard ? (
+            children
+          ) : (
+            <Paper
+              sx={{
+                p: { xs: 3, sm: 4 },
+                width: '100%',
+                bgcolor: 'rgba(255,255,255,0.96)',
+                backdropFilter: 'blur(10px)',
+              }}
             >
-              {title}
-            </Typography>
-            {children}
-          </Paper>
+              {showTitle && (
+                <Typography
+                  variant="h4"
+                  textAlign="center"
+                  mb={3}
+                  fontWeight={700}
+                  sx={{ color: 'text.primary' }}
+                >
+                  {title}
+                </Typography>
+              )}
+              {children}
+            </Paper>
+          )}
         </Container>
       </Box>
     </ThemeProvider>

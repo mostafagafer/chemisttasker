@@ -652,12 +652,16 @@ export function acceptShiftApplication(shiftId, applicationId) {
 export function rejectShiftApplication(shiftId, applicationId) {
     return fetchApi(`/client-profile/shifts/${shiftId}/applications/${applicationId}/reject/`, { method: 'POST' });
 }
-export function getPublicJobBoard() {
-    return fetchApi('/client-profile/public-job-board/');
+export function getPublicJobBoard(params?: { organization?: number | string }) {
+    const query = buildQuery(params);
+    return fetchApi(`/client-profile/public-job-board/${query}`);
 }
 export function getViewSharedShift(params) {
     const query = new URLSearchParams(params).toString();
     return fetchApi(`/client-profile/view-shared-shift/?${query}`);
+}
+export function getPublicOrganization(slug: string) {
+    return fetchApi(`/client-profile/organizations/public/${slug}/`);
 }
 const toInterestParams = (filters) => ({
     shift: filters?.shiftId,

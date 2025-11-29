@@ -33,6 +33,24 @@ class OrganizationSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 
+class PublicOrganizationSerializer(serializers.ModelSerializer):
+    cover_image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Organization
+        fields = ['id', 'name', 'slug', 'about', 'cover_image_url']
+        read_only_fields = fields
+
+    def get_cover_image_url(self, obj):
+        request = self.context.get("request")
+        if not obj.cover_image:
+            return None
+        url = obj.cover_image.url
+        if request is not None:
+            return request.build_absolute_uri(url)
+        return url
+
+
 
 
 def verification_fields_changed(instance, validated_data, fields):

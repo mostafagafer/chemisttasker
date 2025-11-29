@@ -16,6 +16,7 @@ class Organization(models.Model):
     Corporate entity that claims pharmacies and manages org users.
     """
     name = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=255, unique=True, db_index=True)
     about = models.TextField(blank=True, null=True)
     cover_image = models.ImageField(
         upload_to="organization_covers/", blank=True, null=True
@@ -23,6 +24,19 @@ class Organization(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        # Auto-generate a slug from the name if one has not been set
+        if not self.slug and self.name:
+            from django.utils.text import slugify
+            base_slug = slugify(self.name)
+            slug = base_slug
+            idx = 1
+            while Organization.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                idx += 1
+                slug = f"{base_slug}-{idx}"
+            self.slug = slug
+        super().save(*args, **kwargs)
 
 class OnboardingNotification(models.Model):
     # Links to any onboarding model (PharmacistOnboarding, OtherStaffOnboarding, etc.)

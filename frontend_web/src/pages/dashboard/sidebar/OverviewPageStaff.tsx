@@ -53,7 +53,7 @@ export default function OverviewPageStaff() {
 
   const role = (user?.role || "").toLowerCase();
   const isPharmacist = role === "pharmacist";
-  const isOtherStaff = role === "otherstaff";
+  const isOtherStaff = role === "other_staff";
   const isExplorer = role === "explorer";
   const roleSegment = isExplorer ? "explorer" : isPharmacist ? "pharmacist" : "otherstaff";
 

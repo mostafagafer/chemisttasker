@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link as RouterLink } from 'react-router-dom';
-import { Container, Typography, Card, CardContent, Button, Skeleton, Box, Chip, Divider } from '@mui/material';
+import { Container, Typography, Card, CardContent, Button, Skeleton, Box, Chip, Divider, Stack } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
 import { getViewSharedShift } from '@chemisttasker/shared-core';
+import AuthLayout from '../layouts/AuthLayout';
 
 const formatClockTime = (value?: string | null) => {
   if (!value) return '';
@@ -57,7 +58,12 @@ const SharedShiftLandingPage: React.FC = () => {
     // The effect will now re-run when the 'user' object changes (e.g., from null to a user object after login check)
     const fetchShift = async () => {
         try {
-            const response: any = await getViewSharedShift({ token, id });
+            // Avoid sending literal "null"/"undefined" tokens; only include the param when it is real.
+            const params: Record<string, string> = {};
+            if (token) params.token = token;
+            if (id) params.id = id;
+
+            const response: any = await getViewSharedShift(params);
             const fetchedShift = response?.data ?? response;
             setShift(fetchedShift);
 
@@ -90,86 +96,117 @@ const SharedShiftLandingPage: React.FC = () => {
 
   // FIX: The skeleton loader condition is simplified.
   // It will show while the API call is loading OR if a user is logged in (to hide the page before redirect).
-  if (loading || user) {
-    return (
-      <Container sx={{ textAlign: 'center', py: 5 }}>
-        <Skeleton variant="text" width="40%" height={40} />
-        <Card sx={{ mt: 2 }}><CardContent><Skeleton height={200} /></CardContent></Card>
-      </Container>
-    );
-  }
+  const renderContent = () => {
+    if (loading || user) {
+      return (
+        <Stack spacing={3}>
+          <Skeleton variant="rectangular" height={220} sx={{ borderRadius: 3 }} />
+          <Skeleton variant="rectangular" height={160} sx={{ borderRadius: 3 }} />
+        </Stack>
+      );
+    }
 
-  if (error) {
+    if (error) {
+      return (
+        <Card sx={{ borderRadius: 3, boxShadow: 6 }}>
+          <CardContent sx={{ textAlign: 'center' }}>
+            <Typography variant="h5" color="error" gutterBottom>
+              {error}
+            </Typography>
+            <Button sx={{ mt: 2 }} variant="contained" component={RouterLink} to="/shifts/public-board">
+              Explore Other Shifts
+            </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    if (!shift) return null;
+
     return (
-      <Container sx={{ textAlign: 'center', py: 5 }}>
-        <Typography variant="h5" color="error">{error}</Typography>
-        <Button sx={{ mt: 2 }} variant="contained" component={RouterLink} to="/shifts/public-board">Explore Other Shifts</Button>
-      </Container>
+      <Stack spacing={3}>
+        <Card sx={{ borderRadius: 3, boxShadow: '0 24px 60px rgba(0,0,0,0.08)' }}>
+          <CardContent>
+            <Typography variant="h4" gutterBottom>
+              {shift.post_anonymously ?? shift.postAnonymously
+                ? ((shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb)
+                    ? `Shift in ${shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb}`
+                    : 'Anonymous Shift')
+                : (shift.pharmacy_detail?.name ?? shift.pharmacyDetail?.name)}
+            </Typography>
+            {(!(shift.post_anonymously ?? shift.postAnonymously) ||
+              ((shift.post_anonymously ?? shift.postAnonymously) && (shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb))) && (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                {shift.post_anonymously ?? shift.postAnonymously
+                  ? (shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb)
+                  : [
+                      shift.pharmacy_detail?.street_address ?? shift.pharmacyDetail?.streetAddress,
+                      shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb,
+                      shift.pharmacy_detail?.state ?? shift.pharmacyDetail?.state,
+                      shift.pharmacy_detail?.postcode ?? shift.pharmacyDetail?.postcode,
+                    ]
+                      .filter(Boolean)
+                      .join(', ')}
+              </Typography>
+            )}
+
+            <Chip label={shift.role_needed ?? shift.roleNeeded} color="primary" sx={{ my: 2 }} />
+            <Divider sx={{ mb: 2 }} />
+            <Typography variant="h6" gutterBottom>
+              Slots
+            </Typography>
+            <Stack spacing={0.75} sx={{ mb: 2 }}>
+              {(shift.slots ?? []).map((slot, index) => (
+                <Typography key={index} variant="body2">
+                  {dayjs(slot.date).format('MMM D, YYYY')} from{' '}
+                  {formatClockTime(slot.start_time ?? (slot as any).startTime)} to{' '}
+                  {formatClockTime(slot.end_time ?? (slot as any).endTime)}
+                </Typography>
+              ))}
+            </Stack>
+            {shift.description && (
+              <Typography variant="body1" color="text.primary" sx={{ whiteSpace: 'pre-wrap' }}>
+                {shift.description}
+              </Typography>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card
+          sx={{
+            borderRadius: 3,
+            boxShadow: '0 18px 40px rgba(0,0,0,0.06)',
+            background: 'linear-gradient(120deg, #00a99d 0%, #00877d 100%)',
+            color: '#fff',
+          }}
+        >
+          <CardContent>
+            <Typography variant="h5" gutterBottom fontWeight={700}>
+              Interested in this shift?
+            </Typography>
+            <Typography variant="body1" sx={{ mb: 2, opacity: 0.9 }}>
+              Login to apply or browse more public shifts on the job board.
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <Button component={RouterLink} to="/login" variant="contained" color="inherit" sx={{ color: '#006f66' }}>
+                Login to Apply
+              </Button>
+              <Button component={RouterLink} to="/shifts/public-board" variant="outlined" color="inherit">
+                Explore Job Board
+              </Button>
+            </Stack>
+          </CardContent>
+        </Card>
+      </Stack>
     );
-  }
+  };
 
   return (
-    <Container sx={{ py: 4 }}>
-      {shift && (
-        <>
-            <Typography variant="h4" gutterBottom>Shift Opportunity</Typography>
-            <Card>
-                <CardContent>
-                  <Typography variant="h5">
-                    {shift.post_anonymously ?? shift.postAnonymously
-                        ? ((shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb)
-                            ? `Shift in ${shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb}`
-                            : 'Anonymous Shift')
-                        : (shift.pharmacy_detail?.name ?? shift.pharmacyDetail?.name)}
-                    </Typography>
-                    {(!(shift.post_anonymously ?? shift.postAnonymously) ||
-                      ((shift.post_anonymously ?? shift.postAnonymously) && (shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb))) && (
-                      <Typography variant="body2" color="text.secondary">
-                        {shift.post_anonymously ?? shift.postAnonymously
-                          ? (shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb)
-                          : [
-                              shift.pharmacy_detail?.street_address ?? shift.pharmacyDetail?.streetAddress,
-                              shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb,
-                              shift.pharmacy_detail?.state ?? shift.pharmacyDetail?.state,
-                              shift.pharmacy_detail?.postcode ?? shift.pharmacyDetail?.postcode,
-                            ]
-                              .filter(Boolean)
-                              .join(', ')}
-                      </Typography>
-                    )}
-
-                    <Chip label={shift.role_needed ?? shift.roleNeeded} color="primary" sx={{ my: 2 }} />
-                    <Divider sx={{ mb: 2 }} />
-                    <Typography variant="h6">Slots:</Typography>
-                    {(shift.slots ?? []).map((slot, index) => (
-                        <Typography key={index}>
-                          {dayjs(slot.date).format('MMM D, YYYY')} from{' '}
-                          {formatClockTime(slot.start_time ?? (slot as any).startTime)} to{' '}
-                          {formatClockTime(slot.end_time ?? (slot as any).endTime)}
-                        </Typography>
-                    ))}
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      {shift.description && (
-                      <Typography variant="body1" color="text.primary" sx={{ mt: 1,  whiteSpace: 'pre-wrap' }}>
-                        {shift.description}
-                      </Typography>
-                    )}
-                    </Box>
-                </CardContent>
-            </Card>
-
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-                <Typography variant="h6" gutterBottom>Interested in this shift?</Typography>
-                <Button component={RouterLink} to="/login" variant="contained" size="large" sx={{ mr: 2 }}>
-                    Login to Apply
-                </Button>
-                <Button component={RouterLink} to="/shifts/public-board" variant="outlined" size="large">
-                    Explore Job Board
-                </Button>
-            </Box>
-        </>
-      )}
-    </Container>
+    <AuthLayout title="Shift Opportunity" maxWidth="lg" noCard showTitle={false}>
+      <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
+        {renderContent()}
+      </Container>
+    </AuthLayout>
   );
 };
 

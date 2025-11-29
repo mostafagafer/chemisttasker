@@ -3862,10 +3862,39 @@ class PublicJobBoardView(generics.ListAPIView):
         """
         This method ensures that only shifts with open, unassigned slots are returned.
         """
-        return Shift.objects.filter(visibility='PLATFORM').annotate(
+        qs = Shift.objects.filter(visibility='PLATFORM')
+
+        org_param = self.request.query_params.get("organization")
+        if org_param:
+            try:
+                org_id = int(org_param)
+                qs = qs.filter(pharmacy__organization_id=org_id)
+            except (TypeError, ValueError):
+                raise ValidationError({"organization": "Organization must be a valid id."})
+
+        return qs.annotate(
             slot_count=Count('slots', distinct=True),
             assigned_count=Count('slots__assignments', distinct=True)
         ).filter(assigned_count__lt=F('slot_count')).order_by('-created_at')
+
+
+class PublicOrganizationDetailView(APIView):
+    """
+    Public, unauthenticated organization profile by slug.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, slug):
+        organization = get_object_or_404(
+            Organization.objects.all(),
+            slug=slug
+        )
+        serializer = PublicOrganizationSerializer(
+            organization,
+            context={"request": request},
+        )
+        return Response(serializer.data)
+
 
 class SharedShiftDetailView(APIView):
     """

@@ -20,6 +20,7 @@ import MobileOTPVerify from './pages/MobileOTPVerify';
 import PublicJobBoardPage from './pages/PublicJobBoardPage';
 import SharedShiftLandingPage from './pages/SharedShiftLandingPage';
 import MembershipApplyPage from './pages/MembershipApplyPage';
+import PublicOrganizationPage from './pages/PublicOrganizationPage';
 
 // Orgnization
 import OrganizationOverviewPage from './pages/dashboard/organization/OrganizationOverviewPage';
@@ -108,6 +109,7 @@ const router = createBrowserRouter([
 
       { path: 'shifts/public-board', element: <PublicJobBoardPage /> },
       { path: 'shifts/link',         element: <SharedShiftLandingPage /> },
+      { path: ':slug',               element: <PublicOrganizationPage /> },
 
       { path: 'membership/apply/:token', element: <MembershipApplyPage /> },
 
@@ -400,7 +402,7 @@ const router = createBrowserRouter([
           { path: 'learning',     element: <LearningMaterialsPage /> },
           { path: 'logout',       element: <LogoutPage /> },
         ],
-      },      
+      },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

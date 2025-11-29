@@ -92,6 +92,9 @@ urlpatterns = [
     path('magic/memberships/<str:token>/', MagicLinkInfoView.as_view(), name='magic-membership-detail'),
     path('magic/memberships/<str:token>/apply/', SubmitMembershipApplication.as_view(), name='magic-membership-apply'),
 
+    # Public organization profile
+    path('organizations/public/<slug:slug>/', PublicOrganizationDetailView.as_view(), name='organization-public-detail'),
+
     path('dashboard/organization/', OrganizationDashboardView.as_view(), name='organization-dashboard'),
     path('dashboard/organization/<int:organization_pk>/',OrganizationDashboardView.as_view(), name='organization-dashboard-detail'),
     path('dashboard/owner/', OwnerDashboard.as_view()),

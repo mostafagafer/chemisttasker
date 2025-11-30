@@ -93,6 +93,8 @@ export default function App() {
   useEffect(() => {
     if (!user || !hasOrgRole) return;
     const path = location.pathname || "";
+    // Only redirect when the user is on a dashboard area.
+    if (!path.startsWith("/dashboard")) return;
     const isOrgPath = path.includes("/dashboard/organization/");
     // Allow org users to open non-org pages like Pharmacy Hub without being forced away.
     const orgBypassPrefixes = ["/dashboard/pharmacy-hub"];

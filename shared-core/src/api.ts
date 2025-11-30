@@ -654,14 +654,14 @@ export function rejectShiftApplication(shiftId, applicationId) {
 }
 export function getPublicJobBoard(params?: { organization?: number | string }) {
     const query = buildQuery(params);
-    return fetchApi(`/client-profile/public-job-board/${query}`);
+    return fetchApi(`/client-profile/public-job-board/${query}`, { skipAuth: true });
 }
 export function getViewSharedShift(params) {
     const query = new URLSearchParams(params).toString();
-    return fetchApi(`/client-profile/view-shared-shift/?${query}`);
+    return fetchApi(`/client-profile/view-shared-shift/?${query}`, { skipAuth: true });
 }
 export function getPublicOrganization(slug: string) {
-    return fetchApi(`/client-profile/organizations/public/${slug}/`);
+    return fetchApi(`/client-profile/organizations/public/${slug}/`, { skipAuth: true });
 }
 const toInterestParams = (filters) => ({
     shift: filters?.shiftId,

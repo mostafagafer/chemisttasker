@@ -37,6 +37,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:19006",
     "http://192.168.1.7:19006",       # Expo Go dev server
     "exp://192.168.1.7:8081",        # Sometimes Expo uses exp:// protocol
+    "http://192.168.1.9:19006",       # Expo Go dev server
+    "exp://192.168.1.9:8081",        # Sometimes Expo uses exp:// protocol
     "http://localhost:8081",        # Your Django server (for completeness)
 ]
 

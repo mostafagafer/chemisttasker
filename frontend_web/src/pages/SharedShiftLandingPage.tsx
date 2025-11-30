@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link as RouterLink } from 'react-router-dom';
-import { Container, Typography, Card, CardContent, Button, Skeleton, Box, Chip, Divider, Stack } from '@mui/material';
+import { Container, Typography, Card, CardContent, Button, Skeleton, Chip, Divider, Stack } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
 import { getViewSharedShift } from '@chemisttasker/shared-core';

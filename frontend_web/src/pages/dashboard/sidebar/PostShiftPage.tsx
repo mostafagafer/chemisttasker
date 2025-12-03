@@ -53,8 +53,8 @@ import {
   EscalationLevelKey,
   fetchPharmaciesService,
   fetchActiveShiftDetailService,
-  createShift,
-  updateShift,
+  createOwnerShiftService,
+  updateOwnerShiftService,
 } from '@chemisttasker/shared-core';
 
 // --- Interface Definitions ---
@@ -555,10 +555,10 @@ const PostShiftPage: React.FC = () => {
 
     try {
       if (editingShiftId) {
-        await updateShift(editingShiftId, payload);
+        await updateOwnerShiftService(Number(editingShiftId), payload);
         showSnackbar('Shift updated successfully!');
       } else {
-        await createShift(payload);
+        await createOwnerShiftService(payload);
         showSnackbar('Shift posted successfully!');
       }
 

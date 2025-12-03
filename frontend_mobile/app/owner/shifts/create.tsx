@@ -38,7 +38,7 @@ export default function CreateShiftScreen() {
 
     const fetchPharmacies = async () => {
         try {
-            const response = await getPharmacies();
+            const response = await getPharmacies({});
             const list = Array.isArray((response as any)?.results)
                 ? (response as any).results
                 : Array.isArray(response)

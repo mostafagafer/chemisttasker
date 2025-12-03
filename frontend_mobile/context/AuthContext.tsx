@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   login as sharedLogin,
   register as sharedRegister,
-  getCurrentUser,
+  getOnboarding,
 } from '@chemisttasker/shared-core';
 import apiClient from '../utils/apiClient';
 
@@ -20,6 +20,8 @@ export type User = {
   username: string;
   email?: string;
   role: string;
+  profile_photo?: string;
+  profile_photo_url?: string;
   memberships?: OrgMembership[];
 };
 
@@ -71,6 +73,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [refresh, setRefresh] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshingProfile, setIsRefreshingProfile] = useState(false);
+  const [triedPhotoRefresh, setTriedPhotoRefresh] = useState(false);
 
   // Load tokens and user from AsyncStorage at app startup
   useEffect(() => {
@@ -87,7 +91,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setUser(null);
         } else {
           try {
-            setUser(JSON.parse(storedUser));
+            const parsed = JSON.parse(storedUser);
+            const normalized = normalizeUser(parsed);
+            setUser(normalized);
             setAccess(storedAccess);
             setRefresh(storedRefresh);
           } catch {
@@ -108,13 +114,39 @@ export function AuthProvider({ children }: AuthProviderProps) {
     loadStoredAuth();
   }, []);
 
+  const normalizeUser = (u: any): User => {
+    if (!u) return u;
+    const photo = u.profile_photo_url || u.profile_photo || u.profilePhoto;
+    return { ...u, profile_photo_url: photo, profile_photo: photo };
+  };
+
+  const fetchOnboardingProfile = async (role?: string, existing?: any) => {
+    const normalizedRole = (role || '').toLowerCase();
+    const safeRole = normalizedRole === 'other_staff' ? 'otherstaff' : normalizedRole || 'pharmacist';
+    const data = await getOnboarding(safeRole);
+    const merged = { ...(existing ?? {}), ...(data as any) };
+    return normalizeUser(merged);
+  };
+
   const login = async (newAccess: string, newRefresh: string, userInfo: User) => {
     setAccess(newAccess);
     setRefresh(newRefresh);
-    setUser(userInfo);
     await AsyncStorage.setItem('ACCESS_KEY', newAccess);
     await AsyncStorage.setItem('REFRESH_KEY', newRefresh);
-    await AsyncStorage.setItem('user', JSON.stringify(userInfo));
+
+    const baseUser = normalizeUser(userInfo);
+    setUser(baseUser);
+    await AsyncStorage.setItem('user', JSON.stringify(baseUser));
+
+    // Hydrate with onboarding profile if available (adds photo, phone, etc.)
+    try {
+      const hydrated = await fetchOnboardingProfile(baseUser.role, baseUser);
+      setUser(hydrated);
+      await AsyncStorage.setItem('user', JSON.stringify(hydrated));
+    } catch (error) {
+      const msg = (error as any)?.message || error;
+      console.debug('Onboarding profile fetch skipped:', msg);
+    }
   };
 
   const loginWithCredentials = async (email: string, password: string) => {
@@ -158,7 +190,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const verifyOTP = async (code: string) => {
     try {
       const response = await apiClient.post('/users/verify-otp/', { otp: code });
-      const updatedUser = response.data.user;
+      const updatedUser = normalizeUser(response.data.user);
       setUser(updatedUser);
       await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
     } catch (error: any) {
@@ -176,13 +208,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const refreshUser = async () => {
     try {
-      const data = await getCurrentUser();
-      setUser(data as User);
-      await AsyncStorage.setItem('user', JSON.stringify(data));
+      const hydrated = await fetchOnboardingProfile(user?.role, user);
+      setUser(hydrated as User);
+      await AsyncStorage.setItem('user', JSON.stringify(hydrated));
     } catch (error) {
-      console.error('Error refreshing user:', error);
+      const msg = (error as any)?.message || error;
+      console.debug('Error refreshing user (non-fatal):', msg);
     }
   };
+
+  // If we have a token but missing photo, pull a fresh user without forcing users to clear storage
+  useEffect(() => {
+    if (!access || isRefreshingProfile || triedPhotoRefresh) return;
+    const needsPhoto = user && !user.profile_photo_url && !user.profile_photo;
+    if (needsPhoto) {
+      setIsRefreshingProfile(true);
+      setTriedPhotoRefresh(true);
+      refreshUser().finally(() => setIsRefreshingProfile(false));
+    }
+  }, [access, user, isRefreshingProfile, triedPhotoRefresh]);
 
   const logout = async () => {
     setAccess(null);

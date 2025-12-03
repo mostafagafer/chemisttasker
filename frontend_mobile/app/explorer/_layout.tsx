@@ -5,7 +5,13 @@ export default function ExplorerTabs() {
     <Tabs>
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
       <Tabs.Screen name="shifts" options={{ title: 'Shifts' }} />
-      <Tabs.Screen name="notifications" options={{ title: 'Notifications' }} />
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          title: 'Notifications',
+          href: '/notifications',
+        }}
+      />
     </Tabs>
   );
 }

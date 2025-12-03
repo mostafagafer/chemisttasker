@@ -1,15 +1,16 @@
 import React, { useMemo, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, TouchableOpacity } from 'react-native';
 import { Tabs, usePathname, useRouter } from 'expo-router';
-import { IconButton, Portal, Modal, List, Divider, Button, Text } from 'react-native-paper';
+import { Avatar, IconButton, Portal, Modal, List, Divider, Button, Text } from 'react-native-paper';
 import { useAuth } from '../../context/AuthContext';
 
 const tabTitles: Record<string, string> = {
-  dashboard: 'Dashboard',
+  dashboard: 'Home',
   'shifts/index': 'Shifts',
   'post-shift': 'Post Shift',
+  'pharmacies/index': 'Pharmacies',
+  hub: 'Hub',
   messages: 'Messages',
-  profile: 'Profile',
 };
 
 const sidebarItems = [
@@ -61,6 +62,7 @@ function OwnerSidebar({ visible, onDismiss }: { visible: boolean; onDismiss: () 
 
 export default function OwnerLayout() {
   const router = useRouter();
+  const { user } = useAuth();
   const pathname = usePathname();
   const [sidebarVisible, setSidebarVisible] = useState(false);
 
@@ -105,6 +107,11 @@ export default function OwnerLayout() {
           headerRight: () => {
             const canGoBack = typeof router.canGoBack === 'function' ? router.canGoBack() : false;
             const showBack = !isDashboard;
+            const photo =
+              (user as any)?.profile_photo ||
+              (user as any)?.profile_photo_url ||
+              (user as any)?.profilePhoto ||
+              null;
             return (
               <>
                 {showBack ? (
@@ -121,7 +128,19 @@ export default function OwnerLayout() {
                     }}
                   />
                 ) : null}
-                <IconButton icon="bell-outline" onPress={() => router.push('/owner/notifications')} />
+                <IconButton icon="bell-outline" onPress={() => router.push('/notifications')} />
+                <TouchableOpacity onPress={() => router.push('/owner/profile' as any)}>
+                  {photo ? (
+                    <Avatar.Image size={32} source={{ uri: photo as string }} />
+                  ) : (
+                    <Avatar.Text
+                      size={32}
+                      label={(user?.username || user?.email || 'U').charAt(0).toUpperCase()}
+                      style={styles.avatar}
+                      labelStyle={styles.avatarLabel}
+                    />
+                  )}
+                </TouchableOpacity>
               </>
             );
           },
@@ -164,6 +183,15 @@ export default function OwnerLayout() {
           }}
         />
         <Tabs.Screen
+          name="pharmacies/index"
+          options={{
+            title: 'Pharmacies',
+            tabBarIcon: ({ color, size }) => (
+              <IconButton icon="store" iconColor={color} size={size} />
+            ),
+          }}
+        />
+        <Tabs.Screen
           name="messages"
           options={{
             title: 'Chat',
@@ -173,16 +201,21 @@ export default function OwnerLayout() {
           }}
         />
         <Tabs.Screen
-          name="profile"
+          name="hub"
           options={{
-            title: 'Profile',
+            title: 'Hub',
             tabBarIcon: ({ color, size }) => (
-              <IconButton icon="account" iconColor={color} size={size} />
+              <IconButton icon="account-group" iconColor={color} size={size} />
             ),
           }}
         />
         {/* Hidden but routable screens */}
-        <Tabs.Screen name="pharmacies/index" options={{ href: null }} />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            href: null,
+          }}
+        />
         <Tabs.Screen name="pharmacies/[id]" options={{ href: null }} />
         <Tabs.Screen name="pharmacies/[id]/staff" options={{ href: null }} />
         <Tabs.Screen name="pharmacies/[id]/locums" options={{ href: null }} />
@@ -194,7 +227,12 @@ export default function OwnerLayout() {
         <Tabs.Screen name="staff/index" options={{ href: null }} />
         <Tabs.Screen name="locums/index" options={{ href: null }} />
         <Tabs.Screen name="messages/[id]" options={{ href: null }} />
-        <Tabs.Screen name="notifications" options={{ href: null }} />
+        <Tabs.Screen
+          name="notifications"
+          options={{
+            href: '/notifications',
+          }}
+        />
         <Tabs.Screen name="onboarding" options={{ href: null }} />
       </Tabs>
     </>
@@ -212,4 +250,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontWeight: '600',
   },
+  avatar: { backgroundColor: '#6366F1' },
+  avatarLabel: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
 });

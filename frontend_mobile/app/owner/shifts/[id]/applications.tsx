@@ -27,7 +27,7 @@ export default function ShiftApplicationsScreen() {
     const fetchApplications = useCallback(async () => {
         try {
             setError('');
-            const response = await getWorkerShiftRequests();
+            const response = await getWorkerShiftRequests({});
             const list = Array.isArray((response as any)?.results)
                 ? (response as any).results
                 : Array.isArray(response)

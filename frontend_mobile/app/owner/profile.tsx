@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Text, Avatar, List, Button, Surface, Divider, Switch } from 'react-native-paper';
+import { Text, Avatar, List, Button, Surface, Divider, Switch, IconButton, Card } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
-import { getCurrentUser } from '@chemisttasker/shared-core';
+import { getOnboarding } from '@chemisttasker/shared-core';
+import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface UserProfile {
   id: number;
@@ -22,6 +24,45 @@ export default function OwnerProfileScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const menuItems = [
+    {
+      title: 'Personal Information',
+      description: 'Update your name, contact details and address',
+      icon: 'account-edit-outline',
+      route: '/owner/onboarding/review',
+    },
+    {
+      title: 'Professional Details',
+      description: 'Manage your business and verification details',
+      icon: 'certificate-outline',
+      route: '/owner/onboarding/review',
+    },
+    {
+      title: 'Availability',
+      description: 'Manage your shifts and schedules',
+      icon: 'calendar-clock',
+      route: '/owner/shifts/index',
+    },
+    {
+      title: 'Interests',
+      description: 'Update your clinical interests and preferences',
+      icon: 'heart-outline',
+      route: '/owner/onboarding/review',
+    },
+    {
+      title: 'Billing & Invoices',
+      description: 'Manage your invoices and payment details',
+      icon: 'file-document-outline',
+      route: '/owner/dashboard',
+    },
+    {
+      title: 'Learning & Development',
+      description: 'Access your training and CPD records',
+      icon: 'school-outline',
+      route: '/owner/dashboard',
+    },
+  ];
 
   useEffect(() => {
     fetchProfile();
@@ -29,8 +70,10 @@ export default function OwnerProfileScreen() {
 
   const fetchProfile = async () => {
     try {
-      const response = await getCurrentUser();
+      const response = await getOnboarding('owner');
       setProfile(response as UserProfile);
+      const photo = (response as any)?.profile_photo_url || (response as any)?.profile_photo || null;
+      if (photo) setProfilePhoto(photo);
     } catch (error) {
       console.error('Error fetching profile:', error);
       Alert.alert('Error', 'Failed to load profile data');
@@ -39,22 +82,48 @@ export default function OwnerProfileScreen() {
     }
   };
 
-  const handleLogout = async () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            await logout();
-            router.replace('/welcome');
+  const pickImage = async () => {
+    Alert.alert('Update Profile Photo', 'Choose an option', [
+      {
+        text: 'Take Photo',
+        onPress: async () => {
+          const { status } = await ImagePicker.requestCameraPermissionsAsync();
+          if (status !== 'granted') {
+            Alert.alert('Permission needed', 'Camera access is required');
+            return;
           }
-        }
-      ]
-    );
+          const result = await ImagePicker.launchCameraAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.8,
+          });
+          if (!result.canceled && result.assets[0]) {
+            setProfilePhoto(result.assets[0].uri);
+          }
+        },
+      },
+      {
+        text: 'Choose from Library',
+        onPress: async () => {
+          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (status !== 'granted') {
+            Alert.alert('Permission needed', 'Photo library access is required');
+            return;
+          }
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.8,
+          });
+          if (!result.canceled && result.assets[0]) {
+            setProfilePhoto(result.assets[0].uri);
+          }
+        },
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   if (loading) {
@@ -71,58 +140,68 @@ export default function OwnerProfileScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scrollView}>
         {/* Header Profile Section */}
-        <Surface style={styles.header} elevation={1}>
-          <View style={styles.profileInfo}>
-            {profile?.profile_photo ? (
-              <Avatar.Image
-                size={80}
-                source={{ uri: profile.profile_photo }}
-                style={styles.avatar}
-              />
-            ) : (
-              <Avatar.Text
-                size={80}
-                label={`${profile?.first_name?.[0] || ''}${profile?.last_name?.[0] || ''}`}
-                style={styles.avatar}
-              />
-            )}
-            <Text variant="headlineSmall" style={styles.name}>
-              {profile?.first_name} {profile?.last_name}
-            </Text>
-            <Text variant="bodyMedium" style={styles.email}>
-              {profile?.email}
-            </Text>
-            <View style={styles.roleBadge}>
-              <Text variant="labelSmall" style={styles.roleText}>
-                {profile?.role?.replace('_', ' ')}
+        <Card style={styles.heroCard} mode="contained">
+          <LinearGradient
+            colors={['#6366F1', '#8B5CF6']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.gradientHeader}
+          >
+            <View style={styles.heroContent}>
+              <View style={styles.avatarWrapper}>
+                {profilePhoto ? (
+                  <Avatar.Image size={92} source={{ uri: profilePhoto }} style={styles.avatar} />
+                ) : (
+                  <Avatar.Text
+                    size={92}
+                    label={`${profile?.first_name?.[0] || ''}${profile?.last_name?.[0] || ''}`}
+                    style={styles.avatar}
+                  />
+                )}
+                <IconButton
+                  icon="camera"
+                  size={20}
+                  style={styles.cameraButton}
+                  iconColor="#FFFFFF"
+                  containerColor="#6366F1"
+                  onPress={pickImage}
+                />
+              </View>
+              <Text variant="headlineSmall" style={styles.name}>
+                {profile?.first_name} {profile?.last_name}
               </Text>
+              <Text variant="bodyMedium" style={styles.email}>
+                {profile?.email}
+              </Text>
+              <View style={styles.roleBadge}>
+                <Text variant="labelSmall" style={styles.roleText}>
+                  {profile?.role?.replace('_', ' ')}
+                </Text>
+              </View>
             </View>
-          </View>
-        </Surface>
+          </LinearGradient>
+        </Card>
 
-        {/* Settings Sections */}
-        <View style={styles.section}>
-          <Text variant="titleSmall" style={styles.sectionTitle}>Account</Text>
-          <Surface style={styles.menuSurface} elevation={0}>
-            <List.Item
-              title="Personal Information"
-              left={props => <List.Icon {...props} icon="account" />}
-              right={props => <List.Icon {...props} icon="chevron-right" />}
-              onPress={() => router.push('/owner/onboarding/review')} // Re-using review screen for now as a "view profile"
-            />
-            <Divider />
-            <List.Item
-              title="Pharmacies"
-              left={props => <List.Icon {...props} icon="store" />}
-              right={props => <List.Icon {...props} icon="chevron-right" />}
-              onPress={() => router.push('/owner/pharmacies')}
-            />
-          </Surface>
+        <View style={styles.menuContainer}>
+          {menuItems.map((item, index) => (
+            <Card key={index} style={styles.menuCard} onPress={() => router.push(item.route as any)}>
+              <Card.Content style={styles.menuContent}>
+                <View style={styles.menuIcon}>
+                  <IconButton icon={item.icon} size={24} iconColor="#6366F1" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text variant="titleMedium" style={styles.menuTitle}>{item.title}</Text>
+                  <Text variant="bodySmall" style={styles.menuDesc}>{item.description}</Text>
+                </View>
+                <IconButton icon="chevron-right" size={24} iconColor="#9CA3AF" />
+              </Card.Content>
+            </Card>
+          ))}
         </View>
 
         <View style={styles.section}>
           <Text variant="titleSmall" style={styles.sectionTitle}>Preferences</Text>
-          <Surface style={styles.menuSurface} elevation={0}>
+          <Surface style={styles.listSurface} elevation={0}>
             <List.Item
               title="Notifications"
               left={props => <List.Icon {...props} icon="bell" />}
@@ -145,7 +224,7 @@ export default function OwnerProfileScreen() {
 
         <View style={styles.section}>
           <Text variant="titleSmall" style={styles.sectionTitle}>Support</Text>
-          <Surface style={styles.menuSurface} elevation={0}>
+          <Surface style={styles.listSurface} elevation={0}>
             <List.Item
               title="Help Center"
               left={props => <List.Icon {...props} icon="help-circle" />}
@@ -169,10 +248,13 @@ export default function OwnerProfileScreen() {
         <View style={styles.logoutContainer}>
           <Button
             mode="outlined"
-            onPress={handleLogout}
             textColor="#EF4444"
             style={styles.logoutButton}
             icon="logout"
+            onPress={async () => {
+              await logout();
+              router.replace('/login' as any);
+            }}
           >
             Logout
           </Button>
@@ -198,39 +280,54 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
-  header: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 24,
-    paddingHorizontal: 16,
+  heroCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
     marginBottom: 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
+    borderRadius: 20,
+    overflow: 'hidden',
   },
-  profileInfo: {
+  gradientHeader: {
+    paddingVertical: 28,
+    paddingHorizontal: 16,
     alignItems: 'center',
   },
+  heroContent: {
+    alignItems: 'center',
+    gap: 6,
+  },
+  avatarWrapper: {
+    position: 'relative',
+  },
   avatar: {
-    backgroundColor: '#E0E7FF',
-    marginBottom: 16,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    marginBottom: 10,
+  },
+  cameraButton: {
+    position: 'absolute',
+    bottom: -6,
+    right: -6,
   },
   name: {
     fontWeight: 'bold',
     color: '#111827',
     marginBottom: 4,
+    marginTop: 2,
   },
   email: {
-    color: '#6B7280',
-    marginBottom: 12,
+    color: '#E5E7EB',
+    marginBottom: 8,
   },
   roleBadge: {
-    backgroundColor: '#EEF2FF',
+    backgroundColor: 'rgba(255,255,255,0.2)',
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 16,
+    marginBottom: 4,
   },
   roleText: {
-    color: '#6366F1',
-    fontWeight: '600',
+    color: '#FFFFFF',
+    fontWeight: '700',
     textTransform: 'uppercase',
   },
   section: {
@@ -243,7 +340,42 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     fontWeight: '600',
   },
-  menuSurface: {
+  menuContainer: {
+    paddingHorizontal: 16,
+    gap: 12,
+    marginBottom: 24,
+  },
+  menuCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    elevation: 0,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  menuContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    gap: 8,
+  },
+  menuIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  menuTitle: {
+    fontWeight: '600',
+    color: '#111827',
+  },
+  menuDesc: {
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  listSurface: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     overflow: 'hidden',

@@ -30,7 +30,7 @@ export default function PharmaciesListScreen() {
     const fetchPharmacies = async () => {
         try {
             setError('');
-            const data = await getPharmacies();
+            const data = await getPharmacies({});
             // Handle both array and paginated response
             const pharmacyList = Array.isArray(data) ? data : (data as any).results || [];
             setPharmacies(pharmacyList);

@@ -4,17 +4,17 @@ import { Text, Surface, IconButton, Badge, ActivityIndicator } from 'react-nativ
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared-core';
 
-interface Notification {
+type Notification = {
   id: number;
   title: string;
   message: string;
   created_at: string;
   is_read: boolean;
-  type: string; // e.g., 'shift_application', 'message', 'system'
-  related_id?: number; // ID of the related object (shift, message, etc.)
-}
+  type: string;
+  related_id?: number;
+};
 
-export default function OwnerNotificationsScreen() {
+export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -47,49 +47,45 @@ export default function OwnerNotificationsScreen() {
 
   const markAsRead = async (id: number) => {
     try {
-      // Optimistic update
-      setNotifications(prev => prev.map(n =>
-        n.id === id ? { ...n, is_read: true } : n
-      ));
-
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
+      );
       await markNotificationsAsRead([id]);
     } catch (error) {
       console.error('Error marking notification as read:', error);
-      // Revert on error if needed, but for read status it's usually fine
     }
   };
 
   const getIconForType = (type: string) => {
     switch (type) {
-      case 'shift_application': return 'briefcase-check';
-      case 'message': return 'message-text';
-      case 'system': return 'information';
-      default: return 'bell';
+      case 'shift_application':
+        return 'briefcase-check';
+      case 'message':
+        return 'message-text';
+      case 'system':
+        return 'information';
+      default:
+        return 'bell';
     }
   };
 
   const renderItem = ({ item }: { item: Notification }) => (
     <Surface
-      style={[
-        styles.notificationItem,
-        !item.is_read && styles.unreadItem
-      ]}
+      style={[styles.notificationItem, !item.is_read && styles.unreadItem]}
       elevation={1}
     >
       <View style={styles.iconContainer}>
         <Surface style={styles.iconSurface} elevation={0}>
-          <IconButton
-            icon={getIconForType(item.type)}
-            size={24}
-            iconColor="#6366F1"
-          />
+          <IconButton icon={getIconForType(item.type)} size={24} iconColor="#6366F1" />
         </Surface>
         {!item.is_read && <Badge size={8} style={styles.unreadDot} />}
       </View>
 
       <View style={styles.contentContainer}>
         <View style={styles.headerRow}>
-          <Text variant="titleSmall" style={styles.title}>{item.title}</Text>
+          <Text variant="titleSmall" style={styles.title}>
+            {item.title}
+          </Text>
           <Text variant="bodySmall" style={styles.time}>
             {new Date(item.created_at).toLocaleDateString()}
           </Text>
@@ -100,12 +96,7 @@ export default function OwnerNotificationsScreen() {
       </View>
 
       {!item.is_read && (
-        <IconButton
-          icon="check"
-          size={20}
-          onPress={() => markAsRead(item.id)}
-          iconColor="#6B7280"
-        />
+        <IconButton icon="check" size={20} onPress={() => markAsRead(item.id)} iconColor="#6B7280" />
       )}
     </Surface>
   );
@@ -113,10 +104,12 @@ export default function OwnerNotificationsScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text variant="headlineSmall" style={styles.headerTitle}>Notifications</Text>
-        {notifications.filter(n => !n.is_read).length > 0 && (
+        <Text variant="headlineSmall" style={styles.headerTitle}>
+          Notifications
+        </Text>
+        {notifications.filter((n) => !n.is_read).length > 0 && (
           <Badge style={styles.headerBadge}>
-            {`${notifications.filter(n => !n.is_read).length} new`}
+            {`${notifications.filter((n) => !n.is_read).length} new`}
           </Badge>
         )}
       </View>
@@ -129,14 +122,14 @@ export default function OwnerNotificationsScreen() {
         <FlatList
           data={notifications}
           renderItem={renderItem}
-          keyExtractor={item => item.id.toString()}
+          keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Text variant="titleMedium" style={styles.emptyTitle}>No notifications</Text>
+              <Text variant="titleMedium" style={styles.emptyTitle}>
+                No notifications
+              </Text>
               <Text variant="bodyMedium" style={styles.emptyText}>
                 You&apos;re all caught up!
               </Text>

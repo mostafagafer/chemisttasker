@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { View, StyleSheet, TextInput as RNTextInput } from 'react-native';
 import { Text, TextInput, Button, Surface } from 'react-native-paper';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { BackHandler } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 
@@ -16,6 +17,21 @@ export default function VerifyOTPScreen() {
     const [resendCooldown, setResendCooldown] = useState(0);
 
     const inputRefs = useRef<(RNTextInput | null)[]>([]);
+
+    // Android hardware back: go back in navigation stack when possible
+    useFocusEffect(
+        useCallback(() => {
+            const onBackPress = () => {
+                if (router.canGoBack()) {
+                    router.back();
+                    return true; // we handled it
+                }
+                return false; // allow default (exit) when no history
+            };
+            const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+            return () => sub.remove();
+        }, [router])
+    );
 
     // Cooldown timer for resend
     useEffect(() => {

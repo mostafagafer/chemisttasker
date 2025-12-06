@@ -20,7 +20,8 @@ const sidebarItems = [
   { label: 'Invoices', icon: 'file-document-multiple', route: '/pharmacist/invoice' },
   { label: 'Interests', icon: 'heart-outline', route: '/pharmacist/interests' },
   { label: 'Learning', icon: 'school-outline', route: '/pharmacist/learning' },
-  { label: 'Notifications', icon: 'bell-outline', route: '/notifications' },
+  // notifications available via top bell; hidden from tab bar
+  { label: 'Notifications', icon: 'bell-outline', route: '/notifications', hidden: true },
 ];
 
 function PharmacistSidebar({
@@ -299,7 +300,7 @@ export default function PharmacistTabs() {
         <Tabs.Screen
           name="notifications"
           options={{
-            href: '/notifications',
+            href: null,
           }}
         />
         <Tabs.Screen name="shifts/[id]" options={{ href: null }} />

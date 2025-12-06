@@ -1,0 +1,127 @@
+npm install -g eas-cli
+
+eas login
+npx expo login
+
+npx eas credentials
+
+
+Install/update deps:
+
+npm install expo-notifications expo-device expo-constants (in frontend_mobile)
+npm install -g eas-cli
+Expo/EAS login:
+
+npx expo login
+eas login
+EAS credentials (FCM v1 key upload):
+
+npx eas credentials
+(Android → development → Google Service Account → Manage Push (FCM V1) → Set up → Upload new key, selected chemisttasker-dd2ad-firebase-adminsdk-fbsvc-2747110cf0.json)
+(Attempted and failed with old CLI): expo push:android:upload --api-key ./chemisttasker-dd2ad-firebase-adminsdk-fbsvc-2747110cf0.json
+Builds:
+
+eas build --profile development --platform android (dev client)
+(Later rebuild with new FCM config): eas build --profile development --platform android
+Running the app with dev client:
+
+npx expo start --dev-client --clear (then scanned the “Development build” QR with the installed dev client APK)
+Misc (auth/refresh):
+
+npx expo whoami (optional to check login)
+expo push:android:upload ... (deprecated/404 with old global CLI; replaced by npx eas credentials)
+If you rerun on another machine: install deps, log into Expo/EAS, ensure app.json and google-services.json are in place, upload the FCM v1 key via npx eas credentials, rebuild with eas build --profile development --platform android, install APK, and run npx expo start --dev-client --clear to load the app.
+
+when have we sat this mostafarg.chemisttasker and where?
+
+
+We set com.mostafarg.chemisttasker when the EAS build prompt asked for the Android application id during the first dev build. After that, we saved it in frontend_mobile/app.json under expo.android.package so it persists for all builds.
+
++++++++++++++++++++++++++++++
+Here’s a concise checklist you can save and use later to debug this kind of Expo + Django + mobile connection issue quickly:
+
+✅ Expo Go + Django Backend Debug Checklist
+🧪 1. Confirm Django Binding
+
+Run:
+
+python manage.py runserver 0.0.0.0:8000
+
+
+Then check:
+
+Get-NetTCPConnection -LocalPort 8000
+
+Expected:
+
+LocalAddress should be 0.0.0.0 or your LAN IP (e.g. 192.168.1.9)
+
+❌ If it's 127.0.0.1 → external devices CANNOT connect
+
+🧩 2. If Django is not reachable from phone
+
+Try:
+
+python manage.py runserver <your-LAN-IP>:8000
+
+
+E.g.:
+
+python manage.py runserver 192.168.1.9:8000
+
+
+Then check again:
+
+Get-NetTCPConnection -LocalPort 8000
+
+
+✅ If LocalAddress is now 192.168.1.9 → it will work from your phone.
+
+🌍 3. On Your Phone
+
+In browser:
+
+http://192.168.1.9:8000/api/
+
+
+✅ You should see JSON or a valid response
+
+❌ If not:
+
+Ensure phone is on same Wi-Fi
+
+Ensure no VPN or AP isolation is blocking LAN traffic
+
+🌐 4. In .env.local
+
+Set:
+
+EXPO_PUBLIC_API_URL=http://192.168.1.9:8000/api
+
+
+Then restart Expo:
+
+npx expo start --clear --lan
+
+🧱 5. Optional Fixes if Still Failing
+
+Temporarily disable firewall:
+
+netsh advfirewall set allprofiles state off
+
+
+Reset IP stack:
+
+netsh int ip reset
+netsh winsock reset
+shutdown /r /t 0
+
+🧼 6. Restore Clean Behavior
+
+After issue is fixed:
+
+0.0.0.0 binding will work again
+
+You can go back to:
+
+python manage.py runserver 0.0.0.0:8000

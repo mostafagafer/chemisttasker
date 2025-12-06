@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "frontend_mobile",
-    "slug": "frontend_mobile",
+    "name": "chemisttasker",
+    "slug": "chemisttasker",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -9,14 +9,17 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.mostafarg.chemisttasker"
     },
     "android": {
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.mostafarg.chemisttasker"
     },
     "web": {
       "bundler": "metro",
@@ -33,10 +36,16 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "75fa2fa5-e9ed-47af-a012-86967b951c5b"
+      }
     }
   }
 }

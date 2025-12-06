@@ -56,6 +56,7 @@ router.register(r'rooms', ConversationViewSet, basename='conversation')
 router.register(r'my-memberships', MyMembershipsViewSet, basename='my-memberships')
 router.register(r'messages', MessageViewSet, basename='message')
 router.register(r'notifications', NotificationViewSet, basename='notification')
+router.register(r'device-tokens', DeviceTokenViewSet, basename='device-token')
 
 
 # explorer post

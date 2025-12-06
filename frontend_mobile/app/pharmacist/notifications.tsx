@@ -1,1 +1,3 @@
-export { default } from '../notifications';
+export { default } from '@/roles/pharmacist/notifications';
+
+

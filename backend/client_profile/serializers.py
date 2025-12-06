@@ -4,7 +4,7 @@
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field, OpenApiTypes
 from .models import *
-from users.models import OrganizationMembership
+from users.models import OrganizationMembership, DeviceToken
 from users.serializers import UserProfileSerializer
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -3944,6 +3944,14 @@ class WorkerShiftRequestSerializer(serializers.ModelSerializer):
         validated_data["status"] = "PENDING"
 
         return super().create(validated_data)
+
+
+# === Notifications / Devices ===
+class DeviceTokenSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DeviceToken
+        fields = ["id", "platform", "token", "active", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 # === Rosters ===
 class RosterUserDetailSerializer(serializers.ModelSerializer):

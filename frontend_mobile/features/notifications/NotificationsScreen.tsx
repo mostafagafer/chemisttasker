@@ -7,9 +7,9 @@ import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared
 type Notification = {
   id: number;
   title: string;
-  message: string;
+  body: string;
   created_at: string;
-  is_read: boolean;
+  read_at?: string | null;
   type: string;
   related_id?: number;
 };
@@ -48,7 +48,7 @@ export default function NotificationsScreen() {
   const markAsRead = async (id: number) => {
     try {
       setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
+        prev.map((n) => (n.id === id ? { ...n, read_at: new Date().toISOString() } : n))
       );
       await markNotificationsAsRead([id]);
     } catch (error) {
@@ -71,14 +71,14 @@ export default function NotificationsScreen() {
 
   const renderItem = ({ item }: { item: Notification }) => (
     <Surface
-      style={[styles.notificationItem, !item.is_read && styles.unreadItem]}
+      style={[styles.notificationItem, !item.read_at && styles.unreadItem]}
       elevation={1}
     >
       <View style={styles.iconContainer}>
         <Surface style={styles.iconSurface} elevation={0}>
           <IconButton icon={getIconForType(item.type)} size={24} iconColor="#6366F1" />
         </Surface>
-        {!item.is_read && <Badge size={8} style={styles.unreadDot} />}
+        {!item.read_at && <Badge size={8} style={styles.unreadDot} />}
       </View>
 
       <View style={styles.contentContainer}>
@@ -87,15 +87,15 @@ export default function NotificationsScreen() {
             {item.title}
           </Text>
           <Text variant="bodySmall" style={styles.time}>
-            {new Date(item.created_at).toLocaleDateString()}
+            {item.created_at ? new Date(item.created_at).toLocaleDateString() : ''}
           </Text>
         </View>
         <Text variant="bodyMedium" style={styles.message} numberOfLines={2}>
-          {item.message}
+          {item.body}
         </Text>
       </View>
 
-      {!item.is_read && (
+      {!item.read_at && (
         <IconButton icon="check" size={20} onPress={() => markAsRead(item.id)} iconColor="#6B7280" />
       )}
     </Surface>
@@ -107,9 +107,9 @@ export default function NotificationsScreen() {
         <Text variant="headlineSmall" style={styles.headerTitle}>
           Notifications
         </Text>
-        {notifications.filter((n) => !n.is_read).length > 0 && (
+        {notifications.filter((n) => !n.read_at).length > 0 && (
           <Badge style={styles.headerBadge}>
-            {`${notifications.filter((n) => !n.is_read).length} new`}
+            {`${notifications.filter((n) => !n.read_at).length} new`}
           </Badge>
         )}
       </View>

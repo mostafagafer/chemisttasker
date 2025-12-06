@@ -104,3 +104,30 @@ class OrganizationMembership(models.Model):
 
     def __str__(self):
         return f"{self.user.email} ({self.role}) @ {self.organization.name}"
+
+
+class DeviceToken(models.Model):
+    """
+    Stores Expo/FCM/APNs push tokens per user.
+    """
+    PLATFORM_CHOICES = (
+        ("ios", "iOS"),
+        ("android", "Android"),
+        ("web", "Web"),
+    )
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="device_tokens")
+    platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES)
+    token = models.CharField(max_length=255, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["user"]),
+            models.Index(fields=["platform"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user.email} ({self.platform})"

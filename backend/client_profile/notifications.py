@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Iterable, Optional, Sequence
+import requests
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -8,6 +9,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from client_profile.models import Notification, Participant, Message
+from users.models import DeviceToken
 
 USER_GROUP_FMT = "user.{user_id}"
 
@@ -35,6 +37,29 @@ def _broadcast(user_id: int, event_type: str, payload: dict):
     )
 
 
+def _send_expo_push(tokens: Sequence[str], title: str, body: str, data: Optional[dict] = None) -> None:
+    if not tokens:
+        return
+    payloads = []
+    for token in tokens:
+        payloads.append({
+            "to": token,
+            "title": title,
+            "body": body,
+            "data": data or {},
+            "sound": "default",
+        })
+    try:
+        requests.post(
+            "https://exp.host/--/api/v2/push/send",
+            json=payloads,
+            timeout=5,
+        )
+    except Exception:
+        # Fail silently; do not break main notification flow
+        pass
+
+
 def notify_users(
     user_ids: Iterable[int],
     *,
@@ -43,7 +68,7 @@ def notify_users(
     notification_type: str = Notification.Type.TASK,
     action_url: Optional[str] = None,
     payload: Optional[dict] = None,
-) -> None:
+    ) -> None:
     payload = payload or {}
     users = list(
         get_user_model()
@@ -61,6 +86,11 @@ def notify_users(
         )
         _broadcast(notification.user_id, "notification.created", {"notification": _serialize_notification(notification)})
         _broadcast_notification_counter(notification.user_id)
+        # Push via Expo tokens for this user
+        tokens = list(
+            DeviceToken.objects.filter(user_id=notification.user_id, active=True).values_list("token", flat=True)
+        )
+        _send_expo_push(tokens, title=notification.title, body=notification.body, data=notification.payload or {})
 
 
 def mark_notifications_read(user, notification_ids: Optional[Sequence[int]] = None) -> int:

@@ -55,7 +55,7 @@ from datetime import timedelta                   # used in TimestampSigner max_a
 from decimal import Decimal                      # used in manual_assign
 import uuid                                      # used in generate_share_link
 from django.contrib.auth import get_user_model   # used in ChainViewSet.add_user
-from users.models import User, OrganizationMembership                    # referenced throughout (accept_user, etc.)
+from users.models import User, OrganizationMembership, DeviceToken                    # referenced throughout (accept_user, etc.)
 from users.utils import build_org_invite_context
 from users.org_roles import (
     OrgCapability,
@@ -63,7 +63,7 @@ from users.org_roles import (
     membership_visible_pharmacies,
     membership_visible_pharmacy_ids,
 )
-from client_profile.serializers import ShiftContactSerializer
+from client_profile.serializers import ShiftContactSerializer, DeviceTokenSerializer
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import mimetypes
@@ -5716,6 +5716,28 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
         unread = Notification.objects.filter(user=request.user, read_at__isnull=True).count()
         return Response({"marked": marked, "unread": unread})
 
+
+class DeviceTokenViewSet(mixins.CreateModelMixin,
+                         mixins.DestroyModelMixin,
+                         viewsets.GenericViewSet):
+    serializer_class = DeviceTokenSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return DeviceToken.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        token = serializer.validated_data.get("token")
+        platform = serializer.validated_data.get("platform")
+        # upsert by token to avoid duplicates
+        existing = DeviceToken.objects.filter(token=token).first()
+        if existing:
+            existing.platform = platform
+            existing.user = self.request.user
+            existing.active = True
+            existing.save(update_fields=["platform", "user", "active", "updated_at"])
+            return existing
+        serializer.save(user=self.request.user, active=True)
 
 class ChatMessagePagination(PageNumberPagination):
     page_size = 50

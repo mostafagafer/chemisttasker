@@ -8,7 +8,7 @@ Admin_codes
 __pycache__/
 *.py[cod]
 *$py.class
-
+chemisttasker-dd2ad-firebase-adminsdk-fbsvc-2747110cf0.json
 # SQLite DB
 db.sqlite3
 openapi.yaml

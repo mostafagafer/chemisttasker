@@ -1,0 +1,366 @@
+import React, { useEffect, useState } from 'react';
+import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import { Card, Text, Button, Divider, Avatar, IconButton, List, Surface, Switch } from 'react-native-paper';
+import { useAuth } from '../../context/AuthContext';
+import { useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
+
+export default function PharmacistProfileScreen() {
+  const { user, logout, refreshUser } = useAuth();
+  const router = useRouter();
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  // Seed local photo from user profile (including onboarding photo) when available
+  useEffect(() => {
+    const photo =
+      (user as any)?.profile_photo ||
+      (user as any)?.profile_photo_url ||
+      (user as any)?.profilePhoto ||
+      null;
+    if (photo && !profilePhoto) {
+      setProfilePhoto(photo);
+    }
+  }, [user, profilePhoto]);
+
+  // If we have no photo yet, try refreshing onboarding profile once
+  useEffect(() => {
+    if (!user?.profile_photo && !user?.profile_photo_url) {
+      void refreshUser();
+    }
+  }, [user?.profile_photo, user?.profile_photo_url, refreshUser]);
+
+  const pickImage = async () => {
+    Alert.alert(
+      'Update Profile Photo',
+      'Choose an option',
+      [
+        {
+          text: 'Take Photo',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permission needed', 'Camera access is required');
+              return;
+            }
+            const result = await ImagePicker.launchCameraAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+            });
+            if (!result.canceled && result.assets[0]) {
+              setProfilePhoto(result.assets[0].uri);
+              // TODO: Upload to backend
+              // uploadPhoto(result.assets[0].uri);
+            }
+          },
+        },
+        {
+          text: 'Choose from Library',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permission needed', 'Photo library access is required');
+              return;
+            }
+            const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+            });
+            if (!result.canceled && result.assets[0]) {
+              setProfilePhoto(result.assets[0].uri);
+              // TODO: Upload to backend
+              // uploadPhoto(result.assets[0].uri);
+            }
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const menuItems = [
+    {
+      title: 'Personal Information',
+      description: 'Update your name, contact details and address',
+      icon: 'account-edit-outline',
+      route: '/pharmacist/onboarding',
+    },
+    {
+      title: 'Professional Details',
+      description: 'Manage your AHPRA registration and qualifications',
+      icon: 'certificate-outline',
+      route: '/pharmacist/onboarding',
+    },
+    {
+      title: 'Availability',
+      description: 'Set your working hours and preferred locations',
+      icon: 'calendar-clock',
+      route: '/pharmacist/availability',
+    },
+    {
+      title: 'Interests',
+      description: 'Update your clinical interests and preferences',
+      icon: 'heart-outline',
+      route: '/pharmacist/interests',
+    },
+    {
+      title: 'Billing & Invoices',
+      description: 'Manage your invoices and payment details',
+      icon: 'file-document-outline',
+      route: '/pharmacist/invoice',
+    },
+    {
+      title: 'Learning & Development',
+      description: 'Access your training and CPD records',
+      icon: 'school-outline',
+      route: '/pharmacist/learning',
+    },
+  ];
+
+  const preferencesItems = [
+    {
+      title: 'Notifications',
+      icon: 'bell-outline',
+      onPress: () => router.push('/notifications' as any),
+      right: () => <Switch value />
+    },
+    {
+      title: 'App Settings',
+      icon: 'cog',
+      onPress: () => {},
+    },
+  ];
+
+  const supportItems = [
+    { title: 'Help Center', icon: 'help-circle', onPress: () => {} },
+    { title: 'Terms of Service', icon: 'file-document', onPress: () => {} },
+    { title: 'Privacy Policy', icon: 'shield-check', onPress: () => {} },
+  ];
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
+        <View style={styles.header}>
+          <Text variant="headlineMedium" style={styles.headerTitle}>Profile</Text>
+        </View>
+
+        <Card style={styles.profileCard}>
+          <LinearGradient
+            colors={['#6366F1', '#8B5CF6']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.gradientHeader}
+          >
+            <View style={styles.avatarContainer}>
+              {profilePhoto ? (
+                <Avatar.Image size={80} source={{ uri: profilePhoto }} />
+              ) : (
+                <Avatar.Text
+                  size={80}
+                  label={(user?.username || 'U').substring(0, 2).toUpperCase()}
+                  style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
+                  color="#FFFFFF"
+                />
+              )}
+              <IconButton
+                icon="camera"
+                size={20}
+                iconColor="#FFFFFF"
+                containerColor="#6366F1"
+                style={styles.cameraButton}
+                onPress={pickImage}
+              />
+            </View>
+            <Text variant="headlineSmall" style={styles.userName}>{user?.username || 'Pharmacist'}</Text>
+            <Text variant="bodyMedium" style={styles.userEmail}>{user?.email || 'email@example.com'}</Text>
+            <View style={styles.roleChip}>
+              <Text variant="labelSmall" style={styles.roleText}>{user?.role || 'PHARMACIST'}</Text>
+            </View>
+          </LinearGradient>
+        </Card>
+
+        <View style={styles.menuContainer}>
+          {menuItems.map((item, index) => (
+            <Card key={index} style={styles.menuCard} onPress={() => router.push(item.route as any)}>
+              <Card.Content style={styles.menuContent}>
+                <View style={styles.menuIcon}>
+                  <IconButton icon={item.icon} size={24} iconColor="#6366F1" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text variant="titleMedium" style={styles.menuTitle}>{item.title}</Text>
+                  <Text variant="bodySmall" style={styles.menuDesc}>{item.description}</Text>
+                </View>
+                <IconButton icon="chevron-right" size={24} iconColor="#9CA3AF" />
+              </Card.Content>
+            </Card>
+          ))}
+        </View>
+
+        <View style={styles.sectionBlock}>
+          <Text variant="titleSmall" style={styles.sectionTitle}>Preferences</Text>
+          <Surface style={styles.listSurface} elevation={0}>
+            {preferencesItems.map((item, idx) => (
+              <List.Item
+                key={`${item.title}-${idx}`}
+                title={item.title}
+                left={(props) => <List.Icon {...props} icon={item.icon} />}
+                right={item.right}
+                onPress={item.onPress}
+              />
+            ))}
+          </Surface>
+        </View>
+
+        <View style={styles.sectionBlock}>
+          <Text variant="titleSmall" style={styles.sectionTitle}>Support</Text>
+          <Surface style={styles.listSurface} elevation={0}>
+            {supportItems.map((item, idx) => (
+              <List.Item
+                key={`${item.title}-${idx}`}
+                title={item.title}
+                left={(props) => <List.Icon {...props} icon={item.icon} />}
+                right={(props) => <List.Icon {...props} icon="chevron-right" />}
+                onPress={item.onPress}
+              />
+            ))}
+          </Surface>
+        </View>
+
+        <Button
+          mode="outlined"
+          textColor="#DC2626"
+          style={styles.logoutButton}
+          contentStyle={{ height: 48 }}
+          icon="logout"
+          onPress={async () => {
+            await logout();
+            router.replace('/login' as any);
+          }}
+        >
+          Logout
+        </Button>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 16,
+  },
+  headerTitle: {
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  profileCard: {
+    marginHorizontal: 20,
+    borderRadius: 24,
+    overflow: 'hidden',
+    marginBottom: 24,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+  },
+  gradientHeader: {
+    padding: 32,
+    alignItems: 'center',
+  },
+  avatarContainer: {
+    position: 'relative',
+  },
+  cameraButton: {
+    position: 'absolute',
+    bottom: 0,
+    right: -4,
+    margin: 0,
+  },
+  userName: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    marginTop: 16,
+  },
+  userEmail: {
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 4,
+  },
+  roleChip: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  roleText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  menuContainer: {
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  menuCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    elevation: 0,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  menuContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    gap: 8,
+  },
+  menuIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  menuTitle: {
+    fontWeight: '600',
+    color: '#111827',
+  },
+  menuDesc: {
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  sectionBlock: {
+    paddingHorizontal: 20,
+    marginTop: 16,
+  },
+  sectionTitle: {
+    color: '#6B7280',
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+  listSurface: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  logoutButton: {
+    marginHorizontal: 20,
+    marginTop: 32,
+    borderColor: '#FCA5A5',
+    borderRadius: 12,
+    backgroundColor: '#FEF2F2',
+  },
+});

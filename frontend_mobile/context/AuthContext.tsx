@@ -6,6 +6,8 @@ import {
   getOnboarding,
 } from '@chemisttasker/shared-core';
 import apiClient from '../utils/apiClient';
+import { registerForPushNotificationsAsync, registerDeviceTokenWithBackend } from '../utils/pushNotifications';
+import * as Device from 'expo-device';
 
 // --- Types ---
 export interface OrgMembership {
@@ -39,6 +41,7 @@ type AuthContextType = {
   token: string | null;
   refresh: string | null;
   user: User | null;
+  hasCapability: (capability: string, pharmacyId?: number | string | null) => boolean;
   login: (access: string, refresh: string, user: User) => Promise<void>;
   loginWithCredentials: (email: string, password: string) => Promise<User>;
   register: (data: RegisterData) => Promise<void>;
@@ -54,6 +57,7 @@ const AuthContext = createContext<AuthContextType>({
   token: null,
   refresh: null,
   user: null,
+  hasCapability: () => false,
   login: async () => { },
   loginWithCredentials: async () => ({ id: 0, username: '', role: '' }),
   register: async () => { },
@@ -75,6 +79,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshingProfile, setIsRefreshingProfile] = useState(false);
   const [triedPhotoRefresh, setTriedPhotoRefresh] = useState(false);
+  const [registeredPush, setRegisteredPush] = useState(false);
 
   // Load tokens and user from AsyncStorage at app startup
   useEffect(() => {
@@ -113,6 +118,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
     loadStoredAuth();
   }, []);
+
+  useEffect(() => {
+    const setupPush = async () => {
+      if (!access || !user || registeredPush) return;
+      try {
+        const token = await registerForPushNotificationsAsync();
+        if (token) {
+          const platform = Device.osName?.toLowerCase().includes('ios') ? 'ios' : 'android';
+          await registerDeviceTokenWithBackend(token, platform as 'ios' | 'android');
+        }
+        setRegisteredPush(true);
+      } catch (err) {
+        console.error('Push registration failed', err);
+      }
+    };
+    void setupPush();
+  }, [access, user, registeredPush]);
 
   const normalizeUser = (u: any): User => {
     if (!u) return u;
@@ -232,7 +254,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setAccess(null);
     setRefresh(null);
     setUser(null);
+    setRegisteredPush(false);
     await AsyncStorage.multiRemove(['ACCESS_KEY', 'REFRESH_KEY', 'user']);
+  };
+
+  const hasCapability = (capability: string, pharmacyId?: number | string | null) => {
+    if (!user) return false;
+    const role = String(user.role || '').toUpperCase();
+    if (role === 'OWNER') return true;
+    const assignments: any[] = (user as any).admin_assignments || [];
+    return assignments.some((a) => {
+      const caps: string[] = a?.capabilities || [];
+      const pid = a?.pharmacy_id ?? a?.pharmacyId ?? a?.pharmacy;
+      const matchesPharmacy = pharmacyId ? String(pid ?? '') === String(pharmacyId) : true;
+      return matchesPharmacy && caps.includes(capability);
+    });
   };
 
   return (
@@ -242,6 +278,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         token: access,
         refresh,
         user,
+        hasCapability,
         login,
         loginWithCredentials,
         register,

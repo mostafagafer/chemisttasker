@@ -1,9 +1,3 @@
-import { View, Text } from 'react-native';
+export { default } from '@/roles/explorer/profile';
 
-export default function TabNameScreen() {
-  return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <Text>Explorer - Profile</Text>
-    </View>
-  );
-}
+

@@ -1,2 +1,4 @@
-export { default } from '@/roles/owner/messages/[id]';
+export { default } from '../../../roles/shared/messages/[id]';
+
+
 

@@ -1,1 +1,1 @@
-export { default } from '@/features/shifts/PostShiftScreen';
+export { default } from '@/roles/shared/shifts/PostShiftScreen';

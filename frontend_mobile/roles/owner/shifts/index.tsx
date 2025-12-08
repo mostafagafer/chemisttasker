@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from 'react-native-paper';
-import ActiveShiftsView from '@/features/shifts/ActiveShiftsView';
-import ConfirmedShiftsView from '@/features/shifts/ConfirmedShiftsView';
-import HistoryShiftsView from '@/features/shifts/HistoryShiftsView';
+import ActiveShiftsView from '@/roles/shared/shifts/ActiveShiftsView';
+import ConfirmedShiftsView from '@/roles/shared/shifts/ConfirmedShiftsView';
+import HistoryShiftsView from '@/roles/shared/shifts/HistoryShiftsView';
 
 export default function OwnerShiftCenter() {
   const [activeTab, setActiveTab] = useState<'active' | 'confirmed' | 'history'>('active');

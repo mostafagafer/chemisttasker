@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, SAFE_METHODS
 from rest_framework.generics import RetrieveUpdateAPIView
-from rest_framework.exceptions import NotFound, APIException, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, APIException, PermissionDenied, ValidationError, NotAuthenticated
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.decorators import action, api_view, permission_classes
 from .models import *
@@ -5727,17 +5727,27 @@ class DeviceTokenViewSet(mixins.CreateModelMixin,
         return DeviceToken.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
+        user = self.request.user
+        if not getattr(user, "is_authenticated", False):
+            # Make the failure explicit so clients know to retry after login
+            raise NotAuthenticated(detail="Login required before registering device token.")
+
         token = serializer.validated_data.get("token")
         platform = serializer.validated_data.get("platform")
+        if not token or not platform:
+            raise ValidationError({"detail": "Both token and platform are required."})
+
+        log.info("Registering device token", extra={"user_id": getattr(user, "id", None), "platform": platform, "token_prefix": (token or "")[:8]})
+
         # upsert by token to avoid duplicates
         existing = DeviceToken.objects.filter(token=token).first()
         if existing:
             existing.platform = platform
-            existing.user = self.request.user
+            existing.user = user
             existing.active = True
             existing.save(update_fields=["platform", "user", "active", "updated_at"])
             return existing
-        serializer.save(user=self.request.user, active=True)
+        serializer.save(user=user, active=True)
 
 class ChatMessagePagination(PageNumberPagination):
     page_size = 50

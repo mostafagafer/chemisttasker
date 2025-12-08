@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 import {
   login as sharedLogin,
   register as sharedRegister,
@@ -81,6 +82,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [triedPhotoRefresh, setTriedPhotoRefresh] = useState(false);
   const [registeredPush, setRegisteredPush] = useState(false);
 
+  const applyAuthHeader = (token?: string | null) => {
+    if (token) {
+      apiClient.defaults.headers.common.Authorization = `Bearer ${token}`;
+      axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+    } else {
+      delete apiClient.defaults.headers.common.Authorization;
+      delete axios.defaults.headers.common.Authorization;
+    }
+  };
+
   // Load tokens and user from AsyncStorage at app startup
   useEffect(() => {
     const loadStoredAuth = async () => {
@@ -101,6 +112,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             setUser(normalized);
             setAccess(storedAccess);
             setRefresh(storedRefresh);
+            applyAuthHeader(storedAccess);
           } catch {
             await AsyncStorage.removeItem('user');
             setUser(null);
@@ -155,6 +167,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setRefresh(newRefresh);
     await AsyncStorage.setItem('ACCESS_KEY', newAccess);
     await AsyncStorage.setItem('REFRESH_KEY', newRefresh);
+    applyAuthHeader(newAccess);
 
     const baseUser = normalizeUser(userInfo);
     setUser(baseUser);
@@ -255,6 +268,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setRefresh(null);
     setUser(null);
     setRegisteredPush(false);
+    applyAuthHeader(null);
     await AsyncStorage.multiRemove(['ACCESS_KEY', 'REFRESH_KEY', 'user']);
   };
 

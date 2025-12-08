@@ -1,3 +1,5 @@
-export { default } from '@/roles/pharmacist/chat';
+export { default } from '@/roles/shared/chat';
+
+
 
 

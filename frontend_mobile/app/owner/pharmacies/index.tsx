@@ -1,3 +1,1 @@
-export { default } from '@/roles/owner/pharmacies/index';
-
-
+export { default } from '../../../roles/shared/pharmacies/PharmacyOverviewContainer';

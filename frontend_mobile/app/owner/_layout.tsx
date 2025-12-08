@@ -215,10 +215,7 @@ export default function OwnerLayout() {
         <Tabs.Screen
           name="messages"
           options={{
-            title: 'Chat',
-            tabBarIcon: ({ color, size }) => (
-              <IconButton icon="message" iconColor={color} size={size} />
-            ),
+            href: null,
           }}
         />
         <Tabs.Screen
@@ -227,6 +224,15 @@ export default function OwnerLayout() {
             title: 'Hub',
             tabBarIcon: ({ color, size }) => (
               <IconButton icon="account-group" iconColor={color} size={size} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="chat"
+          options={{
+            title: 'Chat',
+            tabBarIcon: ({ color, size }) => (
+              <IconButton icon="message" iconColor={color} size={size} />
             ),
           }}
         />

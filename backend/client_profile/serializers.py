@@ -3952,6 +3952,10 @@ class DeviceTokenSerializer(serializers.ModelSerializer):
         model = DeviceToken
         fields = ["id", "platform", "token", "active", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
+        # Allow upsert-by-token logic in the view without the unique validator blocking the request
+        extra_kwargs = {
+            "token": {"validators": []},
+        }
 
 # === Rosters ===
 class RosterUserDetailSerializer(serializers.ModelSerializer):
@@ -4364,6 +4368,9 @@ class ConversationListSerializer(serializers.ModelSerializer):
     is_pinned = serializers.SerializerMethodField()
     pinned_message = serializers.SerializerMethodField()
     created_by_user_id = serializers.IntegerField(source='created_by_id', read_only=True)
+    my_is_admin = serializers.SerializerMethodField()
+    can_manage = serializers.SerializerMethodField()
+    can_delete = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
@@ -4371,6 +4378,7 @@ class ConversationListSerializer(serializers.ModelSerializer):
             "id", "created_by", "type", "title","pharmacy","updated_at", "last_message",
             "unread_count", "participant_ids", "my_last_read_at", "my_membership_id",
             "is_pinned", "pinned_message", "created_by_user_id",
+            "my_is_admin", "can_manage", "can_delete",
 
         ]
 
@@ -4452,6 +4460,62 @@ class ConversationListSerializer(serializers.ModelSerializer):
 
     def get_participant_ids(self, obj):
         return list(obj.participants.values_list("membership_id", flat=True))
+
+    def get_my_is_admin(self, obj):
+        my_part = self._get_my_participant(obj)
+        return bool(getattr(my_part, "is_admin", False)) if my_part else False
+
+    def get_can_manage(self, obj):
+        """
+        Match ConversationViewSet logic:
+        - Pharmacy chat: require comms admin capability.
+        - Custom group: creator or participant admin.
+        """
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        my_part = self._get_my_participant(obj)
+        if obj.pharmacy_id:
+            try:
+                from client_profile.admin_helpers import has_admin_capability, CAPABILITY_MANAGE_COMMS
+                return has_admin_capability(user, obj.pharmacy, CAPABILITY_MANAGE_COMMS)
+            except Exception:
+                return False
+        if obj.created_by_id == user.id:
+            return True
+        return bool(getattr(my_part, "is_admin", False))
+
+    def get_can_delete(self, obj):
+        """
+        Align with perform_destroy:
+        - Pharmacy chat: comms admin only.
+        - Custom group: creator or admin (or self-only group).
+        - DM: participants can delete-for-me (handled server-side); expose true so client can show delete-for-me.
+        """
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        my_part = self._get_my_participant(obj)
+        if obj.type == Conversation.Type.DM:
+            return True
+        if obj.pharmacy_id:
+            try:
+                from client_profile.admin_helpers import has_admin_capability, CAPABILITY_MANAGE_COMMS
+                return has_admin_capability(user, obj.pharmacy, CAPABILITY_MANAGE_COMMS)
+            except Exception:
+                return False
+        if obj.created_by_id == user.id:
+            return True
+        if my_part and getattr(my_part, "is_admin", False):
+            return True
+        try:
+            if obj.participants.count() == 1 and my_part:
+                return True
+        except Exception:
+            pass
+        return False
 
 class ConversationCreateSerializer(serializers.ModelSerializer):
     participants = serializers.PrimaryKeyRelatedField(
@@ -4553,6 +4617,13 @@ class ChatParticipantSerializer(serializers.ModelSerializer):
     in a user's conversations, regardless of their active status.
     """
     user_details = ChatMemberSerializer(source='user', read_only=True)
+    is_admin = serializers.SerializerMethodField()
+
+    def get_is_admin(self, obj):
+        # A membership can have multiple participant rows; return True if any mark this membership as admin.
+        from .models import Participant  # local import to avoid cycles
+        return Participant.objects.filter(membership=obj, is_admin=True).exists()
+
     class Meta:
         model = Membership
         fields = [
@@ -4561,6 +4632,7 @@ class ChatParticipantSerializer(serializers.ModelSerializer):
             "role",
             "employment_type",
             "invited_name",
+            "is_admin",
         ]
 
 class ShiftContactSerializer(serializers.Serializer):

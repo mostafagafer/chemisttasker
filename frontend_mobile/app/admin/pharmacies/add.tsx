@@ -1,6 +1,15 @@
 import React from 'react';
-import PharmacyForm from '@/features/pharmacies/PharmacyForm';
+import { useRouter } from 'expo-router';
+import PharmacyForm from '@/roles/shared/pharmacies/PharmacyForm';
 
 export default function AdminAddPharmacyScreen() {
-  return <PharmacyForm mode="create" onSuccessPath="/admin/pharmacies" />;
+  const router = useRouter();
+
+  return (
+    <PharmacyForm
+      mode="create"
+      onSuccess={() => router.push('/admin/pharmacies')}
+      onCancel={() => router.back()}
+    />
+  );
 }

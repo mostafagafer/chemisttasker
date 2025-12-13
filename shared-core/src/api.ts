@@ -1304,6 +1304,12 @@ export function voteOnHubPoll(id, optionId) {
         body: JSON.stringify({ option_id: optionId }),
     });
 }
+export function updateHubPoll(id, data) {
+    return fetchApi(`/client-profile/hub/polls/${id}/`, { method: 'PATCH', body: JSON.stringify(data) });
+}
+export function deleteHubPoll(id) {
+    return fetchApi(`/client-profile/hub/polls/${id}/`, { method: 'DELETE' });
+}
 export function updatePharmacyHubProfile(id, data) {
     return fetchApi(`/client-profile/hub/pharmacies/${id}/profile/`, { method: 'PATCH', body: data });
 }
@@ -1426,6 +1432,7 @@ const mapPoll = (api) => ({
     hasVoted: api.has_voted,
     selectedOptionId: api.selected_option_id,
     canVote: api.can_vote,
+    canManage: api.can_manage ?? false,
     createdAt: api.created_at,
     updatedAt: api.updated_at,
     closesAt: api.closes_at,
@@ -1586,6 +1593,18 @@ export async function createHubPollService(scope, payload) {
 export async function voteHubPollService(pollId, optionId) {
     const data = await voteOnHubPoll(pollId, optionId);
     return mapPoll(data);
+}
+export async function updateHubPollService(pollId, payload) {
+    const body = {};
+    if (payload.question !== undefined)
+        body.question = payload.question;
+    if (payload.options)
+        body.options = payload.options;
+    const data = await updateHubPoll(pollId, body);
+    return mapPoll(data);
+}
+export async function deleteHubPollService(pollId) {
+    await deleteHubPoll(pollId);
 }
 export async function createHubPostService(scope, payload) {
     const { data, isMultipart } = buildPostFormData(payload, scope);

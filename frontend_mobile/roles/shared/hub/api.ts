@@ -1,3 +1,5 @@
+// Thin re-export layer so mobile hub screens can import from a single local module.
+// Mirrors frontend_web/src/api/hub.ts but keeps paths stable in mobile.
 export {
   fetchHubContext,
   fetchHubPosts,
@@ -10,16 +12,16 @@ export {
   fetchOrganizationMembers,
   fetchHubGroupMembers,
   removeHubReaction,
-} from "@chemisttasker/shared-core";
+} from '@chemisttasker/shared-core';
 
 export {
   createHubPollService as createHubPoll,
-  updateHubPollService as updateHubPoll,
-  deleteHubPollService as deleteHubPoll,
   voteHubPollService as voteHubPoll,
   createHubPostService as createHubPost,
   updateHubPostService as updateHubPost,
   deleteHubPostService as deleteHubPost,
+  updateHubPollService as updateHubPoll,
+  deleteHubPollService as deleteHubPoll,
   pinHubPostService as pinHubPost,
   unpinHubPostService as unpinHubPost,
   createHubCommentService as createHubComment,
@@ -33,4 +35,4 @@ export {
   deleteHubGroupService as deleteHubGroup,
   updatePharmacyHubProfileService as updatePharmacyHubProfile,
   updateOrganizationHubProfileService as updateOrganizationHubProfile,
-} from "@chemisttasker/shared-core";
+} from '@chemisttasker/shared-core';

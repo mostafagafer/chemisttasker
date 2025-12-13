@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+﻿import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TouchableOpacity } from 'react-native';
 import { Text, TextInput, IconButton, Surface, ActivityIndicator, Menu, Divider, Snackbar } from 'react-native-paper';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import {
     getRoomMessages,
@@ -38,6 +38,7 @@ export default function SharedMessageDetailScreen() {
     const { id, name } = useLocalSearchParams();
     const router = useRouter();
     const { user, access } = useAuth();
+    const insets = useSafeAreaInsets();
 
     const [messages, setMessages] = useState<MessageDisplay[]>([]);
     const [newMessage, setNewMessage] = useState('');
@@ -50,14 +51,15 @@ export default function SharedMessageDetailScreen() {
     const [typingUsernames, setTypingUsernames] = useState<string[]>([]);
     const typingSentRef = useRef(0);
     const [lastReadAt, setLastReadAt] = useState<string | null>(null);
-    const flatListRef = useRef<FlatList<MessageDisplay>>(null);
-    const pollRef = useRef<number | null>(null);
+    const shouldScrollRef = useRef<boolean>(false);
 
     const parseRoomId = useCallback(() => {
         if (Array.isArray(id)) return parseInt(id[0], 10);
         if (typeof id === 'string') return parseInt(id, 10);
         return typeof id === 'number' ? id : NaN;
     }, [id]);
+
+    const flatListRef = useRef<FlatList<MessageDisplay>>(null);
 
     const fetchMessages = useCallback(async () => {
         const roomId = parseRoomId();
@@ -99,7 +101,7 @@ export default function SharedMessageDetailScreen() {
                 (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
             );
             setMessages(sorted);
-            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 50);
+            shouldScrollRef.current = true;
             const res = await markRoomAsRead(roomId);
             if ((res as any)?.last_read_at) {
                 setLastReadAt((res as any).last_read_at);
@@ -113,14 +115,25 @@ export default function SharedMessageDetailScreen() {
 
     useEffect(() => {
         void fetchMessages();
-        // The polling via setInterval has been removed. It was causing a race condition
-        // with WebSocket updates, making new messages disappear. The initial fetch on
-        // mount and the live WebSocket connection are the correct pattern.
-        return () => {
-            // Cleanup ref just in case
-            if (pollRef.current) clearInterval(pollRef.current);
-        };
     }, [fetchMessages]);
+
+    // After initial load/render, scroll to the bottom once the list is mounted
+    useEffect(() => {
+        if (!loading && messages.length > 0 && shouldScrollRef.current) {
+            requestAnimationFrame(() => {
+                scrollIfNeeded();
+            });
+        }
+    }, [loading, messages.length]);
+
+    // Mirror web: whenever messages or room change, jump to bottom after layout frame.
+    useEffect(() => {
+        if (loading || messages.length === 0) return;
+        requestAnimationFrame(() => {
+            flatListRef.current?.scrollToEnd({ animated: false });
+            shouldScrollRef.current = false;
+        });
+    }, [messages.length, parseRoomId, loading]);
 
     useFocusEffect(
         useCallback(() => {
@@ -163,7 +176,7 @@ export default function SharedMessageDetailScreen() {
                     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                 )
             );
-            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
+            shouldScrollRef.current = true;
         } else if (payload.type === 'message.updated') {
             const msg = payload.message || payload;
             setMessages((prev) =>
@@ -238,8 +251,8 @@ export default function SharedMessageDetailScreen() {
                     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                 )
             );
+            shouldScrollRef.current = true;
             setNewMessage('');
-            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
         } catch (error) {
             console.error('Error sending message:', error);
         } finally {
@@ -283,7 +296,8 @@ export default function SharedMessageDetailScreen() {
                     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                 )
             );
-            setNewMessage('');
+            shouldScrollRef.current = true;
+            setNewMessage(''); // This was already correct, just ensuring it's not changed.
         } catch (err: any) {
             console.error('Attachment send failed', err);
             setSnackbar(err?.message || 'Failed to send attachment');
@@ -307,10 +321,38 @@ export default function SharedMessageDetailScreen() {
 
     const debouncedTyping = useMemo(() => debounce(sendTyping, 300), [sendTyping]);
 
+    const scrollIfNeeded = () => {
+        if (!shouldScrollRef.current) return;
+        if (flatListRef.current) {
+            flatListRef.current.scrollToEnd({ animated: false });
+            shouldScrollRef.current = false;
+        }
+    };
+
     const onReact = async (messageId: number, reaction: string) => {
         try {
-            const updated = await reactToMessageService(messageId, reaction);
-            setMessages((prev) => prev.map((m) => (m.id === updated.id ? { ...m, reactions: updated.reactions ?? [] } : m)));
+            const userId = user?.id;
+            // Optimistic local update to avoid waiting for WS echo
+            if (userId) {
+                setMessages((prev) =>
+                    prev.map((m) => {
+                        if (m.id !== messageId) return m;
+                        const current = m.reactions || [];
+                        const mine = current.find((r) => r.user_id === userId);
+                        let next = current;
+                        if (mine) {
+                            next = current.filter((r) => r.user_id !== userId);
+                            if (mine.reaction !== reaction) {
+                                next = [...next, { user_id: userId, reaction }];
+                            }
+                        } else {
+                            next = [...current, { user_id: userId, reaction }];
+                        }
+                        return { ...m, reactions: next };
+                    }),
+                );
+            }
+            await reactToMessageService(messageId, reaction);
         } catch (err: any) {
             setSnackbar(err?.response?.data?.detail || 'Reaction failed');
         }
@@ -361,15 +403,22 @@ export default function SharedMessageDetailScreen() {
         },
         [user?.id],
     );
+    // Emoji options for sending.
+    const REACTION_EMOJIS = ['👍', '❤️', '🔥', '💩'];
 
-    // Backend payloads -> display emoji
-    const REACTION_PAYLOADS = ['dY`?', '??\u000f?,?', 'dY\"?', "dY'c"];
     const REACTION_DISPLAY: Record<string, string> = {
-        'dY`?': '\U0001f44d',
-        '??\u000f?,?': '\u2764\ufe0f',
-        'dY\"?': '\U0001f525',
-        "dY'c": '\U0001f4a9',
+        '👍': '👍',
+        '❤️': '❤️',
+        '🔥': '🔥',
+        '💩': '💩',
     };
+    const reactionToEmoji = (value: string) => REACTION_DISPLAY[value] ?? value;
+
+const pinnedMessage = useMemo(() => {
+        const pinned = messages.filter((m) => m.is_pinned);
+        if (!pinned.length) return null;
+        return pinned.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+    }, [messages]);
 
     const renderReactions = (item: MessageDisplay) => {
         if (!item.reactions || item.reactions.length === 0) return null;
@@ -378,12 +427,12 @@ export default function SharedMessageDetailScreen() {
             return acc;
         }, {});
         const mine = viewerReaction(item);
-        return (
+        return ( // This was already correct, just ensuring it's not changed.
             <View style={styles.reactionsRow}>
                 {Object.entries(grouped).map(([payload, count]) => {
-                    const emoji = REACTION_DISPLAY[payload] ?? payload;
+                    const emoji = reactionToEmoji(payload);
                     return (
-                        <View key={payload} style={[styles.reactionChip, mine === payload ? styles.myReactionChip : null]}>
+                        <View key={emoji} style={[styles.reactionChip, mine === payload ? styles.myReactionChip : null]}>
                             <Text style={{ fontSize: 12 }}>{emoji} {count}</Text>
                         </View>
                     );
@@ -428,7 +477,7 @@ export default function SharedMessageDetailScreen() {
                             styles.timestamp,
                             isMe ? styles.myTimestamp : styles.theirTimestamp
                         ]}>
-                            {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {new Date(item.created_at).toLocaleDateString('en-AU')} {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </Text>
                     </Surface>
                 </TouchableOpacity>
@@ -440,9 +489,18 @@ export default function SharedMessageDetailScreen() {
                     {isMe ? <Menu.Item leadingIcon="pencil" onPress={() => onEditStart(item)} title="Edit" /> : null}
                     {isMe ? <Menu.Item leadingIcon="delete" onPress={() => onDelete(item.id as number)} title="Delete" /> : null}
                     <Divider />
-                    {REACTION_PAYLOADS.map((payload) => (
-                        <Menu.Item key={payload} onPress={() => onReact(item.id as number, payload)} title={`React ${REACTION_DISPLAY[payload] ?? payload}`} />
-                    ))}
+                    <View style={styles.reactionPicker}>
+                        {REACTION_EMOJIS.map((emoji) => (
+                            <TouchableOpacity
+                                key={emoji}
+                                onPress={() => onReact(item.id as number, emoji)}
+                                style={styles.reactionOption}
+                            >
+                                <Text style={styles.reactionEmoji}>{emoji}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                    <Divider />
                     {viewerReaction(item) ? (
                         <Menu.Item leadingIcon="close" onPress={() => onReact(item.id as number, viewerReaction(item) as string)} title="Remove reaction" />
                     ) : null}
@@ -455,33 +513,62 @@ export default function SharedMessageDetailScreen() {
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+            <View style={styles.container}>
             <Stack.Screen options={{
                 headerShown: true,
                 title: (name as string) || 'Chat',
+                headerTitleAlign: 'left',
+                headerStyle: {
+                    backgroundColor: '#FFFFFF',
+                },
                 headerBackTitle: 'Messages',
                 headerRight: () => (
                     <IconButton icon={roomPinned ? 'pin' : 'pin-outline'} onPress={onPinRoom} />
                 ),
             }} />
 
-            {loading ? (
-                <View style={styles.centerContainer}>
-                    <ActivityIndicator size="large" color="#6366F1" />
-                </View>
-            ) : (
+            {pinnedMessage ? (
+                <Surface
+                    style={styles.pinnedBanner}
+                    elevation={1}
+                    onTouchEnd={() => {
+                        if (!pinnedMessage?.id || !flatListRef.current) return;
+                        const idx = messages.findIndex((m) => m.id === pinnedMessage.id);
+                        if (idx >= 0) {
+                            try {
+                                flatListRef.current.scrollToIndex({ index: idx, animated: true });
+                            } catch {
+                                flatListRef.current.scrollToEnd({ animated: true });
+                            }
+                        }
+                    }}
+                >
+                    <Text style={styles.pinnedTitle}>Pinned</Text>
+                    <Text style={styles.pinnedBody} numberOfLines={2}>{pinnedMessage!.body || 'Pinned message'}</Text>
+                    <IconButton icon="pin-off" size={18} onPress={() => onPinMessage(pinnedMessage!.id as number)} />
+                </Surface>
+            ) : null}
+
+            <View style={{ flex: 1 }}>
                 <FlatList
                     ref={flatListRef}
                     data={messages}
                     renderItem={renderMessage}
                     keyExtractor={(item, index) => `${item.id ?? 'msg'}-${item.created_at ?? index}`}
-                    contentContainerStyle={styles.listContent}
-                    onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
+                    contentContainerStyle={[styles.listContent, { paddingBottom: 24 + insets.bottom }]}
+                    onContentSizeChange={scrollIfNeeded}
+                    onLayout={scrollIfNeeded}
                 />
-            )}
+                {loading ? (
+                    <View style={[StyleSheet.absoluteFill, styles.centerContainer]}>
+                        <ActivityIndicator size="large" color="#6366F1" />
+                    </View>
+                ) : null}
+            </View>
 
             {lastReadAt ? (
                 <Text style={styles.readReceipt}>
-                    Seen up to {new Date(lastReadAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    Seen up to {new Date(lastReadAt!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </Text>
             ) : null}
 
@@ -491,7 +578,7 @@ export default function SharedMessageDetailScreen() {
 
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 44 : 0}
             >
                 <Surface style={styles.inputContainer} elevation={4}>
                     <TextInput
@@ -526,6 +613,7 @@ export default function SharedMessageDetailScreen() {
             <Snackbar visible={!!snackbar} onDismiss={() => setSnackbar(null)} duration={3000}>
                 {snackbar}
             </Snackbar>
+            </View>
         </SafeAreaView>
     );
 }
@@ -613,6 +701,23 @@ const styles = StyleSheet.create({
         gap: 6,
         marginTop: 6,
     },
+    reactionPicker: {
+        flexDirection: 'row',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        gap: 10,
+    },
+    reactionOption: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#EEF2FF',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    reactionEmoji: {
+        fontSize: 18,
+    },
     reactionChip: {
         backgroundColor: '#E0E7FF',
         borderRadius: 10,
@@ -625,6 +730,28 @@ const styles = StyleSheet.create({
     pinned: {
         borderWidth: 1,
         borderColor: '#F59E0B',
+    },
+    pinnedBanner: {
+        marginHorizontal: 12,
+        marginTop: 8,
+        marginBottom: 4,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 10,
+        backgroundColor: '#FFFBEB',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    pinnedTitle: {
+        fontSize: 12,
+        color: '#92400E',
+        fontWeight: '600',
+    },
+    pinnedBody: {
+        flex: 1,
+        fontSize: 13,
+        color: '#78350F',
     },
     typing: {
         paddingHorizontal: 12,

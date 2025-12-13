@@ -4,7 +4,7 @@
     "slug": "chemisttasker",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/Chemisttasker.png",
+    "icon": "./assets/images/Chemisttasker-icon-1024.png",
     "scheme": "frontendmobile",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -15,7 +15,7 @@
     "android": {
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/Chemisttasker.png",
+        "foregroundImage": "./assets/images/Chemisttasker-icon-1024.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
@@ -31,13 +31,14 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/Chemisttasker.png",
+          "image": "./assets/images/Chemisttasker-splash-2048x3072.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

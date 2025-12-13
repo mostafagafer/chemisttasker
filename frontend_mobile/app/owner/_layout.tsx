@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { StyleSheet, TouchableOpacity } from 'react-native';
+﻿import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Tabs, usePathname, useRouter } from 'expo-router';
 import { Avatar, IconButton, Portal, Modal, List, Divider, Button, Text } from 'react-native-paper';
 import { useAuth } from '../../context/AuthContext';
-import { getNotifications } from '@chemisttasker/shared-core';
+import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared-core';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
 
 const tabTitles: Record<string, string> = {
   dashboard: 'Home',
@@ -12,7 +13,6 @@ const tabTitles: Record<string, string> = {
   'post-shift': 'Post Shift',
   'pharmacies/index': 'Pharmacies',
   hub: 'Hub',
-  messages: 'Messages',
   notifications: 'Notifications',
 };
 
@@ -22,7 +22,7 @@ const sidebarItems = [
   { label: 'Staff', icon: 'account-group', route: '/owner/staff' },
   { label: 'Locums', icon: 'account-heart', route: '/owner/locums' },
   { label: 'Shifts', icon: 'calendar-month', route: '/owner/shifts' },
-  { label: 'Messages', icon: 'message', route: '/owner/messages' },
+  { label: 'Messages', icon: 'message', route: '/owner/chat' },
   { label: 'Profile', icon: 'account-circle', route: '/owner/profile' },
   { label: 'Settings', icon: 'cog', route: '/owner/profile/settings' },
 ];
@@ -73,8 +73,16 @@ export default function OwnerLayout() {
   const loadUnread = useCallback(async () => {
     try {
       const res: any = await getNotifications();
+      if (typeof res?.unread_count === 'number') {
+        setUnreadCount(res.unread_count);
+        return;
+      }
+      if (typeof res?.unreadCount === 'number') {
+        setUnreadCount(res.unreadCount);
+        return;
+      }
       const list = Array.isArray(res?.results) ? res.results : Array.isArray(res) ? res : [];
-      const unread = list.filter((n: any) => !n.read_at).length;
+      const unread = list.filter((n: any) => !(n.read_at || n.readAt)).length;
       setUnreadCount(unread);
     } catch (err) {
       // ignore errors for badge
@@ -90,6 +98,29 @@ export default function OwnerLayout() {
       void loadUnread();
     }, [loadUnread])
   );
+
+  useEffect(() => {
+    const sub = Notifications.addNotificationReceivedListener(() => {
+      void loadUnread();
+    });
+    return () => sub.remove();
+  }, [loadUnread]);
+
+  const openNotifications = useCallback(async () => {
+    try {
+      const res: any = await getNotifications();
+      const list = Array.isArray(res?.results) ? res.results : Array.isArray(res) ? res : [];
+      const unreadIds = list.filter((n: any) => !(n.read_at || n.readAt)).map((n: any) => n.id);
+      if (unreadIds.length) {
+        await markNotificationsAsRead(unreadIds);
+      }
+      setUnreadCount(0);
+    } catch {
+      // ignore errors; navigate anyway
+    } finally {
+      router.push('/notifications' as any);
+    }
+  }, [router]);
 
   const { isDashboard, backTarget } = useMemo(() => {
     if (!pathname) return { isTabRoot: true, backTarget: null };
@@ -153,11 +184,11 @@ export default function OwnerLayout() {
                     }}
                   />
                 ) : null}
-                <TouchableOpacity onPress={() => router.push('/notifications' as any)} style={{ marginHorizontal: 4 }}>
-                  <IconButton icon="bell-outline" />
-                  {unreadCount > 0 && (
-                    <Text style={styles.badgeDot}>•</Text>
-                  )}
+                <TouchableOpacity onPress={openNotifications} style={{ marginHorizontal: 4 }}>
+                  <View style={styles.bellWrapper}>
+                    <IconButton icon="bell-outline" />
+                    {unreadCount > 0 && <View style={styles.badgeDot} />}
+                  </View>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => router.push('/owner/profile' as any)}>
                   {photo ? (
@@ -213,12 +244,6 @@ export default function OwnerLayout() {
           }}
         />
         <Tabs.Screen
-          name="messages"
-          options={{
-            href: null,
-          }}
-        />
-        <Tabs.Screen
           name="hub"
           options={{
             title: 'Hub',
@@ -260,7 +285,6 @@ export default function OwnerLayout() {
         <Tabs.Screen name="shifts/[id]/applications" options={{ href: null }} />
         <Tabs.Screen name="staff/index" options={{ href: null }} />
         <Tabs.Screen name="locums/index" options={{ href: null }} />
-        <Tabs.Screen name="messages/[id]" options={{ href: null }} />
         <Tabs.Screen
           name="notifications"
           options={{
@@ -290,8 +314,12 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 6,
     right: 6,
-    color: '#EF4444',
-    fontWeight: '900',
-    fontSize: 16,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#EF4444',
+  },
+  bellWrapper: {
+    position: 'relative',
   },
 });

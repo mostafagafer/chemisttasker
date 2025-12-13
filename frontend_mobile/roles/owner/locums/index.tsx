@@ -126,7 +126,7 @@ export default function ManageLocumsScreen() {
             } as any)) as any;
             const name = membership.user_details?.full_name || membership.invited_name || 'Chat';
             router.push({
-                pathname: '/owner/messages/[id]',
+                pathname: '/owner/chat',
                 params: { id: room.id, name },
             });
         } catch (err) {

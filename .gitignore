@@ -21,6 +21,7 @@ backend/media/
 backend/static/
 backend/staticfiles/
 
+
 # Django migrations (ignore every migrations/ folder)
 **/migrations/
 
@@ -47,6 +48,7 @@ frontend_web_old/.env.production
 
 # Trash / docs folders you don’t want in Git
 trash/
+frontend_web_old/
 Documents/
 verification_outputs/
 ocr_verification

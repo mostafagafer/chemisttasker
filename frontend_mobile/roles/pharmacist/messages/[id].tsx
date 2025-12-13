@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text, TextInput, IconButton, Surface, ActivityIndicator } from 'react-native-paper';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getRoomMessages, sendRoomMessage, markRoomAsRead } from '@chemisttasker/shared-core';
 import { useAuth } from '../../../context/AuthContext';
 
@@ -18,6 +18,7 @@ export default function PharmacistMessageDetailScreen() {
   const { id, name } = useLocalSearchParams();
   const router = useRouter();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [messages, setMessages] = useState<MessageDisplay[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -190,58 +191,61 @@ export default function PharmacistMessageDetailScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Stack.Screen options={{
-        headerShown: true,
-        title: (name as string) || 'Chat',
-        headerBackTitle: 'Messages',
-      }} />
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <Stack.Screen options={{
+          headerShown: true,
+          title: (name as string) || 'Chat',
+          headerBackTitle: 'Messages',
+        }} />
 
-      <View style={styles.header}>
-        <IconButton icon="arrow-left" onPress={() => router.back()} />
-        <Surface style={styles.titleRow} elevation={0}>
-          <Text variant="titleMedium" style={styles.headerTitle}>{name || 'Chat'}</Text>
-        </Surface>
-      </View>
-
-      {loading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#6366F1" />
+        <View style={styles.header}>
+          <IconButton icon="arrow-left" onPress={() => router.back()} />
+          <Surface style={styles.titleRow} elevation={0}>
+            <Text variant="titleMedium" style={styles.headerTitle}>{name || 'Chat'}</Text>
+          </Surface>
         </View>
-      ) : (
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          renderItem={renderMessage}
-          keyExtractor={(item, index) => (item.id ?? index).toString()}
-          contentContainerStyle={styles.listContent}
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
-        />
-      )}
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
-        <Surface style={styles.inputContainer} elevation={4}>
-          <TextInput
-            mode="outlined"
-            placeholder="Type a message..."
-            value={newMessage}
-            onChangeText={setNewMessage}
-            style={styles.input}
-            outlineStyle={styles.inputOutline}
-            right={
-              <TextInput.Icon
-                icon="send"
-                onPress={sendMessage}
-                disabled={sending || !newMessage.trim()}
-                color={newMessage.trim() ? '#6366F1' : '#9CA3AF'}
-              />
-            }
+        {loading ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color="#6366F1" />
+          </View>
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            renderItem={renderMessage}
+            keyExtractor={(item, index) => (item.id ?? index).toString()}
+            contentContainerStyle={[styles.listContent, { paddingBottom: 24 + insets.bottom }]}
+            contentInsetAdjustmentBehavior="automatic"
+            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
           />
-        </Surface>
-      </KeyboardAvoidingView>
+        )}
+
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 44 : insets.top}
+        >
+          <Surface style={styles.inputContainer} elevation={4}>
+            <TextInput
+              mode="outlined"
+              placeholder="Type a message..."
+              value={newMessage}
+              onChangeText={setNewMessage}
+              style={styles.input}
+              outlineStyle={styles.inputOutline}
+              right={
+                <TextInput.Icon
+                  icon="send"
+                  onPress={sendMessage}
+                  disabled={sending || !newMessage.trim()}
+                  color={newMessage.trim() ? '#6366F1' : '#9CA3AF'}
+                />
+              }
+            />
+          </Surface>
+        </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }

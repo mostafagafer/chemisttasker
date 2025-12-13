@@ -1,3 +1,7 @@
+These steps is responsible to set the eas login and settings, not being used for now but 
+it is imprtant to keep before moving this into chemisttasker production.
+
+=========================
 npm install -g eas-cli
 
 eas login
@@ -37,8 +41,22 @@ when have we sat this mostafarg.chemisttasker and where?
 
 We set com.mostafarg.chemisttasker when the EAS build prompt asked for the Android application id during the first dev build. After that, we saved it in frontend_mobile/app.json under expo.android.package so it persists for all builds.
 
-+++++++++++++++++++++++++++++
-Here’s a complete and organized checklist to debug and restore your Django + Expo LAN setup step-by-step, including all the critical checks and commands like IP stack reset and firewall validation:
+=========================
+
+
+
+
+
+
+
+
+
+These are steps to debug and setup workflow before running expo
+
+
+Here’s a complete and organized checklist to debug and restore your Django + Expo LAN 
+setup step-by-step, including all the critical checks and commands like IP stack 
+reset and firewall validation:
 
 ✅ Step-by-Step Debug Checklist
 1️⃣ Start Django Backend
@@ -73,10 +91,10 @@ EXPO_PUBLIC_API_URL=http://<your-laptop-ip>:8000/api
 
 Example:
 
-EXPO_PUBLIC_API_URL=http://192.168.1.4:8000/api
+EXPO_PUBLIC_API_URL=http://192.168.1.2:8000/api
 
 5️⃣ Set Metro Packager to Use LAN IP
-set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.4
+set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.10
 
 6️⃣ Start Expo
 npx expo start --dev-client --lan --clear
@@ -140,3 +158,57 @@ Don't bind Django to a specific IP unless you want to hardcode it.
 Use --lan with Expo to avoid using tunnels unless necessary.
 
 If you're debugging Expo Go — use development builds for --dev-client.
+
+
+
+
+
+
+
+
+
+
+
+==================
+Below the steps for setting up the node models once we fork it 
+each project sets it own files in folder such as 
+
+node_modules
+dist
+and a tgz file that serve the shared-core fucntionality
+and a json back file, this is unique per each setup and we need to remove previous files 
+and regenerate it once again
+
+copy these lines:
+"""
+cd shared-core
+rmdir /s /q node_modules
+rmdir /s /q dist
+del /f /q package-lock.json
+del /f /q *.tgz
+
+npm install
+npm run build
+npm pack
+
+
+cd ..\frontend_web
+rmdir /s /q node_modules
+rmdir /s /q dist
+del /f /q package-lock.json
+
+npm install
+
+
+cd ..\frontend_mobile
+rmdir /s /q node_modules
+rmdir /s /q .expo
+del /f /q package-lock.json
+
+cd ..\frontend_mobile
+rmdir /s /q node_modules
+rmdir /s /q .expo
+del /f /q package-lock.json
+npm install
+
+

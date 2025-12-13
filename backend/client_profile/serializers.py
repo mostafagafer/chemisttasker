@@ -3847,6 +3847,11 @@ class MyShiftSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['was_modified']  # ✅ this protects it
 
+    @staticmethod
+    def build_allowed_tiers(pharmacy):
+        # Delegate to main ShiftSerializer logic so viewsets can reuse it
+        return ShiftSerializer.build_allowed_tiers(pharmacy)
+
     def get_slots(self, obj):
         user = self.context['request'].user
 
@@ -5436,6 +5441,7 @@ class HubPollSerializer(serializers.ModelSerializer):
     scope_target_id = serializers.SerializerMethodField()
     created_by = serializers.SerializerMethodField()
     can_vote = serializers.SerializerMethodField()
+    can_manage = serializers.SerializerMethodField()
 
     class Meta:
         model = PharmacyHubPoll
@@ -5453,6 +5459,7 @@ class HubPollSerializer(serializers.ModelSerializer):
             "is_closed",
             "options",
             "option_labels",
+            "can_manage",
             "total_votes",
             "has_voted",
             "selected_option_id",
@@ -5476,7 +5483,17 @@ class HubPollSerializer(serializers.ModelSerializer):
             "selected_option_id",
             "created_by",
             "can_vote",
+            "can_manage",
         ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance:
+            field = self.fields.get("option_labels")
+            if field:
+                field.required = False
+                field.allow_null = True
+                field.allow_empty = True
 
     def validate_option_labels(self, value):
         normalized = [label.strip() for label in value if label and label.strip()]
@@ -5507,6 +5524,28 @@ class HubPollSerializer(serializers.ModelSerializer):
         PharmacyHubPollOption.objects.bulk_create(options)
         poll.refresh_from_db()
         return poll
+
+    def update(self, instance, validated_data):
+        option_labels = validated_data.pop("option_labels", None)
+        question = validated_data.get("question")
+        if question is not None:
+            instance.question = question
+        with transaction.atomic():
+            instance.save(update_fields=["question"])
+            if option_labels is not None:
+                PharmacyHubPollVote.objects.filter(poll=instance).delete()
+                instance.options.all().delete()
+                new_options = [
+                    PharmacyHubPollOption(
+                        poll=instance,
+                        label=label,
+                        position=index,
+                    )
+                    for index, label in enumerate(option_labels)
+                ]
+                PharmacyHubPollOption.objects.bulk_create(new_options)
+        instance.refresh_from_db()
+        return instance
 
     def get_scope_type(self, obj):
         if obj.community_group_id:
@@ -5588,9 +5627,14 @@ class HubPollSerializer(serializers.ModelSerializer):
         membership = self._get_membership()
         return bool(membership) and not obj.is_closed
 
+    def get_can_manage(self, obj):
+        membership = self._get_membership()
+        is_creator = membership and getattr(obj, "created_by_membership_id", None) == membership.id
+        has_admin = bool(self.context.get("has_admin_permissions") or self.context.get("has_group_admin_permissions"))
+        return bool(is_creator or has_admin)
+
 
 class HubReactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = PharmacyHubReaction
         fields = ["reaction_type"]
-

@@ -10,7 +10,6 @@ const IN_APP_UNREAD_BUMP_EVENT = 'in-app-unread-bump';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
     shouldPlaySound: false,
     shouldSetBadge: false,
     shouldShowBanner: true,
@@ -65,9 +64,14 @@ export async function registerDeviceTokenWithBackend(token: string, platform: 'i
       platform,
     });
   } catch (err) {
-    // Do not crash the app on token registration failure; surface server response for debugging
-    const respData = (err as any)?.response?.data;
-    console.error('Failed to register device token', respData || err);
+    const resp: any = (err as any)?.response;
+    const status = resp?.status;
+    const data = resp?.data;
+    // If the token is invalid/blacklisted, clear stored creds so the user can re-login with fresh tokens
+    if (status === 401 && data?.code === 'token_not_valid') {
+      await AsyncStorage.multiRemove(['ACCESS_KEY', 'REFRESH_KEY', 'user']);
+    }
+    console.error('Failed to register device token', data || err);
   }
 }
 

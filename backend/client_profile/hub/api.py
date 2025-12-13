@@ -1068,6 +1068,8 @@ class HubPollViewSet(
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     serializer_class = HubPollSerializer
@@ -1158,6 +1160,46 @@ class HubPollViewSet(
         self._set_vote_cache([poll])
         serializer = self.get_serializer(poll)
         return Response(serializer.data)
+
+    def _assert_can_manage_poll(self, poll):
+        resolver = HubScopeResolver(self.request.user)
+        scope = resolver.from_poll(poll)
+        membership = scope.get("request_membership")
+        is_creator = getattr(poll, "created_by_membership_id", None) == getattr(membership, "id", None)
+        if not (
+            is_creator
+            or scope.get("has_admin_permissions")
+            or scope.get("has_group_admin_permissions")
+        ):
+            raise PermissionDenied("You do not have permission to modify this poll.")
+        return scope
+
+    def perform_destroy(self, instance):
+        self._assert_can_manage_poll(instance)
+        super().perform_destroy(instance)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        poll = self.get_object()
+        scope = self._assert_can_manage_poll(poll)
+        data = self._normalize_params(request.data)
+        labels = self._coerce_option_labels(
+            data.get("option_labels")
+            or data.get("options")
+            or data.get("choices")
+            or data.get("labels")
+        )
+        if labels is not None:
+            data["option_labels"] = labels
+        self._prepare_serializer_context(scope, {"request_user": self.request.user})
+        serializer = self.get_serializer(poll, data=data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        updated = serializer.save()
+        refreshed = self.get_queryset().get(pk=updated.pk)
+        self._prepare_serializer_context(scope, {"request_user": self.request.user})
+        self._set_vote_cache([refreshed])
+        output = self.get_serializer(refreshed)
+        return Response(output.data)
 
     @action(detail=True, methods=["post"], url_path="vote")
     def vote(self, request, pk=None):

@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
 import { Text, Surface, IconButton, Badge, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared-core';
+import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 
 type Notification = {
   id: number;
@@ -15,6 +17,7 @@ type Notification = {
 };
 
 export default function NotificationsScreen() {
+  const router = useRouter();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -23,7 +26,14 @@ export default function NotificationsScreen() {
     fetchNotifications();
   }, []);
 
-  const fetchNotifications = async () => {
+  // Refresh when screen gains focus and mark any unread as read.
+  useFocusEffect(
+    useCallback(() => {
+      fetchNotifications(true); // mark all as read when opening
+    }, [])
+  );
+
+  const fetchNotifications = async (markAllRead = false) => {
     try {
       const response = await getNotifications();
       const list = Array.isArray((response as any)?.results)
@@ -32,6 +42,15 @@ export default function NotificationsScreen() {
           ? (response as any)
           : [];
       setNotifications(list);
+      if (markAllRead) {
+        const unreadIds = list.filter((n) => !n.read_at).map((n) => n.id);
+        if (unreadIds.length) {
+          setNotifications((prev) =>
+            prev.map((n) => (unreadIds.includes(n.id) ? { ...n, read_at: new Date().toISOString() } : n))
+          );
+          void markNotificationsAsRead(unreadIds);
+        }
+      }
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {
@@ -104,6 +123,7 @@ export default function NotificationsScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
+        <IconButton icon="arrow-left" onPress={() => router.back()} />
         <Text variant="headlineSmall" style={styles.headerTitle}>
           Notifications
         </Text>

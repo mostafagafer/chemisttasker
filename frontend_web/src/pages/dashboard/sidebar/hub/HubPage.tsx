@@ -22,7 +22,6 @@ import {
   InputLabel,
   FormHelperText,
   Select,
-  MenuItem,
   Card,
   CardMedia,
   CardContent,
@@ -32,6 +31,7 @@ import {
   Stack,
   Chip,
   Menu,
+  MenuItem,
   Tooltip,
   Paper,
   InputBase,
@@ -63,6 +63,8 @@ import {
   deleteHubPost,
   fetchHubPolls,
   createHubPoll,
+  updateHubPoll,
+  deleteHubPoll,
   voteHubPoll,
   reactToHubPost,
   updateHubGroup,
@@ -2091,6 +2093,7 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
   const isAuthor = Boolean(user?.id && post.author?.user?.id === user.id);
   const canEditDelete = isAuthor; // backend now restricts edit/delete to the author only
   const postTimestamp = formatHubDate(post.createdAt);
+  const [activeAttachment, setActiveAttachment] = useState(0);
 
   const renderAttachment = (attachment: HubAttachment) => {
     const src = attachment.url;
@@ -2321,19 +2324,50 @@ function PostCard({ post, onUpdate, onEdit, onDelete }: PostCardProps) {
         </Typography>
 
         {post.attachments.length > 0 && (
-          <Stack spacing={2} sx={{ mb: 2 }}>
-            {post.attachments.map((attachment) => {
-              const preview = renderAttachment(attachment);
-              if (!preview) {
-                return null;
-              }
-              return (
-                <Box key={attachment.id}>
-                  {preview}
+          <Box sx={{ mb: 2 }}>
+            {post.attachments.length === 1 ? (
+              renderAttachment(post.attachments[0])
+            ) : (
+              <Stack spacing={1.5}>
+                <Box sx={{ borderRadius: 2, overflow: 'hidden' }}>
+                  {renderAttachment(post.attachments[Math.min(activeAttachment, post.attachments.length - 1)])}
                 </Box>
-              );
-            })}
-          </Stack>
+                <Stack direction="row" alignItems="center" justifyContent="center" spacing={1}>
+                  <IconButton
+                    size="small"
+                    onClick={() => setActiveAttachment((prev) => Math.max(prev - 1, 0))}
+                    disabled={activeAttachment === 0}
+                  >
+                    <ChevronLeftIcon fontSize="small" />
+                  </IconButton>
+                  <Stack direction="row" spacing={0.5} alignItems="center">
+                    {post.attachments.map((att, idx) => (
+                      <Box
+                        key={att.id ?? idx}
+                        onClick={() => setActiveAttachment(idx)}
+                        sx={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: '50%',
+                          bgcolor: idx === activeAttachment ? 'primary.main' : 'grey.300',
+                          cursor: 'pointer',
+                        }}
+                      />
+                    ))}
+                  </Stack>
+                  <IconButton
+                    size="small"
+                    onClick={() =>
+                      setActiveAttachment((prev) => Math.min(prev + 1, post.attachments.length - 1))
+                    }
+                    disabled={activeAttachment >= post.attachments.length - 1}
+                  >
+                    <ChevronRightIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
+              </Stack>
+            )}
+          </Box>
         )}
 
         {post.taggedMembers && post.taggedMembers.length > 0 && (
@@ -2528,6 +2562,7 @@ function ScopeFeed({
   const [pollsError, setPollsError] = useState<string | null>(null);
   const [pollSubmitting, setPollSubmitting] = useState(false);
   const [pollError, setPollError] = useState<string | null>(null);
+  const [editingPoll, setEditingPoll] = useState<HubPoll | null>(null);
   const [isPollModalOpen, setPollModalOpen] = useState(false);
   const [editingPost, setEditingPost] = useState<HubPost | null>(null);
   const [editingContent, setEditingContent] = useState('');
@@ -2632,14 +2667,16 @@ function ScopeFeed({
     setAttachments((prev) => prev.filter((file) => file !== fileToRemove));
   };
 
-  const openPollModal = () => {
+  const openPollModal = (poll?: HubPoll) => {
     if (!canCreatePost) return;
     setPollError(null);
+    setEditingPoll(poll ?? null);
     setPollModalOpen(true);
   };
 
   const closePollModal = () => {
     setPollModalOpen(false);
+    setEditingPoll(null);
     setPollError(null);
   };
 
@@ -2654,14 +2691,32 @@ function ScopeFeed({
     setPollSubmitting(true);
     setPollError(null);
     try {
-      const created = await createHubPoll(stableScope, { question, options: optionLabels });
-      setPolls((prev) => [created, ...prev]);
-      setPollModalOpen(false);
+      if (editingPoll) {
+        const updated = await updateHubPoll(editingPoll.id, {
+          question,
+          options: optionLabels,
+        });
+        setPolls((prev) => prev.map((poll) => (poll.id === updated.id ? updated : poll)));
+      } else {
+        const created = await createHubPoll(stableScope, { question, options: optionLabels });
+        setPolls((prev) => [created, ...prev]);
+      }
+      closePollModal();
     } catch (err) {
-      console.error('Failed to create poll:', err);
-      setPollError('Failed to create poll. Please try again.');
+      console.error('Failed to save poll:', err);
+      setPollError('Failed to save poll. Please try again.');
     } finally {
       setPollSubmitting(false);
+    }
+  };
+
+  const handleDeletePoll = async (poll: HubPoll) => {
+    try {
+      await deleteHubPoll(poll.id);
+      setPolls((prev) => prev.filter((p) => p.id !== poll.id));
+    } catch (err) {
+      console.error('Failed to delete poll:', err);
+      setPollError('Failed to delete poll. Please try again.');
     }
   };
 
@@ -2804,7 +2859,7 @@ function ScopeFeed({
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Button
-                onClick={openPollModal}
+                onClick={() => openPollModal()}
                 variant="outlined"
                 startIcon={<BarChartIcon sx={{ fontSize: 16 }} />}
                 sx={{ textTransform: 'none', borderColor: 'grey.300', color: 'text.primary', '&:hover': { bgcolor: 'grey.50' } }}
@@ -2834,7 +2889,13 @@ function ScopeFeed({
       ) : polls.length > 0 ? (
         <Stack spacing={2}>
           {polls.map((poll) => (
-            <PollCard key={poll.id} poll={poll} onVote={handlePollVote} />
+            <PollCard
+              key={poll.id}
+              poll={poll}
+              onVote={handlePollVote}
+              onEdit={poll.canManage ? () => openPollModal(poll) : undefined}
+              onDelete={poll.canManage ? () => handleDeletePoll(poll) : undefined}
+            />
           ))}
         </Stack>
       ) : null}
@@ -2877,6 +2938,7 @@ function ScopeFeed({
           onCreate={handleCreatePoll}
           submitting={pollSubmitting}
           error={pollError}
+          editingPoll={editingPoll}
         />
       )}
       {editingPost && (
@@ -3136,9 +3198,12 @@ function TagMembersSelector({ loadMembers, value, onChange }: TagMembersSelector
 interface PollCardProps {
   poll: HubPoll;
   onVote: (pollId: number, optionId: number) => void;
+  onEdit?: (poll: HubPoll) => void;
+  onDelete?: (poll: HubPoll) => void;
 }
 
-function PollCard({ poll, onVote }: PollCardProps) {
+function PollCard({ poll, onVote, onEdit, onDelete }: PollCardProps) {
+  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const totalVotes = poll.totalVotes;
 
   const handleVote = (optionId: number) => {
@@ -3146,17 +3211,46 @@ function PollCard({ poll, onVote }: PollCardProps) {
     onVote(poll.id, optionId);
   };
 
+  const handleOpenMenu = (event: React.MouseEvent<HTMLElement>) => {
+    setMenuAnchor(event.currentTarget);
+  };
+
+  const handleCloseMenu = () => setMenuAnchor(null);
+
+  const handleEdit = () => {
+    handleCloseMenu();
+    onEdit?.(poll);
+  };
+
+  const handleDelete = () => {
+    handleCloseMenu();
+    onDelete?.(poll);
+  };
+
   return (
     <Card sx={{ borderRadius: 2, boxShadow: 1 }}>
       <CardContent sx={{ p: 3 }}>
         <Stack spacing={2}>
-          <Stack spacing={0.5}>
-            <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 1.2 }}>
-              Poll
-            </Typography>
-            <Typography variant="h6" sx={{ fontWeight: 600 }}>
-              {poll.question}
-            </Typography>
+          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+            <Stack spacing={0.5}>
+              <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 1.2 }}>
+                Poll
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                {poll.question}
+              </Typography>
+            </Stack>
+            {(onEdit || onDelete) && (
+              <>
+                <IconButton onClick={handleOpenMenu} size="small">
+                  <MoreVertIcon />
+                </IconButton>
+                <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={handleCloseMenu}>
+                  {onEdit && <MenuItem onClick={handleEdit}>Edit</MenuItem>}
+                  {onDelete && <MenuItem onClick={handleDelete}>Delete</MenuItem>}
+                </Menu>
+              </>
+            )}
           </Stack>
           <Stack spacing={1.5}>
             {poll.options
@@ -3293,11 +3387,26 @@ interface StartPollModalProps {
   onCreate: (pollData: { question: string; options: string[] }) => Promise<void> | void;
   submitting?: boolean;
   error?: string | null;
+  editingPoll?: HubPoll | null;
 }
 
-function StartPollModal({ onClose, onCreate, submitting = false, error }: StartPollModalProps) {
+function StartPollModal({ onClose, onCreate, submitting = false, error, editingPoll }: StartPollModalProps) {
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState(['', '']);
+
+  useEffect(() => {
+    if (editingPoll) {
+      setQuestion(editingPoll.question || '');
+      const sortedOptions = editingPoll.options
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .map((opt) => opt.label);
+      setOptions(sortedOptions.length ? sortedOptions : ['', '']);
+    } else {
+      setQuestion('');
+      setOptions(['', '']);
+    }
+  }, [editingPoll]);
 
   const handleOptionChange = (index: number, value: string) => {
     const newOptions = [...options];
@@ -3328,7 +3437,7 @@ function StartPollModal({ onClose, onCreate, submitting = false, error }: StartP
     <Dialog open onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h6">Start a New Poll</Typography>
+          <Typography variant="h6">{editingPoll ? 'Edit Poll' : 'Start a New Poll'}</Typography>
           <IconButton onClick={onClose} size="small"> {/* Use CloseIcon for X */}
             <CloseIcon sx={{ fontSize: 20 }} />
           </IconButton>
@@ -3395,7 +3504,7 @@ function StartPollModal({ onClose, onCreate, submitting = false, error }: StartP
           }
           sx={{ textTransform: 'none', bgcolor: 'primary.main', '&:hover': { bgcolor: 'primary.dark' } }}
         >
-          {submitting ? 'Creating...' : 'Create Poll'}
+          {submitting ? (editingPoll ? 'Updating...' : 'Creating...') : editingPoll ? 'Update Poll' : 'Create Poll'}
         </Button>
       </DialogActions>
     </Dialog>

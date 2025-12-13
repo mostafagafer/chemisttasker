@@ -77,7 +77,9 @@ hub_comment_detail = HubCommentViewSet.as_view(
     {"patch": "partial_update", "delete": "destroy"}
 )
 hub_poll_list = HubPollViewSet.as_view({"get": "list", "post": "create"})
-hub_poll_detail = HubPollViewSet.as_view({"get": "retrieve"})
+hub_poll_detail = HubPollViewSet.as_view(
+    {"get": "retrieve", "patch": "partial_update", "put": "update", "delete": "destroy"}
+)
 hub_poll_vote = HubPollViewSet.as_view({"post": "vote"})
 
 urlpatterns = [

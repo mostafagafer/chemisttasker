@@ -1,27 +1,26 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Tabs, usePathname, useRouter } from 'expo-router';
 import { ActivityIndicator, View, StyleSheet, TouchableOpacity } from 'react-native';
-import { Avatar, IconButton, Modal, Portal, List, Divider, Button, Text, Menu } from 'react-native-paper';
+import { Avatar, IconButton, Modal, Portal, List, Divider, Button, Text } from 'react-native-paper';
 import { useAuth } from '../../context/AuthContext';
-import { useWorkspace } from '../../context/WorkspaceContext';
+import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared-core';
+import { useFocusEffect } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
 
 const tabTitles: Record<string, string> = {
   dashboard: 'Home',
   'shifts/index': 'Shifts',
   chat: 'Chat',
-  profile: 'Profile',
+  hub: 'Hub',
+  invoices: 'Invoices',
 };
 
 const sidebarItems = [
-  { label: 'Dashboard', icon: 'view-dashboard', route: '/pharmacist/dashboard' },
-  { label: 'Onboarding', icon: 'account-box', route: '/pharmacist/onboarding' },
-  { label: 'Availability', icon: 'calendar-clock', route: '/pharmacist/availability' },
+  { label: 'Home', icon: 'home', route: '/pharmacist/dashboard' },
   { label: 'Shifts', icon: 'calendar-range', route: '/pharmacist/shifts' },
-  { label: 'Invoices', icon: 'file-document-multiple', route: '/pharmacist/invoice' },
-  { label: 'Interests', icon: 'heart-outline', route: '/pharmacist/interests' },
-  { label: 'Learning', icon: 'school-outline', route: '/pharmacist/learning' },
-  // notifications available via top bell; hidden from tab bar
-  { label: 'Notifications', icon: 'bell-outline', route: '/notifications', hidden: true },
+  { label: 'Chat', icon: 'message', route: '/pharmacist/chat' },
+  { label: 'Hub', icon: 'view-grid', route: '/pharmacist/hub' },
+  { label: 'Invoices', icon: 'file-document-multiple', route: '/pharmacist/invoices' },
 ];
 
 function PharmacistSidebar({
@@ -68,12 +67,64 @@ function PharmacistSidebar({
 
 export default function PharmacistTabs() {
   const { user, isLoading } = useAuth();
-  const { workspace, setWorkspace } = useWorkspace();
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarVisible, setSidebarVisible] = useState(false);
-  const [menuVisible, setMenuVisible] = useState(false);
-  const [activeAdminId, setActiveAdminId] = useState<number | null>(null);
+   const [unreadCount, setUnreadCount] = useState(0);
+
+  const loadUnread = useCallback(async () => {
+    try {
+      const res: any = await getNotifications();
+      // support both list responses and objects with unread_count
+      if (typeof res?.unread_count === 'number') {
+        setUnreadCount(res.unread_count);
+        return;
+      }
+      if (typeof res?.unreadCount === 'number') {
+        setUnreadCount(res.unreadCount);
+        return;
+      }
+      const list = Array.isArray(res?.results) ? res.results : Array.isArray(res) ? res : [];
+      const unread = list.filter((n: any) => !(n.read_at || n.readAt)).length;
+      setUnreadCount(unread);
+    } catch {
+      // best-effort badge; ignore errors
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadUnread();
+  }, [loadUnread]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      void loadUnread();
+    }, [loadUnread])
+  );
+
+  // Update badge immediately when a push arrives in foreground/background
+  useEffect(() => {
+    const sub = Notifications.addNotificationReceivedListener(() => {
+      void loadUnread();
+    });
+    return () => sub.remove();
+  }, [loadUnread]);
+
+  const openNotifications = useCallback(async () => {
+    try {
+      const res: any = await getNotifications();
+      const list = Array.isArray(res?.results) ? res.results : Array.isArray(res) ? res : [];
+      const unreadIds = list.filter((n: any) => !(n.read_at || n.readAt)).map((n: any) => n.id);
+      if (unreadIds.length) {
+        await markNotificationsAsRead(unreadIds);
+      }
+      setUnreadCount(0);
+    } catch {
+      // ignore errors; navigate anyway
+    } finally {
+      router.push('/notifications' as any);
+    }
+  }, [router]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -152,91 +203,47 @@ export default function PharmacistTabs() {
               (user as any)?.profile_photo_url ||
               (user as any)?.profilePhoto ||
               null;
-            const adminAssignments = Array.isArray((user as any)?.admin_assignments)
-              ? (user as any).admin_assignments
-              : [];
-            const activeAdmin = adminAssignments.find((a: any) => a.id === activeAdminId) || null;
-            const adminLabel = activeAdmin
-              ? activeAdmin.pharmacy_name || `Pharmacy ${activeAdmin.pharmacy_id ?? ''}`
-              : 'Staff';
-
-            return (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                {showBack ? (
-                  <IconButton
-                    icon="arrow-left"
-                    onPress={() => {
-                      if (canGoBack) {
-                        router.back();
-                      } else if (backTarget) {
-                        router.push(backTarget as any);
-                      } else {
-                        router.push('/pharmacist/dashboard' as any);
-                      }
-                    }}
-                  />
-                ) : null}
-
-                <Menu
-                  visible={menuVisible}
-                  onDismiss={() => setMenuVisible(false)}
-                  anchor={
-                    <TouchableOpacity
-                      style={styles.workspacePill}
-                      onPress={() => setMenuVisible(true)}
-                    >
-                      <Text style={styles.workspaceLabel}>Workspace</Text>
-                      <Text style={styles.workspaceValue}>{workspace === 'platform' ? 'Platform' : 'Internal'}</Text>
-                      <Text style={styles.workspaceSub}>{adminLabel}</Text>
-                    </TouchableOpacity>
-                  }
-                >
-                  <Text style={styles.menuHeader}>Workspace</Text>
-                  <Menu.Item
-                    onPress={() => {
-                      setWorkspace('platform');
-                      setMenuVisible(false);
-                    }}
-                    title="Platform"
-                    leadingIcon={workspace === 'platform' ? 'check' : undefined}
-                  />
-                  <Menu.Item
-                    onPress={() => {
-                      setWorkspace('internal');
-                      setMenuVisible(false);
-                    }}
-                    title="Internal"
-                    leadingIcon={workspace === 'internal' ? 'check' : undefined}
-                  />
-                  <Divider />
-                  <Text style={styles.menuHeader}>Persona</Text>
-                  {adminAssignments.length === 0 ? (
-                    <Menu.Item title="No admin scopes" disabled />
+            return showBack ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <IconButton
+                  icon="arrow-left"
+                  onPress={() => {
+                    if (canGoBack) {
+                      router.back();
+                    } else if (backTarget) {
+                      router.push(backTarget as any);
+                    } else {
+                      router.push('/pharmacist/dashboard' as any);
+                    }
+                  }}
+                />
+                <TouchableOpacity onPress={openNotifications} style={{ marginHorizontal: 4 }}>
+                  <View style={styles.bellWrapper}>
+                    <IconButton icon="bell-outline" />
+                    {unreadCount > 0 && <View style={styles.badgeDot} />}
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => router.push('/pharmacist/profile' as any)}>
+                  {photo ? (
+                    <Avatar.Image size={32} source={{ uri: photo as string }} />
                   ) : (
-                    adminAssignments.map((assignment: any) => (
-                      <Menu.Item
-                        key={assignment.id}
-                        onPress={() => {
-                          setActiveAdminId(assignment.id);
-                          setMenuVisible(false);
-                        }}
-                        title={assignment.pharmacy_name || `Pharmacy ${assignment.pharmacy_id ?? ''}`}
-                        leadingIcon={activeAdminId === assignment.id ? 'check' : undefined}
-                      />
-                    ))
+                    <Avatar.Text
+                      size={32}
+                      label={(user?.username || user?.email || 'U').charAt(0).toUpperCase()}
+                      style={styles.avatar}
+                      labelStyle={styles.avatarLabel}
+                    />
                   )}
-                  <Divider />
-                  <Menu.Item
-                    onPress={() => {
-                      setMenuVisible(false);
-                      router.push('/pharmacist/profile' as any);
-                    }}
-                    title="Profile"
-                    leadingIcon="account"
-                  />
-                </Menu>
-
-                <IconButton icon="bell-outline" onPress={() => router.push('/notifications')} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <TouchableOpacity onPress={() => router.push('/notifications' as any)} style={{ marginHorizontal: 4 }}>
+                  <View>
+                    <IconButton icon="bell-outline" />
+                    {unreadCount > 0 && <View style={styles.badgeDot} />}
+                  </View>
+                </TouchableOpacity>
                 <TouchableOpacity onPress={() => router.push('/pharmacist/profile' as any)}>
                   {photo ? (
                     <Avatar.Image size={32} source={{ uri: photo as string }} />
@@ -254,6 +261,7 @@ export default function PharmacistTabs() {
           },
         })}
       >
+        {/* Core tabs */}
         <Tabs.Screen
           name="dashboard"
           options={{
@@ -282,27 +290,33 @@ export default function PharmacistTabs() {
           }}
         />
         <Tabs.Screen
-          name="profile"
+          name="hub"
           options={{
-            title: 'Profile',
+            title: 'Hub',
             tabBarIcon: ({ color, size }) => (
-              <IconButton icon="account" iconColor={color} size={size} />
+              <IconButton icon="view-grid" iconColor={color} size={size} />
             ),
           }}
         />
-        <Tabs.Screen name="messages/[id]" options={{ href: null }} />
-        {/* Hidden but routable screens */}
-        <Tabs.Screen name="availability" options={{ href: null }} />
-        <Tabs.Screen name="onboarding" options={{ href: null }} />
-        <Tabs.Screen name="invoice" options={{ href: null }} />
-        <Tabs.Screen name="interests" options={{ href: null }} />
-        <Tabs.Screen name="learning" options={{ href: null }} />
         <Tabs.Screen
-          name="notifications"
+          name="invoices"
           options={{
-            href: null,
+            title: 'Invoices',
+            tabBarIcon: ({ color, size }) => (
+              <IconButton icon="file-document-multiple" iconColor={color} size={size} />
+            ),
           }}
         />
+
+        {/* Hidden routes to prevent extra tabs */}
+        <Tabs.Screen name="index" options={{ href: null }} />
+        <Tabs.Screen name="availability" options={{ href: null }} />
+        <Tabs.Screen name="onboarding" options={{ href: null }} />
+        <Tabs.Screen name="interests" options={{ href: null }} />
+        <Tabs.Screen name="learning" options={{ href: null }} />
+        <Tabs.Screen name="notifications" options={{ href: null }} />
+        <Tabs.Screen name="profile" options={{ href: null }} />
+        <Tabs.Screen name="messages/[id]" options={{ href: null }} />
         <Tabs.Screen name="shifts/[id]" options={{ href: null }} />
       </Tabs>
     </>
@@ -320,18 +334,18 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontWeight: '600',
   },
-  workspacePill: {
-    backgroundColor: '#EEF2FF',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
+  badgeDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#EF4444',
   },
-  workspaceLabel: { color: '#6B7280', fontSize: 11 },
-  workspaceValue: { color: '#111827', fontWeight: '700', fontSize: 12 },
-  workspaceSub: { color: '#6B7280', fontSize: 11 },
+  bellWrapper: {
+    position: 'relative',
+  },
   avatar: { backgroundColor: '#6366F1' },
   avatarLabel: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
-  menuHeader: { paddingHorizontal: 12, paddingVertical: 6, color: '#6B7280', fontSize: 12 },
 });

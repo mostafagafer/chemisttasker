@@ -116,7 +116,7 @@ export default function OwnerDashboard() {
       { title: 'Roster', icon: 'calendar-month', route: '/owner/shifts', gradient: ['#06B6D4', '#0EA5E9'] as const },
       { title: 'Staff', icon: 'account-group', route: '/owner/staff', gradient: ['#10B981', '#14B8A6'] as const },
       { title: 'Locums', icon: 'account-heart', route: '/owner/locums', gradient: ['#F59E0B', '#F97316'] as const },
-      { title: 'Messages', icon: 'message-text', route: '/owner/messages', gradient: ['#8B5CF6', '#A78BFA'] as const },
+      { title: 'Messages', icon: 'message-text', route: '/owner/chat', gradient: ['#8B5CF6', '#A78BFA'] as const },
     ],
     []
   );
@@ -492,4 +492,3 @@ const styles = StyleSheet.create({
   bottomMenuTitle: { color: '#111827', fontWeight: '600' },
   bottomMenuDesc: { color: '#6B7280', fontSize: 12, marginTop: 2 },
 });
-

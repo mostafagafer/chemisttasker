@@ -222,8 +222,7 @@ export const MessageBubble: FC<Props> = ({
                       size="small"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setIsEditing(true);
-                        setPickerOpen(false);
+                        handleEditClick();
                       }}
                       sx={{ bgcolor: 'background.paper', boxShadow: 1, '&:hover': { bgcolor: 'background.default' } }}
                     >
@@ -287,7 +286,7 @@ export const MessageBubble: FC<Props> = ({
 
         <Box className="msg-meta">
           {!isMe && !isSameSenderAsPrevious && fullName ? `${fullName}  •  ` : ''}
-          {dayjs.utc(msg.created_at).local().toDate().toLocaleString()}
+          {dayjs.utc(msg.created_at).local().format('DD/MM/YYYY HH:mm')} {/* Australian format */}
           {msg.is_edited && (
             <Tooltip title={`Original: ${msg.original_body}`}>
               <Typography variant="caption" sx={{ fontStyle: 'italic', ml: 0.5 }}> · edited</Typography>

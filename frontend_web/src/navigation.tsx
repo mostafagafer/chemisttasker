@@ -392,19 +392,6 @@ export function getExplorerNav(progress_percent: number, hasUnreadMessages: bool
   return [
     { kind: 'header' as const, title: 'Profile settings' },
     { segment: 'dashboard/explorer/overview', title: 'Overview', icon: <DashboardIcon /> },
-    {
-      segment: 'dashboard/explorer/onboarding',
-      title: 'Profile',
-      icon: <ManageAccountsSharpIcon />,
-      action: (
-        <Chip
-          size="small"
-          label={`${progress_percent}%`}
-          color={progress_percent === 100 ? "success" : "default"}
-          sx={{ ml: 0.5, fontWeight: 700 }}
-        />
-      ),
-    },
 
           {
       segment: 'dashboard/explorer/onboarding',

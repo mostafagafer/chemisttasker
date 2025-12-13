@@ -313,6 +313,7 @@ export type HubPoll = {
     hasVoted: boolean;
     selectedOptionId: number | null;
     canVote: boolean;
+    canManage?: boolean;
     createdAt: string;
     updatedAt: string;
     closesAt: string | null;

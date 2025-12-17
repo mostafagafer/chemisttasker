@@ -2384,7 +2384,9 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
     def check_permissions(self, request):
         super().check_permissions(request)
-        if request.method in SAFE_METHODS or self.action in ['express_interest', 'reject', 'claim_shift']:
+        # Some actions should be callable without requiring object-level permissions (no `pk`).
+        # - `calculate_rates` is a collection action used by the Post Shift form (draft pricing).
+        if request.method in SAFE_METHODS or self.action in ['express_interest', 'reject', 'claim_shift', 'calculate_rates']:
             return
 
         user = request.user
@@ -3773,6 +3775,74 @@ class ShiftRejectionViewSet(viewsets.ModelViewSet):
         return qs
 
 class ShiftDetailViewSet(BaseShiftViewSet):
+    @action(detail=False, methods=['post'], url_path='calculate-rates')
+    def calculate_rates(self, request):
+        from client_profile.services import calculate_shift_rates
+        from types import SimpleNamespace
+        from datetime import datetime as dt_cls
+
+        data = request.data or {}
+        pharmacy_id = data.get('pharmacyId') or data.get('pharmacy_id') or data.get('pharmacy')
+        role = data.get('role') or data.get('role_needed') or data.get('roleNeeded')
+
+        if not pharmacy_id:
+            return Response({"error": "Pharmacy ID required"}, status=400)
+
+        try:
+            pharmacy = Pharmacy.objects.get(pk=pharmacy_id)
+        except Pharmacy.DoesNotExist:
+            raise NotFound("Pharmacy not found.")
+
+        def to_decimal(val):
+            if val is None or val == '':
+                return None
+            return Decimal(str(val))
+
+        def get_override(*keys):
+            for key in keys:
+                if key in data:
+                    return data.get(key)
+            return None
+
+        pharmacy_for_calc = SimpleNamespace(
+            state=pharmacy.state,
+            rate_weekday=to_decimal(get_override('rate_weekday', 'rateWeekday')) or pharmacy.rate_weekday,
+            rate_saturday=to_decimal(get_override('rate_saturday', 'rateSaturday')) or pharmacy.rate_saturday,
+            rate_sunday=to_decimal(get_override('rate_sunday', 'rateSunday')) or pharmacy.rate_sunday,
+            rate_public_holiday=to_decimal(get_override('rate_public_holiday', 'ratePublicHoliday')) or pharmacy.rate_public_holiday,
+            rate_early_morning=to_decimal(get_override('rate_early_morning', 'rateEarlyMorning')) or pharmacy.rate_early_morning,
+            rate_late_night=to_decimal(get_override('rate_late_night', 'rateLateNight')) or pharmacy.rate_late_night,
+        )
+
+        mock_shift = SimpleNamespace(
+            pharmacy=pharmacy_for_calc,
+            role_needed=role,
+            employment_type=data.get('employmentType') or data.get('employment_type') or 'CASUAL_LOCUM',
+            rate_type=data.get('rateType') or data.get('rate_type') or 'FLEXIBLE',
+            owner_adjusted_rate=to_decimal(data.get('ownerAdjustedRate') or data.get('owner_adjusted_rate')) or Decimal('0.00'),
+        )
+
+        results = []
+        for slot in data.get('slots', []) or []:
+            try:
+                slot_date_raw = slot.get('date')
+                start_raw = slot.get('startTime') or slot.get('start_time')
+                end_raw = slot.get('endTime') or slot.get('end_time')
+                if not (slot_date_raw and start_raw and end_raw):
+                    results.append({"error": "Invalid slot payload", "rate": "0.00"})
+                    continue
+
+                s_date = dt_cls.strptime(slot_date_raw, '%Y-%m-%d').date()
+                s_start = dt_cls.strptime(start_raw, '%H:%M').time()
+                s_end = dt_cls.strptime(end_raw, '%H:%M').time()
+
+                rate, meta = calculate_shift_rates(mock_shift, s_date, s_start, s_end)
+                results.append({"rate": str(rate), "meta": meta})
+            except Exception as e:
+                results.append({"error": str(e), "rate": "0.00"})
+
+        return Response(results)
+
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user

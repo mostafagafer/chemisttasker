@@ -575,6 +575,14 @@ class Pharmacy(models.Model):
                                 null=True
                              )
 
+    # Base rates (used for Pharmacist rate previews and defaults)
+    rate_weekday = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True)
+    rate_saturday = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True)
+    rate_sunday = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True)
+    rate_public_holiday = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True)
+    rate_early_morning = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True)
+    rate_late_night = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True)
+
     about                  = models.TextField(blank=True)
     cover_image            = models.ImageField(
                                 upload_to="pharmacy_covers/",
@@ -1184,6 +1192,12 @@ class Shift(models.Model):
         null=True,
         help_text="Optional bonus/hr offered by owner for all staff"
     )
+    flexible_timing = models.BooleanField(default=False)
+    min_hourly_rate = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+    max_hourly_rate = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+    min_annual_salary = models.DecimalField(max_digits=9, decimal_places=2, null=True, blank=True)
+    max_annual_salary = models.DecimalField(max_digits=9, decimal_places=2, null=True, blank=True)
+    super_percent = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     visibility = models.CharField(
         max_length=20,
         choices=[
@@ -1246,6 +1260,35 @@ class Shift(models.Model):
         else:
             if self.rate_type or self.fixed_rate is not None:
                 raise ValidationError('Rate fields are only allowed for Pharmacist shifts.')
+
+        # Validate FT/PT pay bands (hourly or annual + super)
+        if self.employment_type in ['FULL_TIME', 'PART_TIME']:
+            has_hourly = self.min_hourly_rate is not None or self.max_hourly_rate is not None
+            has_annual = self.min_annual_salary is not None or self.max_annual_salary is not None
+            if not has_hourly and not has_annual:
+                raise ValidationError({
+                    'min_hourly_rate': 'Provide hourly or annual pay.',
+                    'min_annual_salary': 'Provide hourly or annual pay.',
+                })
+            if has_hourly:
+                if self.min_hourly_rate is None or self.max_hourly_rate is None:
+                    raise ValidationError({'min_hourly_rate': 'Both min and max hourly are required for hourly pay.'})
+                if self.min_hourly_rate > self.max_hourly_rate:
+                    raise ValidationError({'min_hourly_rate': 'Min hourly cannot exceed max hourly.'})
+            if has_annual:
+                if self.min_annual_salary is None or self.max_annual_salary is None:
+                    raise ValidationError({'min_annual_salary': 'Both min and max annual are required for annual pay.'})
+                if self.min_annual_salary > self.max_annual_salary:
+                    raise ValidationError({'min_annual_salary': 'Min annual cannot exceed max annual.'})
+                if self.super_percent is None:
+                    raise ValidationError({'super_percent': 'Super % is required when annual package is provided.'})
+        else:
+            # For locum/casual, ignore any annual/hourly inputs
+            self.min_hourly_rate = None
+            self.max_hourly_rate = None
+            self.min_annual_salary = None
+            self.max_annual_salary = None
+            self.super_percent = None
 
 
     def save(self, *args, **kwargs):

@@ -483,6 +483,14 @@ export interface RatePreferenceApi {
     late_night: string;
 }
 
+export interface ShiftPayBandsApi {
+    min_hourly_rate?: string | null;
+    max_hourly_rate?: string | null;
+    min_annual_salary?: string | null;
+    max_annual_salary?: string | null;
+    super_percent?: string | null;
+}
+
 export interface ShiftSlotApi {
     id: number;
     date: string;
@@ -619,6 +627,12 @@ export interface ShiftApi {
     owner_adjusted_rate?: string | null;
     rate_type?: "FIXED" | "FLEXIBLE" | "PHARMACIST_PROVIDED" | null;
     fixed_rate?: string | null;
+    flexible_timing?: boolean;
+    min_hourly_rate?: string | null;
+    max_hourly_rate?: string | null;
+    min_annual_salary?: string | null;
+    max_annual_salary?: string | null;
+    super_percent?: string | null;
     workload_tags?: string[];
     must_have?: string[];
     nice_to_have?: string[];

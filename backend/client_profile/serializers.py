@@ -3011,6 +3011,12 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
             # rates & about:
             "default_rate_type",
             "default_fixed_rate",
+            "rate_weekday",
+            "rate_saturday",
+            "rate_sunday",
+            "rate_public_holiday",
+            "rate_early_morning",
+            "rate_late_night",
             "about",
 
             'has_chain',
@@ -3562,7 +3568,10 @@ class ShiftSerializer(serializers.ModelSerializer):
             'post_anonymously',
             'escalate_to_locum_casual',
             'interested_users_count', 'reveal_quota', 'reveal_count', 'workload_tags','slot_assignments',
-            'allowed_escalation_levels','is_single_user', 'description' ]
+            'allowed_escalation_levels','is_single_user', 'description',
+            'flexible_timing',
+            'min_hourly_rate', 'max_hourly_rate', 'min_annual_salary', 'max_annual_salary', 'super_percent',
+        ]
         read_only_fields = [
             'id', 'created_by', 'escalation_level',
             'interested_users_count', 'reveal_count',
@@ -3587,6 +3596,37 @@ class ShiftSerializer(serializers.ModelSerializer):
                 fields.pop('rate_type', None)
 
         return fields
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        employment_type = attrs.get('employment_type') or getattr(self.instance, 'employment_type', None)
+        min_hour = attrs.get('min_hourly_rate') if 'min_hourly_rate' in attrs else getattr(self.instance, 'min_hourly_rate', None)
+        max_hour = attrs.get('max_hourly_rate') if 'max_hourly_rate' in attrs else getattr(self.instance, 'max_hourly_rate', None)
+        min_annual = attrs.get('min_annual_salary') if 'min_annual_salary' in attrs else getattr(self.instance, 'min_annual_salary', None)
+        max_annual = attrs.get('max_annual_salary') if 'max_annual_salary' in attrs else getattr(self.instance, 'max_annual_salary', None)
+        super_percent = attrs.get('super_percent') if 'super_percent' in attrs else getattr(self.instance, 'super_percent', None)
+
+        if employment_type in ['FULL_TIME', 'PART_TIME']:
+            has_hourly = min_hour is not None or max_hour is not None
+            has_annual = min_annual is not None or max_annual is not None
+            if not has_hourly and not has_annual:
+                raise serializers.ValidationError('Provide hourly or annual pay for full/part-time shifts.')
+            if has_hourly and (min_hour is None or max_hour is None):
+                raise serializers.ValidationError('Both min and max hourly are required.')
+            if has_hourly and min_hour is not None and max_hour is not None and min_hour > max_hour:
+                raise serializers.ValidationError('Min hourly cannot exceed max hourly.')
+            if has_annual and (min_annual is None or max_annual is None):
+                raise serializers.ValidationError('Both min and max annual are required.')
+            if has_annual and min_annual is not None and max_annual is not None and min_annual > max_annual:
+                raise serializers.ValidationError('Min annual cannot exceed max annual.')
+            if has_annual and super_percent is None:
+                raise serializers.ValidationError('Super percent is required when annual package is provided.')
+        else:
+            # Strip FT/PT pay fields for locum/casual
+            for key in ['min_hourly_rate', 'max_hourly_rate', 'min_annual_salary', 'max_annual_salary', 'super_percent']:
+                attrs.pop(key, None)
+
+        return attrs
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

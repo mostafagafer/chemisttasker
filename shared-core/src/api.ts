@@ -195,6 +195,12 @@ const mapShift = (api) => {
         assignedMembers: ensureArray(api.assigned_members).map(mapShiftMemberStatus),
         noResponseMembers: ensureArray(api.no_response_members).map(mapShiftMemberStatus),
         pharmacyDetail: base.pharmacyDetail ?? null,
+        flexibleTiming: api.flexible_timing ?? base.flexibleTiming ?? false,
+        minHourlyRate: api.min_hourly_rate ?? base.minHourlyRate ?? null,
+        maxHourlyRate: api.max_hourly_rate ?? base.maxHourlyRate ?? null,
+        minAnnualSalary: api.min_annual_salary ?? base.minAnnualSalary ?? null,
+        maxAnnualSalary: api.max_annual_salary ?? base.maxAnnualSalary ?? null,
+        superPercent: api.super_percent ?? base.superPercent ?? null,
     };
 };
 const mapRosterAssignment = (api) => camelCaseKeysDeep(api);

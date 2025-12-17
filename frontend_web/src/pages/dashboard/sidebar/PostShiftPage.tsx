@@ -56,6 +56,7 @@ import {
   createOwnerShiftService,
   updateOwnerShiftService,
 } from '@chemisttasker/shared-core';
+import apiClient from '../../../utils/apiClient';
 
 // --- Interface Definitions ---
 type PharmacyOption = PharmacySummary & { hasChain?: boolean; claimed?: boolean };
@@ -141,7 +142,7 @@ const toInputDateTimeLocal = (value?: string | null) =>
 const describeRecurringDays = (days: number[]) => {
   if (!days?.length) return '';
   const ordered = [...days].sort((a, b) => ((a === 0 ? 7 : a) - (b === 0 ? 7 : b)));
-  return ordered.map((day) => DAY_LABELS_SHORT[day]).join(' • ');
+  return ordered.map((day) => DAY_LABELS_SHORT[day]).join(' / ');
 };
 
 const ORG_ROLE_VALUES = ORG_ROLES as readonly string[];
@@ -185,10 +186,25 @@ const PostShiftPage: React.FC = () => {
   const [niceToHave, setNiceToHave] = useState<string[]>([]);
   const [visibility, setVisibility] = useState<string>('');
   const [escalationDates, setEscalationDates] = useState<Record<string, string>>({});
-  const [rateType, setRateType] = useState<string>('');
-  const [fixedRate, setFixedRate] = useState<string>('');
-  const [ownerAdjustedRate, setOwnerAdjustedRate] = useState('');
+  const [rateType, setRateType] = useState<string>('FLEXIBLE');
+  const [paymentPreference, setPaymentPreference] = useState<string>('ABN');
+  const [rateWeekday, setRateWeekday] = useState<string>('');
+  const [rateSaturday, setRateSaturday] = useState<string>('');
+  const [rateSunday, setRateSunday] = useState<string>('');
+  const [ratePublicHoliday, setRatePublicHoliday] = useState<string>('');
+  const [rateEarlyMorning, setRateEarlyMorning] = useState<string>('');
+  const [rateLateNight, setRateLateNight] = useState<string>('');
+  const [applyRatesToPharmacy, setApplyRatesToPharmacy] = useState(false);
+  const [slotRateRows, setSlotRateRows] = useState<Array<{ rate: string; status: 'idle' | 'loading' | 'success' | 'error'; error?: string; dirty?: boolean }>>([]);
+  const [ownerBonus, setOwnerBonus] = useState<string>('');
+  const [ftptPayMode, setFtptPayMode] = useState<'HOURLY' | 'ANNUAL'>('HOURLY');
+  const [minHourly, setMinHourly] = useState<string>('');
+  const [maxHourly, setMaxHourly] = useState<string>('');
+  const [minAnnual, setMinAnnual] = useState<string>('');
+  const [maxAnnual, setMaxAnnual] = useState<string>('');
+  const [superPercent, setSuperPercent] = useState<string>('');
   const [singleUserOnly, setSingleUserOnly] = useState(false);
+  const [flexibleTiming, setFlexibleTiming] = useState(false);
   const [postAnonymously, setPostAnonymously] = useState(false);
 
   // --- Timetable State ---
@@ -200,6 +216,7 @@ const PostShiftPage: React.FC = () => {
   const [recurringDays, setRecurringDays] = useState<number[]>([]);
   const [recurringEndDate, setRecurringEndDate] = useState('');
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  const [selectedDateTimes, setSelectedDateTimes] = useState<Record<string, { startTime: string; endTime: string }>>({});
   const [calendarView, setCalendarView] = useState<CalendarViewOption>('month');
 
   // --- UI State ---
@@ -278,9 +295,10 @@ const PostShiftPage: React.FC = () => {
           setMustHave(detail.mustHave ?? []);
           setNiceToHave(detail.niceToHave ?? []);
           setVisibility(detail.visibility ?? 'FULL_PART_TIME');
-          setRateType(detail.rateType ?? '');
-          setFixedRate(detail.fixedRate ?? '');
-          setOwnerAdjustedRate(detail.ownerAdjustedRate ? String(detail.ownerAdjustedRate) : '');
+          const incomingRateType = detail.rateType ?? '';
+          setRateType(incomingRateType === 'FIXED' ? 'FLEXIBLE' : (incomingRateType || 'FLEXIBLE'));
+          setPaymentPreference(detail.paymentPreference ?? (detail as any).payment_preference ?? '');
+          setFlexibleTiming(Boolean((detail as any).flexibleTiming ?? (detail as any).flexible_timing));
           setSingleUserOnly(Boolean(detail.singleUserOnly));
           setPostAnonymously(Boolean(detail.postAnonymously));
           setEscalationDates({
@@ -318,6 +336,10 @@ const PostShiftPage: React.FC = () => {
       setPharmacyId(scopedPharmacyId);
     }
   }, [scopedPharmacyId]);
+  const selectedPharmacy = useMemo(
+    () => pharmacies.find((x) => x.id === pharmacyId),
+    [pharmacyId, pharmacies]
+  );
   const allowedVis = useMemo<EscalationLevelKey[]>(() => {
     const p = pharmacies.find(x => x.id === pharmacyId);
     if (!p) return [];
@@ -339,15 +361,61 @@ const PostShiftPage: React.FC = () => {
     }
   }, [allowedVis, visibility]);
 
-  const showSnackbar = (msg: string, severity: 'success' | 'error' = 'success') => setSnackbar({ open: true, message: msg, severity });
+  useEffect(() => {
+    if (!selectedPharmacy) return;
+    const normalize = (val: any) =>
+      val === undefined || val === null || val === '' ? '' : String(val);
 
-  const steps = [
-    { label: 'Shift Details', icon: WorkIcon },
-    { label: 'Skills', icon: SkillsIcon },
-    { label: 'Visibility', icon: VisibilityIcon },
-    { label: 'Pay Rate', icon: RateIcon },
-    { label: 'Timetable', icon: ScheduleIcon },
-  ];
+    const defaultRateType = (selectedPharmacy as any).default_rate_type || (selectedPharmacy as any).defaultRateType || 'FLEXIBLE';
+    setRateType((prev) => {
+      const next = prev || defaultRateType;
+      return next === 'FIXED' ? 'FLEXIBLE' : next;
+    });
+    setRateWeekday((prev) => prev || normalize((selectedPharmacy as any).rate_weekday ?? (selectedPharmacy as any).rateWeekday));
+    setRateSaturday((prev) => prev || normalize((selectedPharmacy as any).rate_saturday ?? (selectedPharmacy as any).rateSaturday));
+    setRateSunday((prev) => prev || normalize((selectedPharmacy as any).rate_sunday ?? (selectedPharmacy as any).rateSunday));
+    setRatePublicHoliday((prev) => prev || normalize((selectedPharmacy as any).rate_public_holiday ?? (selectedPharmacy as any).ratePublicHoliday));
+    setRateEarlyMorning((prev) => prev || normalize((selectedPharmacy as any).rate_early_morning ?? (selectedPharmacy as any).rateEarlyMorning));
+    setRateLateNight((prev) => prev || normalize((selectedPharmacy as any).rate_late_night ?? (selectedPharmacy as any).rateLateNight));
+  }, [selectedPharmacy]);
+
+  const showSnackbar = (msg: string, severity: 'success' | 'error' = 'success') => setSnackbar({ open: true, message: msg, severity });
+  const formatErrorMessage = (err: any): string => {
+    const fallback = err?.message || 'An error occurred.';
+    const data = err?.response?.data;
+    if (!data) return fallback;
+    if (typeof data === 'string') return data;
+    if (Array.isArray(data)) return data.join('; ');
+    if (typeof data === 'object') {
+      const parts: string[] = [];
+      Object.entries(data).forEach(([key, value]) => {
+        if (Array.isArray(value)) {
+          parts.push(`${key}: ${value.join(', ')}`);
+        } else if (typeof value === 'string') {
+          parts.push(`${key}: ${value}`);
+        }
+      });
+      return parts.length ? parts.join('; ') : fallback;
+    }
+    return fallback;
+  };
+  const isLocumLike = useMemo(
+    () => employmentType === 'LOCUM' || employmentType === 'CASUAL',
+    [employmentType]
+  );
+
+  const steps = useMemo(() => {
+    const base = [
+      { key: 'details', label: 'Shift Details', icon: WorkIcon },
+      { key: 'skills', label: 'Skills', icon: SkillsIcon },
+      { key: 'visibility', label: 'Visibility', icon: VisibilityIcon },
+    ];
+    const tail = [
+      ...(isLocumLike ? [{ key: 'timetable', label: 'Timetable', icon: ScheduleIcon }] : []),
+      { key: 'pay', label: 'Pay Rate', icon: RateIcon },
+    ];
+    return [...base, ...tail];
+  }, [isLocumLike]);
 
   const StepConnectorStyled = styled(StepConnector)(({ theme }) => ({
     [`&.${stepConnectorClasses.alternativeLabel}`]: {
@@ -419,7 +487,7 @@ const PostShiftPage: React.FC = () => {
         }
         events.push({
           id: `${slotIndex}-${occurrenceIndex}-${start.toISOString()}`,
-          title: `${formatSlotTime(slot.startTime)} – ${formatSlotTime(slot.endTime)}`,
+          title: `${formatSlotTime(slot.startTime)} — ${formatSlotTime(slot.endTime)}`,
           start,
           end,
           resource: { slotIndex, occurrenceIndex },
@@ -456,6 +524,49 @@ const PostShiftPage: React.FC = () => {
     return events.sort((a, b) => a.start.getTime() - b.start.getTime());
   }, [slots]);
 
+  const selectedDateSet = useMemo(() => new Set(selectedDates), [selectedDates]);
+
+  const expandedSlots = useMemo(() => {
+    const occurrences: Array<{ date: string; startTime: string; endTime: string }> = [];
+
+    slots.forEach((slot) => {
+      const addOccurrence = (date: Date) => {
+        if (!isValidDate(date)) return;
+        occurrences.push({
+          date: dayjs(date).format('YYYY-MM-DD'),
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+        });
+      };
+
+      const baseDate = toIsoDate(slot.date);
+      if (!isValidDate(baseDate)) {
+        return;
+      }
+
+      if (slot.isRecurring && slot.recurringEndDate && slot.recurringDays.length) {
+        const endBoundary = toIsoDate(slot.recurringEndDate);
+        if (!isValidDate(endBoundary)) {
+          addOccurrence(baseDate);
+          return;
+        }
+        let cursor: Date = baseDate;
+        while (cursor <= endBoundary) {
+          if (slot.recurringDays.includes(cursor.getDay())) {
+            addOccurrence(cursor);
+          }
+          cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+        }
+      } else {
+        addOccurrence(baseDate);
+      }
+    });
+
+    return occurrences.sort(
+      (a, b) => dayjs(`${a.date}T${a.startTime}`).valueOf() - dayjs(`${b.date}T${b.startTime}`).valueOf()
+    );
+  }, [slots]);
+
   useEffect(() => {
     if (slots.length === 0) return;
     const firstValidEvent = calendarEvents.find((event) => !Number.isNaN(event.start.getTime()));
@@ -463,6 +574,12 @@ const PostShiftPage: React.FC = () => {
       setCalendarDate(firstValidEvent.start);
     }
   }, [calendarEvents, slots.length]);
+
+  useEffect(() => {
+    setSlotRateRows((prev) =>
+      expandedSlots.map((_, idx) => prev[idx] ?? { rate: '', status: 'idle' as const })
+    );
+  }, [expandedSlots]);
 
   const eventStyleGetter = useCallback((_event: CalendarEvent, _start: Date, _end: Date, _isSelected: boolean) => {
     const backgroundColor = '#8B5CF6'; // A slightly lighter purple
@@ -476,6 +593,121 @@ const PostShiftPage: React.FC = () => {
     };
     return { style };
   }, []);
+
+  const dayPropGetter = useCallback(
+    (date: Date) => {
+      const iso = dayjs(date).format('YYYY-MM-DD');
+      if (selectedDateSet.has(iso)) {
+        return {
+          style: {
+            backgroundColor: 'rgba(109, 40, 217, 0.12)',
+            boxShadow: 'inset 0 0 0 2px rgba(109, 40, 217, 0.35)',
+          },
+        };
+      }
+      return {};
+    },
+    [selectedDateSet]
+  );
+
+  useEffect(() => {
+    const pharmacistProvided = roleNeeded === 'PHARMACIST' && rateType === 'PHARMACIST_PROVIDED';
+    const shouldCalculate = isLocumLike && pharmacyId && roleNeeded && expandedSlots.length > 0 && !pharmacistProvided;
+
+    if (!shouldCalculate) {
+      setSlotRateRows((prev) =>
+        expandedSlots.map((_, idx) => prev[idx] ?? { rate: '', status: 'idle' as const })
+      );
+      return;
+    }
+
+    let cancelled = false;
+    setSlotRateRows((prev) =>
+      expandedSlots.map((_, idx) => ({
+        rate: prev[idx]?.rate ?? '',
+        status: 'loading' as const,
+        dirty: prev[idx]?.dirty,
+      }))
+    );
+
+    const payload: any = {
+      pharmacyId: Number(pharmacyId),
+      role: roleNeeded,
+      employmentType,
+      slots: expandedSlots.map((slot) => ({
+        date: slot.date,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+      })),
+    };
+
+    if (roleNeeded === 'PHARMACIST') {
+      payload.rateType = rateType || 'FLEXIBLE';
+      payload.rateWeekday = rateWeekday || undefined;
+      payload.rateSaturday = rateSaturday || undefined;
+      payload.rateSunday = rateSunday || undefined;
+      payload.ratePublicHoliday = ratePublicHoliday || undefined;
+      payload.rateEarlyMorning = rateEarlyMorning || undefined;
+      payload.rateLateNight = rateLateNight || undefined;
+    }
+
+    apiClient
+      .post('/client-profile/shifts/calculate-rates/', payload)
+      .then((resp) => {
+        if (cancelled) return;
+        const list: any[] = Array.isArray(resp.data) ? resp.data : [];
+        setSlotRateRows((prev) =>
+          expandedSlots.map((_slot, idx) => {
+            const entry: any = list[idx] ?? {};
+            const prior = prev[idx] ?? {};
+            if (entry.error) return { ...prior, status: 'error' as const, error: String(entry.error) };
+            const rateVal = entry.rate ?? entry.rate_per_hour ?? entry.value;
+            const nextRate =
+              prior.dirty && prior.rate !== undefined && prior.rate !== null && prior.rate !== ''
+                ? prior.rate
+                : rateVal != null
+                  ? String(rateVal)
+                  : '';
+            return { ...prior, rate: nextRate, status: 'success' as const, error: undefined };
+          })
+        );
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setSlotRateRows((prev) =>
+          expandedSlots.map((_slot, idx) => ({
+            ...(prev[idx] ?? { rate: '' }),
+            status: 'error' as const,
+            error: 'Unable to calculate rates',
+          }))
+        );
+        showSnackbar(formatErrorMessage(err), 'error');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    employmentType,
+    expandedSlots,
+    pharmacyId,
+    rateEarlyMorning,
+    rateLateNight,
+    ratePublicHoliday,
+    rateSaturday,
+    rateSunday,
+    rateType,
+    rateWeekday,
+    roleNeeded,
+  ]);
+
+  const handleSlotRateChange = (index: number, value: string) => {
+    setSlotRateRows((rows) =>
+      rows.map((row, idx) =>
+        idx === index ? { ...row, rate: value, status: 'success', error: undefined, dirty: true } : row
+      )
+    );
+  };
 
   const handleAddSlot = () => {
     if (!slotStartTime || !slotEndTime) return showSnackbar('Please select a start and end time.', 'error');
@@ -501,14 +733,19 @@ const PostShiftPage: React.FC = () => {
       showSnackbar('Past dates were ignored.', 'error');
     }
 
-    const newEntries = validDates.map((date) => ({
-      date,
-      startTime: slotStartTime,
-      endTime: slotEndTime,
-      isRecurring: isRecurring && validDates.length === 1,
-      recurringDays: isRecurring ? recurringDays : [],
-      recurringEndDate: isRecurring ? recurringEndDate : '',
-    }));
+    const newEntries = validDates.map((date) => {
+      const custom = selectedDateTimes[date];
+      const startTime = custom?.startTime || slotStartTime;
+      const endTime = custom?.endTime || slotEndTime;
+      return {
+        date,
+        startTime,
+        endTime,
+        isRecurring: isRecurring && validDates.length === 1,
+        recurringDays: isRecurring ? recurringDays : [],
+        recurringEndDate: isRecurring ? recurringEndDate : '',
+      };
+    });
 
     const existingKeys = new Set(slots.map((s) => `${s.date}-${s.startTime}-${s.endTime}-${s.isRecurring}-${s.recurringDays.join(',')}`));
     const filtered = newEntries.filter(
@@ -524,6 +761,7 @@ const PostShiftPage: React.FC = () => {
     showSnackbar(`${filtered.length} timetable entr${filtered.length > 1 ? 'ies' : 'y'} added.`);
 
     setSelectedDates([]);
+    setSelectedDateTimes({});
     setIsRecurring(false);
     setRecurringDays([]);
     setRecurringEndDate('');
@@ -531,19 +769,27 @@ const PostShiftPage: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!pharmacyId || !roleNeeded || !employmentType) return showSnackbar('Please fill all required fields in Step 1.', 'error');
-    if (slots.length === 0) return showSnackbar('Please add at least one schedule entry.', 'error');
+    if (isLocumLike && slots.length === 0) return showSnackbar('Please add at least one schedule entry.', 'error');
+    if (!isLocumLike) {
+      if (ftptPayMode === 'HOURLY') {
+        if (!minHourly || !maxHourly) return showSnackbar('Enter min and max hourly rates.', 'error');
+      } else {
+        if (!minAnnual || !maxAnnual || !superPercent) return showSnackbar('Enter min/max annual and super %.', 'error');
+      }
+    }
 
     setSubmitting(true);
-    const payload = {
+    const payload: any = {
       pharmacy: pharmacyId, role_needed: roleNeeded, description, employment_type: employmentType,
       workload_tags: workloadTags, must_have: mustHave, nice_to_have: niceToHave, visibility,
       escalate_to_locum_casual: escalationDates['LOCUM_CASUAL'] || null,
       escalate_to_owner_chain: escalationDates['OWNER_CHAIN'] || null,
       escalate_to_org_chain: escalationDates['ORG_CHAIN'] || null,
       escalate_to_platform: escalationDates['PLATFORM'] || null,
+      flexible_timing: flexibleTiming,
       rate_type: roleNeeded === 'PHARMACIST' ? rateType : null,
-      fixed_rate: (roleNeeded === 'PHARMACIST' && rateType === 'FIXED' && fixedRate) ? fixedRate : null,
-      owner_adjusted_rate: (roleNeeded !== 'PHARMACIST' && ownerAdjustedRate) ? Number(ownerAdjustedRate) : null,
+      owner_adjusted_rate: (roleNeeded !== 'PHARMACIST' && ownerBonus) ? Number(ownerBonus) : null,
+      payment_preference: (employmentType === 'LOCUM' || employmentType === 'CASUAL') ? (paymentPreference || null) : null,
       single_user_only: singleUserOnly,
       post_anonymously: postAnonymously,
       slots: slots.map(s => ({
@@ -552,6 +798,22 @@ const PostShiftPage: React.FC = () => {
         recurring_end_date: s.recurringEndDate || null,
       })),
     };
+
+    if (!isLocumLike) {
+      if (ftptPayMode === 'HOURLY') {
+        payload.min_hourly_rate = minHourly || null;
+        payload.max_hourly_rate = maxHourly || null;
+        payload.min_annual_salary = null;
+        payload.max_annual_salary = null;
+        payload.super_percent = null;
+      } else {
+        payload.min_hourly_rate = null;
+        payload.max_hourly_rate = null;
+        payload.min_annual_salary = minAnnual || null;
+        payload.max_annual_salary = maxAnnual || null;
+        payload.super_percent = superPercent || null;
+      }
+    }
 
     try {
       if (editingShiftId) {
@@ -571,19 +833,26 @@ const PostShiftPage: React.FC = () => {
       setTimeout(() => navigate(targetPath), 1500);
     } catch (err: any) {
       console.error('Post shift failed', err);
-      showSnackbar(err.response?.data?.detail || 'An error occurred.', 'error');
+      showSnackbar(formatErrorMessage(err), 'error');
     } finally {
       setSubmitting(false);
     }
   };
+  useEffect(() => {
+    if (activeStep > steps.length - 1) {
+      setActiveStep(steps.length - 1);
+    }
+  }, [steps.length, activeStep]);
+
   const renderStepContent = (step: number) => {
+    const stepKey = steps[step]?.key;
     const workloadOptions = ['Sole Pharmacist', 'High Script Load', 'Webster Packs'];
     const skillOptions = ['Vaccination', 'Methadone', 'CPR', 'First Aid', 'Anaphylaxis', 'Credentialed Badge', 'PDL Insurance'];
     const ESCALATION_LABELS: Record<string, string> = { FULL_PART_TIME: 'Pharmacy Members', LOCUM_CASUAL: 'Favourite Staff', OWNER_CHAIN: 'Owner Chain', ORG_CHAIN: 'Organization', PLATFORM: 'Platform (Public)' };
     const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2 } };
 
-    switch (step) {
-      case 0: return (
+    switch (stepKey) {
+      case 'details': return (
         <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
           <Grid size={12}>
             <FormControl fullWidth size="small" sx={fieldSx}>
@@ -678,7 +947,7 @@ const PostShiftPage: React.FC = () => {
           </Grid>
         </Grid>
       );
-      case 1: return (
+      case 'skills': return (
         <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
           <Grid size={12}>
             <Typography variant="h6" sx={{ mb: 1 }}>
@@ -744,7 +1013,7 @@ const PostShiftPage: React.FC = () => {
           </Grid>
         </Grid>
       );
-      case 2:
+      case 'visibility':
         const startIdx = allowedVis.indexOf(visibility);
         return (
           <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
@@ -809,69 +1078,36 @@ const PostShiftPage: React.FC = () => {
             ))}
           </Grid>
         );
-      case 3: return (
-        <>
-          {roleNeeded === 'PHARMACIST' ? (
-            <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <FormControl fullWidth size="small" sx={fieldSx}>
-                  <InputLabel>Rate Type</InputLabel>
-                  <Select
-                    value={rateType}
-                    label="Rate Type"
-                    onChange={e => setRateType(e.target.value)}
-                  >
-                    <MenuItem value="FIXED">Fixed Rate</MenuItem>
-                    <MenuItem value="FLEXIBLE">Flexible Rate</MenuItem>
-                    <MenuItem value="PHARMACIST_PROVIDED">Worker Specifies Rate</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              {rateType === 'FIXED' && (
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <TextField
-                    label="Fixed Rate ($/hr)"
-                    type="number"
-                    value={fixedRate}
-                    onChange={e => setFixedRate(e.target.value)}
-                    fullWidth
-                    size="small"
-                    sx={fieldSx}
-                  />
-                </Grid>
-              )}
-            </Grid>
-          ) : (
-            <Stack spacing={3}>
-              <Typography
-                variant="body1"
-                align="center"
-                sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}
-              >
-                Rate is set by government award
-                <Tooltip title="View pay guide">
-                  <IconButton size="small" href="#" target="_blank">
-                    <InfoIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </Typography>
-              <TextField
-                label="Owner Bonus ($/hr, optional)"
-                type="number"
-                value={ownerAdjustedRate}
-                onChange={e => setOwnerAdjustedRate(e.target.value)}
-                fullWidth
-                helperText="This bonus is added to the award rate."
-                size="small"
-                sx={fieldSx}
-              />
-            </Stack>
-          )}
-        </>
-      );
-      case 4: {
+      case 'timetable': {
         return (
-          <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
+          <Grid container rowSpacing={2} columnSpacing={{ xs: 0, md: 0 }}>
+            <Grid size={{ xs: 12 }}>
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: { xs: 1.5, sm: 2 },
+                  borderRadius: 3,
+                  borderColor: 'grey.200',
+                  bgcolor: 'grey.50',
+                  mx: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 1,
+                  alignItems: 'flex-start',
+                  width: '100%',
+                }}
+              >
+                <FormControlLabel
+                  control={<Checkbox size="small" checked={flexibleTiming} onChange={e => setFlexibleTiming(e.target.checked)} />}
+                  label="Flexible timing (start/end may adjust)"
+                />
+                <FormControlLabel
+                  control={<Checkbox size="small" checked={singleUserOnly} onChange={e => setSingleUserOnly(e.target.checked)} />}
+                  label="A single person must work all timetable entries"
+                />
+              </Paper>
+            </Grid>
+
             <Grid size={{ xs: 12, lg: 5 }} sx={{ order: { xs: 1, lg: 0 } }}>
               <Stack spacing={2.5}>
                 <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, borderColor: 'grey.200' }}>
@@ -993,89 +1229,134 @@ const PostShiftPage: React.FC = () => {
                         <Typography variant="subtitle2" fontWeight={600}>
                           Selected calendar days
                         </Typography>
-                        <Button size="small" onClick={() => setSelectedDates([])}>
+                        <Button size="small" onClick={() => { setSelectedDates([]); setSelectedDateTimes({}); }}>
                           Clear
                         </Button>
                       </Stack>
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                        {selectedDates.map((date) => (
-                          <Chip
-                            key={date}
-                            label={formatSlotDate(date)}
-                            onDelete={() => setSelectedDates((prev) => prev.filter((d) => d !== date))}
-                          />
-                        ))}
-                      </Box>
+                      <Stack spacing={1}>
+                        {selectedDates.map((date) => {
+                          const times = selectedDateTimes[date] || { startTime: slotStartTime, endTime: slotEndTime };
+                          return (
+                            <Box
+                              key={date}
+                              sx={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: 1,
+                                alignItems: 'center',
+                                border: '1px solid',
+                                borderColor: 'grey.200',
+                                borderRadius: 1,
+                                p: 1,
+                              }}
+                            >
+                              <Chip
+                                label={formatSlotDate(date)}
+                                onDelete={() => {
+                                  setSelectedDates((prev) => prev.filter((d) => d !== date));
+                                  setSelectedDateTimes((prev) => {
+                                    const next = { ...prev };
+                                    delete next[date];
+                                    return next;
+                                  });
+                                }}
+                              />
+                              <TextField
+                                label="Start"
+                                type="time"
+                                value={times.startTime}
+                                onChange={(e) =>
+                                  setSelectedDateTimes((prev) => ({
+                                    ...prev,
+                                    [date]: { startTime: e.target.value, endTime: times.endTime },
+                                  }))
+                                }
+                                size="small"
+                                sx={{ width: 140 }}
+                                InputLabelProps={{ shrink: true }}
+                              />
+                              <TextField
+                                label="End"
+                                type="time"
+                                value={times.endTime}
+                                onChange={(e) =>
+                                  setSelectedDateTimes((prev) => ({
+                                    ...prev,
+                                    [date]: { startTime: times.startTime, endTime: e.target.value },
+                                  }))
+                                }
+                                size="small"
+                                sx={{ width: 140 }}
+                                InputLabelProps={{ shrink: true }}
+                              />
+                            </Box>
+                          );
+                        })}
+                      </Stack>
                       <Typography variant="caption" color="text.secondary">
-                        Adjust start and end times above, then press “Add slot” to add entries for every selected day.
+                        Adjust times per day, then press “Add slot” to add entries for every selected day.
                       </Typography>
                     </Stack>
                   </Paper>
                 )}
 
                 <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, borderColor: 'grey.200' }}>
-                  <Stack spacing={2}>
-                    <FormControlLabel
-                      control={<Checkbox checked={singleUserOnly} onChange={e => setSingleUserOnly(e.target.checked)} />}
-                      label="A single person must work all timetable entries"
-                    />
-                    {slots.length === 0 ? (
-                      <Alert severity="info">No schedule entries added yet.</Alert>
-                    ) : (
-                      <Stack spacing={1.5}>
-                        {slots.map((slot, index) => {
-                          const recurringLabel = describeRecurringDays(slot.recurringDays);
-                          return (
-                            <Box
-                              key={`${slot.date}-${slot.startTime}-${index}`}
-                              sx={{
-                                border: '1px solid',
-                                borderColor: 'grey.200',
-                                borderRadius: 2,
-                                px: 2,
-                                py: 1.5,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: 2,
-                              }}
-                            >
-                              <Box>
-                                <Typography variant="subtitle2" fontWeight={600}>
-                                  {formatSlotDate(slot.date)}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                  {`${formatSlotTime(slot.startTime)} – ${formatSlotTime(slot.endTime)}`}
-                                </Typography>
-                                {slot.isRecurring && (
-                                  <Stack direction="row" spacing={1} flexWrap="wrap" mt={1}>
-                                    <Chip size="small" color="primary" label="Recurring" />
-                                    {recurringLabel && (
-                                      <Chip
-                                        size="small"
-                                        variant="outlined"
-                                        label={recurringLabel}
-                                      />
-                                    )}
-                                    {slot.recurringEndDate && (
-                                      <Chip
-                                        size="small"
-                                        variant="outlined"
-                                        label={`Ends ${formatSlotDate(slot.recurringEndDate)}`}
-                                      />
-                                    )}
-                                  </Stack>
-                                )}
-                              </Box>
-                              <IconButton edge="end" onClick={() => setSlots(sc => sc.filter((_, idx) => idx !== index))} color="error">
-                                <DeleteIcon />
-                              </IconButton>
+                  {slots.length === 0 ? (
+                    <Alert severity="info">No schedule entries added yet.</Alert>
+                  ) : (
+                    <Stack spacing={1.5}>
+                      {slots.map((slot, index) => {
+                        const recurringLabel = describeRecurringDays(slot.recurringDays);
+                        return (
+                          <Box
+                            key={`${slot.date}-${slot.startTime}-${index}`}
+                            sx={{
+                              border: '1px solid',
+                              borderColor: 'grey.200',
+                              borderRadius: 2,
+                              px: 2,
+                              py: 1.5,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 2,
+                            }}
+                          >
+                            <Box>
+                              <Typography variant="subtitle2" fontWeight={600}>
+                                {formatSlotDate(slot.date)}
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                {`${formatSlotTime(slot.startTime)} – ${formatSlotTime(slot.endTime)}`}
+                              </Typography>
+                              {slot.isRecurring && (
+                                <Stack direction="row" spacing={1} flexWrap="wrap" mt={1}>
+                                  <Chip size="small" color="primary" label="Recurring" />
+                                  {recurringLabel && (
+                                    <Chip
+                                      size="small"
+                                      variant="outlined"
+                                      label={recurringLabel}
+                                    />
+                                  )}
+                                  {slot.recurringEndDate && (
+                                    <Chip
+                                      size="small"
+                                      variant="outlined"
+                                      label={`Ends ${formatSlotDate(slot.recurringEndDate)}`}
+                                    />
+                                  )}
+                                </Stack>
+                              )}
                             </Box>
-                          );
-                        })}
-                      </Stack>
-                    )}
-                  </Stack>
+                            <IconButton edge="end" onClick={() => setSlots(sc => sc.filter((_, idx) => idx !== index))} color="error">
+                              <DeleteIcon />
+                            </IconButton>
+                          </Box>
+                        );
+                      })}
+                    </Stack>
+                  )}
                 </Paper>
               </Stack>
             </Grid>
@@ -1087,7 +1368,7 @@ const PostShiftPage: React.FC = () => {
                   p: 2,
                   borderRadius: 3,
                   borderColor: 'grey.200',
-                  height: { xs: 420, md: 520 },
+                  height: { xs: 420, sm: 460, md: 540 },
                   display: 'flex',
                   flexDirection: 'column',
                   '& .rbc-calendar': {
@@ -1110,6 +1391,7 @@ const PostShiftPage: React.FC = () => {
                     longPressThrottle={50}
                     localizer={localizer}
                     events={calendarEvents}
+                    dayPropGetter={dayPropGetter}
                     date={safeCalendarDate}
                     view={calendarView}
                     views={CALENDAR_VIEWS}
@@ -1152,14 +1434,17 @@ const PostShiftPage: React.FC = () => {
                       }
 
                       if (calendarView === 'week' || calendarView === 'day') {
-                        setSelectedDates([startMoment.format('YYYY-MM-DD')]);
-                        setSlotDate(startMoment.format('YYYY-MM-DD'));
+                        const dateStr = startMoment.format('YYYY-MM-DD');
+                        setSelectedDates([dateStr]);
+                        setSlotDate(dateStr);
                         setSlotStartTime(startMoment.format('HH:mm'));
                         let endCandidate = endMoment;
                         if (!endMoment.isAfter(startMoment)) {
                           endCandidate = startMoment.add(1, 'hour');
                         }
-                        setSlotEndTime(endCandidate.format('HH:mm'));
+                        const endVal = endCandidate.format('HH:mm');
+                        setSlotEndTime(endVal);
+                        setSelectedDateTimes({ [dateStr]: { startTime: startMoment.format('HH:mm'), endTime: endVal } });
                         setIsRecurring(false);
                         setRecurringDays([]);
                         setRecurringEndDate('');
@@ -1184,6 +1469,11 @@ const PostShiftPage: React.FC = () => {
                       if (sortedDates.length) {
                         setSlotDate(sortedDates[0]);
                       }
+                      setSelectedDateTimes(
+                        Object.fromEntries(
+                          sortedDates.map((d) => [d, { startTime: slotStartTime, endTime: slotEndTime }])
+                        )
+                      );
                       setIsRecurring(false);
                       setRecurringDays([]);
                       setRecurringEndDate('');
@@ -1200,6 +1490,7 @@ const PostShiftPage: React.FC = () => {
                           setRecurringDays(slot.recurringDays || []);
                           setRecurringEndDate(slot.recurringEndDate || '');
                           setSelectedDates([slot.date]);
+                          setSelectedDateTimes({ [slot.date]: { startTime: slot.startTime, endTime: slot.endTime } });
                         }
                       }
                     }}
@@ -1214,6 +1505,306 @@ const PostShiftPage: React.FC = () => {
               </Paper>
             </Grid>
           </Grid>
+        );
+      }
+      case 'pay': {
+        const showSlotPreview = isLocumLike && !(roleNeeded === 'PHARMACIST' && rateType === 'PHARMACIST_PROVIDED');
+        const paymentField = isLocumLike ? (
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <FormControl fullWidth size="small" sx={fieldSx}>
+              <InputLabel>Payment Type</InputLabel>
+              <Select
+                value={paymentPreference}
+                label="Payment Type"
+                onChange={e => setPaymentPreference(e.target.value)}
+              >
+                <MenuItem value="ABN">ABN</MenuItem>
+                <MenuItem value="TFN">TFN</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+        ) : null;
+
+        if (!isLocumLike) {
+          return (
+            <Stack spacing={3}>
+              <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <FormControl fullWidth size="small" sx={fieldSx}>
+                    <InputLabel>Pay Basis</InputLabel>
+                    <Select
+                      value={ftptPayMode}
+                      label="Pay Basis"
+                      onChange={e => setFtptPayMode(e.target.value as 'HOURLY' | 'ANNUAL')}
+                    >
+                      <MenuItem value="HOURLY">Hourly</MenuItem>
+                      <MenuItem value="ANNUAL">Annual Package</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+              </Grid>
+
+              {ftptPayMode === 'HOURLY' ? (
+                <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      label="Min Hourly Rate ($/hr)"
+                      type="number"
+                      value={minHourly}
+                      onChange={e => setMinHourly(e.target.value)}
+                      fullWidth
+                      size="small"
+                      sx={fieldSx}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      label="Max Hourly Rate ($/hr)"
+                      type="number"
+                      value={maxHourly}
+                      onChange={e => setMaxHourly(e.target.value)}
+                      fullWidth
+                      size="small"
+                      sx={fieldSx}
+                    />
+                  </Grid>
+                </Grid>
+              ) : (
+                <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      label="Min Annual Package ($)"
+                      type="number"
+                      value={minAnnual}
+                      onChange={e => setMinAnnual(e.target.value)}
+                      fullWidth
+                      size="small"
+                      sx={fieldSx}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      label="Max Annual Package ($)"
+                      type="number"
+                      value={maxAnnual}
+                      onChange={e => setMaxAnnual(e.target.value)}
+                      fullWidth
+                      size="small"
+                      sx={fieldSx}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      label="Super (%)"
+                      type="number"
+                      value={superPercent}
+                      onChange={e => setSuperPercent(e.target.value)}
+                      fullWidth
+                      size="small"
+                      sx={fieldSx}
+                    />
+                  </Grid>
+                </Grid>
+              )}
+            </Stack>
+          );
+        }
+
+        const renderSlotPreviewList = () => {
+          if (!showSlotPreview || expandedSlots.length === 0) return null;
+          return (
+            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, borderColor: 'grey.200' }}>
+              <Stack spacing={1.5}>
+                <Typography variant="subtitle1" fontWeight={600}>
+                  Slot rate preview
+                </Typography>
+                <Stack spacing={1}>
+                  {expandedSlots.map((slot, idx) => {
+                    const row = slotRateRows[idx] ?? { rate: '', status: 'idle' as const };
+                    const baseNum = Number(row.rate);
+                    const rateValid = Number.isFinite(baseNum);
+                    const bonusNum = Number(ownerBonus);
+                    const bonusValid = Number.isFinite(bonusNum);
+                    const finalNum = roleNeeded === 'PHARMACIST'
+                      ? (rateValid ? baseNum : null)
+                      : (rateValid ? baseNum : 0) + (bonusValid ? bonusNum : 0);
+                    const finalLabel =
+                      finalNum != null && Number.isFinite(finalNum)
+                        ? `$${finalNum.toFixed(2)}/hr`
+                        : '$0.00/hr';
+                    return (
+                      <Stack
+                        key={`${slot.date}-${slot.startTime}-${idx}`}
+                        direction="row"
+                        spacing={1}
+                        alignItems="center"
+                        flexWrap="wrap"
+                      >
+                        <Typography variant="body2" sx={{ minWidth: 180 }}>
+                          {`${slot.date} · ${slot.startTime}—${slot.endTime}`}
+                        </Typography>
+                        <TextField
+                          label="Rate ($/hr)"
+                          type="number"
+                          value={row.rate}
+                          onChange={(e) => handleSlotRateChange(idx, e.target.value)}
+                          size="small"
+                          sx={{ width: 140 }}
+                          error={row.status === 'error'}
+                          helperText={row.status === 'error' ? (row.error || 'Error') : ''}
+                        />
+                        <Typography variant="body2" color="text.secondary">
+                          {row.status === 'loading' ? 'Calculating...' : `Final: ${finalLabel}`}
+                        </Typography>
+                      </Stack>
+                    );
+                  })}
+                </Stack>
+              </Stack>
+            </Paper>
+          );
+        };
+
+        if (roleNeeded === 'PHARMACIST') {
+          return (
+            <Stack spacing={3}>
+              <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <FormControl fullWidth size="small" sx={fieldSx}>
+                    <InputLabel>Rate Type</InputLabel>
+                    <Select
+                      value={rateType}
+                      label="Rate Type"
+                      onChange={e => setRateType(e.target.value)}
+                    >
+                      <MenuItem value="FLEXIBLE">Flexible Rate</MenuItem>
+                      <MenuItem value="FIXED">Fixed Rate</MenuItem>
+                      <MenuItem value="PHARMACIST_PROVIDED">Pharmacist Provided</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                {paymentField}
+              </Grid>
+
+              {rateType !== 'PHARMACIST_PROVIDED' && (
+                <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, borderColor: 'grey.200' }}>
+                  <Stack spacing={2}>
+                    <Typography variant="subtitle1" fontWeight={600}>
+                      Base rates ($/hr)
+                    </Typography>
+                    <Grid container rowSpacing={2} columnSpacing={2}>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField
+                          label="Weekday"
+                          type="number"
+                          value={rateWeekday}
+                          onChange={e => setRateWeekday(e.target.value)}
+                          fullWidth
+                          size="small"
+                          sx={fieldSx}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField
+                          label="Saturday"
+                          type="number"
+                          value={rateSaturday}
+                          onChange={e => setRateSaturday(e.target.value)}
+                          fullWidth
+                          size="small"
+                          sx={fieldSx}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField
+                          label="Sunday"
+                          type="number"
+                          value={rateSunday}
+                          onChange={e => setRateSunday(e.target.value)}
+                          fullWidth
+                          size="small"
+                          sx={fieldSx}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField
+                          label="Public Holiday"
+                          type="number"
+                          value={ratePublicHoliday}
+                          onChange={e => setRatePublicHoliday(e.target.value)}
+                          fullWidth
+                          size="small"
+                          sx={fieldSx}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField
+                          label="Early Morning"
+                          type="number"
+                          value={rateEarlyMorning}
+                          onChange={e => setRateEarlyMorning(e.target.value)}
+                          fullWidth
+                          size="small"
+                          sx={fieldSx}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField
+                          label="Late Night"
+                          type="number"
+                          value={rateLateNight}
+                          onChange={e => setRateLateNight(e.target.value)}
+                          fullWidth
+                          size="small"
+                          sx={fieldSx}
+                        />
+                      </Grid>
+                    </Grid>
+                    <FormControlLabel
+                      control={(
+                        <Checkbox
+                          checked={applyRatesToPharmacy}
+                          onChange={(_, checked) => setApplyRatesToPharmacy(checked)}
+                        />
+                      )}
+                      label="Apply these rates to Pharmacy defaults"
+                    />
+                  </Stack>
+                </Paper>
+              )}
+
+              {renderSlotPreviewList()}
+            </Stack>
+          );
+        }
+
+        return (
+          <Stack spacing={3}>
+            <Typography
+              variant="body1"
+              align="center"
+              sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}
+            >
+              Rate is set by government award
+              <Tooltip title="View pay guide">
+                <IconButton size="small" href="#" target="_blank">
+                  <InfoIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Typography>
+            {paymentField}
+            <TextField
+              label="Owner Bonus ($/hr, optional)"
+              type="number"
+              value={ownerBonus}
+              onChange={e => setOwnerBonus(e.target.value)}
+              fullWidth
+              helperText="This bonus is added to the award rate."
+              size="small"
+              sx={fieldSx}
+            />
+            {renderSlotPreviewList()}
+          </Stack>
         );
       }
       default: return null;
@@ -1263,8 +1854,24 @@ const PostShiftPage: React.FC = () => {
 
   return (
     <ThemeProvider theme={theme}>
-      <Container maxWidth="md" sx={{ py: 4, bgcolor: '#F9FAFB', minHeight: '100vh' }}>
-        <Paper sx={{ p: { xs: 2, md: 4 }, borderRadius: 4, boxShadow: '0 8px 32px 0 rgba(0,0,0,0.1)' }}>
+      <Container
+        maxWidth={false}
+        sx={{
+          px: { xs: 1.5, sm: 2.5, md: 4 },
+          py: 4,
+          bgcolor: '#F9FAFB',
+          minHeight: '100vh',
+          maxWidth: { xs: '100%', lg: 1200, xl: 1400 },
+        }}
+      >
+        <Paper
+          sx={{
+            p: { xs: 2, md: 4 },
+            borderRadius: 4,
+            boxShadow: '0 8px 32px 0 rgba(0,0,0,0.1)',
+            width: '100%',
+          }}
+        >
           <Typography variant="h4" gutterBottom align="center" fontWeight={600}>{editingShiftId ? 'Edit Shift' : 'Create a New Shift'}</Typography>
           <Typography variant="body1" color="text.secondary" align="center" mb={4}>Follow the steps to post a new shift opportunity.</Typography>
 
@@ -1273,7 +1880,7 @@ const PostShiftPage: React.FC = () => {
             alternativeLabel={!isMobile}
             orientation={isMobile ? 'vertical' : 'horizontal'}
             connector={<StepConnectorStyled />}
-            sx={{ mb: 5, px: { xs: 1, sm: 4 } }}
+            sx={{ mb: 3, px: { xs: 1, sm: 4 } }}
           >
             {steps.map((step, index) => (
               <Step key={step.label}>
@@ -1290,7 +1897,7 @@ const PostShiftPage: React.FC = () => {
             ))}
           </Stepper>
 
-          <Box sx={{ minHeight: 350, px: { xs: 0, md: 3 } }}>
+          <Box sx={{ minHeight: 350, px: { xs: 0, md: 2.5 }, pt: 0.5 }}>
             <Typography variant="h5" fontWeight={500} gutterBottom>{steps[activeStep].label}</Typography>
             {renderStepContent(activeStep)}
           </Box>
@@ -1342,6 +1949,3 @@ const PostShiftPage: React.FC = () => {
 };
 
 export default PostShiftPage;
-
-
-

@@ -30,6 +30,25 @@ def get_time_category(start, end):
         return 'late_night'
     return None
 
+
+def _get_pharmacy_rate_for_key(pharmacy, rate_lookup_key):
+    """
+    Map a calculated rate key (weekday/saturday/sunday/public_holiday/early_morning/late_night)
+    to the corresponding pharmacy rate field.
+    """
+    field_map = {
+        "weekday": "rate_weekday",
+        "saturday": "rate_saturday",
+        "sunday": "rate_sunday",
+        "public_holiday": "rate_public_holiday",
+        "early_morning": "rate_early_morning",
+        "late_night": "rate_late_night",
+    }
+    field_name = field_map.get(rate_lookup_key)
+    if not field_name:
+        return None
+    return getattr(pharmacy, field_name, None)
+
 def get_locked_rate_for_slot(slot, shift, user, override_date=None):
     """
     Calculates the correct rate for a given user and shift slot,
@@ -68,26 +87,18 @@ def get_locked_rate_for_slot(slot, shift, user, override_date=None):
     if membership and membership.employment_type in ['FULL_TIME', 'PART_TIME']:
         employment_category = 'full_part_time'
 
-    # Handle Pharmacist Rates
+    # Handle Pharmacist Rates (use pharmacy default base rates)
     if shift.role_needed == 'PHARMACIST':
-        # For pharmacists, the award level is stored on the Membership model
-        award_level = 'PHARMACIST' # Default if not set
-        if membership and membership.pharmacist_award_level:
-            award_level = membership.pharmacist_award_level
+        pharmacy_rate = _get_pharmacy_rate_for_key(shift.pharmacy, rate_lookup_key)
+        if pharmacy_rate is None:
+            return Decimal('0.00'), {"error": "Pharmacy rate not configured"}
 
-        try:
-            # Correctly look up the rate using all necessary keys
-            rate = AWARD_RATES['PHARMACIST'][award_level][employment_category][rate_lookup_key]
-            reason = {
-                "type": rate_lookup_key,
-                "role_key": award_level,
-                "employment": employment_category,
-                "source": "Award"
-            }
-            return Decimal(rate), reason
-        except KeyError:
-            # Fallback if the specific rate combination is not found
-            return Decimal('0.00'), {"error": "Rate not found for pharmacist classification"}
+        reason = {
+            "type": "Default",
+            "rate_key": rate_lookup_key,
+            "source": "Pharmacy",
+        }
+        return Decimal(pharmacy_rate), reason
 
     # Handle Other Staff Rates (Intern, Student, Assistant, Technician)
     else:
@@ -130,6 +141,58 @@ def get_locked_rate_for_slot(slot, shift, user, override_date=None):
             return Decimal('0.00'), {"error": "OtherStaffOnboarding profile not found for user."}
         except KeyError:
             return Decimal('0.00'), {"error": f"Rate not found for {shift.role_needed} classification"}
+
+
+def calculate_shift_rates(shift, slot_date, start_time, end_time):
+    """
+    Calculates a preview hourly rate for a draft shift slot (owner posting flow).
+
+    - Pharmacist: uses the pharmacy's configured base rates (`rate_*`) and public holiday detection.
+    - Other staff: uses `updated_award_rates.json` defaults (LEVEL_1 / YEAR_1 / FIRST_HALF) and applies any owner bonus.
+    """
+    state = getattr(shift.pharmacy, "state", "") or ""
+    day_type = get_day_type(slot_date, state)
+    time_category = get_time_category(start_time, end_time)
+
+    rate_pref = getattr(shift, "rate_preference", None) or {}
+    if time_category in ("early_morning", "late_night"):
+        if time_category == "early_morning" and rate_pref.get("early_morning_same_as_day"):
+            rate_lookup_key = day_type
+        elif time_category == "late_night" and rate_pref.get("late_night_same_as_day"):
+            rate_lookup_key = day_type
+        else:
+            rate_lookup_key = time_category
+    else:
+        rate_lookup_key = day_type
+
+    if shift.role_needed == "PHARMACIST":
+        pharmacy_rate = _get_pharmacy_rate_for_key(shift.pharmacy, rate_lookup_key)
+        if pharmacy_rate is None:
+            return Decimal("0.00"), {"error": "Pharmacy rate not configured"}
+        return Decimal(pharmacy_rate), {"source": "Pharmacy", "type": "Default"}
+
+    employment_category = "casual"
+    default_classification = None
+    if shift.role_needed == "INTERN":
+        default_classification = "FIRST_HALF"
+    elif shift.role_needed == "STUDENT":
+        default_classification = "YEAR_1"
+    elif shift.role_needed in ["ASSISTANT", "TECHNICIAN"]:
+        default_classification = "LEVEL_1"
+
+    if not default_classification:
+        return Decimal("0.00"), {"error": "Unsupported role for award rate preview"}
+
+    try:
+        rate = Decimal(AWARD_RATES[shift.role_needed][default_classification][employment_category][rate_lookup_key])
+    except KeyError:
+        return Decimal("0.00"), {"error": "Award rate not found"}
+
+    owner_bonus = getattr(shift, "owner_adjusted_rate", None) or Decimal("0.00")
+    if owner_bonus and owner_bonus > 0:
+        rate += Decimal(owner_bonus)
+
+    return rate, {"source": "Award", "type": rate_lookup_key, "role_key": default_classification}
 
 
 def expand_shift_slots(shift):
@@ -393,4 +456,3 @@ def render_invoice_to_pdf(invoice):
     html_string = render_to_string("invoices/invoice_pdf.html", context)
     pdf_bytes = HTML(string=html_string, base_url=None).write_pdf()
     return pdf_bytes
-

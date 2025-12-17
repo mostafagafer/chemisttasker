@@ -20,6 +20,7 @@ import {
   FormControlLabel,
   FormGroup,
   GlobalStyles,
+  Grid,
   InputAdornment,
   InputLabel,
   Link as MuiLink,
@@ -97,6 +98,12 @@ type PharmacyApi = {
   public_holidays_end: string | null;
   default_rate_type: "FIXED" | "FLEXIBLE" | "PHARMACIST_PROVIDED" | null;
   default_fixed_rate: string | null;
+  rate_weekday?: string | null;
+  rate_saturday?: string | null;
+  rate_sunday?: string | null;
+  rate_public_holiday?: string | null;
+  rate_early_morning?: string | null;
+  rate_late_night?: string | null;
   about: string;
   auto_publish_worker_requests?: boolean;
 };
@@ -133,6 +140,12 @@ const normalizePharmacy = (raw: any): Pharmacy => ({
   public_holidays_end: raw.public_holidays_end ?? raw.publicHolidaysEnd ?? "",
   default_rate_type: raw.default_rate_type ?? raw.defaultRateType ?? null,
   default_fixed_rate: raw.default_fixed_rate ?? raw.defaultFixedRate ?? null,
+  rate_weekday: raw.rate_weekday ?? raw.rateWeekday ?? null,
+  rate_saturday: raw.rate_saturday ?? raw.rateSaturday ?? null,
+  rate_sunday: raw.rate_sunday ?? raw.rateSunday ?? null,
+  rate_public_holiday: raw.rate_public_holiday ?? raw.ratePublicHoliday ?? null,
+  rate_early_morning: raw.rate_early_morning ?? raw.rateEarlyMorning ?? null,
+  rate_late_night: raw.rate_late_night ?? raw.rateLateNight ?? null,
   about: raw.about ?? "",
   auto_publish_worker_requests: raw.auto_publish_worker_requests ?? raw.autoPublishWorkerRequests ?? false,
 });
@@ -208,7 +221,7 @@ const RATE_TYPES = [
   { value: "FLEXIBLE", label: "Flexible" },
   { value: "PHARMACIST_PROVIDED", label: "Pharmacist Provided" },
 ] as const;
-const PHARMACY_CACHE_KEY = "pharmacyPage.cache.v1";
+const PHARMACY_CACHE_KEY = "pharmacyPage.cache.v2";
 
 export default function PharmacyPage() {
   const navigate = useNavigate();
@@ -333,6 +346,12 @@ export default function PharmacyPage() {
 
   const [defaultRateType, setDefaultRateType] = useState<string>("");
   const [defaultFixedRate, setDefaultFixedRate] = useState<string>("");
+  const [rateWeekday, setRateWeekday] = useState("");
+  const [rateSaturday, setRateSaturday] = useState("");
+  const [rateSunday, setRateSunday] = useState("");
+  const [ratePublicHoliday, setRatePublicHoliday] = useState("");
+  const [rateEarlyMorning, setRateEarlyMorning] = useState("");
+  const [rateLateNight, setRateLateNight] = useState("");
   const [about, setAbout] = useState("");
   const [autoPublishWorkerRequests, setAutoPublishWorkerRequests] = useState(false);
 
@@ -585,7 +604,8 @@ export default function PharmacyPage() {
         admin_assignments?: Record<string, PharmacyAdminDTO[]>;
       };
       if (Array.isArray(cached.pharmacies)) {
-        setPharmacies(scopePharmacies(cached.pharmacies.map((ph) => ({ ...ph, id: String(ph.id) }))));
+        const normalized = cached.pharmacies.map((ph) => normalizePharmacy(ph));
+        setPharmacies(scopePharmacies(normalized));
         if (cached.pharmacies.length > 0) {
           setInitialLoadComplete(true);
         }
@@ -788,6 +808,12 @@ export default function PharmacyPage() {
       setPublicHolidaysEnd(pharmacy.public_holidays_end || "");
       setDefaultRateType(pharmacy.default_rate_type || "");
       setDefaultFixedRate(pharmacy.default_fixed_rate || "");
+      setRateWeekday(pharmacy.rate_weekday || "");
+      setRateSaturday(pharmacy.rate_saturday || "");
+      setRateSunday(pharmacy.rate_sunday || "");
+      setRatePublicHoliday(pharmacy.rate_public_holiday || "");
+      setRateEarlyMorning(pharmacy.rate_early_morning || "");
+      setRateLateNight(pharmacy.rate_late_night || "");
       setAbout(pharmacy.about || "");
       setAutoPublishWorkerRequests(Boolean(pharmacy.auto_publish_worker_requests));
     } else {
@@ -818,9 +844,15 @@ export default function PharmacyPage() {
       setPublicHolidaysEnd("");
       setDefaultRateType("");
       setDefaultFixedRate("");
+      setRateWeekday("");
+      setRateSaturday("");
+      setRateSunday("");
+      setRatePublicHoliday("");
+      setRateEarlyMorning("");
+      setRateLateNight("");
       setAbout("");
-    setAutoPublishWorkerRequests(false);
-  }
+      setAutoPublishWorkerRequests(false);
+    }
   setDialogOpen(true);
 };
 
@@ -901,6 +933,15 @@ export default function PharmacyPage() {
       return;
     }
 
+    if (defaultRateType && defaultRateType !== "PHARMACIST_PROVIDED") {
+      if (!rateWeekday || !rateSaturday || !rateSunday || !ratePublicHoliday) {
+        setError(
+          "Please fill in base rates (Weekday, Saturday, Sunday, Public Holiday) or select 'Pharmacist Provided'."
+        );
+        return;
+      }
+    }
+
     const fd = new FormData();
     fd.append("name", name);
     fd.append("email", email.trim());
@@ -931,9 +972,14 @@ export default function PharmacyPage() {
     fd.append("public_holidays_start", publicHolidaysStart);
     fd.append("public_holidays_end", publicHolidaysEnd);
     fd.append("default_rate_type", defaultRateType);
-    if (defaultRateType === "FIXED") {
-      fd.append("default_fixed_rate", defaultFixedRate);
-    }
+    if (defaultFixedRate) fd.append("default_fixed_rate", defaultFixedRate);
+
+    if (rateWeekday) fd.append("rate_weekday", rateWeekday);
+    if (rateSaturday) fd.append("rate_saturday", rateSaturday);
+    if (rateSunday) fd.append("rate_sunday", rateSunday);
+    if (ratePublicHoliday) fd.append("rate_public_holiday", ratePublicHoliday);
+    if (rateEarlyMorning) fd.append("rate_early_morning", rateEarlyMorning);
+    if (rateLateNight) fd.append("rate_late_night", rateLateNight);
     fd.append("about", about);
     fd.append("auto_publish_worker_requests", String(autoPublishWorkerRequests));
 
@@ -1761,12 +1807,18 @@ export default function PharmacyPage() {
 
           {tabIndex === 5 && (
             <Box sx={{ p: 2 }}>
+              <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
+                Default Rate Strategy
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Select how you want to handle rates for Pharmacist shifts.
+              </Typography>
               <FormControl fullWidth margin="normal">
-                <InputLabel id="rate-type-label">Rate Type</InputLabel>
+                <InputLabel id="rate-type-label">Rate Strategy</InputLabel>
                 <Select
                   labelId="rate-type-label"
                   value={defaultRateType}
-                  label="Rate Type"
+                  label="Rate Strategy"
                   onChange={(e) => setDefaultRateType(e.target.value)}
                 >
                   <MenuItem value="">
@@ -1779,17 +1831,81 @@ export default function PharmacyPage() {
                   ))}
                 </Select>
               </FormControl>
-              {defaultRateType === "FIXED" && (
-                <TextField
-                  label="Default Fixed Rate"
-                  fullWidth
-                  margin="normal"
-                  value={defaultFixedRate}
-                  onChange={(e) => setDefaultFixedRate(e.target.value)}
-                  InputProps={{
-                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                  }}
-                />
+
+              {defaultRateType && defaultRateType !== "PHARMACIST_PROVIDED" && (
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+                    Base Rates
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    These rates apply when "Fixed" or "Flexible" is selected. They are disabled if you choose
+                    "Pharmacist Provided".
+                  </Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        label="Weekday Rate"
+                        type="number"
+                        fullWidth
+                        value={rateWeekday}
+                        onChange={(e) => setRateWeekday(e.target.value)}
+                        InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        label="Saturday Rate"
+                        type="number"
+                        fullWidth
+                        value={rateSaturday}
+                        onChange={(e) => setRateSaturday(e.target.value)}
+                        InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        label="Sunday Rate"
+                        type="number"
+                        fullWidth
+                        value={rateSunday}
+                        onChange={(e) => setRateSunday(e.target.value)}
+                        InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        label="Public Holiday Rate"
+                        type="number"
+                        fullWidth
+                        value={ratePublicHoliday}
+                        onChange={(e) => setRatePublicHoliday(e.target.value)}
+                        InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        label="Early Morning Rate"
+                        type="number"
+                        fullWidth
+                        value={rateEarlyMorning}
+                        onChange={(e) => setRateEarlyMorning(e.target.value)}
+                        helperText="Before 8am"
+                        InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        label="Late Night Rate"
+                        type="number"
+                        fullWidth
+                        value={rateLateNight}
+                        onChange={(e) => setRateLateNight(e.target.value)}
+                        helperText="After 7pm"
+                        InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                      />
+                    </Grid>
+                  </Grid>
+                </Box>
               )}
             </Box>
           )}
@@ -1817,4 +1933,3 @@ export default function PharmacyPage() {
     </Box>
   );
 }
-

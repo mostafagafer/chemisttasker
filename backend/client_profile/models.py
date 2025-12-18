@@ -1233,6 +1233,18 @@ class Shift(models.Model):
         default=False,
         help_text="If true, only one user may take the entire shift (all slots)."
     )
+    has_travel = models.BooleanField(
+        default=False,
+        help_text="Whether travel allowance is provided for this shift."
+    )
+    has_accommodation = models.BooleanField(
+        default=False,
+        help_text="Whether accommodation is provided for this shift."
+    )
+    is_urgent = models.BooleanField(
+        default=False,
+        help_text="Whether this shift is marked as urgent by the poster."
+    )
     post_anonymously = models.BooleanField(
         default=False,
         help_text="Hide pharmacy identity from applicants; only suburb is shown."
@@ -1314,6 +1326,13 @@ class ShiftSlot(models.Model):
     date = models.DateField()
     start_time = models.TimeField()
     end_time = models.TimeField()
+    rate = models.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Optional per-slot hourly rate for display."
+    )
     is_recurring = models.BooleanField(default=False)
     recurring_days = models.JSONField(default=list, blank=True)
     recurring_end_date = models.DateField(null=True, blank=True)
@@ -1468,6 +1487,75 @@ class ShiftRejection(models.Model):
         # If both slot and slot_date are None, slotinfo remains an empty string.
 
         return f"{self.user.get_full_name()} rejected shift at {self.shift.pharmacy.name}{slotinfo}"
+
+class ShiftCounterOffer(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        ACCEPTED = "ACCEPTED", "Accepted"
+        REJECTED = "REJECTED", "Rejected"
+
+    shift = models.ForeignKey(
+        Shift,
+        on_delete=models.CASCADE,
+        related_name="counter_offers"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="shift_counter_offers"
+    )
+    message = models.TextField(blank=True)
+    request_travel = models.BooleanField(default=False)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="decided_shift_counter_offers"
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["shift", "status"]),
+            models.Index(fields=["user", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"CounterOffer#{self.pk} shift={self.shift_id} user={self.user_id} status={self.status}"
+
+
+class ShiftCounterOfferSlot(models.Model):
+    offer = models.ForeignKey(
+        ShiftCounterOffer,
+        on_delete=models.CASCADE,
+        related_name="slots"
+    )
+    slot = models.ForeignKey(
+        ShiftSlot,
+        on_delete=models.CASCADE,
+        related_name="counter_offer_slots"
+    )
+    proposed_start_time = models.TimeField()
+    proposed_end_time = models.TimeField()
+    proposed_rate = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True
+    )
+
+    class Meta:
+        unique_together = ("offer", "slot")
+        indexes = [
+            models.Index(fields=["offer", "slot"]),
+        ]
+
+    def __str__(self):
+        return f"CounterOfferSlot#{self.pk} offer={self.offer_id} slot={self.slot_id}"
 
 class LeaveRequest(models.Model):
     LEAVE_TYPE_CHOICES = [

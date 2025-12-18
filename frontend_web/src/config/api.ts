@@ -1,4 +1,4 @@
-import { configureApi } from '@chemisttasker/shared-core';
+import { configureApi, configureStorage } from '@chemisttasker/shared-core';
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../utils/tokenService';
 
 let configured = false;
@@ -50,6 +50,11 @@ export function initSharedCoreApi() {
   if (!baseURL) {
     throw new Error('VITE_API_URL is not defined');
   }
+  configureStorage({
+    getItem: (key: string) => localStorage.getItem(key),
+    setItem: (key: string, value: string) => localStorage.setItem(key, value),
+    removeItem: (key: string) => localStorage.removeItem(key),
+  });
   configureApi({
     baseURL,
     getToken: async () => getAccessWithRefresh(baseURL),

@@ -15,6 +15,7 @@ from datetime import date, timedelta
 from django.utils import timezone
 from django_q.tasks import async_task
 import logging
+import math
 logger = logging.getLogger(__name__)
 User = get_user_model()
 from django_q.models import Schedule
@@ -3529,13 +3530,19 @@ class ShiftSlotSerializer(serializers.ModelSerializer):
         allow_empty=True
     )
     recurring_end_date = serializers.DateField(required=False, allow_null=True)
+    start_hour = serializers.SerializerMethodField()
 
     class Meta:
         model = ShiftSlot
         fields = [
-            'id', 'date', 'start_time', 'end_time',
+            'id', 'date', 'start_time', 'end_time', 'rate', 'start_hour',
             'is_recurring', 'recurring_days', 'recurring_end_date',
         ]
+
+    def get_start_hour(self, obj):
+        if not obj.start_time:
+            return None
+        return obj.start_time.hour
 
 class ShiftSerializer(serializers.ModelSerializer):
     created_by = serializers.PrimaryKeyRelatedField(read_only=True)
@@ -3552,6 +3559,15 @@ class ShiftSerializer(serializers.ModelSerializer):
     # for multi-slot shifts
     slot_assignments = serializers.SerializerMethodField()
 
+    role_label = serializers.SerializerMethodField()
+    ui_is_negotiable = serializers.SerializerMethodField()
+    ui_is_flexible_time = serializers.SerializerMethodField()
+    ui_allow_partial = serializers.SerializerMethodField()
+    ui_location_city = serializers.SerializerMethodField()
+    ui_location_state = serializers.SerializerMethodField()
+    ui_address_line = serializers.SerializerMethodField()
+    ui_distance_km = serializers.SerializerMethodField()
+    ui_is_urgent = serializers.SerializerMethodField()
 
     # fixed_rate = serializers.DecimalField(max_digits=6, decimal_places=2)
     owner_adjusted_rate = serializers.DecimalField(max_digits=6,decimal_places=2,required=False,allow_null=True)
@@ -3571,6 +3587,9 @@ class ShiftSerializer(serializers.ModelSerializer):
             'allowed_escalation_levels','is_single_user', 'description',
             'flexible_timing',
             'min_hourly_rate', 'max_hourly_rate', 'min_annual_salary', 'max_annual_salary', 'super_percent',
+            'has_travel', 'has_accommodation', 'is_urgent',
+            'role_label', 'ui_is_negotiable', 'ui_is_flexible_time', 'ui_allow_partial',
+            'ui_location_city', 'ui_location_state', 'ui_address_line', 'ui_distance_km', 'ui_is_urgent',
         ]
         read_only_fields = [
             'id', 'created_by', 'escalation_level',
@@ -3635,6 +3654,85 @@ class ShiftSerializer(serializers.ModelSerializer):
         if instance.post_anonymously and not user_can_view_full_pharmacy(user, instance.pharmacy):
             data['pharmacy_detail'] = anonymize_pharmacy_detail(data.get('pharmacy_detail'))
         return data
+
+    def get_role_label(self, obj):
+        return obj.get_role_needed_display()
+
+    def get_ui_is_negotiable(self, obj):
+        return obj.rate_type == 'FLEXIBLE'
+
+    def get_ui_is_flexible_time(self, obj):
+        return bool(obj.flexible_timing)
+
+    def get_ui_allow_partial(self, obj):
+        return not obj.single_user_only
+
+    def get_ui_location_city(self, obj):
+        pharmacy = getattr(obj, 'pharmacy', None)
+        return getattr(pharmacy, 'suburb', None) if pharmacy else None
+
+    def get_ui_location_state(self, obj):
+        pharmacy = getattr(obj, 'pharmacy', None)
+        return getattr(pharmacy, 'state', None) if pharmacy else None
+
+    def _get_address_parts(self, pharmacy, *, anonymize=False):
+        if not pharmacy:
+            return None
+        suburb = getattr(pharmacy, 'suburb', None)
+        state = getattr(pharmacy, 'state', None)
+        postcode = getattr(pharmacy, 'postcode', None)
+        street = getattr(pharmacy, 'street_address', None)
+
+        if anonymize:
+            parts = [p for p in [suburb, state, postcode] if p]
+        else:
+            parts = [p for p in [street, suburb, state, postcode] if p]
+        return ", ".join(parts) if parts else None
+
+    def get_ui_address_line(self, obj):
+        pharmacy = getattr(obj, 'pharmacy', None)
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        anonymize = obj.post_anonymously and not user_can_view_full_pharmacy(user, pharmacy)
+        return self._get_address_parts(pharmacy, anonymize=anonymize)
+
+    def _get_user_location(self, user):
+        if not user or not getattr(user, "is_authenticated", False):
+            return None
+        if getattr(user, "role", None) == "PHARMACIST":
+            loc = PharmacistOnboarding.objects.filter(user=user).values("latitude", "longitude").first()
+            return (loc or {}).get("latitude"), (loc or {}).get("longitude")
+        if getattr(user, "role", None) == "OTHER_STAFF":
+            loc = OtherStaffOnboarding.objects.filter(user=user).values("latitude", "longitude").first()
+            return (loc or {}).get("latitude"), (loc or {}).get("longitude")
+        return None
+
+    def _haversine_km(self, lat1, lon1, lat2, lon2):
+        r = 6371.0
+        phi1 = math.radians(lat1)
+        phi2 = math.radians(lat2)
+        d_phi = math.radians(lat2 - lat1)
+        d_lambda = math.radians(lon2 - lon1)
+        a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return r * c
+
+    def get_ui_distance_km(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        user_loc = self._get_user_location(user)
+        pharmacy = getattr(obj, 'pharmacy', None)
+        if not pharmacy or not user_loc:
+            return None
+        user_lat, user_lon = user_loc
+        pharm_lat = getattr(pharmacy, 'latitude', None)
+        pharm_lon = getattr(pharmacy, 'longitude', None)
+        if user_lat is None or user_lon is None or pharm_lat is None or pharm_lon is None:
+            return None
+        return round(self._haversine_km(float(user_lat), float(user_lon), float(pharm_lat), float(pharm_lon)), 1)
+
+    def get_ui_is_urgent(self, obj):
+        return bool(obj.is_urgent)
 
     @staticmethod
     def build_allowed_tiers(pharmacy):
@@ -3849,6 +3947,108 @@ class ShiftRejectionSerializer(serializers.ModelSerializer):
             'id', 'shift', 'slot', 'slot_id', 'slot_date', 'user', 'user_id', 'rejected_at'
         ]
         read_only_fields = ['id', 'user', 'user_id', 'slot_id', 'rejected_at']
+
+class ShiftCounterOfferSlotSerializer(serializers.ModelSerializer):
+    slot_id = serializers.IntegerField(write_only=True)
+    slot = ShiftSlotSerializer(read_only=True)
+
+    class Meta:
+        model = ShiftCounterOfferSlot
+        fields = [
+            'id',
+            'slot_id',
+            'slot',
+            'proposed_start_time',
+            'proposed_end_time',
+            'proposed_rate',
+        ]
+
+class ShiftCounterOfferSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    slots = ShiftCounterOfferSlotSerializer(many=True)
+
+    class Meta:
+        model = ShiftCounterOffer
+        fields = [
+            'id',
+            'shift',
+            'user',
+            'message',
+            'request_travel',
+            'status',
+            'slots',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'shift', 'user', 'status', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        shift = self.context.get('shift')
+        slots_data = attrs.get('slots') or []
+        if not shift:
+            raise serializers.ValidationError('Shift context is required.')
+        if not slots_data:
+            raise serializers.ValidationError({'slots': 'At least one slot is required.'})
+
+        slot_ids = [entry.get('slot_id') for entry in slots_data]
+        if len(slot_ids) != len(set(slot_ids)):
+            raise serializers.ValidationError({'slots': 'Duplicate slots are not allowed.'})
+
+        shift_slots = {slot.id: slot for slot in shift.slots.all()}
+        invalid = [slot_id for slot_id in slot_ids if slot_id not in shift_slots]
+        if invalid:
+            raise serializers.ValidationError({'slots': f'Invalid slot ids: {invalid}'})
+
+        if shift.single_user_only and len(slot_ids) != len(shift_slots):
+            raise serializers.ValidationError({'slots': 'All slots must be included for single-user shifts.'})
+
+        is_flexible_time = bool(shift.flexible_timing)
+        is_negotiable = shift.rate_type == 'FLEXIBLE'
+
+        for entry in slots_data:
+            slot = shift_slots[entry['slot_id']]
+            proposed_start = entry.get('proposed_start_time')
+            proposed_end = entry.get('proposed_end_time')
+            proposed_rate = entry.get('proposed_rate')
+
+            if not is_flexible_time:
+                if proposed_start != slot.start_time or proposed_end != slot.end_time:
+                    raise serializers.ValidationError({
+                        'slots': f'Slot {slot.id} does not allow time changes.'
+                    })
+
+            if not is_negotiable and proposed_rate is not None:
+                reference_rate = slot.rate if slot.rate is not None else shift.fixed_rate
+                if reference_rate is None:
+                    raise serializers.ValidationError({
+                        'slots': f'Slot {slot.id} does not allow rate changes.'
+                    })
+                if Decimal(str(proposed_rate)) != Decimal(str(reference_rate)):
+                    raise serializers.ValidationError({
+                        'slots': f'Slot {slot.id} does not allow rate changes.'
+                    })
+
+        return attrs
+
+    def create(self, validated_data):
+        shift = self.context['shift']
+        user = self.context['request'].user
+        slots_data = validated_data.pop('slots', [])
+
+        offer = ShiftCounterOffer.objects.create(
+            shift=shift,
+            user=user,
+            **validated_data
+        )
+        for entry in slots_data:
+            slot_id = entry.pop('slot_id')
+            slot = shift.slots.get(id=slot_id)
+            ShiftCounterOfferSlot.objects.create(
+                offer=offer,
+                slot=slot,
+                **entry
+            )
+        return offer
 
 class MyShiftSerializer(serializers.ModelSerializer):
     # reuse the full PharmacySerializer (with all the file‐fields)

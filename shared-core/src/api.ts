@@ -150,6 +150,14 @@ const toPaginatedList = (data, mapFn) => {
 // -------- Shared Mapping Helpers --------
 const mapShiftSlot = (api) => camelCaseKeysDeep(api);
 const mapShiftAssignment = (api) => camelCaseKeysDeep(api);
+const mapShiftCounterOfferSlot = (api) => camelCaseKeysDeep(api);
+const mapShiftCounterOffer = (api) => {
+    const base = camelCaseKeysDeep(api);
+    return {
+        ...base,
+        slots: ensureArray(api.slots).map(mapShiftCounterOfferSlot),
+    };
+};
 const mapShiftMemberStatus = (api) => {
     const base = camelCaseKeysDeep(api);
     const fallbackName = api.name?.trim() ||
@@ -547,6 +555,21 @@ export function getShiftRejections(params) {
     const query = buildQuery(params);
     return fetchApi(`/client-profile/shift-rejections/${query}`);
 }
+export function getShiftCounterOffers(shiftId) {
+    return fetchApi(`/client-profile/shifts/${shiftId}/counter-offers/`);
+}
+export function createShiftCounterOffer(shiftId, data) {
+    return fetchApi(`/client-profile/shifts/${shiftId}/counter-offers/`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+export function acceptShiftCounterOffer(shiftId, offerId) {
+    return fetchApi(`/client-profile/shifts/${shiftId}/counter-offers/${offerId}/accept/`, { method: 'POST' });
+}
+export function rejectShiftCounterOffer(shiftId, offerId) {
+    return fetchApi(`/client-profile/shifts/${shiftId}/counter-offers/${offerId}/reject/`, { method: 'POST' });
+}
 export function getCommunityShiftDetail(id) {
     return fetchApi(`/client-profile/community-shifts/${id}`);
 }
@@ -744,6 +767,30 @@ export async function fetchShiftInterests(filters) {
 export async function fetchShiftRejections(filters) {
     const data = await getShiftRejections(toInterestParams(filters));
     return asList(data).map(mapShiftInterest);
+}
+export async function fetchShiftCounterOffersService(shiftId) {
+    const data = await getShiftCounterOffers(shiftId);
+    return asList(data).map(mapShiftCounterOffer);
+}
+export async function submitShiftCounterOfferService(payload) {
+    const body = {
+        message: payload.message ?? '',
+        request_travel: payload.requestTravel ?? false,
+        slots: (payload.slots || []).map((slot) => ({
+            slot_id: slot.slotId,
+            proposed_start_time: slot.proposedStartTime,
+            proposed_end_time: slot.proposedEndTime,
+            proposed_rate: slot.proposedRate ?? null,
+        })),
+    };
+    const data = await createShiftCounterOffer(payload.shiftId, body);
+    return mapShiftCounterOffer(data);
+}
+export async function acceptShiftCounterOfferService(payload) {
+    await acceptShiftCounterOffer(payload.shiftId, payload.offerId);
+}
+export async function rejectShiftCounterOfferService(payload) {
+    await rejectShiftCounterOffer(payload.shiftId, payload.offerId);
 }
 export async function fetchShiftMemberStatus(shiftId, options) {
     const params = {

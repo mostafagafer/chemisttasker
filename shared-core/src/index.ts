@@ -13,6 +13,9 @@ export * from './types';
 // Re-export all domain helpers
 export * from './domain';
 
+// Re-export storage helpers
+export * from './storage';
+
 // Re-export all constants
 export * from './constants/endpoints';
 export * from './constants/roles';

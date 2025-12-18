@@ -2900,6 +2900,98 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 'assignment_ids': assignment_ids
             }, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=['get', 'post'], url_path='counter-offers')
+    def counter_offers(self, request, pk=None):
+        shift = self.get_object()
+
+        if request.method == 'GET':
+            offers = shift.counter_offers.select_related('user', 'decided_by').prefetch_related('slots__slot')
+            if not self._user_can_manage_pharmacy(request.user, shift.pharmacy):
+                offers = offers.filter(user=request.user)
+            serializer = ShiftCounterOfferSerializer(offers, many=True, context={'request': request, 'shift': shift})
+            return Response(serializer.data)
+
+        serializer = ShiftCounterOfferSerializer(data=request.data, context={'request': request, 'shift': shift})
+        serializer.is_valid(raise_exception=True)
+        offer = serializer.save()
+        output = ShiftCounterOfferSerializer(offer, context={'request': request, 'shift': shift})
+        return Response(output.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='counter-offers/(?P<offer_id>[^/.]+)/accept')
+    def accept_counter_offer(self, request, pk=None, offer_id=None):
+        shift = self.get_object()
+        if not self._user_can_manage_pharmacy(request.user, shift.pharmacy):
+            return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+
+        offer = get_object_or_404(ShiftCounterOffer, pk=offer_id, shift=shift)
+        if offer.status != ShiftCounterOffer.Status.PENDING:
+            return Response({'detail': 'Counter offer is not pending.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        offer_slots = list(offer.slots.select_related('slot'))
+        if not offer_slots:
+            return Response({'detail': 'Counter offer has no slots.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        for offer_slot in offer_slots:
+            slot = offer_slot.slot
+            if ShiftSlotAssignment.objects.filter(slot=slot, slot_date=slot.date).exists():
+                return Response({'detail': 'One or more slots are no longer available.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            for offer_slot in offer_slots:
+                slot = offer_slot.slot
+                if shift.flexible_timing:
+                    if offer_slot.proposed_start_time != slot.start_time or offer_slot.proposed_end_time != slot.end_time:
+                        slot.start_time = offer_slot.proposed_start_time
+                        slot.end_time = offer_slot.proposed_end_time
+                        slot.save(update_fields=['start_time', 'end_time'])
+
+                if shift.rate_type == 'FLEXIBLE' and offer_slot.proposed_rate is not None:
+                    slot.rate = offer_slot.proposed_rate
+                    slot.save(update_fields=['rate'])
+                    unit_rate = offer_slot.proposed_rate
+                    rate_reason = {"source": "Counter offer"}
+                else:
+                    unit_rate, rate_reason = get_locked_rate_for_slot(
+                        shift=shift,
+                        slot=slot,
+                        user=offer.user,
+                        override_date=slot.date
+                    )
+
+                ShiftSlotAssignment.objects.create(
+                    shift=shift,
+                    slot=slot,
+                    slot_date=slot.date,
+                    user=offer.user,
+                    unit_rate=unit_rate,
+                    rate_reason=rate_reason,
+                    is_rostered=True
+                )
+
+            offer.status = ShiftCounterOffer.Status.ACCEPTED
+            offer.decided_by = request.user
+            offer.decided_at = timezone.now()
+            offer.save(update_fields=['status', 'decided_by', 'decided_at', 'updated_at'])
+
+        return Response({'detail': 'Counter offer accepted.'}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='counter-offers/(?P<offer_id>[^/.]+)/reject')
+    def reject_counter_offer(self, request, pk=None, offer_id=None):
+        shift = self.get_object()
+        if not self._user_can_manage_pharmacy(request.user, shift.pharmacy):
+            return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+
+        offer = get_object_or_404(ShiftCounterOffer, pk=offer_id, shift=shift)
+        if offer.status != ShiftCounterOffer.Status.PENDING:
+            return Response({'detail': 'Counter offer is not pending.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        offer.status = ShiftCounterOffer.Status.REJECTED
+        offer.decided_by = request.user
+        offer.decided_at = timezone.now()
+        offer.save(update_fields=['status', 'decided_by', 'decided_at', 'updated_at'])
+
+        return Response({'detail': 'Counter offer rejected.'}, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
         shift = self.get_object()
@@ -3047,8 +3139,12 @@ class CommunityShiftViewSet(BaseShiftViewSet):
         # _dbg(f"get_queryset: user_id={getattr(user,'id',None)} email={getattr(user,'email',None)} top_role={getattr(user,'role',None)}")
 
         qs = super().get_queryset().filter(
-            visibility__in=COMMUNITY_LEVELS,
-            slots__date__gte=date.today()
+            visibility__in=COMMUNITY_LEVELS
+        ).annotate(
+            slot_count=Count('slots', distinct=True)
+        ).filter(
+            Q(employment_type__in=['FULL_TIME', 'PART_TIME'], slot_count=0) |
+            Q(slots__date__gte=date.today())
         )
         # Scope by pharmacy when requested
         pharmacy_id = self.request.query_params.get('pharmacy')
@@ -3061,13 +3157,19 @@ class CommunityShiftViewSet(BaseShiftViewSet):
         if start_date_str:
             try:
                 start_date = date.fromisoformat(start_date_str)
-                qs = qs.filter(slots__date__gte=start_date)
+                qs = qs.filter(
+                    Q(employment_type__in=['FULL_TIME', 'PART_TIME'], slot_count=0) |
+                    Q(slots__date__gte=start_date)
+                )
             except ValueError:
                 pass
         if end_date_str:
             try:
                 end_date = date.fromisoformat(end_date_str)
-                qs = qs.filter(slots__date__lte=end_date)
+                qs = qs.filter(
+                    Q(employment_type__in=['FULL_TIME', 'PART_TIME'], slot_count=0) |
+                    Q(slots__date__lte=end_date)
+                )
             except ValueError:
                 pass
 
@@ -3349,8 +3451,12 @@ class PublicShiftViewSet(BaseShiftViewSet):
     """Platform‐public shifts, filtered by the user’s exact clinical role."""
     def get_queryset(self):
         qs = super().get_queryset().filter(
-            visibility=PUBLIC_LEVEL,
-            slots__date__gte=date.today()
+            visibility=PUBLIC_LEVEL
+        ).annotate(
+            slot_count=Count('slots', distinct=True)
+        ).filter(
+            Q(employment_type__in=['FULL_TIME', 'PART_TIME'], slot_count=0) |
+            Q(slots__date__gte=date.today())
         )
 
         user = self.request.user
@@ -3396,11 +3502,15 @@ class ActiveShiftViewSet(BaseShiftViewSet):
         )
 
         qs = qs.annotate(
-           slot_count=Count('slots', distinct=True),
-           assigned_count=Count('slots__assignments', distinct=True)
-        ).filter(assigned_count__lt=F('slot_count'))
+            slot_count=Count('slots', distinct=True),
+            assigned_count=Count('slots__assignments', distinct=True)
+        ).filter(
+            Q(employment_type__in=['FULL_TIME', 'PART_TIME'], slot_count=0) |
+            Q(assigned_count__lt=F('slot_count'))
+        )
 
         qs = qs.filter(
+            Q(employment_type__in=['FULL_TIME', 'PART_TIME'], slot_count=0) |
             Q(slots__date__gt=today) |
             Q(slots__date=today, slots__end_time__gt=now.time())
         )

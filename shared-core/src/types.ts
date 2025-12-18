@@ -496,6 +496,8 @@ export interface ShiftSlotApi {
     date: string;
     start_time: string;
     end_time: string;
+    rate?: string | number | null;
+    start_hour?: number | null;
     is_recurring?: boolean;
     recurring_days?: number[];
     recurring_end_date?: string | null;
@@ -601,6 +603,7 @@ export interface ShiftRatingCommentApi {
 export interface ShiftApi {
     id: number;
     role_needed: string;
+    role_label?: string | null;
     employment_type?: string | null;
     description?: string | null;
     pharmacy?: number | null;
@@ -620,6 +623,17 @@ export interface ShiftApi {
     slot_assignments?: ShiftAssignmentApi[];
     single_user_only?: boolean;
     post_anonymously?: boolean;
+    has_travel?: boolean;
+    has_accommodation?: boolean;
+    is_urgent?: boolean;
+    ui_is_negotiable?: boolean;
+    ui_is_flexible_time?: boolean;
+    ui_allow_partial?: boolean;
+    ui_location_city?: string | null;
+    ui_location_state?: string | null;
+    ui_address_line?: string | null;
+    ui_distance_km?: number | null;
+    ui_is_urgent?: boolean;
     created_at?: string;
     created_by?: number | null;
     status?: ShiftStatus;
@@ -648,6 +662,46 @@ export interface ShiftApi {
     share_token?: string | null;
 }
 
+export interface ShiftCounterOfferSlotApi {
+    id?: number;
+    slot_id?: number;
+    slot?: ShiftSlotApi | null;
+    proposed_start_time: string;
+    proposed_end_time: string;
+    proposed_rate?: string | number | null;
+}
+
+export interface ShiftCounterOfferApi {
+    id: number;
+    shift: number;
+    user: number;
+    message?: string | null;
+    request_travel?: boolean;
+    status?: "PENDING" | "ACCEPTED" | "REJECTED";
+    slots?: ShiftCounterOfferSlotApi[];
+    created_at?: string | null;
+    updated_at?: string | null;
+}
+
+export interface ShiftCounterOfferSlotPayload {
+    slotId: number;
+    proposedStartTime: string;
+    proposedEndTime: string;
+    proposedRate?: number | null;
+}
+
+export interface ShiftCounterOfferPayload {
+    shiftId: number;
+    message?: string | null;
+    requestTravel?: boolean;
+    slots: ShiftCounterOfferSlotPayload[];
+}
+
+export interface ShiftCounterOfferDecisionPayload {
+    shiftId: number;
+    offerId: number;
+}
+
 export type ShiftSlot = CamelCasedPropertiesDeep<ShiftSlotApi>;
 export type ShiftAssignment = CamelCasedPropertiesDeep<ShiftAssignmentApi>;
 export type ShiftPharmacyDetail = CamelCasedPropertiesDeep<ShiftPharmacyDetailApi>;
@@ -668,6 +722,8 @@ export type ShiftShareLink = CamelCasedPropertiesDeep<ShiftShareLinkApi>;
 export type ShiftRatingSummary = CamelCasedPropertiesDeep<ShiftRatingSummaryApi>;
 export type ShiftRatingComment = CamelCasedPropertiesDeep<ShiftRatingCommentApi>;
 export type Shift = CamelCasedPropertiesDeep<ShiftApi>;
+export type ShiftCounterOfferSlot = CamelCasedPropertiesDeep<ShiftCounterOfferSlotApi>;
+export type ShiftCounterOffer = CamelCasedPropertiesDeep<ShiftCounterOfferApi>;
 
 export interface NotificationApi {
     id: number;

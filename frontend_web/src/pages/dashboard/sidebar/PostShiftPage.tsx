@@ -206,6 +206,9 @@ const PostShiftPage: React.FC = () => {
   const [singleUserOnly, setSingleUserOnly] = useState(false);
   const [flexibleTiming, setFlexibleTiming] = useState(false);
   const [postAnonymously, setPostAnonymously] = useState(false);
+  const [hasTravel, setHasTravel] = useState(false);
+  const [hasAccommodation, setHasAccommodation] = useState(false);
+  const [isUrgent, setIsUrgent] = useState(false);
 
   // --- Timetable State ---
   const [slots, setSlots] = useState<SlotEntry[]>([]);
@@ -301,6 +304,9 @@ const PostShiftPage: React.FC = () => {
           setFlexibleTiming(Boolean((detail as any).flexibleTiming ?? (detail as any).flexible_timing));
           setSingleUserOnly(Boolean(detail.singleUserOnly));
           setPostAnonymously(Boolean(detail.postAnonymously));
+          setHasTravel(Boolean((detail as any).hasTravel ?? (detail as any).has_travel));
+          setHasAccommodation(Boolean((detail as any).hasAccommodation ?? (detail as any).has_accommodation));
+          setIsUrgent(Boolean((detail as any).isUrgent ?? (detail as any).is_urgent));
           setEscalationDates({
             LOCUM_CASUAL: toInputDateTimeLocal(detail.escalateToLocumCasual),
             OWNER_CHAIN: toInputDateTimeLocal(detail.escalateToOwnerChain),
@@ -779,6 +785,17 @@ const PostShiftPage: React.FC = () => {
     }
 
     setSubmitting(true);
+    const slotRateForEntry = (entry: SlotEntry) => {
+      const idx = expandedSlots.findIndex(
+        (slot) => slot.date === entry.date && slot.startTime === entry.startTime && slot.endTime === entry.endTime
+      );
+      if (idx < 0) return null;
+      const raw = slotRateRows[idx]?.rate;
+      if (raw === undefined || raw === null || raw === '') return null;
+      const num = Number(raw);
+      return Number.isFinite(num) ? num : null;
+    };
+
     const payload: any = {
       pharmacy: pharmacyId, role_needed: roleNeeded, description, employment_type: employmentType,
       workload_tags: workloadTags, must_have: mustHave, nice_to_have: niceToHave, visibility,
@@ -792,10 +809,14 @@ const PostShiftPage: React.FC = () => {
       payment_preference: (employmentType === 'LOCUM' || employmentType === 'CASUAL') ? (paymentPreference || null) : null,
       single_user_only: singleUserOnly,
       post_anonymously: postAnonymously,
+      has_travel: hasTravel,
+      has_accommodation: hasAccommodation,
+      is_urgent: isUrgent,
       slots: slots.map(s => ({
         date: s.date, start_time: s.startTime, end_time: s.endTime,
         is_recurring: s.isRecurring, recurring_days: s.recurringDays,
         recurring_end_date: s.recurringEndDate || null,
+        rate: slotRateForEntry(s),
       })),
     };
 
@@ -914,6 +935,27 @@ const PostShiftPage: React.FC = () => {
               size="small"
               sx={fieldSx}
             />
+          </Grid>
+          <Grid size={12}>
+            <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, borderColor: 'grey.200' }}>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Shift Flags
+              </Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                <FormControlLabel
+                  control={<Checkbox checked={hasTravel} onChange={(_, checked) => setHasTravel(checked)} />}
+                  label="Travel allowance"
+                />
+                <FormControlLabel
+                  control={<Checkbox checked={hasAccommodation} onChange={(_, checked) => setHasAccommodation(checked)} />}
+                  label="Accommodation provided"
+                />
+                <FormControlLabel
+                  control={<Checkbox checked={isUrgent} onChange={(_, checked) => setIsUrgent(checked)} />}
+                  label="Mark as urgent"
+                />
+              </Stack>
+            </Paper>
           </Grid>
           <Grid size={12}>
             <Typography variant="subtitle2" color="text.secondary" gutterBottom>

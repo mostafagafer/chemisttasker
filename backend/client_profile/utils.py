@@ -59,6 +59,30 @@ def build_shift_email_context(shift, user=None, extra=None, role=None, shift_typ
     return ctx
 
 
+def build_shift_counter_offer_context(shift, offer, recipient=None):
+    """
+    Build context for counter-offer notifications. Reuses the shift link logic so owners/admins land on the shift page.
+    """
+    base_ctx = build_shift_email_context(shift, user=recipient)
+    slots = []
+    for offer_slot in offer.slots.select_related('slot'):
+        slot = offer_slot.slot
+        slots.append({
+            "date": slot.date,
+            "start_time": offer_slot.proposed_start_time,
+            "end_time": offer_slot.proposed_end_time,
+            "proposed_rate": offer_slot.proposed_rate,
+        })
+
+    base_ctx.update({
+        "worker_name": offer.user.get_full_name() if offer.user else "",
+        "worker_email": offer.user.email if offer.user else "",
+        "message": offer.message or "",
+        "request_travel": bool(offer.request_travel),
+        "slots": slots,
+    })
+    return base_ctx
+
 def enforce_public_shift_daily_limit(pharmacy, *, max_per_day: int = MAX_PUBLIC_SHIFTS_PER_DAY, on_date=None):
     """
     Ensure the given pharmacy has not already published the daily quota of public shifts.

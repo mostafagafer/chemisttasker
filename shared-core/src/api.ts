@@ -3,6 +3,7 @@
  * Shared-Core API Client
  * Complete API functions for ChemistTasker
  */
+import { API_ENDPOINTS } from './constants/endpoints';
 let config = null;
 export function configureApi(apiConfig) {
     config = apiConfig;
@@ -312,6 +313,14 @@ export function createOnboarding(role, data) {
 export function getOnboardingDetail(rawRole: string) {
     const safeRole = rawRole === 'other_staff' ? 'otherstaff' : rawRole;
     return fetchApi(`/client-profile/${safeRole}/onboarding/me/`);
+}
+
+// Shift rate calculation (preview) reused by post shift and counter-offer flows.
+export function calculateShiftRates(payload) {
+    return fetchApi('/client-profile/shifts/calculate-rates/', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
 }
 
 export function updateOnboardingForm(rawRole: string, body: FormData) {
@@ -701,6 +710,21 @@ const toShiftListParams = (filters) => ({
     start_date: filters?.startDate,
     end_date: filters?.endDate,
     unassigned: filters?.unassigned,
+    search: filters?.search,
+    roles: filters?.roles,
+    employment_types: filters?.employmentTypes,
+    city: filters?.city,
+    state: filters?.state,
+    min_rate: filters?.minRate,
+    only_urgent: filters?.onlyUrgent,
+    negotiable_only: filters?.negotiableOnly,
+    flexible_only: filters?.flexibleOnly,
+    travel_provided: filters?.travelProvided,
+    accommodation_provided: filters?.accommodationProvided,
+    bulk_shifts_only: filters?.bulkShiftsOnly,
+    time_of_day: filters?.timeOfDay,
+    page: filters?.page,
+    page_size: filters?.pageSize,
 });
 const buildSlotPayload = (slotId) => {
     if (slotId === undefined) {
@@ -722,7 +746,7 @@ export async function fetchActiveShiftDetailService(shiftId) {
 }
 export async function fetchCommunityShifts(filters) {
     const data = await getCommunityShifts(toShiftListParams(filters));
-    return asList(data).map(mapShift);
+    return toPaginatedList(data, mapShift);
 }
 export async function fetchCommunityShiftDetailService(shiftId) {
     const data = await getCommunityShiftDetail(shiftId);
@@ -730,7 +754,7 @@ export async function fetchCommunityShiftDetailService(shiftId) {
 }
 export async function fetchPublicShifts(filters) {
     const data = await getPublicShifts(toShiftListParams(filters));
-    return asList(data).map(mapShift);
+    return toPaginatedList(data, mapShift);
 }
 export async function fetchPublicShiftDetailService(shiftId) {
     const data = await getPublicShiftDetail(shiftId);
@@ -767,6 +791,21 @@ export async function fetchShiftInterests(filters) {
 export async function fetchShiftRejections(filters) {
     const data = await getShiftRejections(toInterestParams(filters));
     return asList(data).map(mapShiftInterest);
+}
+export async function fetchSavedShifts() {
+    const data = await fetchApi(API_ENDPOINTS.getShiftSaved);
+    return asList(data).map(camelCaseKeysDeep);
+}
+export async function saveShift(shiftId) {
+    const data = await fetchApi(API_ENDPOINTS.getShiftSaved, {
+        method: "POST",
+        body: JSON.stringify({ shift: shiftId }),
+    });
+    return camelCaseKeysDeep(data);
+}
+export async function deleteSavedShift(savedId) {
+    await fetchApi(`${API_ENDPOINTS.getShiftSaved}${savedId}/`, { method: "DELETE" });
+    return true;
 }
 export async function fetchShiftCounterOffersService(shiftId) {
     const data = await getShiftCounterOffers(shiftId);

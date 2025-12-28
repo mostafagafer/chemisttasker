@@ -1,38 +1,129 @@
-import React, { useEffect, useState } from 'react';
-import { Typography } from '@mui/material';
+import { useEffect, useState, useCallback } from 'react';
+import { Typography, Snackbar, Alert } from '@mui/material';
 import { useAuth } from '../../../contexts/AuthContext';
 import ShiftsBoard from '../../../components/shifts/ShiftsBoard';
 import {
   Shift,
   ShiftCounterOfferPayload,
   ShiftInterest,
+  deleteSavedShift,
   expressInterestInPublicShiftService,
   fetchPublicShifts,
+  fetchSavedShifts,
   fetchShiftInterests,
+  saveShift,
+  PaginatedResponse,
   submitShiftCounterOfferService,
+  getOnboardingDetail,
 } from '@chemisttasker/shared-core';
+
+type FilterConfig = {
+  city: string[];
+  roles: string[];
+  employmentTypes: string[];
+  minRate: number;
+  search: string;
+  timeOfDay: Array<'morning' | 'afternoon' | 'evening'>;
+  dateRange: { start: string; end: string };
+  onlyUrgent: boolean;
+  negotiableOnly: boolean;
+  flexibleOnly: boolean;
+  travelProvided: boolean;
+  accommodationProvided: boolean;
+  bulkShiftsOnly: boolean;
+};
+
+const DEFAULT_FILTERS: FilterConfig = {
+  city: [],
+  roles: [],
+  employmentTypes: [],
+  minRate: 0,
+  search: '',
+  timeOfDay: [],
+  dateRange: { start: '', end: '' },
+  onlyUrgent: false,
+  negotiableOnly: false,
+  flexibleOnly: false,
+  travelProvided: false,
+  accommodationProvided: false,
+  bulkShiftsOnly: false,
+};
 
 export default function PublicShiftsPage() {
   const auth = useAuth();
-  if (!auth?.user) return null;
+  const user = auth?.user;
+  if (!user) return null;
+  const [isVerified, setIsVerified] = useState<boolean>((user as any)?.verified ?? false);
 
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorOpen, setErrorOpen] = useState(false);
   const [appliedShiftIds, setAppliedShiftIds] = useState<number[]>([]);
   const [appliedSlotIds, setAppliedSlotIds] = useState<number[]>([]);
+  const [filters, setFilters] = useState<FilterConfig>(DEFAULT_FILTERS);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const [totalCount, setTotalCount] = useState<number | undefined>(undefined);
+  const [savedShiftIds, setSavedShiftIds] = useState<Set<number>>(new Set());
+  const [savedMap, setSavedMap] = useState<Map<number, number>>(new Map()); // shiftId -> savedId
 
-  useEffect(() => {
-    const load = async () => {
+  const showError = (message: string) => {
+    setError(message);
+    setErrorOpen(true);
+  };
+
+  const loadSaved = useCallback(async () => {
+    try {
+      const saved = await fetchSavedShifts();
+      const ids = new Set<number>();
+      const map = new Map<number, number>();
+      saved.forEach((entry: any) => {
+        if (typeof entry.shift === 'number') {
+          ids.add(entry.shift);
+          if (entry.id) {
+            map.set(entry.shift, entry.id);
+          }
+        }
+      });
+      setSavedShiftIds(ids);
+      setSavedMap(map);
+    } catch (err) {
+      console.error('Failed to load saved shifts', err);
+    }
+  }, []);
+
+  const loadShifts = useCallback(
+    async (activeFilters: FilterConfig, activePage: number) => {
       setLoading(true);
       setError(null);
       try {
+        const apiFilters = {
+          search: activeFilters.search,
+          roles: activeFilters.roles,
+          employmentTypes: activeFilters.employmentTypes,
+          city: activeFilters.city,
+          state: [],
+          minRate: activeFilters.minRate || undefined,
+          onlyUrgent: activeFilters.onlyUrgent || undefined,
+          negotiableOnly: activeFilters.negotiableOnly || undefined,
+          flexibleOnly: activeFilters.flexibleOnly || undefined,
+          travelProvided: activeFilters.travelProvided || undefined,
+          accommodationProvided: activeFilters.accommodationProvided || undefined,
+          bulkShiftsOnly: activeFilters.bulkShiftsOnly || undefined,
+          timeOfDay: activeFilters.timeOfDay,
+          startDate: activeFilters.dateRange.start || undefined,
+          endDate: activeFilters.dateRange.end || undefined,
+          page: activePage,
+          pageSize,
+        };
+
         const [publicShifts, interests] = await Promise.all([
-          fetchPublicShifts({}),
-          fetchShiftInterests({ userId: auth.user.id }),
+          fetchPublicShifts(apiFilters) as Promise<PaginatedResponse<Shift>>,
+          fetchShiftInterests({ userId: user.id }),
         ]);
 
-        const available = publicShifts.filter((shift: Shift) => {
+        const available = (publicShifts.results ?? []).filter((shift: Shift) => {
           const slots = shift.slots ?? [];
           if (slots.length === 0) return true;
           const assignedSlotCount = shift.slotAssignments?.length ?? 0;
@@ -40,6 +131,7 @@ export default function PublicShiftsPage() {
         });
 
         setShifts(available);
+        setTotalCount(publicShifts.count);
 
         const nextShiftIds = new Set<number>();
         const nextSlotIds = new Set<number>();
@@ -54,44 +146,121 @@ export default function PublicShiftsPage() {
         setAppliedSlotIds(Array.from(nextSlotIds));
       } catch (err) {
         console.error('Failed to load public shifts', err);
-        setError('Failed to load public shifts.');
+        showError('Failed to load public shifts.');
       } finally {
         setLoading(false);
       }
-    };
+    },
+    [user.id]
+  );
 
-    load();
-  }, [auth.user.id]);
+  useEffect(() => {
+    loadSaved();
+  }, [loadSaved]);
+
+  // Fetch onboarding verification status to avoid false negatives
+  useEffect(() => {
+    const fetchVerification = async () => {
+      try {
+        const roleKey =
+          user.role === 'PHARMACIST' ? 'pharmacist' :
+          user.role === 'OTHER_STAFF' ? 'other_staff' :
+          user.role === 'EXPLORER' ? 'explorer' :
+          user.role === 'OWNER' ? 'owner' :
+          null;
+        if (!roleKey) return;
+        const onboarding: any = await getOnboardingDetail(roleKey);
+        const verifiedFlag =
+          onboarding?.verified ??
+          onboarding?.data?.verified ??
+          (roleKey === 'pharmacist' ? onboarding?.ahpra_verified : undefined);
+        if (verifiedFlag !== undefined) {
+          setIsVerified(Boolean(verifiedFlag));
+        }
+      } catch (err) {
+        console.warn('Failed to fetch onboarding verification', err);
+      }
+    };
+    fetchVerification();
+  }, [user.role]);
+
+  useEffect(() => {
+    loadShifts(filters, page);
+  }, [filters, page, loadShifts]);
 
   const handleApplyAll = async (shift: Shift) => {
+    if (!isVerified) {
+      showError('Please complete onboarding and verification before applying to public shifts.');
+      return;
+    }
     try {
-      if (shift.singleUserOnly) {
+      const slots = shift.slots ?? [];
+      if (shift.singleUserOnly || slots.length === 0) {
         await expressInterestInPublicShiftService({ shiftId: shift.id, slotId: null });
         setAppliedShiftIds((prev) => Array.from(new Set([...prev, shift.id])));
         return;
       }
 
-      const slots = shift.slots ?? [];
       await Promise.all(
         slots.map((slot) => expressInterestInPublicShiftService({ shiftId: shift.id, slotId: slot.id }))
       );
       setAppliedSlotIds((prev) => Array.from(new Set([...prev, ...slots.map((slot) => slot.id)])));
     } catch (err) {
       console.error('Failed to express interest', err);
-      setError('Failed to express interest in this shift.');
+      showError('Failed to express interest in this shift.');
       throw err;
     }
   };
 
   const handleApplySlot = async (shift: Shift, slotId: number) => {
+    if (!isVerified) {
+      showError('Please complete onboarding and verification before applying to public shifts.');
+      return;
+    }
     try {
       await expressInterestInPublicShiftService({ shiftId: shift.id, slotId });
       setAppliedSlotIds((prev) => Array.from(new Set([...prev, slotId])));
     } catch (err) {
       console.error('Failed to express interest in slot', err);
-      setError('Failed to express interest in this slot.');
+      showError('Failed to express interest in this slot.');
       throw err;
     }
+  };
+
+  const handleToggleSave = async (shiftId: number) => {
+    const savedId = savedMap.get(shiftId);
+    if (savedId) {
+      try {
+        await deleteSavedShift(savedId);
+        const next = new Set(savedShiftIds);
+        next.delete(shiftId);
+        setSavedShiftIds(next);
+        const nextMap = new Map(savedMap);
+        nextMap.delete(shiftId);
+        setSavedMap(nextMap);
+      } catch (err) {
+        console.error('Failed to unsave shift', err);
+        showError('Failed to unsave this shift.');
+      }
+      return;
+    }
+    try {
+      const created = await saveShift(shiftId);
+      const next = new Set(savedShiftIds);
+      next.add(shiftId);
+      setSavedShiftIds(next);
+      const nextMap = new Map(savedMap);
+      if (created?.id) nextMap.set(shiftId, created.id);
+      setSavedMap(nextMap);
+    } catch (err) {
+      console.error('Failed to save shift', err);
+      showError('Failed to save this shift.');
+    }
+  };
+
+  const handleFiltersChange = (nextFilters: FilterConfig) => {
+    setFilters(nextFilters);
+    setPage(1);
   };
 
   const handleSubmitCounterOffer = async (payload: ShiftCounterOfferPayload) => {
@@ -99,10 +268,12 @@ export default function PublicShiftsPage() {
       await submitShiftCounterOfferService(payload);
     } catch (err) {
       console.error('Failed to submit counter offer', err);
-      setError('Failed to submit counter offer.');
+      showError('Failed to submit counter offer.');
       throw err;
     }
   };
+
+  const handleCloseError = () => setErrorOpen(false);
 
   return (
     <>
@@ -115,12 +286,26 @@ export default function PublicShiftsPage() {
         title="Public Shifts"
         shifts={shifts}
         loading={loading}
+        useServerFiltering
+        filters={filters}
+        onFiltersChange={handleFiltersChange}
+        totalCount={totalCount}
+        page={page}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        savedShiftIds={Array.from(savedShiftIds)}
+        onToggleSave={handleToggleSave}
         onApplyAll={handleApplyAll}
         onApplySlot={handleApplySlot}
         onSubmitCounterOffer={handleSubmitCounterOffer}
         initialAppliedShiftIds={appliedShiftIds}
         initialAppliedSlotIds={appliedSlotIds}
       />
+      <Snackbar open={errorOpen} autoHideDuration={4000} onClose={handleCloseError}>
+        <Alert severity="error" onClose={handleCloseError} sx={{ width: '100%' }}>
+          {error}
+        </Alert>
+      </Snackbar>
     </>
   );
 }

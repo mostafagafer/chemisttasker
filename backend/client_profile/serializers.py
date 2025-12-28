@@ -3587,6 +3587,7 @@ class ShiftSerializer(serializers.ModelSerializer):
             'allowed_escalation_levels','is_single_user', 'description',
             'flexible_timing',
             'min_hourly_rate', 'max_hourly_rate', 'min_annual_salary', 'max_annual_salary', 'super_percent',
+            'payment_preference',
             'has_travel', 'has_accommodation', 'is_urgent',
             'role_label', 'ui_is_negotiable', 'ui_is_flexible_time', 'ui_allow_partial',
             'ui_location_city', 'ui_location_state', 'ui_address_line', 'ui_distance_km', 'ui_is_urgent',
@@ -3625,6 +3626,10 @@ class ShiftSerializer(serializers.ModelSerializer):
         max_annual = attrs.get('max_annual_salary') if 'max_annual_salary' in attrs else getattr(self.instance, 'max_annual_salary', None)
         super_percent = attrs.get('super_percent') if 'super_percent' in attrs else getattr(self.instance, 'super_percent', None)
 
+        # Default flexible_timing to True for FT/PT if not explicitly provided
+        if employment_type in ['FULL_TIME', 'PART_TIME'] and 'flexible_timing' not in attrs:
+            attrs['flexible_timing'] = True
+
         if employment_type in ['FULL_TIME', 'PART_TIME']:
             has_hourly = min_hour is not None or max_hour is not None
             has_annual = min_annual is not None or max_annual is not None
@@ -3662,6 +3667,8 @@ class ShiftSerializer(serializers.ModelSerializer):
         return obj.rate_type == 'FLEXIBLE'
 
     def get_ui_is_flexible_time(self, obj):
+        if obj.employment_type in ['FULL_TIME', 'PART_TIME']:
+            return True
         return bool(obj.flexible_timing)
 
     def get_ui_allow_partial(self, obj):
@@ -3801,6 +3808,30 @@ class ShiftSerializer(serializers.ModelSerializer):
         slots_data = self._normalize_slots_payload(validated_data.pop('slots'))
         user        = self.context['request'].user
         pharmacy    = validated_data['pharmacy']
+        rate_type   = validated_data.get('rate_type')
+        employment_type = validated_data.get('employment_type')
+
+        # Default fixed_rate from pharmacy defaults when rate_type=FIXED and not provided
+        if rate_type == 'FIXED' and not validated_data.get('fixed_rate'):
+            default_fixed = getattr(pharmacy, 'default_fixed_rate', None)
+            weekday_rate = getattr(pharmacy, 'rate_weekday', None)
+            slot_rate = next((slot.get('rate') for slot in slots_data if slot.get('rate') is not None), None)
+            validated_data['fixed_rate'] = default_fixed or weekday_rate or slot_rate or Decimal('0.00')
+
+        # Default flexible timing for FT/PT if not provided
+        if employment_type in ['FULL_TIME', 'PART_TIME'] and 'flexible_timing' not in validated_data:
+            validated_data['flexible_timing'] = True
+
+        # Default payment preference for locum shifts if missing
+        if not validated_data.get('payment_preference'):
+            if employment_type == 'LOCUM':
+                req = self.context.get('request')
+                from_payload = None
+                if req and hasattr(req, 'data'):
+                    from_payload = req.data.get('payment_preference') or req.data.get('paymentPreference')
+                validated_data['payment_preference'] = from_payload or 'ABN'
+            elif employment_type in ['FULL_TIME', 'PART_TIME']:
+                validated_data['payment_preference'] = 'TFN'
 
         # Build the correct path
         allowed_tiers = self.build_allowed_tiers(pharmacy)
@@ -3949,7 +3980,7 @@ class ShiftRejectionSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'user', 'user_id', 'slot_id', 'rejected_at']
 
 class ShiftCounterOfferSlotSerializer(serializers.ModelSerializer):
-    slot_id = serializers.IntegerField(write_only=True)
+    slot_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     slot = ShiftSlotSerializer(read_only=True)
 
     class Meta:
@@ -3990,27 +4021,41 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
         if not slots_data:
             raise serializers.ValidationError({'slots': 'At least one slot is required.'})
 
-        slot_ids = [entry.get('slot_id') for entry in slots_data]
+        shift_slots_qs = shift.slots.all()
+        shift_slots = {slot.id: slot for slot in shift_slots_qs}
+        slot_ids = [entry.get('slot_id') for entry in slots_data if entry.get('slot_id') is not None]
         if len(slot_ids) != len(set(slot_ids)):
             raise serializers.ValidationError({'slots': 'Duplicate slots are not allowed.'})
 
-        shift_slots = {slot.id: slot for slot in shift.slots.all()}
-        invalid = [slot_id for slot_id in slot_ids if slot_id not in shift_slots]
-        if invalid:
-            raise serializers.ValidationError({'slots': f'Invalid slot ids: {invalid}'})
-
-        if shift.single_user_only and len(slot_ids) != len(shift_slots):
-            raise serializers.ValidationError({'slots': 'All slots must be included for single-user shifts.'})
+        if shift_slots_qs.exists():
+            invalid = [slot_id for slot_id in slot_ids if slot_id not in shift_slots]
+            if invalid:
+                raise serializers.ValidationError({'slots': f'Invalid slot ids: {invalid}'})
+            if shift.single_user_only and len(slot_ids) != len(shift_slots):
+                raise serializers.ValidationError({'slots': 'All slots must be included for single-user shifts.'})
+        else:
+            # Slotless shift (e.g., FT/PT without slots): allow a single pseudo slot
+            if any(entry.get('slot_id') is not None for entry in slots_data):
+                raise serializers.ValidationError({'slots': 'Do not send slot_id for slotless shifts.'})
+            if len(slots_data) > 1:
+                raise serializers.ValidationError({'slots': 'Only one entry is allowed for slotless shifts.'})
+            entry = slots_data[0]
+            if not entry.get('proposed_start_time') or not entry.get('proposed_end_time'):
+                raise serializers.ValidationError({'slots': 'Start and end time are required for slotless shifts.'})
 
         is_flexible_time = bool(shift.flexible_timing)
-        is_negotiable = shift.rate_type == 'FLEXIBLE'
+        # Allow rate negotiation when shift explicitly flexible OR pharmacist-provided (worker supplies rate)
+        is_negotiable = shift.rate_type in ('FLEXIBLE', 'PHARMACIST_PROVIDED')
 
         for entry in slots_data:
-            slot = shift_slots[entry['slot_id']]
+            slot_id = entry.get('slot_id')
             proposed_start = entry.get('proposed_start_time')
             proposed_end = entry.get('proposed_end_time')
             proposed_rate = entry.get('proposed_rate')
-
+            if slot_id is None:
+                # slotless case already validated above
+                continue
+            slot = shift_slots[slot_id]
             if not is_flexible_time:
                 if proposed_start != slot.start_time or proposed_end != slot.end_time:
                     raise serializers.ValidationError({
@@ -4041,8 +4086,8 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
             **validated_data
         )
         for entry in slots_data:
-            slot_id = entry.pop('slot_id')
-            slot = shift.slots.get(id=slot_id)
+            slot_id = entry.pop('slot_id', None)
+            slot = shift.slots.get(id=slot_id) if slot_id else None
             ShiftCounterOfferSlot.objects.create(
                 offer=offer,
                 slot=slot,
@@ -5878,3 +5923,10 @@ class HubReactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = PharmacyHubReaction
         fields = ["reaction_type"]
+
+
+class ShiftSavedSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShiftSaved
+        fields = ["id", "shift", "created_at"]
+        read_only_fields = ["id", "created_at"]

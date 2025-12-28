@@ -1198,6 +1198,7 @@ class Shift(models.Model):
     min_annual_salary = models.DecimalField(max_digits=9, decimal_places=2, null=True, blank=True)
     max_annual_salary = models.DecimalField(max_digits=9, decimal_places=2, null=True, blank=True)
     super_percent = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    payment_preference = models.CharField(max_length=10, blank=True, null=True)  # e.g., ABN/TFN
     visibility = models.CharField(
         max_length=20,
         choices=[
@@ -1537,7 +1538,9 @@ class ShiftCounterOfferSlot(models.Model):
     slot = models.ForeignKey(
         ShiftSlot,
         on_delete=models.CASCADE,
-        related_name="counter_offer_slots"
+        related_name="counter_offer_slots",
+        null=True,
+        blank=True
     )
     proposed_start_time = models.TimeField()
     proposed_end_time = models.TimeField()
@@ -1556,6 +1559,29 @@ class ShiftCounterOfferSlot(models.Model):
 
     def __str__(self):
         return f"CounterOfferSlot#{self.pk} offer={self.offer_id} slot={self.slot_id}"
+
+class ShiftSaved(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="saved_shifts"
+    )
+    shift = models.ForeignKey(
+        Shift,
+        on_delete=models.CASCADE,
+        related_name="saved_by"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "shift")
+        indexes = [
+            models.Index(fields=["user", "created_at"]),
+            models.Index(fields=["shift"]),
+        ]
+
+    def __str__(self):
+        return f"SavedShift#{self.pk} user={self.user_id} shift={self.shift_id}"
 
 class LeaveRequest(models.Model):
     LEAVE_TYPE_CHOICES = [

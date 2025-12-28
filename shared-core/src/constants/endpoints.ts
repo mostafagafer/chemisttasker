@@ -101,6 +101,7 @@ export const API_ENDPOINTS = {
     // list interest and rejections records separately
     getShiftInterests: '/client-profile/shift-interests/',
     getShiftRejections: '/client-profile/shift-rejections/',
+    getShiftSaved: '/client-profile/shift-saved/',
 
     // Actions on individual shifts
     expressInterestInShift: (shiftId: string | number) => `/client-profile/shifts/${shiftId}/express_interest/`,

@@ -17,6 +17,7 @@ import {
   InputLabel,
   MenuItem,
   Paper,
+  Pagination,
   Select,
   Stack,
   TextField,
@@ -55,21 +56,36 @@ import dayjs from 'dayjs';
 import {
   Shift,
   ShiftCounterOfferPayload,
+  ShiftCounterOfferSlotPayload,
   storageGetItem,
   storageRemoveItem,
   storageSetItem,
+  getPharmacistDashboard,
+  getOnboardingDetail, // ensure rate_preference fallback using existing onboarding API
+  calculateShiftRates,
 } from '@chemisttasker/shared-core';
+import { useAuth } from '../../contexts/AuthContext';
 
 const SAVED_STORAGE_KEY = 'saved_shift_ids';
+const APPLIED_STORAGE_KEY = 'applied_shift_ids';
+const APPLIED_SLOT_STORAGE_KEY = 'applied_slot_ids';
+const REJECTED_SHIFT_STORAGE_KEY = 'rejected_shift_ids';
+const REJECTED_SLOT_STORAGE_KEY = 'rejected_slot_ids';
+const COUNTER_OFFER_STORAGE_KEY = 'counter_offer_map';
 
 type ShiftSlot = NonNullable<Shift['slots']>[number];
 
 type CounterOfferFormSlot = {
-  slotId: number;
+  slotId?: number;
   dateLabel: string;
   startTime: string;
   endTime: string;
   rate: string;
+};
+type CounterOfferTrack = {
+  slots: Record<number, { rate: string; start: string; end: string }>;
+  message?: string;
+  summary: string;
 };
 
 type ShiftsBoardProps = {
@@ -81,6 +97,15 @@ type ShiftsBoardProps = {
   onSubmitCounterOffer?: (payload: ShiftCounterOfferPayload) => Promise<void> | void;
   onRejectShift?: (shift: Shift) => Promise<void> | void;
   onRejectSlot?: (shift: Shift, slotId: number) => Promise<void> | void;
+  useServerFiltering?: boolean;
+  onFiltersChange?: (filters: FilterConfig) => void;
+  filters?: FilterConfig;
+  totalCount?: number;
+  page?: number;
+  pageSize?: number;
+  onPageChange?: (page: number) => void;
+  savedShiftIds?: number[];
+  onToggleSave?: (shiftId: number) => Promise<void> | void;
   initialAppliedShiftIds?: number[];
   initialAppliedSlotIds?: number[];
   initialRejectedShiftIds?: number[];
@@ -114,9 +139,57 @@ const formatDateLong = (value?: string | null) =>
 const formatTime = (value?: string | null) =>
   value ? dayjs(`1970-01-01T${value}`).format('HH:mm') : '';
 
-const getSlotRate = (slot: ShiftSlot, shift: Shift) => {
-  if (slot?.rate != null && slot.rate !== '') return Number(slot.rate);
-  if (shift.fixedRate != null) return Number(shift.fixedRate);
+type RatePreference = {
+  weekday?: string | number | null;
+  saturday?: string | number | null;
+  sunday?: string | number | null;
+  public_holiday?: string | number | null;
+  early_morning?: string | number | null;
+  late_night?: string | number | null;
+  early_morning_same_as_day?: boolean;
+  late_night_same_as_day?: boolean;
+};
+
+const getPharmacistProvidedRate = (slot: ShiftSlot, ratePref?: RatePreference) => {
+  if (!ratePref) return null;
+  const dayjsDate = slot.date ? dayjs(slot.date) : null;
+  const hour = getStartHour(slot);
+  const isSunday = dayjsDate ? dayjsDate.day() === 0 : false;
+  const isSaturday = dayjsDate ? dayjsDate.day() === 6 : false;
+  const isEarly = hour != null && hour < 6;
+  const isLate = hour != null && hour >= 20;
+
+  // Early morning override
+  if (isEarly && ratePref.early_morning && ratePref.early_morning_same_as_day === false) {
+    return Number(ratePref.early_morning);
+  }
+  // Late night override
+  if (isLate && ratePref.late_night && ratePref.late_night_same_as_day === false) {
+    return Number(ratePref.late_night);
+  }
+
+  if (isSunday && ratePref.sunday) return Number(ratePref.sunday);
+  if (isSaturday && ratePref.saturday) return Number(ratePref.saturday);
+  if (ratePref.weekday) return Number(ratePref.weekday);
+  if (ratePref.public_holiday) return Number(ratePref.public_holiday);
+  if (isEarly && ratePref.early_morning) return Number(ratePref.early_morning);
+  if (isLate && ratePref.late_night) return Number(ratePref.late_night);
+  return null;
+};
+
+const getSlotRate = (slot: ShiftSlot, shift: Shift, ratePref?: RatePreference) => {
+  const slotRateNum = slot?.rate != null && slot.rate !== '' ? Number(slot.rate) : null;
+  if (slotRateNum != null && Number.isFinite(slotRateNum) && slotRateNum > 0) return slotRateNum;
+
+  const fixedRateNum = shift.fixedRate != null ? Number(shift.fixedRate) : null;
+  if (fixedRateNum != null && Number.isFinite(fixedRateNum) && fixedRateNum > 0) return fixedRateNum;
+
+  if (shift.rateType === 'PHARMACIST_PROVIDED') {
+    const fromPref = getPharmacistProvidedRate(slot, ratePref);
+    if (fromPref != null) return fromPref;
+    if (shift.minHourlyRate != null) return Number(shift.minHourlyRate);
+    if (shift.maxHourlyRate != null) return Number(shift.maxHourlyRate);
+  }
   return 0;
 };
 
@@ -130,7 +203,15 @@ const getShiftRoleLabel = (shift: Shift) => shift.roleLabel ?? shift.roleNeeded 
 const getShiftAddress = (shift: Shift) => shift.uiAddressLine ?? '';
 const getShiftCity = (shift: Shift) => shift.uiLocationCity ?? '';
 const getShiftState = (shift: Shift) => shift.uiLocationState ?? '';
-const getShiftNegotiable = (shift: Shift) => Boolean(shift.uiIsNegotiable ?? (shift.rateType === 'FLEXIBLE'));
+// Decide if rate can be negotiated in counter offer.
+// Explicit override from uiIsNegotiable when provided, otherwise FLEXIBLE or PHARMACIST_PROVIDED allow negotiation.
+const getShiftNegotiable = (shift: Shift) => {
+  if (shift.rateType === 'PHARMACIST_PROVIDED') return true;
+  if (shift.uiIsNegotiable !== undefined && shift.uiIsNegotiable !== null) {
+    return Boolean(shift.uiIsNegotiable);
+  }
+  return shift.rateType === 'FLEXIBLE';
+};
 const getShiftFlexibleTime = (shift: Shift) => Boolean(shift.uiIsFlexibleTime ?? shift.flexibleTiming);
 const getShiftUrgent = (shift: Shift) => Boolean(shift.uiIsUrgent ?? shift.isUrgent);
 const getShiftAllowPartial = (shift: Shift) => Boolean(shift.uiAllowPartial ?? !shift.singleUserOnly);
@@ -178,6 +259,10 @@ const getRateSummary = (shift: Shift) => {
     return { display: formatCurrency(Number(shift.fixedRate)), unitLabel: '/hr' };
   }
 
+  if (shift.rateType === 'PHARMACIST_PROVIDED') {
+    return { display: 'Pharmacist provided', unitLabel: '' };
+  }
+
   const rates = (shift.slots ?? [])
     .map((slot) => getSlotRate(slot, shift))
     .filter((rate) => Number.isFinite(rate) && rate > 0);
@@ -214,15 +299,77 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   onSubmitCounterOffer,
   onRejectShift,
   onRejectSlot,
+  useServerFiltering,
+  onFiltersChange,
+  filters,
+  totalCount,
+  page,
+  pageSize,
+  onPageChange,
+  savedShiftIds: savedShiftIdsProp,
+  onToggleSave,
   initialAppliedShiftIds,
   initialAppliedSlotIds,
   initialRejectedShiftIds,
   initialRejectedSlotIds,
 }) => {
+  const auth = useAuth();
+  // Single source of truth for pharmacist rates: use the rate_preference from the user payload (as returned by /users/me).
+  const userRatePreference: RatePreference | undefined =
+    (auth as any)?.user?.rate_preference ||
+    (auth as any)?.user?.ratePreference ||
+    (auth as any)?.user?.pharmacist_onboarding?.rate_preference ||
+    (auth as any)?.user?.pharmacistOnboarding?.rate_preference ||
+    (auth as any)?.user?.pharmacist_profile?.rate_preference ||
+    (auth as any)?.user?.pharmacistProfile?.rate_preference ||
+    undefined;
+  const [pharmacistRatePref, setPharmacistRatePref] = useState<RatePreference | undefined>(userRatePreference);
+
+  useEffect(() => {
+    setPharmacistRatePref(userRatePreference);
+  }, [userRatePreference]);
+
+  useEffect(() => {
+    const fetchRates = async () => {
+      if (pharmacistRatePref) return;
+      if (auth?.user?.role !== 'PHARMACIST') return;
+      try {
+        // Attempt dashboard first
+        const dash: any = await getPharmacistDashboard();
+        const fromDash =
+          dash?.rate_preference ||
+          dash?.ratePreference ||
+          dash?.profile?.rate_preference ||
+          dash?.profile?.ratePreference ||
+          dash?.pharmacist_onboarding?.rate_preference ||
+          dash?.pharmacistProfile?.ratePreference ||
+          undefined;
+        if (fromDash) {
+          console.log('Pharmacist dashboard rate preference', fromDash);
+          setPharmacistRatePref(fromDash);
+          return;
+        }
+      } catch (err) {
+        console.warn('Pharmacist dashboard rate preference not found', err);
+      }
+      try {
+        const onboarding: any = await getOnboardingDetail('pharmacist');
+        const fromOnboarding =
+          onboarding?.rate_preference ||
+          onboarding?.ratePreference ||
+          (onboarding?.data ? onboarding.data.rate_preference || onboarding.data.ratePreference : undefined);
+        console.log('Pharmacist onboarding rate preference', fromOnboarding);
+        if (fromOnboarding) setPharmacistRatePref(fromOnboarding);
+      } catch (err) {
+        console.warn('Pharmacist onboarding rate preference not found', err);
+      }
+    };
+    fetchRates();
+  }, [auth?.user?.role, pharmacistRatePref]);
   const isMobile = useMediaQuery('(max-width: 1024px)');
   const [activeTab, setActiveTab] = useState<'browse' | 'saved'>('browse');
-  const [savedShiftIds, setSavedShiftIds] = useState<Set<number>>(new Set());
-  const [filterConfig, setFilterConfig] = useState<FilterConfig>({
+  const [savedShiftIds, setSavedShiftIds] = useState<Set<number>>(new Set(savedShiftIdsProp ?? []));
+  const [filterConfig, setFilterConfig] = useState<FilterConfig>(filters ?? {
     city: [],
     roles: [],
     employmentTypes: [],
@@ -249,53 +396,116 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   const [appliedSlotIds, setAppliedSlotIds] = useState<Set<number>>(new Set(initialAppliedSlotIds ?? []));
   const [rejectedShiftIds, setRejectedShiftIds] = useState<Set<number>>(new Set(initialRejectedShiftIds ?? []));
   const [rejectedSlotIds, setRejectedSlotIds] = useState<Set<number>>(new Set(initialRejectedSlotIds ?? []));
+  const [counterOffers, setCounterOffers] = useState<Record<number, CounterOfferTrack>>({});
+  const [reviewOfferShiftId, setReviewOfferShiftId] = useState<number | null>(null);
 
   const [counterOfferOpen, setCounterOfferOpen] = useState(false);
   const [counterOfferShift, setCounterOfferShift] = useState<Shift | null>(null);
   const [counterOfferSlots, setCounterOfferSlots] = useState<CounterOfferFormSlot[]>([]);
   const [counterOfferMessage, setCounterOfferMessage] = useState('');
   const [counterOfferTravel, setCounterOfferTravel] = useState(false);
+  const [counterOfferError, setCounterOfferError] = useState<string | null>(null);
 
   const savedLoadRef = useRef(false);
+  const markersLoadRef = useRef(false);
+  const appliedShiftPropKey = useMemo(() => (initialAppliedShiftIds ?? []).join(','), [initialAppliedShiftIds]);
+  const appliedSlotPropKey = useMemo(() => (initialAppliedSlotIds ?? []).join(','), [initialAppliedSlotIds]);
+  const rejectedShiftPropKey = useMemo(() => (initialRejectedShiftIds ?? []).join(','), [initialRejectedShiftIds]);
+  const rejectedSlotPropKey = useMemo(() => (initialRejectedSlotIds ?? []).join(','), [initialRejectedSlotIds]);
 
   useEffect(() => {
-    if (savedLoadRef.current) return;
-    savedLoadRef.current = true;
-    storageGetItem(SAVED_STORAGE_KEY)
-      .then((value) => {
-        if (!value) return;
-        const parsed = JSON.parse(value);
-        if (Array.isArray(parsed)) {
-          setSavedShiftIds(new Set(parsed.filter((id) => Number.isFinite(id))));
+    if (filters) {
+      setFilterConfig(filters);
+    }
+  }, [filters]);
+
+  useEffect(() => {
+    if (savedShiftIdsProp) {
+      setSavedShiftIds(new Set(savedShiftIdsProp));
+      savedLoadRef.current = true;
+    }
+  }, [savedShiftIdsProp]);
+
+  // hydrate persisted markers
+  useEffect(() => {
+    if (markersLoadRef.current) return;
+    markersLoadRef.current = true;
+    (async () => {
+      if (!savedShiftIdsProp && !savedLoadRef.current) {
+        const saved = await storageGetItem(SAVED_STORAGE_KEY).catch(() => null);
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) {
+              setSavedShiftIds(new Set(parsed.filter((id) => Number.isFinite(id))));
+            }
+          } catch {}
         }
-      })
-      .catch(() => null);
-  }, []);
+        savedLoadRef.current = true;
+      }
+      try {
+        const appliedShifts = await storageGetItem(APPLIED_STORAGE_KEY);
+        if (appliedShifts) setAppliedShiftIds(new Set(JSON.parse(appliedShifts)));
+      } catch {}
+      try {
+        const appliedSlots = await storageGetItem(APPLIED_SLOT_STORAGE_KEY);
+        if (appliedSlots) setAppliedSlotIds(new Set(JSON.parse(appliedSlots)));
+      } catch {}
+      try {
+        const rejShifts = await storageGetItem(REJECTED_SHIFT_STORAGE_KEY);
+        if (rejShifts) setRejectedShiftIds(new Set(JSON.parse(rejShifts)));
+      } catch {}
+      try {
+        const rejSlots = await storageGetItem(REJECTED_SLOT_STORAGE_KEY);
+        if (rejSlots) setRejectedSlotIds(new Set(JSON.parse(rejSlots)));
+      } catch {}
+      try {
+        const counters = await storageGetItem(COUNTER_OFFER_STORAGE_KEY);
+        if (counters) setCounterOffers(JSON.parse(counters) || {});
+      } catch {}
+    })();
+  }, [savedShiftIdsProp]);
 
+  // persist markers
   useEffect(() => {
+    if (savedShiftIdsProp) return;
     const list = Array.from(savedShiftIds);
     if (list.length === 0) {
       storageRemoveItem(SAVED_STORAGE_KEY).catch(() => null);
-      return;
+    } else {
+      storageSetItem(SAVED_STORAGE_KEY, JSON.stringify(list)).catch(() => null);
     }
-    storageSetItem(SAVED_STORAGE_KEY, JSON.stringify(list)).catch(() => null);
-  }, [savedShiftIds]);
+  }, [savedShiftIds, savedShiftIdsProp]);
 
+  // keep in sync with parent props (backend interests)
   useEffect(() => {
     setAppliedShiftIds(new Set(initialAppliedShiftIds ?? []));
-  }, [initialAppliedShiftIds]);
-
+  }, [appliedShiftPropKey]);
   useEffect(() => {
     setAppliedSlotIds(new Set(initialAppliedSlotIds ?? []));
-  }, [initialAppliedSlotIds]);
-
+  }, [appliedSlotPropKey]);
   useEffect(() => {
     setRejectedShiftIds(new Set(initialRejectedShiftIds ?? []));
-  }, [initialRejectedShiftIds]);
-
+  }, [rejectedShiftPropKey]);
   useEffect(() => {
     setRejectedSlotIds(new Set(initialRejectedSlotIds ?? []));
-  }, [initialRejectedSlotIds]);
+  }, [rejectedSlotPropKey]);
+
+  useEffect(() => {
+    storageSetItem(APPLIED_STORAGE_KEY, JSON.stringify(Array.from(appliedShiftIds))).catch(() => null);
+  }, [appliedShiftIds]);
+  useEffect(() => {
+    storageSetItem(APPLIED_SLOT_STORAGE_KEY, JSON.stringify(Array.from(appliedSlotIds))).catch(() => null);
+  }, [appliedSlotIds]);
+  useEffect(() => {
+    storageSetItem(REJECTED_SHIFT_STORAGE_KEY, JSON.stringify(Array.from(rejectedShiftIds))).catch(() => null);
+  }, [rejectedShiftIds]);
+  useEffect(() => {
+    storageSetItem(REJECTED_SLOT_STORAGE_KEY, JSON.stringify(Array.from(rejectedSlotIds))).catch(() => null);
+  }, [rejectedSlotIds]);
+  useEffect(() => {
+    storageSetItem(COUNTER_OFFER_STORAGE_KEY, JSON.stringify(counterOffers)).catch(() => null);
+  }, [counterOffers]);
 
   const uniqueRoles = useMemo(() => {
     const set = new Set<string>();
@@ -318,7 +528,11 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     return groups;
   }, [shifts]);
 
-  const toggleSaveShift = (shiftId: number) => {
+  const toggleSaveShift = async (shiftId: number) => {
+    if (onToggleSave) {
+      await onToggleSave(shiftId);
+      return;
+    }
     setSavedShiftIds((prev) => {
       const next = new Set(prev);
       if (next.has(shiftId)) {
@@ -356,14 +570,22 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     setFilterConfig((prev) => {
       const current = prev[key] as string[];
       if (current.includes(value)) {
-        return { ...prev, [key]: current.filter((item) => item !== value) };
+        const next = { ...prev, [key]: current.filter((item) => item !== value) };
+        onFiltersChange?.(next);
+        return next;
       }
-      return { ...prev, [key]: [...current, value] };
+      const next = { ...prev, [key]: [...current, value] };
+      onFiltersChange?.(next);
+      return next;
     });
   };
 
   const toggleBooleanFilter = (key: keyof FilterConfig) => {
-    setFilterConfig((prev) => ({ ...prev, [key]: !prev[key] }));
+    setFilterConfig((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      onFiltersChange?.(next);
+      return next;
+    });
   };
 
   const toggleStateExpand = (state: string) => {
@@ -377,7 +599,9 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
       const nextCities = allSelected
         ? current.filter((city) => !cities.includes(city))
         : [...current, ...cities.filter((city) => !current.includes(city))];
-      return { ...prev, city: nextCities };
+      const next = { ...prev, city: nextCities };
+      onFiltersChange?.(next);
+      return next;
     });
   };
 
@@ -389,7 +613,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   };
 
   const clearAllFilters = () => {
-    setFilterConfig({
+    const nextFilters = {
       city: [],
       roles: [],
       employmentTypes: [],
@@ -403,7 +627,9 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
       travelProvided: false,
       accommodationProvided: false,
       bulkShiftsOnly: false,
-    });
+    };
+    setFilterConfig(nextFilters);
+    onFiltersChange?.(nextFilters);
   };
 
   const activeFilterCount =
@@ -422,6 +648,25 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     (filterConfig.dateRange.start || filterConfig.dateRange.end ? 1 : 0);
 
   const processedShifts = useMemo(() => {
+    if (useServerFiltering) {
+      let serverResult = shifts;
+      if (activeTab === 'saved') {
+        serverResult = serverResult.filter((shift) => savedShiftIds.has(shift.id));
+      }
+      // Apply local min-rate filter even with server filtering to catch pharmacist-provided zeros.
+      if (filterConfig.minRate > 0) {
+        serverResult = serverResult.filter((shift) => {
+          const slots = shift.slots ?? [];
+          const maxRate = Math.max(
+            ...(slots || [])
+              .map((slot) => getSlotRate(slot, shift, userRatePreference))
+              .filter((rate) => Number.isFinite(rate))
+          );
+          return Number.isFinite(maxRate) && maxRate >= filterConfig.minRate;
+        });
+      }
+      return serverResult;
+    }
     let result = [...shifts];
     if (activeTab === 'saved') {
       result = result.filter((shift) => savedShiftIds.has(shift.id));
@@ -476,7 +721,9 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
 
       if (filterConfig.minRate > 0) {
         const maxRate = Math.max(
-          ...(slots || []).map((slot) => getSlotRate(slot, shift)).filter((rate) => Number.isFinite(rate))
+          ...(slots || [])
+            .map((slot) => getSlotRate(slot, shift, pharmacistRatePref))
+            .filter((rate) => Number.isFinite(rate))
         );
         if (!Number.isFinite(maxRate) || maxRate < filterConfig.minRate) return false;
       }
@@ -502,10 +749,10 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
         bVal = getFirstSlot(b)?.date ?? '';
       } else if (sortConfig.key === 'rate') {
         aVal = Math.max(
-          ...(a.slots ?? []).map((slot) => getSlotRate(slot, a)).filter((rate) => Number.isFinite(rate))
+          ...(a.slots ?? []).map((slot) => getSlotRate(slot, a, pharmacistRatePref)).filter((rate) => Number.isFinite(rate))
         );
         bVal = Math.max(
-          ...(b.slots ?? []).map((slot) => getSlotRate(slot, b)).filter((rate) => Number.isFinite(rate))
+          ...(b.slots ?? []).map((slot) => getSlotRate(slot, b, pharmacistRatePref)).filter((rate) => Number.isFinite(rate))
         );
       } else if (sortConfig.key === 'distance') {
         aVal = getShiftDistance(a) ?? Number.POSITIVE_INFINITY;
@@ -523,24 +770,101 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     return result;
   }, [shifts, activeTab, savedShiftIds, filterConfig, sortConfig]);
 
-  const openCounterOffer = (shift: Shift, selectedSlots?: Set<number>) => {
+  const openCounterOffer = async (shift: Shift, selectedSlots?: Set<number>) => {
     if (!onSubmitCounterOffer) return;
+    let ratePref = pharmacistRatePref;
+    // On-demand fetch if rates still missing
+    if (!ratePref && auth?.user?.role?.toUpperCase() === 'PHARMACIST') {
+      try {
+        const onboarding: any = await getOnboardingDetail('pharmacist');
+        const fromOnboarding =
+          onboarding?.rate_preference ||
+          onboarding?.ratePreference ||
+          (onboarding?.data ? onboarding.data.rate_preference || onboarding.data.ratePreference : undefined);
+        if (fromOnboarding) {
+          ratePref = fromOnboarding;
+          console.log('Counter offer fetched rate preference from onboarding', fromOnboarding);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch onboarding rate preference on counter-offer open', err);
+      }
+    }
     const slots = shift.slots ?? [];
     const slotIds = selectedSlots && selectedSlots.size > 0 ? selectedSlots : null;
     const slotsToUse = slotIds ? slots.filter((slot) => slotIds.has(slot.id)) : slots;
 
+    const fallbackSlots: CounterOfferFormSlot[] =
+      slotsToUse.length === 0
+        ? [
+            {
+              slotId: undefined,
+              dateLabel: shift.employmentType === 'FULL_TIME' ? 'Full-time schedule' : 'Part-time schedule',
+              startTime: '',
+              endTime: '',
+              rate: '',
+            },
+          ]
+        : [];
+
     setCounterOfferShift(shift);
     setCounterOfferMessage('');
     setCounterOfferTravel(false);
-    setCounterOfferSlots(
-      slotsToUse.map((slot) => ({
+    let calculatorRates: string[] | null = null;
+    if (shift.rateType === 'PHARMACIST_PROVIDED' && ratePref) {
+      try {
+        const pharmacyId = (shift as any)?.pharmacyDetail?.id || (shift as any)?.pharmacy_detail?.id || (shift as any)?.pharmacy?.id;
+        if (pharmacyId) {
+          const payload = {
+            pharmacyId,
+            role: shift.roleNeeded || (shift as any).role_needed || (shift as any).roleLabel || 'PHARMACIST',
+            employmentType: shift.employmentType || (shift as any).employment_type || 'LOCUM',
+            rateType: shift.rateType || (shift as any).rate_type || 'PHARMACIST_PROVIDED',
+            rate_weekday: ratePref.weekday,
+            rate_saturday: ratePref.saturday,
+            rate_sunday: ratePref.sunday,
+            rate_public_holiday: ratePref.public_holiday,
+            rate_early_morning: ratePref.early_morning,
+            rate_late_night: ratePref.late_night,
+            rate_early_morning_same_as_day: ratePref.early_morning_same_as_day,
+            rate_late_night_same_as_day: ratePref.late_night_same_as_day,
+            slots: slotsToUse.map((slot) => ({
+              date: slot.date,
+              startTime: (slot.startTime || '').slice(0, 5), // backend expects HH:MM
+              endTime: (slot.endTime || '').slice(0, 5),
+            })),
+          };
+          const calcResults: any[] = await calculateShiftRates(payload);
+          if (Array.isArray(calcResults) && calcResults.length === slotsToUse.length) {
+            calculatorRates = calcResults.map((r) => (r?.rate ? String(r.rate) : '0'));
+            console.log('Counter offer calculator rates', calculatorRates);
+          }
+        }
+      } catch (err) {
+        console.warn('Counter offer calculateShiftRates failed', err);
+      }
+    }
+
+    const mapped: CounterOfferFormSlot[] = slotsToUse.map((slot, idx) => {
+      const derivedRate = calculatorRates
+        ? Number(calculatorRates[idx] || 0)
+        : getSlotRate(slot, shift, ratePref);
+      console.log('Counter offer prefill', {
+        slotId: slot.id,
+        date: slot.date,
+        start: slot.startTime,
+        end: slot.endTime,
+        rate_pref: ratePref,
+        derivedRate,
+      });
+      return {
         slotId: slot.id,
         dateLabel: formatDateShort(slot.date),
         startTime: slot.startTime,
         endTime: slot.endTime,
-        rate: getSlotRate(slot, shift).toString(),
-      }))
-    );
+        rate: derivedRate.toString(),
+      };
+    });
+    setCounterOfferSlots([...mapped, ...fallbackSlots]);
     setCounterOfferOpen(true);
   };
 
@@ -550,48 +874,98 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     setCounterOfferSlots([]);
   };
 
-  const handleCounterSlotChange = (slotId: number, key: keyof CounterOfferFormSlot, value: string) => {
+  const handleCounterSlotChange = (index: number, key: keyof CounterOfferFormSlot, value: string) => {
     setCounterOfferSlots((prev) =>
-      prev.map((slot) => (slot.slotId === slotId ? { ...slot, [key]: value } : slot))
+      prev.map((slot, idx) => (idx === index ? { ...slot, [key]: value } : slot))
     );
   };
 
   const handleSubmitCounterOffer = async () => {
     if (!counterOfferShift || !onSubmitCounterOffer) return;
+    const canNegotiateRate = getShiftNegotiable(counterOfferShift);
+    const slotOfferMap: Record<number, { rate: string; start: string; end: string }> = {};
+    const hasRealSlots = (counterOfferShift.slots?.length ?? 0) > 0;
+    const slotsToSend = hasRealSlots
+      ? counterOfferSlots.filter((slot) => slot.slotId != null)
+      : counterOfferSlots;
+
+    if (slotsToSend.length === 0) {
+      setCounterOfferError('This shift has no slots to attach a counter offer. Please contact the poster.');
+      return;
+    }
+    if (slotsToSend.some((s) => !s.startTime || !s.endTime)) {
+      setCounterOfferError('Start and end time are required.');
+      return;
+    }
     const payload: ShiftCounterOfferPayload = {
       shiftId: counterOfferShift.id,
       message: counterOfferMessage,
       requestTravel: counterOfferTravel,
-      slots: counterOfferSlots.map((slot) => ({
-        slotId: slot.slotId,
-        proposedStartTime: slot.startTime,
-        proposedEndTime: slot.endTime,
-        proposedRate: slot.rate ? Number(slot.rate) : null,
-      })),
+      slots: slotsToSend.map(
+        (slot): ShiftCounterOfferSlotPayload => ({
+          slotId: slot.slotId != null ? (slot.slotId as number) : undefined,
+          proposedStartTime: slot.startTime,
+          proposedEndTime: slot.endTime,
+          proposedRate: canNegotiateRate && slot.rate ? Number(slot.rate) : null,
+        })
+      ),
     };
 
     await onSubmitCounterOffer(payload);
+
+    slotsToSend.forEach((slot) => {
+      if (slot.slotId != null) {
+        slotOfferMap[slot.slotId] = { rate: slot.rate, start: slot.startTime, end: slot.endTime };
+      }
+    });
+    const sentCount = Object.keys(slotOfferMap).length;
+    const updated = {
+      ...counterOffers,
+      [counterOfferShift.id]: {
+        slots: slotOfferMap,
+        message: counterOfferMessage,
+        summary: sentCount > 0 ? `Counter offer sent (${sentCount} slot${sentCount > 1 ? 's' : ''})` : 'Counter offer sent',
+      },
+    };
+    setCounterOffers(updated);
+
     closeCounterOffer();
   };
 
   const handleApplyAll = async (shift: Shift) => {
     await onApplyAll(shift);
-    setAppliedShiftIds((prev) => new Set([...Array.from(prev), shift.id]));
+    setAppliedShiftIds((prev) => {
+      const next = new Set(prev);
+      next.add(shift.id);
+      return next;
+    });
     const slots = shift.slots ?? [];
     if (slots.length > 0) {
-      setAppliedSlotIds((prev) => new Set([...Array.from(prev), ...slots.map((slot) => slot.id)]));
+      setAppliedSlotIds((prev) => {
+        const next = new Set(prev);
+        slots.forEach((slot) => next.add(slot.id));
+        return next;
+      });
     }
   };
 
   const handleApplySlot = async (shift: Shift, slotId: number) => {
     await onApplySlot(shift, slotId);
-    setAppliedSlotIds((prev) => new Set([...Array.from(prev), slotId]));
+    setAppliedSlotIds((prev) => {
+      const next = new Set(prev);
+      next.add(slotId);
+      return next;
+    });
   };
 
   const handleRejectShift = async (shift: Shift) => {
     if (!onRejectShift) return;
     await onRejectShift(shift);
-    setRejectedShiftIds((prev) => new Set([...Array.from(prev), shift.id]));
+    setRejectedShiftIds((prev) => {
+      const next = new Set(prev);
+      next.add(shift.id);
+      return next;
+    });
     setAppliedShiftIds((prev) => {
       const next = new Set(prev);
       next.delete(shift.id);
@@ -604,7 +978,11 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
         slots.forEach((slot) => next.delete(slot.id));
         return next;
       });
-      setRejectedSlotIds((prev) => new Set([...Array.from(prev), ...slots.map((slot) => slot.id)]));
+      setRejectedSlotIds((prev) => {
+        const next = new Set(prev);
+        slots.forEach((slot) => next.add(slot.id));
+        return next;
+      });
     }
     clearSelection(shift.id);
   };
@@ -612,7 +990,11 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   const handleRejectSlot = async (shift: Shift, slotId: number) => {
     if (!onRejectSlot) return;
     await onRejectSlot(shift, slotId);
-    setRejectedSlotIds((prev) => new Set([...Array.from(prev), slotId]));
+    setRejectedSlotIds((prev) => {
+      const next = new Set(prev);
+      next.add(slotId);
+      return next;
+    });
     setAppliedSlotIds((prev) => {
       const next = new Set(prev);
       next.delete(slotId);
@@ -943,6 +1325,11 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
           </Stack>
         </DialogTitle>
         <DialogContent dividers>
+          {counterOfferError && (
+            <Typography color="error" variant="body2" sx={{ mb: 1 }}>
+              {counterOfferError}
+            </Typography>
+          )}
           {counterOfferShift && (
             <Stack spacing={2}>
               <Paper variant="outlined" sx={{ p: 2, borderColor: 'grey.200' }}>
@@ -956,8 +1343,8 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                 </Stack>
               </Paper>
               <Stack spacing={2}>
-                {counterOfferSlots.map((slot) => (
-                  <Paper key={slot.slotId} variant="outlined" sx={{ p: 2, borderColor: 'grey.200' }}>
+                {counterOfferSlots.map((slot, idx) => (
+                  <Paper key={slot.slotId ?? idx} variant="outlined" sx={{ p: 2, borderColor: 'grey.200' }}>
                     <Stack spacing={2}>
                       <Typography variant="subtitle2">
                         {slot.dateLabel}
@@ -970,7 +1357,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                             size="small"
                             fullWidth
                             value={slot.startTime}
-                            onChange={(event) => handleCounterSlotChange(slot.slotId, 'startTime', event.target.value)}
+                            onChange={(event) => handleCounterSlotChange(idx, 'startTime', event.target.value)}
                             disabled={!getShiftFlexibleTime(counterOfferShift)}
                             InputLabelProps={{ shrink: true }}
                           />
@@ -982,7 +1369,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                             size="small"
                             fullWidth
                             value={slot.endTime}
-                            onChange={(event) => handleCounterSlotChange(slot.slotId, 'endTime', event.target.value)}
+                            onChange={(event) => handleCounterSlotChange(idx, 'endTime', event.target.value)}
                             disabled={!getShiftFlexibleTime(counterOfferShift)}
                             InputLabelProps={{ shrink: true }}
                           />
@@ -994,7 +1381,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                             size="small"
                             fullWidth
                             value={slot.rate}
-                            onChange={(event) => handleCounterSlotChange(slot.slotId, 'rate', event.target.value)}
+                            onChange={(event) => handleCounterSlotChange(idx, 'rate', event.target.value)}
                             disabled={!getShiftNegotiable(counterOfferShift)}
                           />
                         </Grid>
@@ -1033,13 +1420,67 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
         </DialogActions>
       </Dialog>
 
+      {/* Review Counter Offer */}
+      <Dialog
+        open={reviewOfferShiftId != null}
+        onClose={() => setReviewOfferShiftId(null)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Counter Offer Details</DialogTitle>
+        <DialogContent dividers>
+          {reviewOfferShiftId != null ? (() => {
+            const offer = counterOffers[reviewOfferShiftId];
+            const shift = shifts.find((s) => s.id === reviewOfferShiftId);
+            if (!offer) return <Typography variant="body2">No offer found.</Typography>;
+            const slotEntries = Object.entries(offer.slots || {});
+            return (
+              <Stack spacing={2}>
+                {offer.message && (
+                  <Typography variant="body2" color="text.primary">
+                    Message: {offer.message}
+                  </Typography>
+                )}
+                {slotEntries.length > 0 ? (
+                  slotEntries.map(([slotId, info]) => {
+                    const slot = shift?.slots?.find((s) => s.id === Number(slotId));
+                    return (
+                      <Paper key={slotId} variant="outlined" sx={{ p: 1.5, borderColor: 'grey.200' }}>
+                        <Stack spacing={0.5}>
+                          <Typography variant="body2" fontWeight={600}>
+                            {slot ? formatDateLong(slot.date) : `Slot ${slotId}`}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {info.start} - {info.end}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Rate: {info.rate || 'N/A'}
+                          </Typography>
+                        </Stack>
+                      </Paper>
+                    );
+                  })
+                ) : (
+                  <Typography variant="body2">No slot details recorded.</Typography>
+                )}
+              </Stack>
+            );
+          })() : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReviewOfferShiftId(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', mb: 2 }}>
         <Box>
           <Typography variant="h4" fontWeight={700}>{title}</Typography>
           <Typography variant="body2" color="text.secondary">
             {activeTab === 'saved'
               ? `${processedShifts.length} saved items`
-              : `Showing ${processedShifts.length} opportunities`}
+              : useServerFiltering && typeof totalCount === 'number'
+                ? `Showing ${totalCount} opportunities`
+                : `Showing ${processedShifts.length} opportunities`}
           </Typography>
         </Box>
         <Stack direction="row" spacing={1.5} alignItems="center">
@@ -1120,6 +1561,16 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
             </FormControl>
           </Stack>
 
+          {useServerFiltering && typeof totalCount === 'number' && pageSize && onPageChange && (
+            <Stack alignItems="center" sx={{ mt: 2, mb: 2 }}>
+              <Pagination
+                count={Math.max(1, Math.ceil(totalCount / pageSize))}
+                page={page ?? 1}
+                onChange={(_: React.ChangeEvent<unknown>, value: number) => onPageChange(value)}
+              />
+            </Stack>
+          )}
+
           <Stack spacing={2}>
             {loading && (
               <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, borderColor: 'grey.200' }}>
@@ -1146,16 +1597,28 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
               const isExpanded = Boolean(expandedCards[shift.id]);
               const selection = selectedSlotIds[shift.id] ?? new Set<number>();
               const isRejectedShift = rejectedShiftIds.has(shift.id);
+              const isFullOrPartTime = ['FULL_TIME', 'PART_TIME'].includes(shift.employmentType ?? '');
+              const isPharmacistProvided = shift.rateType === 'PHARMACIST_PROVIDED';
+              // Counter offer is allowed when either time is flexible or rate is negotiable.
+              // Rate negotiation is only enabled in the modal when rate is flexible; time negotiation follows flexible_timing even for FT/PT.
               const showCounter = (getShiftFlexibleTime(shift) || getShiftNegotiable(shift)) && !isRejectedShift;
-              const showNegotiable = getShiftNegotiable(shift);
+              const showNegotiable = getShiftNegotiable(shift) && !isRejectedShift;
+              const counterInfo = counterOffers[shift.id];
+              const paymentType =
+                shift.paymentPreference ||
+                (shift.employmentType === 'LOCUM'
+                  ? 'ABN'
+                  : shift.employmentType
+                  ? 'TFN'
+                  : null);
               const isSaved = savedShiftIds.has(shift.id);
-              const isApplied = appliedShiftIds.has(shift.id);
+              const isApplied =
+                appliedShiftIds.has(shift.id) ||
+                (slots.length > 0 && slots.some((slot) => appliedSlotIds.has(slot.id)));
               const hasRejectedSlots = slots.some((slot) => rejectedSlotIds.has(slot.id));
-              const slotApplied = (slotId: number) => appliedSlotIds.has(slotId);
               const slotRejected = (slotId: number) => rejectedSlotIds.has(slotId) || isRejectedShift;
               const allowPartial = getShiftAllowPartial(shift);
               const urgent = getShiftUrgent(shift);
-              const isFullOrPartTime = ['FULL_TIME', 'PART_TIME'].includes(shift.employmentType ?? '');
               const rateSummary = getRateSummary(shift);
 
               return (
@@ -1208,8 +1671,34 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                                   {shift.hasAccommodation && <Chip icon={<HotelIcon />} label="Accomm." size="small" />}
                                 </Stack>
                               )}
+                              {paymentType && (
+                                <Chip label={`Payment: ${paymentType}`} size="small" variant="outlined" />
+                              )}
                               {isRejectedShift && <Chip label="Rejected" size="small" color="error" />}
+                              {counterInfo && (
+                                <Chip
+                                  label={counterInfo.summary}
+                                  size="small"
+                                  color="info"
+                                  variant="outlined"
+                                />
+                              )}
+                              {counterInfo && (
+                                <Button
+                                  size="small"
+                                  variant="text"
+                                  onClick={() => setReviewOfferShiftId(shift.id)}
+                                  sx={{ textTransform: 'none' }}
+                                >
+                                  Review counter offer
+                                </Button>
+                              )}
                             </Stack>
+                            {shift.createdAt && (
+                              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                                Posted {dayjs(shift.createdAt).format('D MMM YYYY')}
+                              </Typography>
+                            )}
                           </Box>
                           <IconButton onClick={() => toggleSaveShift(shift.id)}>
                             <FavoriteIcon color={isSaved ? 'error' : 'disabled'} />
@@ -1259,9 +1748,16 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                               </Typography>
                             </Typography>
                           </Stack>
-                          <Chip label="+ Superannuation" size="small" />
+                          {isFullOrPartTime && shift.superPercent && (
+                            <Chip label={`+ Superannuation (${shift.superPercent}%)`} size="small" />
+                          )}
                           {showNegotiable && (
                             <Chip icon={<PaidIcon />} label="Negotiable" size="small" color="info" />
+                          )}
+                          {isPharmacistProvided && (
+                            <Typography variant="caption" color="text.secondary">
+                              Rate set by pharmacist — update your profile rates to improve matches.
+                            </Typography>
                           )}
                           <Stack spacing={1} sx={{ mt: 1 }}>
                             <Button
@@ -1327,13 +1823,16 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                                     </Stack>
                                   </Paper>
                                 ) : (
-                                  slots.map((slot) => {
-                                    const isSelected = selection.has(slot.id);
-                                    const isSlotApplied = slotApplied(slot.id);
-                                    const isSlotRejected = slotRejected(slot.id);
+                                  slots.map((slot, idx) => {
+                                    if (slot.id == null) return null;
+                                    const slotId = slot.id as number;
+                                    const isSelected = selection.has(slotId);
+                                    // const isSlotApplied = slotApplied(slotId); // unused
+                                    const isSlotRejected = slotRejected(slotId);
+                                    const offerSlot = counterInfo?.slots?.[slotId];
                                     return (
                                       <Paper
-                                        key={slot.id}
+                                        key={slotId ?? idx}
                                         variant="outlined"
                                         sx={{
                                           p: 1.5,
@@ -1346,8 +1845,8 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                                             {isMulti && allowPartial && (
                                               <Checkbox
                                                 checked={isSelected}
-                                                onChange={() => toggleSlotSelection(shift.id, slot.id)}
-                                                disabled={isSlotApplied || isSlotRejected}
+                                                onChange={() => toggleSlotSelection(shift.id, slotId)}
+                                                disabled={isSlotRejected}
                                               />
                                             )}
                                             <Box>
@@ -1364,9 +1863,16 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                                               <Chip label="Rejected" color="error" size="small" />
                                             ) : (
                                               <Chip
-                                                label={`$${getSlotRate(slot, shift)}/hr`}
+                                                label={`$${getSlotRate(slot, shift, userRatePreference)}/hr`}
                                                 color="success"
                                                 size="small"
+                                              />
+                                            )}
+                                            {offerSlot && (
+                                              <Chip
+                                                label={`Offer sent${offerSlot.rate ? ` $${offerSlot.rate}` : ''}`}
+                                                size="small"
+                                                variant="outlined"
                                               />
                                             )}
                                             {!shift.singleUserOnly && onRejectSlot && !isSlotRejected && (
@@ -1374,7 +1880,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                                                 size="small"
                                                 variant="outlined"
                                                 color="error"
-                                                onClick={() => handleRejectSlot(shift, slot.id)}
+                                                onClick={() => handleRejectSlot(shift, slotId)}
                                               >
                                                 Reject
                                               </Button>
@@ -1445,6 +1951,41 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                               <Typography variant="body2" color="text.secondary">
                                 {shift.description || 'No description provided.'}
                               </Typography>
+                              {(shift.mustHave && shift.mustHave.length > 0) && (
+                                <Stack spacing={0.5}>
+                                  <Typography variant="caption" color="text.secondary">Must have</Typography>
+                                  <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                                    {shift.mustHave.map((item, idx) => (
+                                      <Chip key={idx} label={item} size="small" />
+                                    ))}
+                                  </Stack>
+                                </Stack>
+                              )}
+                              {(shift.niceToHave && shift.niceToHave.length > 0) && (
+                                <Stack spacing={0.5}>
+                                  <Typography variant="caption" color="text.secondary">Nice to have</Typography>
+                                  <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                                    {shift.niceToHave.map((item, idx) => (
+                                      <Chip key={idx} label={item} size="small" variant="outlined" />
+                                    ))}
+                                  </Stack>
+                                </Stack>
+                              )}
+                              {(shift.workloadTags && shift.workloadTags.length > 0) && (
+                                <Stack spacing={0.5}>
+                                  <Typography variant="caption" color="text.secondary">Workload</Typography>
+                                  <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                                    {shift.workloadTags.map((tag, idx) => (
+                                      <Chip key={idx} label={tag} size="small" color="default" />
+                                    ))}
+                                  </Stack>
+                                </Stack>
+                              )}
+                              {shift.createdAt && (
+                                <Typography variant="caption" color="text.secondary">
+                                  Posted {dayjs(shift.createdAt).format('D MMM YYYY')}
+                                </Typography>
+                              )}
                               <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, borderColor: 'grey.200' }}>
                                 <Typography variant="caption" color="text.secondary">Full Address</Typography>
                                 <Stack direction="row" spacing={1} alignItems="center">

@@ -28,10 +28,10 @@ from users.serializers import (
 from django.shortcuts import get_object_or_404
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 import json
-from django.db.models import Q, Count, F, Avg, Exists, OuterRef
+from django.db.models import Q, Count, F, Avg, Exists, OuterRef, Max
 from django.utils import timezone
 from client_profile.services import get_locked_rate_for_slot, expand_shift_slots, generate_invoice_from_shifts, render_invoice_to_pdf, generate_preview_invoice_lines
-from client_profile.utils import build_shift_email_context, clean_email, build_roster_email_link, get_frontend_dashboard_url, enforce_public_shift_daily_limit
+from client_profile.utils import build_shift_email_context, clean_email, build_roster_email_link, get_frontend_dashboard_url, enforce_public_shift_daily_limit, build_shift_counter_offer_context
 from client_profile.notifications import mark_notifications_read, broadcast_message_read, broadcast_message_badge
 from django.utils.crypto import get_random_string
 from django.contrib.auth.tokens import default_token_generator
@@ -2386,7 +2386,11 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         super().check_permissions(request)
         # Some actions should be callable without requiring object-level permissions (no `pk`).
         # - `calculate_rates` is a collection action used by the Post Shift form (draft pricing).
-        if request.method in SAFE_METHODS or self.action in ['express_interest', 'reject', 'claim_shift', 'calculate_rates']:
+        # Allow these actions for authenticated users without requiring "manage pharmacy":
+        # - express_interest / reject / claim_shift (worker interactions)
+        # - calculate_rates (draft pricing helper)
+        # - counter_offers (workers submitting counter offers; owners still gate accept/reject in their own actions)
+        if request.method in SAFE_METHODS or self.action in ['express_interest', 'reject', 'claim_shift', 'calculate_rates', 'counter_offers']:
             return
 
         user = request.user
@@ -2577,15 +2581,16 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def express_interest(self, request, pk=None):
-        shift = self.get_object()
+        shift = self.get_queryset().filter(pk=pk).distinct().first()
+        if not shift:
+            raise NotFound("Shift not found.")
         user  = request.user
 
         # 1) Onboarding required
         if shift.visibility == PUBLIC_LEVEL:
             if user.role == 'PHARMACIST':
-                try:
-                    po = PharmacistOnboarding.objects.get(user=user)
-                except PharmacistOnboarding.DoesNotExist:
+                po = PharmacistOnboarding.objects.filter(user=user).first()
+                if not po:
                     return Response(
                         {'detail': 'Please complete your pharmacist onboarding before applying for public shifts.'},
                         status=status.HTTP_400_BAD_REQUEST
@@ -2596,9 +2601,8 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_403_FORBIDDEN
                     )
             elif user.role == 'OTHER_STAFF':
-                try:
-                    os = OtherStaffOnboarding.objects.get(user=user)
-                except OtherStaffOnboarding.DoesNotExist:
+                os = OtherStaffOnboarding.objects.filter(user=user).first()
+                if not os:
                     return Response(
                         {'detail': 'Please complete your staff onboarding before applying for public shifts.'},
                         status=status.HTTP_400_BAD_REQUEST
@@ -2914,6 +2918,45 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         serializer = ShiftCounterOfferSerializer(data=request.data, context={'request': request, 'shift': shift})
         serializer.is_valid(raise_exception=True)
         offer = serializer.save()
+
+        # Notify shift owner, pharmacy admins, and org admins
+        recipients = []
+        if shift.created_by:
+            recipients.append(shift.created_by)
+        pharmacy_admins = PharmacyAdmin.objects.filter(
+            pharmacy=shift.pharmacy, is_active=True
+        ).select_related('user')
+        recipients.extend([pa.user for pa in pharmacy_admins if pa.user])
+        if shift.pharmacy.organization_id:
+            org_admins = OrganizationMembership.objects.filter(
+                role='ORG_ADMIN', organization_id=shift.pharmacy.organization_id
+            ).select_related('user')
+            recipients.extend([oa.user for oa in org_admins if oa.user])
+
+        seen_emails = set()
+        for recipient in recipients:
+            if not recipient or not recipient.email:
+                continue
+            if recipient.email in seen_emails:
+                continue
+            seen_emails.add(recipient.email)
+            ctx = build_shift_counter_offer_context(shift, offer, recipient=recipient)
+            notification_payload = {
+                "title": f"New counter offer: {shift.pharmacy.name}",
+                "body": f"{offer.user.get_full_name() if offer.user else 'A candidate'} sent a counter offer.",
+                "payload": {"shift_id": shift.id},
+            }
+            if ctx.get("shift_link"):
+                notification_payload["action_url"] = ctx["shift_link"]
+            async_task(
+                'users.tasks.send_async_email',
+                subject=f"New counter offer for {shift.pharmacy.name}",
+                recipient_list=[recipient.email],
+                template_name="emails/shift_counter_offer.html",
+                context=ctx,
+                text_template="emails/shift_counter_offer.txt",
+                notification=notification_payload
+            )
         output = ShiftCounterOfferSerializer(offer, context={'request': request, 'shift': shift})
         return Response(output.data, status=status.HTTP_201_CREATED)
 
@@ -3238,11 +3281,76 @@ class CommunityShiftViewSet(BaseShiftViewSet):
         else:
             allowed = COMMUNITY_LEVELS
 
-        final_qs = qs.filter(role_needed__in=allowed).distinct()
+        qs = qs.filter(role_needed__in=allowed)
 
-        # _dbg(f"get_queryset: result_count={final_qs.count()} allowed_roles={allowed}")
+        params = self.request.query_params
+        search = params.get('search')
+        roles = params.getlist('roles') or params.getlist('role')
+        employment_types = params.getlist('employment_types') or params.getlist('employment_type')
+        cities = params.getlist('city')
+        states = params.getlist('state')
+        min_rate = params.get('min_rate')
+        only_urgent = params.get('only_urgent') == 'true'
+        negotiable_only = params.get('negotiable_only') == 'true'
+        flexible_only = params.get('flexible_only') == 'true'
+        travel_provided = params.get('travel_provided') == 'true'
+        accommodation_provided = params.get('accommodation_provided') == 'true'
+        bulk_shifts_only = params.get('bulk_shifts_only') == 'true'
+        time_of_day = params.getlist('time_of_day')
 
-        return qs.filter(role_needed__in=allowed).distinct()
+        if search:
+            qs = qs.filter(
+                Q(pharmacy__name__icontains=search) |
+                Q(pharmacy__suburb__icontains=search) |
+                Q(pharmacy__street_address__icontains=search) |
+                Q(role_needed__icontains=search)
+            )
+        if roles:
+            qs = qs.filter(role_needed__in=roles)
+        if employment_types:
+            qs = qs.filter(employment_type__in=employment_types)
+        if cities:
+            qs = qs.filter(pharmacy__suburb__in=cities)
+        if states:
+            qs = qs.filter(pharmacy__state__in=states)
+        if only_urgent:
+            qs = qs.filter(is_urgent=True)
+        if negotiable_only:
+            qs = qs.filter(rate_type='FLEXIBLE')
+        if flexible_only:
+            qs = qs.filter(flexible_timing=True)
+        if travel_provided:
+            qs = qs.filter(has_travel=True)
+        if accommodation_provided:
+            qs = qs.filter(has_accommodation=True)
+        if bulk_shifts_only:
+            qs = qs.annotate(slot_count=Count('slots', distinct=True)).filter(slot_count__gte=5)
+        if min_rate:
+            try:
+                min_rate_val = float(min_rate)
+                qs = qs.filter(
+                    Q(fixed_rate__gte=min_rate_val) |
+                    Q(slots__rate__gte=min_rate_val) |
+                    Q(min_hourly_rate__gte=min_rate_val) |
+                    Q(max_hourly_rate__gte=min_rate_val) |
+                    Q(min_annual_salary__gte=min_rate_val) |
+                    Q(max_annual_salary__gte=min_rate_val)
+                )
+            except ValueError:
+                pass
+        if time_of_day:
+            time_q = Q()
+            for tod in time_of_day:
+                if tod == 'morning':
+                    time_q |= Q(slots__start_time__lt='12:00')
+                elif tod == 'afternoon':
+                    time_q |= Q(slots__start_time__gte='12:00', slots__start_time__lt='17:00')
+                elif tod == 'evening':
+                    time_q |= Q(slots__start_time__gte='17:00')
+            if time_q:
+                qs = qs.filter(Q(slot_count=0) | time_q)
+
+        return qs.distinct()
 
     @action(detail=True, methods=['post'], url_path='claim-shift')
     def claim_shift(self, request, pk=None):
@@ -3486,7 +3594,89 @@ class PublicShiftViewSet(BaseShiftViewSet):
             # Owners / ORG_ADMIN see every role on public
             allowed = ['PHARMACIST', 'TECHNICIAN', 'ASSISTANT', 'EXPLORER', 'INTERN', 'STUDENT']
 
-        return qs.filter(role_needed__in=allowed).distinct()
+        qs = qs.filter(role_needed__in=allowed)
+
+        # --- Filters from query params ---
+        params = self.request.query_params
+        search = params.get('search')
+        roles = params.getlist('roles') or params.getlist('role')
+        employment_types = params.getlist('employment_types') or params.getlist('employment_type')
+        cities = params.getlist('city')
+        states = params.getlist('state')
+        min_rate = params.get('min_rate')
+        only_urgent = params.get('only_urgent') == 'true'
+        negotiable_only = params.get('negotiable_only') == 'true'
+        flexible_only = params.get('flexible_only') == 'true'
+        travel_provided = params.get('travel_provided') == 'true'
+        accommodation_provided = params.get('accommodation_provided') == 'true'
+        bulk_shifts_only = params.get('bulk_shifts_only') == 'true'
+        time_of_day = params.getlist('time_of_day')
+        start_date_param = params.get('start_date')
+        end_date_param = params.get('end_date')
+
+        if search:
+            qs = qs.filter(
+                Q(pharmacy__name__icontains=search) |
+                Q(pharmacy__suburb__icontains=search) |
+                Q(pharmacy__street_address__icontains=search) |
+                Q(role_needed__icontains=search)
+            )
+        if roles:
+            qs = qs.filter(role_needed__in=roles)
+        if employment_types:
+            qs = qs.filter(employment_type__in=employment_types)
+        if cities:
+            qs = qs.filter(pharmacy__suburb__in=cities)
+        if states:
+            qs = qs.filter(pharmacy__state__in=states)
+        if only_urgent:
+            qs = qs.filter(is_urgent=True)
+        if negotiable_only:
+            qs = qs.filter(rate_type='FLEXIBLE')
+        if flexible_only:
+            qs = qs.filter(flexible_timing=True)
+        if travel_provided:
+            qs = qs.filter(has_travel=True)
+        if accommodation_provided:
+            qs = qs.filter(has_accommodation=True)
+        if bulk_shifts_only:
+            qs = qs.annotate(slot_count=Count('slots', distinct=True)).filter(slot_count__gte=5)
+        if min_rate:
+            try:
+                min_rate_val = float(min_rate)
+                qs = qs.filter(
+                    Q(fixed_rate__gte=min_rate_val) |
+                    Q(slots__rate__gte=min_rate_val) |
+                    Q(min_hourly_rate__gte=min_rate_val) |
+                    Q(max_hourly_rate__gte=min_rate_val) |
+                    Q(min_annual_salary__gte=min_rate_val) |
+                    Q(max_annual_salary__gte=min_rate_val)
+                )
+            except ValueError:
+                pass
+        if time_of_day:
+            time_q = Q()
+            for tod in time_of_day:
+                if tod == 'morning':
+                    time_q |= Q(slots__start_time__lt='12:00')
+                elif tod == 'afternoon':
+                    time_q |= Q(slots__start_time__gte='12:00', slots__start_time__lt='17:00')
+                elif tod == 'evening':
+                    time_q |= Q(slots__start_time__gte='17:00')
+            if time_q:
+                qs = qs.filter(Q(slot_count=0) | time_q)
+        if start_date_param or end_date_param:
+            try:
+                start_d = date.fromisoformat(start_date_param) if start_date_param else date(1970, 1, 1)
+                end_d = date.fromisoformat(end_date_param) if end_date_param else date(2100, 1, 1)
+                qs = qs.filter(
+                    Q(slot_count=0) |
+                    Q(slots__date__range=(start_d, end_d))
+                )
+            except ValueError:
+                pass
+
+        return qs.distinct()
 
 class ActiveShiftViewSet(BaseShiftViewSet):
     """Upcoming & unassigned shifts (no slot has an assignment)."""
@@ -3883,6 +4073,26 @@ class ShiftRejectionViewSet(viewsets.ModelViewSet):
             qs = qs.filter(user_id=user_id)
 
         return qs
+
+
+class ShiftSavedViewSet(viewsets.ModelViewSet):
+    serializer_class = ShiftSavedSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        qs = ShiftSaved.objects.filter(user=self.request.user).select_related('shift')
+        shift_id = self.request.query_params.get('shift')
+        if shift_id is not None:
+            qs = qs.filter(shift_id=shift_id)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 class ShiftDetailViewSet(BaseShiftViewSet):
     @action(detail=False, methods=['post'], url_path='calculate-rates')

@@ -647,6 +647,7 @@ export interface ShiftApi {
     min_annual_salary?: string | null;
     max_annual_salary?: string | null;
     super_percent?: string | null;
+    payment_preference?: string | null;
     workload_tags?: string[];
     must_have?: string[];
     nice_to_have?: string[];
@@ -684,7 +685,7 @@ export interface ShiftCounterOfferApi {
 }
 
 export interface ShiftCounterOfferSlotPayload {
-    slotId: number;
+    slotId?: number;
     proposedStartTime: string;
     proposedEndTime: string;
     proposedRate?: number | null;
@@ -700,6 +701,12 @@ export interface ShiftCounterOfferPayload {
 export interface ShiftCounterOfferDecisionPayload {
     shiftId: number;
     offerId: number;
+}
+
+export interface ShiftSaved {
+    id: number;
+    shift: number;
+    createdAt: string;
 }
 
 export type ShiftSlot = CamelCasedPropertiesDeep<ShiftSlotApi>;

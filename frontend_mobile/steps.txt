@@ -204,11 +204,6 @@ cd ..\frontend_mobile
 rmdir /s /q node_modules
 rmdir /s /q .expo
 del /f /q package-lock.json
-
-cd ..\frontend_mobile
-rmdir /s /q node_modules
-rmdir /s /q .expo
-del /f /q package-lock.json
 npm install
 
 

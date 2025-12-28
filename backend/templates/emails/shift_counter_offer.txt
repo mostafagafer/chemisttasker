@@ -1,0 +1,16 @@
+Hi{% if user_first_name %} {{ user_first_name }}{% endif %},
+
+{{ worker_name|default:"A candidate" }} sent a counter offer for {{ pharmacy_name }} ({{ role_needed }}).
+
+Summary:
+{% for s in slots %}
+- {{ s.date }} — {{ s.start_time }} to {{ s.end_time }}{% if s.proposed_rate %} • ${{ s.proposed_rate }}/hr{% endif %}
+{% endfor %}
+{% if not slots %}- No specific slots provided.{% endif %}
+
+{% if message %}Message: {{ message }}{% endif %}
+{% if request_travel %}Travel allowance requested.{% endif %}
+
+Review here: {{ shift_link }}
+
+Shift ID: {{ shift_id }}

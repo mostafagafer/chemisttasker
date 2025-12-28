@@ -334,6 +334,26 @@ admin.site.register(MembershipApplication)
 admin.site.register(Message)
 
 
+class ShiftCounterOfferSlotInline(admin.TabularInline):
+    model = ShiftCounterOfferSlot
+    extra = 0
+    readonly_fields = ('slot', 'proposed_start_time', 'proposed_end_time', 'proposed_rate')
+
+
+@admin.register(ShiftCounterOffer)
+class ShiftCounterOfferAdmin(admin.ModelAdmin):
+    list_display = ('id', 'shift', 'pharmacy_name', 'user', 'status', 'created_at')
+    list_filter = ('status', 'shift__pharmacy')
+    search_fields = ('id', 'shift__pharmacy__name', 'user__email', 'user__first_name', 'user__last_name')
+    readonly_fields = ('shift', 'user', 'status', 'message', 'request_travel', 'created_at', 'updated_at')
+    inlines = [ShiftCounterOfferSlotInline]
+
+    def pharmacy_name(self, obj):
+        return getattr(obj.shift.pharmacy, 'name', None)
+
+    pharmacy_name.short_description = "Pharmacy"
+
+
 @admin.register(PharmacyHubPost)
 class PharmacyHubPostAdmin(admin.ModelAdmin):
     list_display = (

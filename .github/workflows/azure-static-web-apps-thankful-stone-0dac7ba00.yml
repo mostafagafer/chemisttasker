@@ -22,7 +22,7 @@ jobs:
           submodules: true
           lfs: false
 
-      # Node 20 fixes react-router EBADENGINE (and avoids future hard failures)
+      # Node 20 (react-router v7 requires Node >= 20)
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -32,7 +32,9 @@ jobs:
             shared-core/package-lock.json
             frontend_web/package-lock.json
 
-      # --- shared-core ---
+      # -------------------------
+      # shared-core
+      # -------------------------
       - name: Install shared-core dependencies
         working-directory: shared-core
         run: npm ci --no-audit --no-fund
@@ -41,7 +43,7 @@ jobs:
         working-directory: shared-core
         run: npm run build
 
-      # Key fix: remove any previous tgz so npm pack doesn't include it inside the new tarball
+      # Important: ensure pack output is clean and deterministic
       - name: Remove old shared-core tarballs
         working-directory: shared-core
         run: rm -f *.tgz
@@ -50,14 +52,61 @@ jobs:
         working-directory: shared-core
         run: npm pack
 
-      # --- frontend_web ---
-      # Key fix: regenerate lockfile integrity to match the freshly packed tgz
-      - name: Sync frontend lockfile with packed shared-core tgz
+      # -------------------------
+      # frontend_web
+      # -------------------------
+      # KEY FIX: Update ONLY the integrity hash in frontend_web/package-lock.json
+      # to match the tarball that was just packed.
+      - name: Patch shared-core integrity in frontend_web lockfile
         working-directory: frontend_web
         run: |
-          rm -rf node_modules
-          npm cache verify || true
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const crypto = require('crypto');
+
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const dep = pkg.dependencies && pkg.dependencies['@chemisttasker/shared-core'];
+          if (!dep || !dep.startsWith('file:')) {
+            throw new Error('Expected dependencies["@chemisttasker/shared-core"] to be a file:... path');
+          }
+
+          // Resolve the tarball path exactly as npm sees it
+          const rel = dep.replace(/^file:/, '');
+          const tgzPath = path.resolve(process.cwd(), rel);
+
+          if (!fs.existsSync(tgzPath)) {
+            throw new Error(`shared-core tarball not found at: ${tgzPath}`);
+          }
+
+          const buf = fs.readFileSync(tgzPath);
+          const integrity = 'sha512-' + crypto.createHash('sha512').update(buf).digest('base64');
+
+          const lockPath = path.resolve(process.cwd(), 'package-lock.json');
+          const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+
+          // npm lockfile v2/v3 uses "packages" map
+          const pkgKey = 'node_modules/@chemisttasker/shared-core';
+          if (!lock.packages || !lock.packages[pkgKey]) {
+            throw new Error(`package-lock.json missing packages["${pkgKey}"] entry`);
+          }
+
+          lock.packages[pkgKey].integrity = integrity;
+
+          // Some lockfiles also keep an entry in top-level "dependencies"
+          if (lock.dependencies && lock.dependencies['@chemisttasker/shared-core']) {
+            lock.dependencies['@chemisttasker/shared-core'].integrity = integrity;
+          }
+
+          fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n', 'utf8');
+
+          console.log('Patched @chemisttasker/shared-core integrity to:', integrity);
+          console.log('Tarball:', tgzPath, 'bytes:', buf.length);
+          NODE
+
+      # Optional but harmless; helps if cache had stale entries
+      - name: Clean npm cache
+        run: npm cache clean --force
 
       - name: Install frontend dependencies
         working-directory: frontend_web
@@ -67,7 +116,7 @@ jobs:
         working-directory: frontend_web
         run: npm run build
 
-      # Azure SWA deploy - skip rebuild inside the deploy action (we already built)
+      # Azure deploy (skip internal builds)
       - name: Install OIDC Client from Core Package
         run: npm install @actions/core@1.6.0 @actions/http-client
 
@@ -103,7 +152,6 @@ jobs:
     name: Close Pull Request Job
     steps:
       - name: Close Pull Request
-        id: closepullrequest
         uses: Azure/static-web-apps-deploy@v1
         with:
           action: "close"

@@ -2,12 +2,10 @@ name: Azure Static Web Apps CI/CD
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, closed]
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   build_and_deploy_job:
@@ -17,36 +15,62 @@ jobs:
     permissions:
       id-token: write
       contents: read
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
           lfs: false
+
+      # Node 20 fixes react-router EBADENGINE (and avoids future hard failures)
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
           cache-dependency-path: |
             shared-core/package-lock.json
             frontend_web/package-lock.json
+
+      # --- shared-core ---
       - name: Install shared-core dependencies
         working-directory: shared-core
-        run: npm ci
-      - name: Build shared-core package
+        run: npm ci --no-audit --no-fund
+
+      - name: Build shared-core
         working-directory: shared-core
         run: npm run build
+
+      # Key fix: remove any previous tgz so npm pack doesn't include it inside the new tarball
+      - name: Remove old shared-core tarballs
+        working-directory: shared-core
+        run: rm -f *.tgz
+
       - name: Pack shared-core tarball
         working-directory: shared-core
         run: npm pack
+
+      # --- frontend_web ---
+      # Key fix: regenerate lockfile integrity to match the freshly packed tgz
+      - name: Sync frontend lockfile with packed shared-core tgz
+        working-directory: frontend_web
+        run: |
+          rm -rf node_modules
+          npm cache verify || true
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
       - name: Install frontend dependencies
         working-directory: frontend_web
-        run: npm ci
+        run: npm ci --no-audit --no-fund
+
       - name: Build frontend web app
         working-directory: frontend_web
         run: npm run build
+
+      # Azure SWA deploy - skip rebuild inside the deploy action (we already built)
       - name: Install OIDC Client from Core Package
         run: npm install @actions/core@1.6.0 @actions/http-client
+
       - name: Get Id Token
         uses: actions/github-script@v6
         id: idtoken
@@ -55,6 +79,7 @@ jobs:
             const coredemo = require('@actions/core')
             return await coredemo.getIDToken()
           result-encoding: string
+
       - name: Build And Deploy
         id: builddeploy
         uses: Azure/static-web-apps-deploy@v1
@@ -69,6 +94,8 @@ jobs:
           api_location: ""
           output_location: "dist"
           github_id_token: ${{ steps.idtoken.outputs.result }}
+          skip_app_build: true
+          skip_api_build: true
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'

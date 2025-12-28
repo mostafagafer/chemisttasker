@@ -2,10 +2,12 @@ name: Azure Static Web Apps CI/CD
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
     types: [opened, synchronize, reopened, closed]
-    branches: [main]
+    branches:
+      - main
 
 jobs:
   build_and_deploy_job:
@@ -15,128 +17,36 @@ jobs:
     permissions:
       id-token: write
       contents: read
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
           lfs: false
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '18'
           cache: 'npm'
           cache-dependency-path: |
             shared-core/package-lock.json
             frontend_web/package-lock.json
-
-      # -------------------------
-      # shared-core
-      # -------------------------
       - name: Install shared-core dependencies
         working-directory: shared-core
-        run: npm ci --no-audit --no-fund
-
-      - name: Build shared-core
+        run: npm ci
+      - name: Build shared-core package
         working-directory: shared-core
         run: npm run build
-
-      - name: Remove old shared-core tarballs
-        working-directory: shared-core
-        run: rm -f *.tgz
-
       - name: Pack shared-core tarball
         working-directory: shared-core
         run: npm pack
-
-      # -------------------------
-      # frontend_web
-      # -------------------------
-      - name: Patch shared-core integrity in frontend_web lockfile
-        working-directory: frontend_web
-        run: |
-          node <<'NODE'
-          const fs = require('fs');
-          const path = require('path');
-          const crypto = require('crypto');
-
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          const dep = pkg.dependencies && pkg.dependencies['@chemisttasker/shared-core'];
-          if (!dep || !dep.startsWith('file:')) {
-            throw new Error('Expected dependencies["@chemisttasker/shared-core"] to be a file:... path');
-          }
-
-          const rel = dep.replace(/^file:/, '');
-          const tgzPath = path.resolve(process.cwd(), rel);
-          if (!fs.existsSync(tgzPath)) {
-            throw new Error(`shared-core tarball not found at: ${tgzPath}`);
-          }
-
-          const buf = fs.readFileSync(tgzPath);
-          const integrity = 'sha512-' + crypto.createHash('sha512').update(buf).digest('base64');
-
-          const lockPath = path.resolve(process.cwd(), 'package-lock.json');
-          const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-
-          const pkgKey = 'node_modules/@chemisttasker/shared-core';
-          if (!lock.packages || !lock.packages[pkgKey]) {
-            throw new Error(`package-lock.json missing packages["${pkgKey}"] entry`);
-          }
-
-          lock.packages[pkgKey].integrity = integrity;
-
-          if (lock.dependencies && lock.dependencies['@chemisttasker/shared-core']) {
-            lock.dependencies['@chemisttasker/shared-core'].integrity = integrity;
-          }
-
-          fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n', 'utf8');
-
-          console.log('Patched @chemisttasker/shared-core integrity to:', integrity);
-          console.log('Tarball:', tgzPath, 'bytes:', buf.length);
-          NODE
-
-      - name: Clean npm cache
-        run: npm cache clean --force
-
       - name: Install frontend dependencies
         working-directory: frontend_web
-        run: npm ci --no-audit --no-fund
-
+        run: npm ci
       - name: Build frontend web app
         working-directory: frontend_web
         run: npm run build
-
-      # -------------------------
-      # Size control / debugging
-      # -------------------------
-      - name: Show dist size and largest files
-        run: |
-          echo "=== dist total size ==="
-          du -sh frontend_web/dist || true
-          echo "=== top 30 largest files in dist ==="
-          (cd frontend_web/dist && find . -type f -printf "%s\t%p\n" | sort -nr | head -30) || true
-
-      # Common win: remove sourcemaps (often huge)
-      - name: Remove sourcemaps from dist
-        run: |
-          find frontend_web/dist -type f -name "*.map" -delete
-          echo "=== dist size after removing sourcemaps ==="
-          du -sh frontend_web/dist || true
-
-      # Ensure config file ends up inside dist since we deploy dist directly
-      - name: Copy SWA config into dist
-        run: |
-          if [ -f frontend_web/staticwebapp.config.json ]; then
-            cp frontend_web/staticwebapp.config.json frontend_web/dist/staticwebapp.config.json
-          fi
-
-      # -------------------------
-      # Deploy ONLY dist
-      # -------------------------
       - name: Install OIDC Client from Core Package
         run: npm install @actions/core@1.6.0 @actions/http-client
-
       - name: Get Id Token
         uses: actions/github-script@v6
         id: idtoken
@@ -145,8 +55,8 @@ jobs:
             const coredemo = require('@actions/core')
             return await coredemo.getIDToken()
           result-encoding: string
-
-      - name: Deploy to Azure Static Web Apps
+      - name: Build And Deploy
+        id: builddeploy
         uses: Azure/static-web-apps-deploy@v1
         env:
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
@@ -155,13 +65,10 @@ jobs:
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_THANKFUL_STONE_0DAC7BA00 }}
           action: "upload"
-          # Deploy the built output only:
-          app_location: "./frontend_web/dist"
-          output_location: ""
+          app_location: "./frontend_web"
           api_location: ""
+          output_location: "dist"
           github_id_token: ${{ steps.idtoken.outputs.result }}
-          skip_app_build: true
-          skip_api_build: true
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
@@ -169,6 +76,7 @@ jobs:
     name: Close Pull Request Job
     steps:
       - name: Close Pull Request
+        id: closepullrequest
         uses: Azure/static-web-apps-deploy@v1
         with:
           action: "close"

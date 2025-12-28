@@ -22,7 +22,6 @@ jobs:
           submodules: true
           lfs: false
 
-      # Node 20 (react-router v7 requires Node >= 20)
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -43,7 +42,6 @@ jobs:
         working-directory: shared-core
         run: npm run build
 
-      # Important: ensure pack output is clean and deterministic
       - name: Remove old shared-core tarballs
         working-directory: shared-core
         run: rm -f *.tgz
@@ -55,8 +53,6 @@ jobs:
       # -------------------------
       # frontend_web
       # -------------------------
-      # KEY FIX: Update ONLY the integrity hash in frontend_web/package-lock.json
-      # to match the tarball that was just packed.
       - name: Patch shared-core integrity in frontend_web lockfile
         working-directory: frontend_web
         run: |
@@ -71,10 +67,8 @@ jobs:
             throw new Error('Expected dependencies["@chemisttasker/shared-core"] to be a file:... path');
           }
 
-          // Resolve the tarball path exactly as npm sees it
           const rel = dep.replace(/^file:/, '');
           const tgzPath = path.resolve(process.cwd(), rel);
-
           if (!fs.existsSync(tgzPath)) {
             throw new Error(`shared-core tarball not found at: ${tgzPath}`);
           }
@@ -85,7 +79,6 @@ jobs:
           const lockPath = path.resolve(process.cwd(), 'package-lock.json');
           const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
 
-          // npm lockfile v2/v3 uses "packages" map
           const pkgKey = 'node_modules/@chemisttasker/shared-core';
           if (!lock.packages || !lock.packages[pkgKey]) {
             throw new Error(`package-lock.json missing packages["${pkgKey}"] entry`);
@@ -93,7 +86,6 @@ jobs:
 
           lock.packages[pkgKey].integrity = integrity;
 
-          // Some lockfiles also keep an entry in top-level "dependencies"
           if (lock.dependencies && lock.dependencies['@chemisttasker/shared-core']) {
             lock.dependencies['@chemisttasker/shared-core'].integrity = integrity;
           }
@@ -104,7 +96,6 @@ jobs:
           console.log('Tarball:', tgzPath, 'bytes:', buf.length);
           NODE
 
-      # Optional but harmless; helps if cache had stale entries
       - name: Clean npm cache
         run: npm cache clean --force
 
@@ -116,7 +107,33 @@ jobs:
         working-directory: frontend_web
         run: npm run build
 
-      # Azure deploy (skip internal builds)
+      # -------------------------
+      # Size control / debugging
+      # -------------------------
+      - name: Show dist size and largest files
+        run: |
+          echo "=== dist total size ==="
+          du -sh frontend_web/dist || true
+          echo "=== top 30 largest files in dist ==="
+          (cd frontend_web/dist && find . -type f -printf "%s\t%p\n" | sort -nr | head -30) || true
+
+      # Common win: remove sourcemaps (often huge)
+      - name: Remove sourcemaps from dist
+        run: |
+          find frontend_web/dist -type f -name "*.map" -delete
+          echo "=== dist size after removing sourcemaps ==="
+          du -sh frontend_web/dist || true
+
+      # Ensure config file ends up inside dist since we deploy dist directly
+      - name: Copy SWA config into dist
+        run: |
+          if [ -f frontend_web/staticwebapp.config.json ]; then
+            cp frontend_web/staticwebapp.config.json frontend_web/dist/staticwebapp.config.json
+          fi
+
+      # -------------------------
+      # Deploy ONLY dist
+      # -------------------------
       - name: Install OIDC Client from Core Package
         run: npm install @actions/core@1.6.0 @actions/http-client
 
@@ -129,8 +146,7 @@ jobs:
             return await coredemo.getIDToken()
           result-encoding: string
 
-      - name: Build And Deploy
-        id: builddeploy
+      - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
         env:
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
@@ -139,9 +155,10 @@ jobs:
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_THANKFUL_STONE_0DAC7BA00 }}
           action: "upload"
-          app_location: "./frontend_web"
+          # Deploy the built output only:
+          app_location: "./frontend_web/dist"
+          output_location: ""
           api_location: ""
-          output_location: "dist"
           github_id_token: ${{ steps.idtoken.outputs.result }}
           skip_app_build: true
           skip_api_build: true

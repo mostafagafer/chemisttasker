@@ -207,3 +207,15 @@ del /f /q package-lock.json
 npm install
 
 
+
+Quick setup
+
+cd shared-core
+npm install
+npm run build
+npm pack
+cd ..\frontend_web
+npm install
+cd ..\frontend_mobile
+npm install
+

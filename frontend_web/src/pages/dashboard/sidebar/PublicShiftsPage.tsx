@@ -62,6 +62,7 @@ export default function PublicShiftsPage() {
   const [appliedShiftIds, setAppliedShiftIds] = useState<number[]>([]);
   const [appliedSlotIds, setAppliedSlotIds] = useState<number[]>([]);
   const [filters, setFilters] = useState<FilterConfig>(DEFAULT_FILTERS);
+  const [debouncedFilters, setDebouncedFilters] = useState<FilterConfig>(DEFAULT_FILTERS);
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const [totalCount, setTotalCount] = useState<number | undefined>(undefined);
@@ -185,8 +186,13 @@ export default function PublicShiftsPage() {
   }, [user.role]);
 
   useEffect(() => {
-    loadShifts(filters, page);
-  }, [filters, page, loadShifts]);
+    const handle = setTimeout(() => setDebouncedFilters(filters), 350);
+    return () => clearTimeout(handle);
+  }, [filters]);
+
+  useEffect(() => {
+    loadShifts(debouncedFilters, page);
+  }, [debouncedFilters, page, loadShifts]);
 
   const handleApplyAll = async (shift: Shift) => {
     if (!isVerified) {

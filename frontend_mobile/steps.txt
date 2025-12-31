@@ -219,3 +219,6 @@ npm install
 cd ..\frontend_mobile
 npm install
 
+cd backend
+venv\scripts\activate
+python manage.py qcluster

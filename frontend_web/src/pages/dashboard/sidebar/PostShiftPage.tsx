@@ -642,8 +642,9 @@ const PostShiftPage: React.FC = () => {
       employmentType,
       slots: expandedSlots.map((slot) => ({
         date: slot.date,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
+        // Normalize to HH:MM to match backend parser
+        startTime: (slot.startTime || '').slice(0, 5),
+        endTime: (slot.endTime || '').slice(0, 5),
       })),
     };
 
@@ -715,25 +716,36 @@ const PostShiftPage: React.FC = () => {
     );
   };
 
-  const handleAddSlot = () => {
-    if (!slotStartTime || !slotEndTime) return showSnackbar('Please select a start and end time.', 'error');
-    if (new Date(`1970-01-01T${slotEndTime}`) <= new Date(`1970-01-01T${slotStartTime}`)) return showSnackbar('End time must be after start time.', 'error');
+  const handleAddSlot = (): boolean => {
+    if (!slotStartTime || !slotEndTime) {
+      showSnackbar('Please select a start and end time.', 'error');
+      return false;
+    }
+    if (new Date(`1970-01-01T${slotEndTime}`) <= new Date(`1970-01-01T${slotStartTime}`)) {
+      showSnackbar('End time must be after start time.', 'error');
+      return false;
+    }
 
     const baseDates = selectedDates.length ? selectedDates : slotDate ? [slotDate] : [];
-    if (!baseDates.length) return showSnackbar('Select at least one date from the calendar.', 'error');
+    if (!baseDates.length) {
+      showSnackbar('Select at least one date from the calendar.', 'error');
+      return false;
+    }
 
     if (isRecurring && (!recurringEndDate || recurringDays.length === 0)) {
-      return showSnackbar('Please complete the recurrence details.', 'error');
+      showSnackbar('Please complete the recurrence details.', 'error');
+      return false;
     }
 
     if (isRecurring && baseDates.length > 1) {
-      return showSnackbar('Recurring schedules can only start from a single date selection.', 'error');
+      showSnackbar('Recurring schedules can only start from a single date selection.', 'error');
+      return false;
     }
 
     const validDates = baseDates.filter((date) => !dayjs(date).isBefore(todayStart, 'day'));
     if (!validDates.length) {
       showSnackbar('Cannot schedule entries in the past.', 'error');
-      return;
+      return false;
     }
     if (validDates.length < baseDates.length) {
       showSnackbar('Past dates were ignored.', 'error');
@@ -760,7 +772,7 @@ const PostShiftPage: React.FC = () => {
 
     if (!filtered.length) {
       showSnackbar('Those timetable entries already exist.', 'error');
-      return;
+      return false;
     }
 
     setSlots((prev) => [...prev, ...filtered]);
@@ -771,6 +783,7 @@ const PostShiftPage: React.FC = () => {
     setIsRecurring(false);
     setRecurringDays([]);
     setRecurringEndDate('');
+    return true;
   };
 
   const handleSubmit = async () => {
@@ -1961,7 +1974,18 @@ const PostShiftPage: React.FC = () => {
             </Button>
             {activeStep < steps.length - 1 ? (
               <Button
-                onClick={() => setActiveStep(p => p + 1)}
+                onClick={() => {
+                  const nextStep = activeStep + 1;
+                  const currentKey = steps[activeStep]?.key;
+                  // Ensure timetable entries exist before moving to pay step
+                  if (currentKey === 'timetable') {
+                    if (slots.length === 0) {
+                      const added = handleAddSlot();
+                      if (!added) return;
+                    }
+                  }
+                  setActiveStep(nextStep);
+                }}
                 variant="contained"
                 fullWidth={isMobile}
                 sx={{ minWidth: isMobile ? '100%' : 140, borderRadius: 2 }}

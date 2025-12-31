@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Typography } from '@mui/material';
 import { useAuth } from '../../../contexts/AuthContext';
 import ShiftsBoard from '../../../components/shifts/ShiftsBoard';
@@ -52,7 +52,8 @@ const DEFAULT_FILTERS: FilterConfig = {
 
 export default function CommunityShiftsPage() {
   const auth = useAuth();
-  if (!auth?.user) return null;
+  const user = auth?.user;
+  if (!user) return null;
 
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,8 +114,8 @@ export default function CommunityShiftsPage() {
 
         const [communityShifts, interests, rejections] = await Promise.all([
           fetchCommunityShifts(apiFilters) as Promise<PaginatedResponse<Shift>>,
-          fetchShiftInterests({ userId: auth.user.id }),
-          fetchShiftRejections({ userId: auth.user.id }),
+          fetchShiftInterests({ userId: user.id }),
+          fetchShiftRejections({ userId: user.id }),
         ]);
 
         const available = (communityShifts.results ?? []).filter((shift: Shift) => {
@@ -157,7 +158,7 @@ export default function CommunityShiftsPage() {
         setLoading(false);
       }
     },
-    [auth.user.id]
+    [user.id]
   );
 
   useEffect(() => {

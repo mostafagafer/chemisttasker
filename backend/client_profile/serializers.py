@@ -4158,39 +4158,16 @@ class MyShiftSerializer(serializers.ModelSerializer):
 
 class SharedShiftSerializer(serializers.ModelSerializer):
     """
-    A simplified serializer specifically for a shared shift link.
-    Excludes any sensitive or internal information.
+    Public/shared shift serializer that reuses the full ShiftSerializer output
+    (including UI helper fields) while still honoring anonymization rules.
     """
-    pharmacy_detail = PharmacySerializer(source='pharmacy', read_only=True)
-    slots = ShiftSlotSerializer(many=True, read_only=True)
 
     class Meta:
         model = Shift
-        fields = [
-            'id',
-            'pharmacy_detail',
-            'role_needed',
-            'employment_type',
-            'workload_tags',
-            'must_have',
-            'nice_to_have',
-            'rate_type',
-            'fixed_rate',
-            'owner_adjusted_rate',
-            'slots',
-            'created_at',
-            'single_user_only',
-            'post_anonymously',
-            'description',
-        ]
+        fields = ['id']
 
     def to_representation(self, instance):
-        data = super().to_representation(instance)
-        request = self.context.get('request')
-        user = getattr(request, 'user', None) if request else None
-        if instance.post_anonymously and not user_can_view_full_pharmacy(user, instance.pharmacy):
-            data['pharmacy_detail'] = anonymize_pharmacy_detail(data.get('pharmacy_detail'))
-        return data
+        return ShiftSerializer(instance, context=self.context).data
 
 class LeaveRequestSerializer(serializers.ModelSerializer):
     class Meta:

@@ -2919,6 +2919,10 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         offer = serializer.save()
 
+        # Ensure the user is marked as interested in the targeted slots (or shift-level) without triggering the
+        # express_interest email/notification path. This keeps counter-offer slots disabled and visible in interests.
+        self._ensure_interest_for_counter_offer(shift=shift, user=request.user, offer=offer)
+
         # Notify shift owner, pharmacy admins, and org admins
         recipients = []
         if shift.created_by:
@@ -2959,6 +2963,28 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             )
         output = ShiftCounterOfferSerializer(offer, context={'request': request, 'shift': shift})
         return Response(output.data, status=status.HTTP_201_CREATED)
+
+    @staticmethod
+    def _ensure_interest_for_counter_offer(*, shift, user, offer):
+        slots_qs = offer.slots.select_related('slot')
+        slots = list(slots_qs)
+        if slots:
+            for offer_slot in slots:
+                slot = offer_slot.slot
+                if not slot:
+                    continue
+                ShiftInterest.objects.get_or_create(
+                    shift=shift,
+                    slot=slot,
+                    user=user,
+                )
+        else:
+            # No specific slots: record shift-level interest
+            ShiftInterest.objects.get_or_create(
+                shift=shift,
+                slot=None,
+                user=user,
+            )
 
     @action(detail=True, methods=['post'], url_path='counter-offers/(?P<offer_id>[^/.]+)/accept')
     def accept_counter_offer(self, request, pk=None, offer_id=None):
@@ -4143,18 +4169,34 @@ class ShiftDetailViewSet(BaseShiftViewSet):
         )
 
         results = []
+        def parse_time(raw):
+            if raw is None:
+                return None
+            raw_str = str(raw).strip()
+            # normalize HH:MM:SS -> HH:MM to avoid strict format failures
+            if len(raw_str) >= 5:
+                raw_trimmed = raw_str[:5]
+            else:
+                raw_trimmed = raw_str
+            for fmt in ['%H:%M', '%H:%M:%S']:
+                try:
+                    return dt_cls.strptime(raw_trimmed if fmt == '%H:%M' else raw_str, fmt).time()
+                except ValueError:
+                    continue
+            return None
+
         for slot in data.get('slots', []) or []:
             try:
                 slot_date_raw = slot.get('date')
                 start_raw = slot.get('startTime') or slot.get('start_time')
                 end_raw = slot.get('endTime') or slot.get('end_time')
-                if not (slot_date_raw and start_raw and end_raw):
+                s_start = parse_time(start_raw)
+                s_end = parse_time(end_raw)
+                if not (slot_date_raw and s_start and s_end):
                     results.append({"error": "Invalid slot payload", "rate": "0.00"})
                     continue
 
                 s_date = dt_cls.strptime(slot_date_raw, '%Y-%m-%d').date()
-                s_start = dt_cls.strptime(start_raw, '%H:%M').time()
-                s_end = dt_cls.strptime(end_raw, '%H:%M').time()
 
                 rate, meta = calculate_shift_rates(mock_shift, s_date, s_start, s_end)
                 results.append({"rate": str(rate), "meta": meta})
@@ -4262,10 +4304,99 @@ class PublicJobBoardView(generics.ListAPIView):
             except (TypeError, ValueError):
                 raise ValidationError({"organization": "Organization must be a valid id."})
 
-        return qs.annotate(
+        today = date.today()
+        qs = qs.annotate(
             slot_count=Count('slots', distinct=True),
             assigned_count=Count('slots__assignments', distinct=True)
-        ).filter(assigned_count__lt=F('slot_count')).order_by('-created_at')
+        ).filter(
+            Q(employment_type__in=['FULL_TIME', 'PART_TIME'], slot_count=0) |  # slotless FT/PT roles
+            Q(assigned_count__lt=F('slot_count'))                              # open, unassigned slots
+        ).filter(
+            Q(employment_type__in=['FULL_TIME', 'PART_TIME'], slot_count=0) |  # slotless FT/PT
+            Q(slots__date__gte=today)                                         # future slots
+        )
+
+        # --- Filters from query params (mirror PublicShiftViewSet but without role gating) ---
+        params = self.request.query_params
+        search = params.get('search')
+        roles = params.getlist('roles') or params.getlist('role')
+        employment_types = params.getlist('employment_types') or params.getlist('employment_type')
+        cities = params.getlist('city')
+        states = params.getlist('state')
+        min_rate = params.get('min_rate')
+        only_urgent = params.get('only_urgent') == 'true'
+        negotiable_only = params.get('negotiable_only') == 'true'
+        flexible_only = params.get('flexible_only') == 'true'
+        travel_provided = params.get('travel_provided') == 'true'
+        accommodation_provided = params.get('accommodation_provided') == 'true'
+        bulk_shifts_only = params.get('bulk_shifts_only') == 'true'
+        time_of_day = params.getlist('time_of_day')
+        start_date_param = params.get('start_date')
+        end_date_param = params.get('end_date')
+
+        if search:
+            qs = qs.filter(
+                Q(pharmacy__name__icontains=search) |
+                Q(pharmacy__suburb__icontains=search) |
+                Q(pharmacy__street_address__icontains=search) |
+                Q(role_needed__icontains=search)
+            )
+        if roles:
+            qs = qs.filter(role_needed__in=roles)
+        if employment_types:
+            qs = qs.filter(employment_type__in=employment_types)
+        if cities:
+            qs = qs.filter(pharmacy__suburb__in=cities)
+        if states:
+            qs = qs.filter(pharmacy__state__in=states)
+        if only_urgent:
+            qs = qs.filter(is_urgent=True)
+        if negotiable_only:
+            qs = qs.filter(rate_type='FLEXIBLE')
+        if flexible_only:
+            qs = qs.filter(flexible_timing=True)
+        if travel_provided:
+            qs = qs.filter(has_travel=True)
+        if accommodation_provided:
+            qs = qs.filter(has_accommodation=True)
+        if bulk_shifts_only:
+            qs = qs.annotate(slot_count=Count('slots', distinct=True)).filter(slot_count__gte=5)
+        if min_rate:
+            try:
+                min_rate_val = float(min_rate)
+                qs = qs.filter(
+                    Q(fixed_rate__gte=min_rate_val) |
+                    Q(slots__rate__gte=min_rate_val) |
+                    Q(min_hourly_rate__gte=min_rate_val) |
+                    Q(max_hourly_rate__gte=min_rate_val) |
+                    Q(min_annual_salary__gte=min_rate_val) |
+                    Q(max_annual_salary__gte=min_rate_val)
+                )
+            except ValueError:
+                pass
+        if time_of_day:
+            time_q = Q()
+            for tod in time_of_day:
+                if tod == 'morning':
+                    time_q |= Q(slots__start_time__lt='12:00')
+                elif tod == 'afternoon':
+                    time_q |= Q(slots__start_time__gte='12:00', slots__start_time__lt='17:00')
+                elif tod == 'evening':
+                    time_q |= Q(slots__start_time__gte='17:00')
+            if time_q:
+                qs = qs.filter(Q(slot_count=0) | time_q)
+        if start_date_param or end_date_param:
+            try:
+                start_d = date.fromisoformat(start_date_param) if start_date_param else date(1970, 1, 1)
+                end_d = date.fromisoformat(end_date_param) if end_date_param else date(2100, 1, 1)
+                qs = qs.filter(
+                    Q(slot_count=0) |
+                    Q(slots__date__range=(start_d, end_d))
+                )
+            except ValueError:
+                pass
+
+        return qs.distinct().order_by('-created_at')
 
 
 class PublicOrganizationDetailView(APIView):

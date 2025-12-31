@@ -4,6 +4,7 @@ from environ import Env
 from datetime import timedelta
 import dj_database_url
 import sys
+import urllib.parse
 
 
 
@@ -95,6 +96,10 @@ INSTALLED_APPS = [
 ]
 
 
+
+# Parse the REDIS_URL to get connection details dynamically
+_redis_url = urllib.parse.urlparse(env('REDIS_URL', default='redis://127.0.0.1:6379/0'))
+
 Q_CLUSTER = {
     'name': 'DjangoQ',
     'workers': 4,
@@ -102,7 +107,12 @@ Q_CLUSTER = {
     'retry': 400,
     'queue_limit': 50,
     'bulk': 10,
-    'orm': 'default',
+    'redis': {
+        'host': _redis_url.hostname,
+        'port': _redis_url.port,
+        'db': int(_redis_url.path.strip('/')) if _redis_url.path and _redis_url.path != '/' else 0,
+        'password': _redis_url.password,
+    }
 }
 
 

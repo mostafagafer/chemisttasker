@@ -23,6 +23,7 @@ import {
   TextField,
   Typography,
   useMediaQuery,
+  CircularProgress,
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
 import {
@@ -51,6 +52,8 @@ import {
   WbSunny as WbSunnyIcon,
   WbTwilight as WbTwilightIcon,
   WorkOutline as WorkOutlineIcon,
+  ArrowUpward as ArrowUpwardIcon,
+  ArrowDownward as ArrowDownwardIcon,
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import {
@@ -63,6 +66,7 @@ import {
   getPharmacistDashboard,
   getOnboardingDetail, // ensure rate_preference fallback using existing onboarding API
   calculateShiftRates,
+  fetchShiftCounterOffersService,
 } from '@chemisttasker/shared-core';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -97,6 +101,7 @@ type ShiftsBoardProps = {
   onSubmitCounterOffer?: (payload: ShiftCounterOfferPayload) => Promise<void> | void;
   onRejectShift?: (shift: Shift) => Promise<void> | void;
   onRejectSlot?: (shift: Shift, slotId: number) => Promise<void> | void;
+  rejectActionGuard?: (shift: Shift) => boolean;
   useServerFiltering?: boolean;
   onFiltersChange?: (filters: FilterConfig) => void;
   filters?: FilterConfig;
@@ -110,9 +115,16 @@ type ShiftsBoardProps = {
   initialAppliedSlotIds?: number[];
   initialRejectedShiftIds?: number[];
   initialRejectedSlotIds?: number[];
+  enableSaved?: boolean;
+  hideSaveToggle?: boolean;
+  readOnlyActions?: boolean;
+  disableLocalPersistence?: boolean;
+  hideCounterOffer?: boolean;
+  hideFiltersAndSort?: boolean;
+  hideTabs?: boolean;
 };
 
-type SortKey = 'date' | 'rate' | 'distance';
+type SortKey = 'shiftDate' | 'postedDate' | 'rate' | 'distance';
 
 type FilterConfig = {
   city: string[];
@@ -239,6 +251,9 @@ const getRateSummary = (shift: Shift) => {
   const maxAnnual = shift.maxAnnualSalary != null ? Number(shift.maxAnnualSalary) : null;
   const minHourly = shift.minHourlyRate != null ? Number(shift.minHourlyRate) : null;
   const maxHourly = shift.maxHourlyRate != null ? Number(shift.maxHourlyRate) : null;
+  const slotRates = (shift.slots ?? [])
+    .map((slot) => getSlotRate(slot, shift))
+    .filter((rate) => Number.isFinite(rate) && rate > 0);
 
   if (isFullOrPartTime) {
     if (minAnnual || maxAnnual) {
@@ -255,6 +270,14 @@ const getRateSummary = (shift: Shift) => {
     }
   }
 
+  // If slots carry rates (even when a fixedRate exists), surface the min/max from slots for clarity.
+  if (slotRates.length > 0) {
+    const minRate = Math.min(...slotRates);
+    const maxRate = Math.max(...slotRates);
+    const display = minRate === maxRate ? `${formatCurrency(minRate)}` : `${formatCurrency(minRate)} - ${formatCurrency(maxRate)}`;
+    return { display, unitLabel: '/hr' };
+  }
+
   if (shift.fixedRate != null) {
     return { display: formatCurrency(Number(shift.fixedRate)), unitLabel: '/hr' };
   }
@@ -263,12 +286,9 @@ const getRateSummary = (shift: Shift) => {
     return { display: 'Pharmacist provided', unitLabel: '' };
   }
 
-  const rates = (shift.slots ?? [])
-    .map((slot) => getSlotRate(slot, shift))
-    .filter((rate) => Number.isFinite(rate) && rate > 0);
-  if (rates.length === 0) return { display: 'N/A', unitLabel: '/hr' };
-  const minRate = Math.min(...rates);
-  const maxRate = Math.max(...rates);
+  if (slotRates.length === 0) return { display: 'N/A', unitLabel: '/hr' };
+  const minRate = Math.min(...slotRates);
+  const maxRate = Math.max(...slotRates);
   const display = minRate === maxRate ? `${formatCurrency(minRate)}` : `${formatCurrency(minRate)} - ${formatCurrency(maxRate)}`;
   return { display, unitLabel: '/hr' };
 };
@@ -299,6 +319,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   onSubmitCounterOffer,
   onRejectShift,
   onRejectSlot,
+  rejectActionGuard,
   useServerFiltering,
   onFiltersChange,
   filters,
@@ -312,6 +333,13 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   initialAppliedSlotIds,
   initialRejectedShiftIds,
   initialRejectedSlotIds,
+  enableSaved,
+  hideSaveToggle,
+  readOnlyActions,
+  disableLocalPersistence,
+  hideCounterOffer,
+  hideFiltersAndSort,
+  hideTabs,
 }) => {
   const auth = useAuth();
   // Single source of truth for pharmacist rates: use the rate_preference from the user payload (as returned by /users/me).
@@ -367,6 +395,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     fetchRates();
   }, [auth?.user?.role, pharmacistRatePref]);
   const isMobile = useMediaQuery('(max-width: 1024px)');
+  const savedFeatureEnabled = enableSaved !== false;
   const [activeTab, setActiveTab] = useState<'browse' | 'saved'>('browse');
   const [savedShiftIds, setSavedShiftIds] = useState<Set<number>>(new Set(savedShiftIdsProp ?? []));
   const [filterConfig, setFilterConfig] = useState<FilterConfig>(filters ?? {
@@ -385,7 +414,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     bulkShiftsOnly: false,
   });
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'ascending' | 'descending' }>({
-    key: 'date',
+    key: 'shiftDate',
     direction: 'ascending',
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -397,7 +426,14 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   const [rejectedShiftIds, setRejectedShiftIds] = useState<Set<number>>(new Set(initialRejectedShiftIds ?? []));
   const [rejectedSlotIds, setRejectedSlotIds] = useState<Set<number>>(new Set(initialRejectedSlotIds ?? []));
   const [counterOffers, setCounterOffers] = useState<Record<number, CounterOfferTrack>>({});
+  const [counterSubmitting, setCounterSubmitting] = useState(false);
+  const persistCounterOffers = (data: Record<number, CounterOfferTrack>) =>
+    storageSetItem(COUNTER_OFFER_STORAGE_KEY, JSON.stringify(data)).catch(() => null);
   const [reviewOfferShiftId, setReviewOfferShiftId] = useState<number | null>(null);
+  const [reviewOffers, setReviewOffers] = useState<any[]>([]);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
+  const serverCounterSyncRef = useRef<Set<number>>(new Set());
 
   const [counterOfferOpen, setCounterOfferOpen] = useState(false);
   const [counterOfferShift, setCounterOfferShift] = useState<Shift | null>(null);
@@ -411,27 +447,52 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   const appliedShiftPropKey = useMemo(() => (initialAppliedShiftIds ?? []).join(','), [initialAppliedShiftIds]);
   const appliedSlotPropKey = useMemo(() => (initialAppliedSlotIds ?? []).join(','), [initialAppliedSlotIds]);
   const rejectedShiftPropKey = useMemo(() => (initialRejectedShiftIds ?? []).join(','), [initialRejectedShiftIds]);
-  const rejectedSlotPropKey = useMemo(() => (initialRejectedSlotIds ?? []).join(','), [initialRejectedSlotIds]);
+const rejectedSlotPropKey = useMemo(() => (initialRejectedSlotIds ?? []).join(','), [initialRejectedSlotIds]);
+
+const normalizeCounterOffers = (raw: any): Record<number, CounterOfferTrack> => {
+  if (!raw || typeof raw !== 'object') return {};
+  const result: Record<number, CounterOfferTrack> = {};
+  Object.entries(raw).forEach(([shiftIdStr, payload]) => {
+    const shiftId = Number(shiftIdStr);
+    if (!Number.isFinite(shiftId) || !payload || typeof payload !== 'object') return;
+    const slotsObj = (payload as any).slots || {};
+    const normalizedSlots: Record<number, { rate: string; start: string; end: string }> = {};
+    Object.entries(slotsObj).forEach(([slotIdStr, info]) => {
+      const slotId = Number(slotIdStr);
+      if (!Number.isFinite(slotId) || !info) return;
+      const rate = (info as any).rate ?? '';
+      const start = (info as any).start ?? '';
+      const end = (info as any).end ?? '';
+      normalizedSlots[slotId] = { rate, start, end };
+    });
+    result[shiftId] = {
+      slots: normalizedSlots,
+      message: (payload as any).message ?? '',
+      summary: (payload as any).summary ?? '',
+    };
+  });
+  return result;
+};
+
+useEffect(() => {
+  if (filters) {
+    setFilterConfig(filters);
+  }
+}, [filters]);
 
   useEffect(() => {
-    if (filters) {
-      setFilterConfig(filters);
-    }
-  }, [filters]);
-
-  useEffect(() => {
-    if (savedShiftIdsProp) {
+    if (savedShiftIdsProp && savedFeatureEnabled) {
       setSavedShiftIds(new Set(savedShiftIdsProp));
       savedLoadRef.current = true;
     }
-  }, [savedShiftIdsProp]);
+  }, [savedShiftIdsProp, savedFeatureEnabled]);
 
   // hydrate persisted markers
   useEffect(() => {
     if (markersLoadRef.current) return;
     markersLoadRef.current = true;
     (async () => {
-      if (!savedShiftIdsProp && !savedLoadRef.current) {
+      if (!disableLocalPersistence && savedFeatureEnabled && !savedShiftIdsProp && !savedLoadRef.current) {
         const saved = await storageGetItem(SAVED_STORAGE_KEY).catch(() => null);
         if (saved) {
           try {
@@ -443,32 +504,40 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
         }
         savedLoadRef.current = true;
       }
-      try {
-        const appliedShifts = await storageGetItem(APPLIED_STORAGE_KEY);
-        if (appliedShifts) setAppliedShiftIds(new Set(JSON.parse(appliedShifts)));
-      } catch {}
-      try {
-        const appliedSlots = await storageGetItem(APPLIED_SLOT_STORAGE_KEY);
-        if (appliedSlots) setAppliedSlotIds(new Set(JSON.parse(appliedSlots)));
-      } catch {}
-      try {
-        const rejShifts = await storageGetItem(REJECTED_SHIFT_STORAGE_KEY);
-        if (rejShifts) setRejectedShiftIds(new Set(JSON.parse(rejShifts)));
-      } catch {}
-      try {
-        const rejSlots = await storageGetItem(REJECTED_SLOT_STORAGE_KEY);
-        if (rejSlots) setRejectedSlotIds(new Set(JSON.parse(rejSlots)));
-      } catch {}
+      if (!disableLocalPersistence) {
+        try {
+          const appliedShifts = await storageGetItem(APPLIED_STORAGE_KEY);
+          if (appliedShifts) setAppliedShiftIds(new Set(JSON.parse(appliedShifts)));
+        } catch {}
+        try {
+          const appliedSlots = await storageGetItem(APPLIED_SLOT_STORAGE_KEY);
+          if (appliedSlots) setAppliedSlotIds(new Set(JSON.parse(appliedSlots)));
+        } catch {}
+        try {
+          const rejShifts = await storageGetItem(REJECTED_SHIFT_STORAGE_KEY);
+          if (rejShifts) setRejectedShiftIds(new Set(JSON.parse(rejShifts)));
+        } catch {}
+        try {
+          const rejSlots = await storageGetItem(REJECTED_SLOT_STORAGE_KEY);
+          if (rejSlots) setRejectedSlotIds(new Set(JSON.parse(rejSlots)));
+        } catch {}
+      }
+      // Always hydrate counter offers so their badges survive refresh, even when local persistence is disabled elsewhere.
       try {
         const counters = await storageGetItem(COUNTER_OFFER_STORAGE_KEY);
-        if (counters) setCounterOffers(JSON.parse(counters) || {});
+        if (counters) {
+          const normalized = normalizeCounterOffers(JSON.parse(counters));
+          setCounterOffers(normalized);
+          persistCounterOffers(normalized); // rewrite malformed payloads in normalized form
+        }
       } catch {}
+      setIsHydrated(true);
     })();
-  }, [savedShiftIdsProp]);
+  }, [savedShiftIdsProp, savedFeatureEnabled, disableLocalPersistence]);
 
   // persist markers
   useEffect(() => {
-    if (savedShiftIdsProp) return;
+    if (disableLocalPersistence || savedShiftIdsProp || !savedFeatureEnabled) return;
     const list = Array.from(savedShiftIds);
     if (list.length === 0) {
       storageRemoveItem(SAVED_STORAGE_KEY).catch(() => null);
@@ -491,21 +560,102 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     setRejectedSlotIds(new Set(initialRejectedSlotIds ?? []));
   }, [rejectedSlotPropKey]);
 
-  useEffect(() => {
-    storageSetItem(APPLIED_STORAGE_KEY, JSON.stringify(Array.from(appliedShiftIds))).catch(() => null);
-  }, [appliedShiftIds]);
-  useEffect(() => {
-    storageSetItem(APPLIED_SLOT_STORAGE_KEY, JSON.stringify(Array.from(appliedSlotIds))).catch(() => null);
-  }, [appliedSlotIds]);
-  useEffect(() => {
-    storageSetItem(REJECTED_SHIFT_STORAGE_KEY, JSON.stringify(Array.from(rejectedShiftIds))).catch(() => null);
-  }, [rejectedShiftIds]);
-  useEffect(() => {
-    storageSetItem(REJECTED_SLOT_STORAGE_KEY, JSON.stringify(Array.from(rejectedSlotIds))).catch(() => null);
-  }, [rejectedSlotIds]);
-  useEffect(() => {
-    storageSetItem(COUNTER_OFFER_STORAGE_KEY, JSON.stringify(counterOffers)).catch(() => null);
-  }, [counterOffers]);
+useEffect(() => {
+  if (disableLocalPersistence) return;
+  storageSetItem(APPLIED_STORAGE_KEY, JSON.stringify(Array.from(appliedShiftIds))).catch(() => null);
+}, [appliedShiftIds, disableLocalPersistence]);
+useEffect(() => {
+  if (disableLocalPersistence) return;
+  storageSetItem(APPLIED_SLOT_STORAGE_KEY, JSON.stringify(Array.from(appliedSlotIds))).catch(() => null);
+}, [appliedSlotIds, disableLocalPersistence]);
+useEffect(() => {
+  if (disableLocalPersistence) return;
+  storageSetItem(REJECTED_SHIFT_STORAGE_KEY, JSON.stringify(Array.from(rejectedShiftIds))).catch(() => null);
+}, [rejectedShiftIds, disableLocalPersistence]);
+useEffect(() => {
+  if (disableLocalPersistence) return;
+  storageSetItem(REJECTED_SLOT_STORAGE_KEY, JSON.stringify(Array.from(rejectedSlotIds))).catch(() => null);
+}, [rejectedSlotIds, disableLocalPersistence]);
+useEffect(() => {
+  if (!isHydrated) return;
+  // Persist counter offers regardless of disableLocalPersistence so badges stay after refresh.
+  persistCounterOffers(counterOffers);
+}, [counterOffers, isHydrated]);
+
+// Fetch fresh offers when opening review dialog so we show full slot details and multiple offers.
+useEffect(() => {
+  const load = async () => {
+    if (reviewOfferShiftId == null) return;
+    setReviewLoading(true);
+    try {
+      const remote = await fetchShiftCounterOffersService(reviewOfferShiftId);
+      setReviewOffers(Array.isArray(remote) ? remote : []);
+    } catch (err) {
+      console.warn('Failed to load counter offers for review', err);
+      setReviewOffers([]);
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+  load();
+}, [reviewOfferShiftId]);
+
+// Reconcile local counter offers with backend data to avoid stale badges when offers are removed server-side.
+useEffect(() => {
+  if (!isHydrated) return;
+  const shiftIds = shifts.map((s) => s.id).filter((id) => Number.isFinite(id));
+  const toFetch = shiftIds.filter((id) => !serverCounterSyncRef.current.has(id));
+  if (toFetch.length === 0) return;
+
+  const fetchCounters = async () => {
+    const updates: Record<number, CounterOfferTrack> = {};
+    for (const shiftId of toFetch) {
+      try {
+        const remote = await fetchShiftCounterOffersService(shiftId);
+        const slotsMap: Record<number, { rate: string; start: string; end: string }> = {};
+        (remote || []).forEach((offer: any) => {
+          (offer.slots || []).forEach((slot: any) => {
+            if (slot.slotId == null) return;
+            slotsMap[slot.slotId] = {
+              rate: slot.proposedRate != null ? String(slot.proposedRate) : '',
+              start: slot.proposedStartTime || '',
+              end: slot.proposedEndTime || '',
+            };
+          });
+          updates[shiftId] = {
+            slots: { ...slotsMap },
+            message: offer.message ?? '',
+            summary: (offer.slots || []).length > 0
+              ? `Counter offer sent (${(offer.slots || []).length} slot${(offer.slots || []).length > 1 ? 's' : ''})`
+              : 'Counter offer sent',
+          };
+        });
+      } catch (err) {
+        console.warn('Failed to fetch counter offers for shift', shiftId, err);
+      } finally {
+        serverCounterSyncRef.current.add(shiftId);
+      }
+    }
+
+    setCounterOffers((prev) => {
+      const next = { ...prev };
+      // Remove entries for shifts we fetched that have no remote offers
+      toFetch.forEach((id) => {
+        if (!updates[id]) {
+          delete next[id];
+        }
+      });
+      // Apply fresh data
+      Object.entries(updates).forEach(([idStr, data]) => {
+        next[Number(idStr)] = data;
+      });
+      persistCounterOffers(next);
+      return next;
+    });
+  };
+
+  fetchCounters();
+}, [shifts, isHydrated]);
 
   const uniqueRoles = useMemo(() => {
     const set = new Set<string>();
@@ -529,6 +679,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   }, [shifts]);
 
   const toggleSaveShift = async (shiftId: number) => {
+    if (!savedFeatureEnabled || hideSaveToggle) return;
     if (onToggleSave) {
       await onToggleSave(shiftId);
       return;
@@ -647,10 +798,77 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     (filterConfig.bulkShiftsOnly ? 1 : 0) +
     (filterConfig.dateRange.start || filterConfig.dateRange.end ? 1 : 0);
 
+  const getSortRateValue = (shift: Shift) => {
+    const slots = shift.slots ?? [];
+    const slotMax = slots.length
+      ? Math.max(
+          ...slots
+            .map((slot) => getSlotRate(slot, shift, pharmacistRatePref))
+            .filter((rate) => Number.isFinite(rate))
+        )
+      : null;
+    if (Number.isFinite(slotMax)) return Number(slotMax);
+
+    if (shift.fixedRate != null && Number.isFinite(Number(shift.fixedRate))) {
+      return Number(shift.fixedRate);
+    }
+    if (shift.maxHourlyRate != null && Number.isFinite(Number(shift.maxHourlyRate))) {
+      return Number(shift.maxHourlyRate);
+    }
+    if (shift.minHourlyRate != null && Number.isFinite(Number(shift.minHourlyRate))) {
+      return Number(shift.minHourlyRate);
+    }
+    if (shift.maxAnnualSalary != null && Number.isFinite(Number(shift.maxAnnualSalary))) {
+      return Number(shift.maxAnnualSalary);
+    }
+    if (shift.minAnnualSalary != null && Number.isFinite(Number(shift.minAnnualSalary))) {
+      return Number(shift.minAnnualSalary);
+    }
+    return Number.NEGATIVE_INFINITY;
+  };
+
+  const sortShifts = (list: Shift[]) => {
+    const sorted = [...list];
+    sorted.sort((a, b): number => {
+      let aVal: number | string | null = null;
+      let bVal: number | string | null = null;
+
+      if (sortConfig.key === 'shiftDate') {
+        aVal = getFirstSlot(a)?.date ?? '';
+        bVal = getFirstSlot(b)?.date ?? '';
+      } else if (sortConfig.key === 'postedDate') {
+        aVal = a.createdAt ?? '';
+        bVal = b.createdAt ?? '';
+      } else if (sortConfig.key === 'rate') {
+        aVal = getSortRateValue(a);
+        bVal = getSortRateValue(b);
+      } else if (sortConfig.key === 'distance') {
+        aVal = getShiftDistance(a) ?? Number.POSITIVE_INFINITY;
+        bVal = getShiftDistance(b) ?? Number.POSITIVE_INFINITY;
+      }
+
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+      if (aVal < bVal) return sortConfig.direction === 'ascending' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'ascending' ? 1 : -1;
+      return 0;
+    });
+    if (sortConfig.key === 'rate') {
+      console.debug('Rate sort sample', sorted.slice(0, 3).map((s) => ({
+        id: s.id,
+        rateValue: getSortRateValue(s),
+      })));
+    }
+    return sorted;
+  };
+
   const processedShifts = useMemo(() => {
+    const applySort = (list: Shift[]) => sortShifts(list);
+
     if (useServerFiltering) {
       let serverResult = shifts;
-      if (activeTab === 'saved') {
+      if (savedFeatureEnabled && activeTab === 'saved') {
         serverResult = serverResult.filter((shift) => savedShiftIds.has(shift.id));
       }
       // Apply local min-rate filter even with server filtering to catch pharmacist-provided zeros.
@@ -659,16 +877,17 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
           const slots = shift.slots ?? [];
           const maxRate = Math.max(
             ...(slots || [])
-              .map((slot) => getSlotRate(slot, shift, userRatePreference))
+              .map((slot) => getSlotRate(slot, shift, pharmacistRatePref))
               .filter((rate) => Number.isFinite(rate))
           );
           return Number.isFinite(maxRate) && maxRate >= filterConfig.minRate;
         });
       }
-      return serverResult;
+      return applySort(serverResult);
     }
+
     let result = [...shifts];
-    if (activeTab === 'saved') {
+    if (savedFeatureEnabled && activeTab === 'saved') {
       result = result.filter((shift) => savedShiftIds.has(shift.id));
     }
 
@@ -740,38 +959,11 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
       return true;
     });
 
-    result.sort((a, b) => {
-      let aVal: number | string | null = null;
-      let bVal: number | string | null = null;
-
-      if (sortConfig.key === 'date') {
-        aVal = getFirstSlot(a)?.date ?? '';
-        bVal = getFirstSlot(b)?.date ?? '';
-      } else if (sortConfig.key === 'rate') {
-        aVal = Math.max(
-          ...(a.slots ?? []).map((slot) => getSlotRate(slot, a, pharmacistRatePref)).filter((rate) => Number.isFinite(rate))
-        );
-        bVal = Math.max(
-          ...(b.slots ?? []).map((slot) => getSlotRate(slot, b, pharmacistRatePref)).filter((rate) => Number.isFinite(rate))
-        );
-      } else if (sortConfig.key === 'distance') {
-        aVal = getShiftDistance(a) ?? Number.POSITIVE_INFINITY;
-        bVal = getShiftDistance(b) ?? Number.POSITIVE_INFINITY;
-      }
-
-      if (aVal == null && bVal == null) return 0;
-      if (aVal == null) return 1;
-      if (bVal == null) return -1;
-      if (aVal < bVal) return sortConfig.direction === 'ascending' ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === 'ascending' ? 1 : -1;
-      return 0;
-    });
-
-    return result;
-  }, [shifts, activeTab, savedShiftIds, filterConfig, sortConfig]);
+    return applySort(result);
+  }, [shifts, activeTab, savedShiftIds, filterConfig, sortConfig, pharmacistRatePref, useServerFiltering, savedFeatureEnabled]);
 
   const openCounterOffer = async (shift: Shift, selectedSlots?: Set<number>) => {
-    if (!onSubmitCounterOffer) return;
+    if (!onSubmitCounterOffer || hideCounterOffer) return;
     let ratePref = pharmacistRatePref;
     // On-demand fetch if rates still missing
     if (!ratePref && auth?.user?.role?.toUpperCase() === 'PHARMACIST') {
@@ -911,7 +1103,13 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
       ),
     };
 
-    await onSubmitCounterOffer(payload);
+    setCounterSubmitting(true);
+    try {
+      await onSubmitCounterOffer(payload);
+    } catch (err) {
+      setCounterSubmitting(false);
+      throw err;
+    }
 
     slotsToSend.forEach((slot) => {
       if (slot.slotId != null) {
@@ -928,11 +1126,37 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
       },
     };
     setCounterOffers(updated);
+    // Persist immediately so a full refresh keeps the slots locked and reviewable.
+    persistCounterOffers(updated);
+
+    // Treat countered slots as applied locally so they stay disabled and show chips immediately.
+    // The backend now creates ShiftInterest records from the counter-offer endpoint, so we don't call onApplySlot/onApplyAll here to avoid duplicate interest emails.
+    const targetedSlotIds = slotsToSend
+      .map((slot) => slot.slotId)
+      .filter((id): id is number => id != null);
+    if (targetedSlotIds.length > 0) {
+      setAppliedSlotIds((prev) => {
+        const next = new Set(prev);
+        targetedSlotIds.forEach((id) => next.add(id));
+        return next;
+      });
+    } else {
+      setAppliedShiftIds((prev) => {
+        const next = new Set(prev);
+        next.add(counterOfferShift.id);
+        return next;
+      });
+    }
 
     closeCounterOffer();
+    setCounterSubmitting(false);
   };
 
   const handleApplyAll = async (shift: Shift) => {
+    if (readOnlyActions) {
+      await onApplyAll(shift);
+      return;
+    }
     await onApplyAll(shift);
     setAppliedShiftIds((prev) => {
       const next = new Set(prev);
@@ -950,6 +1174,10 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   };
 
   const handleApplySlot = async (shift: Shift, slotId: number) => {
+    if (readOnlyActions) {
+      await onApplySlot(shift, slotId);
+      return;
+    }
     await onApplySlot(shift, slotId);
     setAppliedSlotIds((prev) => {
       const next = new Set(prev);
@@ -1413,9 +1641,15 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
         </DialogContent>
         <DialogActions>
           <Button onClick={closeCounterOffer}>Cancel</Button>
-          <Button variant="contained" onClick={handleSubmitCounterOffer} disabled={!counterOfferShift}>
-            <ChatBubbleOutlineIcon fontSize="small" sx={{ mr: 1 }} />
-            Send Offer
+          <Button
+            variant="contained"
+            onClick={handleSubmitCounterOffer}
+            disabled={!counterOfferShift || counterSubmitting}
+            startIcon={
+              counterSubmitting ? <CircularProgress size={16} color="inherit" /> : <ChatBubbleOutlineIcon fontSize="small" />
+            }
+          >
+            {counterSubmitting ? 'Sending...' : 'Send Offer'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1429,40 +1663,62 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
       >
         <DialogTitle>Counter Offer Details</DialogTitle>
         <DialogContent dividers>
+          {reviewLoading && (
+            <Stack spacing={1} sx={{ mb: 2 }}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <CircularProgress size={16} />
+                <Typography variant="body2" color="text.secondary">
+                  Loading offers...
+                </Typography>
+              </Stack>
+            </Stack>
+          )}
           {reviewOfferShiftId != null ? (() => {
-            const offer = counterOffers[reviewOfferShiftId];
             const shift = shifts.find((s) => s.id === reviewOfferShiftId);
-            if (!offer) return <Typography variant="body2">No offer found.</Typography>;
-            const slotEntries = Object.entries(offer.slots || {});
+            if (!reviewOffers || reviewOffers.length === 0) {
+              return <Typography variant="body2">No offers found.</Typography>;
+            }
             return (
               <Stack spacing={2}>
-                {offer.message && (
-                  <Typography variant="body2" color="text.primary">
-                    Message: {offer.message}
-                  </Typography>
-                )}
-                {slotEntries.length > 0 ? (
-                  slotEntries.map(([slotId, info]) => {
-                    const slot = shift?.slots?.find((s) => s.id === Number(slotId));
-                    return (
-                      <Paper key={slotId} variant="outlined" sx={{ p: 1.5, borderColor: 'grey.200' }}>
-                        <Stack spacing={0.5}>
-                          <Typography variant="body2" fontWeight={600}>
-                            {slot ? formatDateLong(slot.date) : `Slot ${slotId}`}
+                {reviewOffers.map((offer, idx) => {
+                  const slots = Array.isArray(offer.slots) ? offer.slots : [];
+                  return (
+                    <Paper key={offer.id ?? idx} variant="outlined" sx={{ p: 1.5, borderColor: 'grey.200' }}>
+                      <Stack spacing={1}>
+                        {offer.message && (
+                          <Typography variant="body2" color="text.primary">
+                            Message: {offer.message}
                           </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {info.start} - {info.end}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Rate: {info.rate || 'N/A'}
-                          </Typography>
-                        </Stack>
-                      </Paper>
-                    );
-                  })
-                ) : (
-                  <Typography variant="body2">No slot details recorded.</Typography>
-                )}
+                        )}
+                        {slots.length > 0 ? (
+                          slots.map((slot: any, slotIdx: number) => {
+                            const slotId = slot.slotId ?? slot.slot?.id ?? slot.id;
+                            const uiSlot =
+                              shift?.slots?.find((s) => s.id === Number(slotId)) ||
+                              shift?.slots?.find((s) => s.id === slot?.slot?.id);
+                            return (
+                              <Paper key={slotId ?? slotIdx} variant="outlined" sx={{ p: 1, borderColor: 'grey.200' }}>
+                                <Stack spacing={0.5}>
+                                  <Typography variant="body2" fontWeight={600}>
+                                    {uiSlot?.date ? formatDateLong(uiSlot.date) : `Slot ${slotId ?? ''}`}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {(slot.proposedStartTime || slot.proposed_start_time || slot.start || '').toString().slice(0,5)} - {(slot.proposedEndTime || slot.proposed_end_time || slot.end || '').toString().slice(0,5)}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    Rate: {slot.proposedRate ?? slot.proposed_rate ?? slot.rate ?? 'N/A'}
+                                  </Typography>
+                                </Stack>
+                              </Paper>
+                            );
+                          })
+                        ) : (
+                          <Typography variant="body2">No slot details recorded.</Typography>
+                        )}
+                      </Stack>
+                    </Paper>
+                  );
+                })}
               </Stack>
             );
           })() : null}
@@ -1483,37 +1739,41 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                 : `Showing ${processedShifts.length} opportunities`}
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <Button
-            variant={activeTab === 'browse' ? 'contained' : 'outlined'}
-            onClick={() => setActiveTab('browse')}
-          >
-            Browse
-          </Button>
-          <Button
-            variant={activeTab === 'saved' ? 'contained' : 'outlined'}
-            onClick={() => setActiveTab('saved')}
-            startIcon={<FavoriteIcon />}
-          >
-            Saved ({savedShiftIds.size})
-          </Button>
-          {isMobile && (
-            <IconButton onClick={() => setIsSidebarOpen(true)}>
-              <TuneIcon />
-            </IconButton>
-          )}
-        </Stack>
+        {!hideTabs && (
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Button
+              variant={activeTab === 'browse' ? 'contained' : 'outlined'}
+              onClick={() => setActiveTab('browse')}
+            >
+              Browse
+            </Button>
+            {savedFeatureEnabled && (
+              <Button
+                variant={activeTab === 'saved' ? 'contained' : 'outlined'}
+                onClick={() => setActiveTab('saved')}
+                startIcon={<FavoriteIcon />}
+              >
+                Saved ({savedShiftIds.size})
+              </Button>
+            )}
+            {isMobile && !hideFiltersAndSort && (
+              <IconButton onClick={() => setIsSidebarOpen(true)}>
+                <TuneIcon />
+              </IconButton>
+            )}
+          </Stack>
+        )}
       </Box>
 
       <Box sx={{ display: 'flex', gap: 3 }}>
-        {!isMobile && (
+        {!isMobile && !hideFiltersAndSort && (
           <Paper variant="outlined" sx={{ width: 320, flexShrink: 0, borderRadius: 3, borderColor: 'grey.200' }}>
             {sidebarContent}
           </Paper>
         )}
 
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          {activeFilterCount > 0 && (
+          {!hideFiltersAndSort && activeFilterCount > 0 && (
             <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 2 }}>
               {filterConfig.onlyUrgent && (
                 <Chip label="Urgent" onDelete={() => toggleBooleanFilter('onlyUrgent')} color="warning" size="small" />
@@ -1545,21 +1805,39 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
             </Stack>
           )}
 
-          <Stack direction="row" justifyContent="flex-end" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-            <SwapVertIcon fontSize="small" color="action" />
-            <FormControl size="small" sx={{ minWidth: 160 }}>
-              <InputLabel>Sort</InputLabel>
-              <Select
-                label="Sort"
-                value={sortConfig.key}
-                onChange={(event) => handleSortChange(event.target.value as SortKey)}
+          {!hideFiltersAndSort && (
+            <Stack direction="row" justifyContent="flex-end" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+              <SwapVertIcon fontSize="small" color="action" />
+              <FormControl size="small" sx={{ minWidth: 160 }}>
+                <InputLabel>Sort</InputLabel>
+                <Select
+                  label="Sort"
+                  value={sortConfig.key}
+                  onChange={(event) => handleSortChange(event.target.value as SortKey)}
+                >
+                  <MenuItem value="shiftDate">Shift date</MenuItem>
+                  <MenuItem value="postedDate">Date posted</MenuItem>
+                  <MenuItem value="rate">Rate</MenuItem>
+                  <MenuItem value="distance">Distance</MenuItem>
+                </Select>
+              </FormControl>
+              <IconButton
+                aria-label="Toggle sort direction"
+                onClick={() =>
+                  setSortConfig((prev) => ({
+                    ...prev,
+                    direction: prev.direction === 'ascending' ? 'descending' : 'ascending',
+                  }))
+                }
               >
-                <MenuItem value="date">Date</MenuItem>
-                <MenuItem value="rate">Rate</MenuItem>
-                <MenuItem value="distance">Distance</MenuItem>
-              </Select>
-            </FormControl>
-          </Stack>
+                {sortConfig.direction === 'ascending' ? (
+                  <ArrowUpwardIcon fontSize="small" />
+                ) : (
+                  <ArrowDownwardIcon fontSize="small" />
+                )}
+              </IconButton>
+            </Stack>
+          )}
 
           {useServerFiltering && typeof totalCount === 'number' && pageSize && onPageChange && (
             <Stack alignItems="center" sx={{ mt: 2, mb: 2 }}>
@@ -1592,16 +1870,40 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
 
             {processedShifts.map((shift) => {
               const slots = shift.slots ?? [];
-              const firstSlot = slots[0];
               const isMulti = slots.length > 1;
               const isExpanded = Boolean(expandedCards[shift.id]);
               const selection = selectedSlotIds[shift.id] ?? new Set<number>();
               const isRejectedShift = rejectedShiftIds.has(shift.id);
               const isFullOrPartTime = ['FULL_TIME', 'PART_TIME'].includes(shift.employmentType ?? '');
               const isPharmacistProvided = shift.rateType === 'PHARMACIST_PROVIDED';
+              const hasSlots = slots.length > 0;
+              const firstSlot = slots[0];
+              const uniformSlotTimes =
+                hasSlots &&
+                slots.every(
+                  (slot) =>
+                    slot.startTime === firstSlot?.startTime &&
+                    slot.endTime === firstSlot?.endTime &&
+                    slot.startTime &&
+                    slot.endTime
+                );
+              const flexibleTime = getShiftFlexibleTime(shift);
+              const showTimeText = (() => {
+                if (!hasSlots) {
+                  return isFullOrPartTime ? getEmploymentLabel(shift) : 'Time not set';
+                }
+                if (uniformSlotTimes && firstSlot?.startTime && firstSlot?.endTime) {
+                  return `${formatTime(firstSlot.startTime)} - ${formatTime(firstSlot.endTime)}`;
+                }
+                // Non-uniform times:
+                // - If flexible: show tag only (no time text)
+                // - If not flexible: hide the time row
+                return '';
+              })();
+              const shouldShowTimeRow = Boolean(showTimeText) || flexibleTime;
               // Counter offer is allowed when either time is flexible or rate is negotiable.
               // Rate negotiation is only enabled in the modal when rate is flexible; time negotiation follows flexible_timing even for FT/PT.
-              const showCounter = (getShiftFlexibleTime(shift) || getShiftNegotiable(shift)) && !isRejectedShift;
+              const showCounter = !hideCounterOffer && (getShiftFlexibleTime(shift) || getShiftNegotiable(shift)) && !isRejectedShift;
               const showNegotiable = getShiftNegotiable(shift) && !isRejectedShift;
               const counterInfo = counterOffers[shift.id];
               const paymentType =
@@ -1612,14 +1914,14 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                   ? 'TFN'
                   : null);
               const isSaved = savedShiftIds.has(shift.id);
-              const isApplied =
-                appliedShiftIds.has(shift.id) ||
-                (slots.length > 0 && slots.some((slot) => appliedSlotIds.has(slot.id)));
+              const allSlotsApplied = slots.length > 0 && slots.every((slot) => appliedSlotIds.has(slot.id));
+              const isApplied = appliedShiftIds.has(shift.id) || allSlotsApplied;
               const hasRejectedSlots = slots.some((slot) => rejectedSlotIds.has(slot.id));
               const slotRejected = (slotId: number) => rejectedSlotIds.has(slotId) || isRejectedShift;
               const allowPartial = getShiftAllowPartial(shift);
               const urgent = getShiftUrgent(shift);
               const rateSummary = getRateSummary(shift);
+              const rejectAllowed = rejectActionGuard ? rejectActionGuard(shift) : true;
 
               return (
                 <Paper
@@ -1631,6 +1933,8 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                     borderColor: urgent ? 'warning.main' : 'grey.200',
                     borderLeftWidth: urgent ? 4 : 1,
                     position: 'relative',
+                    bgcolor: 'background.paper',
+                    boxShadow: urgent ? 4 : 2,
                   }}
                 >
                   {urgent && (
@@ -1676,21 +1980,13 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                               )}
                               {isRejectedShift && <Chip label="Rejected" size="small" color="error" />}
                               {counterInfo && (
-                                <Chip
-                                  label={counterInfo.summary}
-                                  size="small"
-                                  color="info"
-                                  variant="outlined"
-                                />
-                              )}
-                              {counterInfo && (
                                 <Button
                                   size="small"
                                   variant="text"
                                   onClick={() => setReviewOfferShiftId(shift.id)}
                                   sx={{ textTransform: 'none' }}
                                 >
-                                  Review counter offer
+                                  Review counter offer(s)
                                 </Button>
                               )}
                             </Stack>
@@ -1700,9 +1996,11 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                               </Typography>
                             )}
                           </Box>
-                          <IconButton onClick={() => toggleSaveShift(shift.id)}>
-                            <FavoriteIcon color={isSaved ? 'error' : 'disabled'} />
-                          </IconButton>
+                          {savedFeatureEnabled && !hideSaveToggle && (
+                            <IconButton onClick={() => toggleSaveShift(shift.id)}>
+                              <FavoriteIcon color={isSaved ? 'error' : 'disabled'} />
+                            </IconButton>
+                          )}
                         </Stack>
 
                         <Stack spacing={1} sx={{ mt: 2 }}>
@@ -1717,19 +2015,15 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                               {isMulti && <span style={{ color: '#94A3B8', marginLeft: 6 }}>+ {slots.length - 1} more</span>}
                             </Typography>
                           </Stack>
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            <AccessTimeIcon fontSize="small" color="action" />
-                            <Typography variant="body2">
-                              {firstSlot
-                                ? `${formatTime(firstSlot?.startTime)} - ${formatTime(firstSlot?.endTime)}`
-                                : isFullOrPartTime
-                                  ? getEmploymentLabel(shift)
-                                  : 'Time not set'}
-                            </Typography>
-                            {getShiftFlexibleTime(shift) && (
-                              <Chip label="Flex" size="small" color="success" />
-                            )}
-                          </Stack>
+                          {shouldShowTimeRow && (
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <AccessTimeIcon fontSize="small" color="action" />
+                              {showTimeText && <Typography variant="body2">{showTimeText}</Typography>}
+                              {flexibleTime && (
+                                <Chip label="Flex" size="small" color="success" />
+                              )}
+                            </Stack>
+                          )}
                           <Stack direction="row" spacing={1} alignItems="center">
                             <PlaceIcon fontSize="small" color="action" />
                             <Typography variant="body2">{getShiftCity(shift)} ({getShiftState(shift)})</Typography>
@@ -1767,25 +2061,35 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                             >
                               {isApplied ? 'Applied' : 'Apply Now'}
                             </Button>
-                            {showCounter && onSubmitCounterOffer && (
-                              <Button
-                                variant="outlined"
-                                onClick={() => openCounterOffer(shift)}
-                                startIcon={<ChatBubbleOutlineIcon fontSize="small" />}
-                              >
-                                Counter Offer
-                              </Button>
-                            )}
-                            {onRejectShift && shift.singleUserOnly && (
-                              <Button
-                                variant="outlined"
-                                color="error"
-                                onClick={() => handleRejectShift(shift)}
-                                disabled={isRejectedShift}
-                              >
+                          {showCounter && onSubmitCounterOffer && (
+                            <Button
+                              variant="outlined"
+                              onClick={() => openCounterOffer(shift)}
+                              startIcon={<ChatBubbleOutlineIcon fontSize="small" />}
+                            >
+                              Counter Offer
+                            </Button>
+                          )}
+                          {onRejectShift && shift.singleUserOnly && rejectAllowed && (
+                            <Button
+                              variant="outlined"
+                              color="error"
+                              onClick={() => handleRejectShift(shift)}
+                              disabled={isRejectedShift}
+                            >
                                 {isRejectedShift ? 'Rejected' : 'Reject Shift'}
                               </Button>
                             )}
+                          {onRejectShift && !shift.singleUserOnly && !allowPartial && rejectAllowed && (
+                            <Button
+                              variant="outlined"
+                              color="error"
+                              onClick={() => handleRejectShift(shift)}
+                              disabled={isRejectedShift}
+                            >
+                              {isRejectedShift ? 'Rejected' : 'Reject Shift'}
+                            </Button>
+                          )}
                           </Stack>
                         </Stack>
                       </Box>
@@ -1827,9 +2131,10 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                                     if (slot.id == null) return null;
                                     const slotId = slot.id as number;
                                     const isSelected = selection.has(slotId);
-                                    // const isSlotApplied = slotApplied(slotId); // unused
+                                    const isSlotApplied = appliedSlotIds.has(slotId);
                                     const isSlotRejected = slotRejected(slotId);
                                     const offerSlot = counterInfo?.slots?.[slotId];
+                                    const isCountered = !!offerSlot;
                                     return (
                                       <Paper
                                         key={slotId ?? idx}
@@ -1837,16 +2142,16 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                                         sx={{
                                           p: 1.5,
                                           borderColor: isSelected ? 'primary.main' : 'grey.200',
-                                          bgcolor: isSelected ? 'primary.50' : 'transparent',
+                                          bgcolor: isSelected ? 'primary.50' : isSlotApplied ? 'success.50' : 'transparent',
                                         }}
                                       >
                                         <Stack direction="row" justifyContent="space-between" alignItems="center">
                                           <Stack direction="row" spacing={1} alignItems="center">
                                             {isMulti && allowPartial && (
                                               <Checkbox
-                                                checked={isSelected}
+                                                checked={isSelected || isSlotApplied || isCountered}
                                                 onChange={() => toggleSlotSelection(shift.id, slotId)}
-                                                disabled={isSlotRejected}
+                                                disabled={isSlotRejected || isSlotApplied || isCountered}
                                               />
                                             )}
                                             <Box>
@@ -1863,19 +2168,19 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                                               <Chip label="Rejected" color="error" size="small" />
                                             ) : (
                                               <Chip
-                                                label={`$${getSlotRate(slot, shift, userRatePreference)}/hr`}
-                                                color="success"
+                                                label={isSlotApplied ? 'Applied' : `$${getSlotRate(slot, shift, userRatePreference)}/hr`}
+                                                color={isSlotApplied ? 'info' : 'success'}
                                                 size="small"
                                               />
                                             )}
                                             {offerSlot && (
                                               <Chip
-                                                label={`Offer sent${offerSlot.rate ? ` $${offerSlot.rate}` : ''}`}
+                                                label="Offer sent"
                                                 size="small"
                                                 variant="outlined"
                                               />
                                             )}
-                                            {!shift.singleUserOnly && onRejectSlot && !isSlotRejected && (
+                                            {!shift.singleUserOnly && onRejectSlot && rejectAllowed && !isSlotRejected && (
                                               <Button
                                                 size="small"
                                                 variant="outlined"
@@ -1893,6 +2198,20 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                                 )}
                               </Stack>
 
+                              {isMulti && !allowPartial && onRejectShift && rejectAllowed && (
+                                <Stack direction="row" justifyContent="flex-end" sx={{ mt: 1 }}>
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    color="error"
+                                    disabled={isRejectedShift}
+                                    onClick={() => handleRejectShift(shift)}
+                                  >
+                                    {isRejectedShift ? 'Rejected' : 'Reject Shift'}
+                                  </Button>
+                                </Stack>
+                              )}
+
                               {isMulti && allowPartial && selection.size > 0 && (
                                 <Stack direction="row" spacing={1} justifyContent="flex-end">
                                   {showCounter && onSubmitCounterOffer && (
@@ -1909,14 +2228,23 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                                     variant="contained"
                                     size="small"
                                     disabled={isRejectedShift}
-                                    onClick={() => {
-                                      selection.forEach((slotId) => handleApplySlot(shift, slotId));
+                                    onClick={async () => {
+                                      const selectedIds = Array.from(selection);
+                                      // Optimistically mark these slots as applied
+                                      setAppliedSlotIds((prev) => {
+                                        const next = new Set(prev);
+                                        selectedIds.forEach((id) => next.add(id));
+                                        return next;
+                                      });
+                                      await Promise.all(
+                                        selectedIds.map((slotId) => Promise.resolve(handleApplySlot(shift, slotId)))
+                                      );
                                       clearSelection(shift.id);
                                     }}
                                   >
                                     Apply to {selection.size} Selected
                                   </Button>
-                                  {onRejectShift && (
+                                  {onRejectShift && rejectAllowed && (
                                     <Button
                                       size="small"
                                       variant="outlined"
@@ -1929,7 +2257,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                                   )}
                                 </Stack>
                               )}
-                              {isMulti && allowPartial && selection.size === 0 && onRejectShift && (
+                              {isMulti && allowPartial && selection.size === 0 && onRejectShift && rejectAllowed && (
                                 <Stack direction="row" justifyContent="flex-end">
                                   <Button
                                     size="small"
@@ -2014,22 +2342,24 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
         </Box>
       </Box>
 
-      <Drawer
-        anchor="left"
-        open={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-      >
-        <Box sx={{ width: 320 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
-            <Typography variant="h6">Filters</Typography>
-            <IconButton onClick={() => setIsSidebarOpen(false)}>
-              <CloseIcon />
-            </IconButton>
+      {!hideFiltersAndSort && (
+        <Drawer
+          anchor="left"
+          open={isSidebarOpen}
+          onClose={() => setIsSidebarOpen(false)}
+        >
+          <Box sx={{ width: 320 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
+              <Typography variant="h6">Filters</Typography>
+              <IconButton onClick={() => setIsSidebarOpen(false)}>
+                <CloseIcon />
+              </IconButton>
+            </Box>
+            <Divider />
+            {sidebarContent}
           </Box>
-          <Divider />
-          {sidebarContent}
-        </Box>
-      </Drawer>
+        </Drawer>
+      )}
     </Box>
   );
 };

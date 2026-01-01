@@ -37,6 +37,8 @@ import { useTheme } from '@mui/material/styles';
 import {
   CheckCircle as Check,
   ExpandMore as ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Close as X,
   Edit,
   Delete as Trash2,
@@ -65,6 +67,7 @@ import {
   EscalationLevelKey,
   fetchActiveShifts,
   fetchShiftInterests,
+  fetchShiftRejections,
   fetchShiftMemberStatus,
   generateShiftShareLinkService,
   escalateShiftService,
@@ -117,6 +120,7 @@ interface TabDataState {
   membersBySlot?: Record<number, ShiftMemberStatus[]>;
   interestsBySlot?: Record<number, ShiftInterest[]>;
   interestsAll?: ShiftInterest[];
+  rejectionsBySlot?: Record<number, ShiftInterest[]>;
   isPastLevel?: boolean;
 }
 
@@ -246,6 +250,7 @@ const ActiveShiftsPage: React.FC = () => {
       : null;
   const [sharingShiftId, setSharingShiftId] = useState<number | null>(null);
   const [selectedLevelByShift, setSelectedLevelByShift] = useState<Record<number, EscalationLevelKey>>({});
+  const [selectedSlotByShift, setSelectedSlotByShift] = useState<Record<number, number | null>>({});
   const [reviewCandidateDialog, setReviewCandidateDialog] = useState<{
     open: boolean;
     candidate: ShiftMemberStatus | null;
@@ -361,9 +366,11 @@ const ActiveShiftsPage: React.FC = () => {
       try {
         if (level.key === PUBLIC_LEVEL_KEY) {
           const interestsRaw = await fetchShiftInterests({ shiftId: shift.id });
+          const rejectionsRaw = await fetchShiftRejections({ shiftId: shift.id });
 
           const interestsBySlot: Record<number, ShiftInterest[]> = {};
           const interestsAll: ShiftInterest[] = [];
+          const rejectionsBySlot: Record<number, ShiftInterest[]> = {};
 
           interestsRaw.forEach((interest: ShiftInterest) => {
             if (interest.slotId === null || interest.slotId === undefined) {
@@ -376,9 +383,17 @@ const ActiveShiftsPage: React.FC = () => {
             }
           });
 
+          rejectionsRaw.forEach((rej: ShiftInterest) => {
+            if (rej.slotId == null) return;
+            if (!rejectionsBySlot[rej.slotId]) {
+              rejectionsBySlot[rej.slotId] = [];
+            }
+            rejectionsBySlot[rej.slotId].push(rej);
+          });
+
           setTabData(prev => ({
             ...prev,
-            [tabKey]: { loading: false, interestsBySlot, interestsAll },
+            [tabKey]: { loading: false, interestsBySlot, interestsAll, rejectionsBySlot },
           }));
           return;
         }
@@ -431,6 +446,12 @@ const ActiveShiftsPage: React.FC = () => {
     (shift: Shift) => (_event: React.SyntheticEvent, expanded: boolean) => {
       const shiftId = shift.id;
       setExpandedShift(expanded ? shiftId : false);
+      if (expanded && !shift.singleUserOnly && shift.slots?.length) {
+        setSelectedSlotByShift(prev => ({
+          ...prev,
+          [shiftId]: shift.slots?.[0]?.id ?? null,
+        }));
+      }
 
       if (expanded) {
         const levels = deriveLevelSequence(shift);
@@ -463,6 +484,10 @@ const ActiveShiftsPage: React.FC = () => {
     },
     [getTabKey, loadTabData, tabData]
   );
+
+  const handleSlotSelect = useCallback((shiftId: number, slotId: number | null) => {
+    setSelectedSlotByShift(prev => ({ ...prev, [shiftId]: slotId }));
+  }, []);
 
   const handleShare = async (shift: Shift) => {
     if (shift.visibility !== PUBLIC_LEVEL_KEY) {
@@ -789,9 +814,22 @@ const ActiveShiftsPage: React.FC = () => {
             ]
               .filter(Boolean)
               .join(', ');
-            const shiftSlots = shift.slots
-              ?.map(slot => `${slot.date} (${slot.startTime}—${slot.endTime})`)
-              .join(' | ');
+            const slots = shift.slots || [];
+            const firstSlot = slots[0];
+            const formatSlotDate = (slot: any) =>
+              `${new Date(slot.date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}`;
+            const formatTime = (time?: string | null) => (time ? time.slice(0, 5) : '');
+            const summaryText = (() => {
+              if (!slots.length) return shift.employmentType || 'No slots';
+              const uniform =
+                slots.every(s => s.startTime === firstSlot?.startTime && s.endTime === firstSlot?.endTime) &&
+                firstSlot?.startTime &&
+                firstSlot?.endTime;
+              const baseLabel = firstSlot ? formatSlotDate(firstSlot) : '';
+              const extra = slots.length > 1 ? ` + ${slots.length - 1} more` : '';
+              const timeRange = uniform ? ` ${formatTime(firstSlot?.startTime)} - ${formatTime(firstSlot?.endTime)}` : '';
+              return `${baseLabel}${timeRange}${extra}`.trim();
+            })();
             const allowedKeys = new Set(shift.allowedEscalationLevels || []);
             if (!allowedKeys.size) {
               ESCALATION_LEVELS.forEach(level => allowedKeys.add(level.key));
@@ -812,11 +850,25 @@ const ActiveShiftsPage: React.FC = () => {
                       </Typography>
                     }
                     subheader={
-                      <Chip
-                        label={shift.roleNeeded}
-                        size="small"
-                        sx={{ backgroundColor: cardBorderColor, color: 'white', fontWeight: 500, mt: 0.5 }}
-                      />
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                        <Chip
+                          label={shift.roleNeeded}
+                          size="small"
+                          sx={{ backgroundColor: cardBorderColor, color: 'white', fontWeight: 500 }}
+                        />
+                        {shift.employmentType && (
+                          <Chip label={shift.employmentType} size="small" variant="outlined" />
+                        )}
+                        {shift.isUrgent && <Chip label="Urgent" color="error" size="small" />}
+                        {summaryText && (
+                          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
+                            <CalendarDays sx={{ fontSize: 16 }} />
+                            <Typography variant="body2" color="text.secondary">
+                              {summaryText}
+                            </Typography>
+                          </Box>
+                        )}
+                      </Stack>
                     }
                     action={
                       <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
@@ -891,14 +943,6 @@ const ActiveShiftsPage: React.FC = () => {
                       >
                         <Building sx={{ fontSize: 16 }} />
                         {location || 'Address not available'}
-                      </Typography>
-                      <Typography
-                        variant="body2"
-                        sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
-                        color="text.secondary"
-                      >
-                        <CalendarDays sx={{ fontSize: 16 }} />
-                        {shiftSlots || 'No slots defined'}
                       </Typography>
                     </Box>
 
@@ -1039,6 +1083,60 @@ const ActiveShiftsPage: React.FC = () => {
                         </Divider>
 
                         {(() => {
+                          const renderSlotSelector = (slots: Shift['slots'], selectedId: number | null) => {
+                            if (!slots?.length || shift.singleUserOnly) return null;
+                            const formatLabel = (slot: any) =>
+                              `${formatSlotDate(slot)} (${formatTime(slot.startTime)} - ${formatTime(slot.endTime)})`;
+                            const currentIdx = slots.findIndex(s => s.id === selectedId);
+                            const prevId = slots[Math.max(0, currentIdx - 1)]?.id ?? slots[0]?.id ?? null;
+                            const nextId = slots[Math.min(slots.length - 1, currentIdx + 1)]?.id ?? slots[slots.length - 1]?.id ?? null;
+                            return (
+                              <Stack
+                                direction="row"
+                                alignItems="center"
+                                spacing={1}
+                                justifyContent="center"
+                                sx={{ mb: 2 }}
+                              >
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleSlotSelect(shift.id, prevId)}
+                                  disabled={selectedId === prevId}
+                                >
+                                  <ChevronLeft />
+                                </IconButton>
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    gap: 1,
+                                    overflowX: 'auto',
+                                    px: 1,
+                                    scrollBehavior: 'smooth',
+                                    '&::-webkit-scrollbar': { display: 'none' },
+                                  }}
+                                >
+                                  {slots.map(slot => (
+                                    <Button
+                                      key={slot.id}
+                                      variant={slot.id === selectedId ? 'contained' : 'outlined'}
+                                      size="small"
+                                      onClick={() => handleSlotSelect(shift.id, slot.id!)}
+                                    >
+                                      {formatLabel(slot)}
+                                    </Button>
+                                  ))}
+                                </Box>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleSlotSelect(shift.id, nextId)}
+                                  disabled={selectedId === nextId}
+                                >
+                                  <ChevronRight />
+                                </IconButton>
+                              </Stack>
+                            );
+                          };
+
                           const tabKey = getTabKey(shift.id, selectedLevelKey);
                           const currentTabData = tabData[tabKey];
 
@@ -1052,72 +1150,48 @@ const ActiveShiftsPage: React.FC = () => {
 
                           // Special handling for Platform level to show aggregated previous levels + new interests
                           if (selectedLevelKey === PUBLIC_LEVEL_KEY) {
-                            const previousLevels = levelSequence.slice(0, currentLevelIdx);
-                            const previousLevelEntries = previousLevels.map(level => tabData[getTabKey(shift.id, level.key)]);
-                            const aggregatedMembers = dedupeMembers(
-                              previousLevelEntries.flatMap(entry =>
-                                entry?.membersBySlot ? Object.values(entry.membersBySlot).flat() : []
-                              )
-                            );
-
-                            const interested = aggregatedMembers.filter(m => m.status === 'interested');
-                            const assigned = aggregatedMembers.filter(m => m.status === 'accepted');
-                            const rejected = aggregatedMembers.filter(m => m.status === 'rejected');
-                            const noResponse = aggregatedMembers.filter(m => m.status === 'no_response');
-
                             const interestsBySlot = currentTabData.interestsBySlot || {};
                             const interestsAll = currentTabData.interestsAll || [];
+                            const rejectionsBySlot = currentTabData.rejectionsBySlot || {};
+                            const slots = shift.slots || [];
+                            const multiSlots = !shift.singleUserOnly && slots.length > 0;
+                            const selectedSlotId =
+                              multiSlots ? (selectedSlotByShift[shift.id] ?? slots[0]?.id ?? null) : null;
+                            const slotInterests = selectedSlotId
+                              ? interestsBySlot[selectedSlotId] || []
+                              : interestsAll;
+                            const slotRejections = selectedSlotId
+                              ? rejectionsBySlot[selectedSlotId] || []
+                              : [];
+                            const slotAssignments = (shift.slotAssignments || []).filter(
+                              a => selectedSlotId ? a.slotId === selectedSlotId : true
+                            );
 
                             return (
                               <>
-                                {aggregatedMembers.length > 0 && (
-                                  <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 2, mt: 2 }}>
-                                    {renderStatusCard('Interested', interested, <UserCheck />, 'success', shift.id)}
-                                    {renderStatusCard('Assigned', assigned, <Check />, 'info', shift.id)}
-                                    {renderStatusCard('Rejected', rejected, <UserX />, 'error', shift.id)}
-                                    {renderStatusCard('No Response', noResponse, <Clock />, 'warning', shift.id)}
-                                  </Box>
-                                )}
-                                <Divider sx={{ my: 3 }}><Chip label="Public Interest" /></Divider>
-                                {Object.keys(interestsBySlot).length === 0 && interestsAll.length === 0 ? (
+                                {multiSlots && renderSlotSelector(slots, selectedSlotId)}
+
+                                {(!multiSlots && interestsAll.length === 0) ||
+                                (multiSlots && slotInterests.length === 0 && slotRejections.length === 0 && slotAssignments.length === 0) ? (
                                   <Typography color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
                                     No public interest yet.
                                   </Typography>
                                 ) : (
-                                  <Box mt={2}>
-                                    {shift.slots?.map(slot => {
-                                      const slotInterests = interestsBySlot[slot.id] || [];
-                                      if (slotInterests.length === 0) return null;
-                                      return (
-                                        <Paper key={slot.id} variant="outlined" sx={{ p: 2, mb: 2 }}>
-                                          <Typography variant="body1" fontWeight="bold">
-                                            Slot: {slot.date} ({slot.startTime} - {slot.endTime})
-                                          </Typography>
-                                          {slotInterests.map(interest => (
-                                            <Box key={interest.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1, pt: 1, borderTop: '1px solid #eee' }}>
-                                              <Typography variant="body2">{interest.user}</Typography>
-                                              <Button
-                                                size="small"
-                                                variant={interest.revealed ? 'outlined' : 'contained'}
-                                                onClick={() => handleRevealPlatform(shift, interest)}
-                                                disabled={revealingInterestId === interest.id || assigning}
-                                                startIcon={
-                                                  revealingInterestId === interest.id ? (
-                                                    <CircularProgress size={16} color="inherit" />
-                                                  ) : undefined
-                                                }
-                                              >
-                                                {interest.revealed ? 'Review' : 'Reveal'}
-                                              </Button>
-                                            </Box>
-                                          ))}
-                                        </Paper>
-                                      );
-                                    })}
-                                    {interestsAll.length > 0 && (
+                                  <Stack spacing={2} mt={1}>
+                                    {slotAssignments.length > 0 && (
                                       <Paper variant="outlined" sx={{ p: 2 }}>
-                                        <Typography variant="body1" fontWeight="bold">Interest in All Slots</Typography>
-                                        {interestsAll.map(interest => (
+                                        <Typography variant="subtitle2">Assigned</Typography>
+                                        {slotAssignments.map(assign => (
+                                          <Typography key={assign.userId} variant="body2">
+                                            User #{assign.userId}
+                                          </Typography>
+                                        ))}
+                                      </Paper>
+                                    )}
+                                    {slotInterests.length > 0 && (
+                                      <Paper variant="outlined" sx={{ p: 2 }}>
+                                        <Typography variant="subtitle2">Interested</Typography>
+                                        {slotInterests.map(interest => (
                                           <Box key={interest.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1, pt: 1, borderTop: '1px solid #eee' }}>
                                             <Typography variant="body2">{interest.user}</Typography>
                                             <Button
@@ -1137,19 +1211,37 @@ const ActiveShiftsPage: React.FC = () => {
                                         ))}
                                       </Paper>
                                     )}
-                                  </Box>
+                                    {slotRejections.length > 0 && (
+                                      <Paper variant="outlined" sx={{ p: 2 }}>
+                                        <Typography variant="subtitle2">Rejected</Typography>
+                                        {slotRejections.map(rej => (
+                                          <Typography key={rej.id} variant="body2" sx={{ mt: 1, pt: 1, borderTop: '1px solid #eee' }}>
+                                            {rej.user}
+                                          </Typography>
+                                        ))}
+                                      </Paper>
+                                    )}
+                                  </Stack>
                                 )}
                               </>
                             );
                           }
 
                           const members = dedupeMembers(Object.values(currentTabData.membersBySlot || {}).flat());
-                          const interested = members.filter(m => m.status === 'interested');
-                          const assigned = members.filter(m => m.status === 'accepted');
-                          const rejected = members.filter(m => m.status === 'rejected');
-                          const noResponse = members.filter(m => m.status === 'no_response');
+                          const slots = shift.slots || [];
+                          const multiSlots = !shift.singleUserOnly && slots.length > 0;
+                          const selectedSlotId =
+                            multiSlots ? (selectedSlotByShift[shift.id] ?? slots[0]?.id ?? null) : null;
+                          const slotMembers = multiSlots
+                            ? dedupeMembers(currentTabData.membersBySlot?.[selectedSlotId ?? -1] || [])
+                            : members;
+                          const slotSelector = multiSlots ? renderSlotSelector(slots, selectedSlotId) : null;
+                          const interested = slotMembers.filter(m => m.status === 'interested');
+                          const assigned = slotMembers.filter(m => m.status === 'accepted');
+                          const rejected = slotMembers.filter(m => m.status === 'rejected');
+                          const noResponse = slotMembers.filter(m => m.status === 'no_response');
 
-                          if (members.length === 0) {
+                          if (slotMembers.length === 0) {
                             return (
                                 <Typography color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
                                   No candidates found for this level.
@@ -1158,12 +1250,15 @@ const ActiveShiftsPage: React.FC = () => {
                           }
 
                           return (
-                            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 2, mt: 2 }}>
-                              {renderStatusCard('Interested', interested, <UserCheck />, 'success', shift.id)}
-                              {renderStatusCard('Assigned', assigned, <Check />, 'info', shift.id)}
-                              {renderStatusCard('Rejected', rejected, <UserX />, 'error', shift.id)}
-                              {renderStatusCard('No Response', noResponse, <Clock />, 'warning', shift.id)}
-                            </Box>
+                            <Stack spacing={2}>
+                              {slotSelector}
+                              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 2 }}>
+                                {renderStatusCard('Interested', interested, <UserCheck />, 'success', shift.id)}
+                                {renderStatusCard('Assigned', assigned, <Check />, 'info', shift.id)}
+                                {renderStatusCard('Rejected', rejected, <UserX />, 'error', shift.id)}
+                                {renderStatusCard('No Response', noResponse, <Clock />, 'warning', shift.id)}
+                              </Box>
+                            </Stack>
                           );
                         })()}
                       </>

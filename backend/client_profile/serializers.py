@@ -3981,6 +3981,7 @@ class ShiftRejectionSerializer(serializers.ModelSerializer):
 
 class ShiftCounterOfferSlotSerializer(serializers.ModelSerializer):
     slot_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    slot_date = serializers.DateField(required=False, allow_null=True)
     slot = ShiftSlotSerializer(read_only=True)
 
     class Meta:
@@ -3988,6 +3989,7 @@ class ShiftCounterOfferSlotSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'slot_id',
+            'slot_date',
             'slot',
             'proposed_start_time',
             'proposed_end_time',
@@ -4023,16 +4025,28 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
 
         shift_slots_qs = shift.slots.all()
         shift_slots = {slot.id: slot for slot in shift_slots_qs}
-        slot_ids = [entry.get('slot_id') for entry in slots_data if entry.get('slot_id') is not None]
-        if len(slot_ids) != len(set(slot_ids)):
-            raise serializers.ValidationError({'slots': 'Duplicate slots are not allowed.'})
+        seen_pairs = set()
+        for entry in slots_data:
+            slot_id = entry.get('slot_id')
+            slot_date = entry.get('slot_date')
+            key = (slot_id, slot_date)
+            if key in seen_pairs:
+                raise serializers.ValidationError({'slots': 'Duplicate slots are not allowed.'})
+            seen_pairs.add(key)
 
         if shift_slots_qs.exists():
-            invalid = [slot_id for slot_id in slot_ids if slot_id not in shift_slots]
+            invalid = [entry.get('slot_id') for entry in slots_data if entry.get('slot_id') is not None and entry.get('slot_id') not in shift_slots]
             if invalid:
                 raise serializers.ValidationError({'slots': f'Invalid slot ids: {invalid}'})
-            if shift.single_user_only and len(slot_ids) != len(shift_slots):
-                raise serializers.ValidationError({'slots': 'All slots must be included for single-user shifts.'})
+            # For single-user shifts, accept a single slot_id to represent the whole shift,
+            # or the full set of slot_ids. Do not require every occurrence to be sent.
+            if shift.single_user_only:
+                if not slots_data:
+                    raise serializers.ValidationError({'slots': 'At least one slot is required for single-user shifts.'})
+            else:
+                provided_ids = {entry.get('slot_id') for entry in slots_data if entry.get('slot_id') is not None}
+                if provided_ids != set(shift_slots.keys()):
+                    raise serializers.ValidationError({'slots': 'All slots must be included for multi-slot counter offers.'})
         else:
             # Slotless shift (e.g., FT/PT without slots): allow a single pseudo slot
             if any(entry.get('slot_id') is not None for entry in slots_data):
@@ -4087,10 +4101,12 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
         )
         for entry in slots_data:
             slot_id = entry.pop('slot_id', None)
+            slot_date = entry.pop('slot_date', None)
             slot = shift.slots.get(id=slot_id) if slot_id else None
             ShiftCounterOfferSlot.objects.create(
                 offer=offer,
                 slot=slot,
+                slot_date=slot_date,
                 **entry
             )
         return offer

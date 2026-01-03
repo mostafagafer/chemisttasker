@@ -111,9 +111,9 @@ function ShiftCenterLayout({ scope, basePath, title, subtitle }: BaseProps) {
     <Box
       sx={{
         width: "100%",
-        maxWidth: 1200,
+        maxWidth: 1440,
         mx: "auto",
-        px: { xs: 2, md: 4 },
+        px: { xs: 1.5, md: 3.5 },
         py: { xs: 2, md: 4 },
         display: "flex",
         flexDirection: "column",

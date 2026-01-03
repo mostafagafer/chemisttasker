@@ -219,6 +219,24 @@ npm install
 cd ..\frontend_mobile
 npm install
 
+
+
+
+cd backend
+venv\scripts\activate
+python manage.py runserver 0.0.0.0:8000
+
 cd backend
 venv\scripts\activate
 python manage.py qcluster
+
+cd frontend_web
+npm run dev:5173
+
+cd frontend_web
+npm run dev:5174
+
+
+cd frontend_web
+npm run dev:5175
+

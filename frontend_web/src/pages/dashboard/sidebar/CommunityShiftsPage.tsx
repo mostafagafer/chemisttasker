@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Typography } from '@mui/material';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Typography, Box, Paper, Stack, Tabs, Tab, alpha, useTheme } from '@mui/material';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import ShiftsBoard from '../../../components/shifts/ShiftsBoard';
 import {
@@ -17,6 +18,7 @@ import {
   saveShift,
   submitShiftCounterOfferService,
 } from '@chemisttasker/shared-core';
+import { useWorkspace } from '../../../contexts/WorkspaceContext';
 
 type FilterConfig = {
   city: string[];
@@ -50,10 +52,24 @@ const DEFAULT_FILTERS: FilterConfig = {
   bulkShiftsOnly: false,
 };
 
-export default function CommunityShiftsPage() {
+type CommunityShiftsPageProps = {
+  activeTabOverride?: 'browse' | 'saved';
+  onActiveTabChange?: (tab: 'browse' | 'saved') => void;
+  hideTabs?: boolean;
+};
+
+export default function CommunityShiftsPage({
+  activeTabOverride,
+  onActiveTabChange,
+  hideTabs,
+}: CommunityShiftsPageProps = {}) {
   const auth = useAuth();
   const user = auth?.user;
   if (!user) return null;
+  const { workspace } = useWorkspace();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const theme = useTheme();
 
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,6 +84,39 @@ export default function CommunityShiftsPage() {
   const [totalCount, setTotalCount] = useState<number | undefined>(undefined);
   const [savedShiftIds, setSavedShiftIds] = useState<Set<number>>(new Set());
   const [savedMap, setSavedMap] = useState<Map<number, number>>(new Map()); // shiftId -> savedId
+  const [boardTab, setBoardTab] = useState<'browse' | 'saved' | 'interested' | 'rejected'>(
+    activeTabOverride === 'saved' ? 'saved' : 'browse'
+  );
+
+  useEffect(() => {
+    if (activeTabOverride) {
+      setBoardTab(activeTabOverride === 'saved' ? 'saved' : 'browse');
+    }
+  }, [activeTabOverride]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (user.role !== 'PHARMACIST' && user.role !== 'OTHER_STAFF') return;
+    const isInternal = workspace === 'internal';
+    const isOnCommunity =
+      location.pathname.includes('/dashboard/pharmacist/shifts/community') ||
+      location.pathname.includes('/dashboard/otherstaff/shifts/community');
+    if (!isInternal && isOnCommunity) {
+      const target = location.pathname.includes('/dashboard/pharmacist')
+        ? '/dashboard/pharmacist/shifts/public'
+        : '/dashboard/otherstaff/shifts/public';
+      navigate(target, { replace: true });
+    }
+  }, [workspace, location.pathname, navigate, user]);
+
+  const heroGradient = useMemo(
+    () =>
+      `linear-gradient(135deg, ${alpha(
+        theme.palette.primary.main,
+        0.94
+      )}, ${alpha(theme.palette.primary.dark, 0.74)})`,
+    [theme.palette.primary.dark, theme.palette.primary.main]
+  );
 
   const loadSaved = useCallback(async () => {
     try {
@@ -273,36 +322,162 @@ export default function CommunityShiftsPage() {
     }
   };
 
+  const handleBoardTabChange = (tab: 'browse' | 'saved' | 'interested' | 'rejected') => {
+    setBoardTab(tab);
+    if (tab === 'browse' || tab === 'saved') {
+      onActiveTabChange?.(tab);
+    }
+  };
+
   return (
-    <>
+    <Box
+      sx={{
+        width: '100%',
+        maxWidth: 1440,
+        mx: 'auto',
+        px: { xs: 1.5, md: 3.5 },
+        py: { xs: 2, md: 4 },
+        display: 'flex',
+        flexDirection: 'column',
+        gap: { xs: 2.5, md: 3 },
+      }}
+    >
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 3, md: 4 },
+          borderRadius: { xs: 3, md: 4 },
+          backgroundImage: heroGradient,
+          color: '#fff',
+          overflow: 'hidden',
+        }}
+      >
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          spacing={{ xs: 2, md: 3 }}
+          alignItems={{ xs: 'flex-start', md: 'center' }}
+          justifyContent="space-between"
+        >
+          <Box>
+            <Typography variant="overline" sx={{ opacity: 0.72, letterSpacing: '.1em' }}>
+              Shift Board
+            </Typography>
+            <Typography variant="h4" fontWeight={800} gutterBottom>
+              Discover shifts at a glance
+            </Typography>
+            <Typography variant="body1" sx={{ opacity: 0.92, maxWidth: 560 }}>
+              Browse open shifts, review your saved list, and track interested or rejected opportunities.
+            </Typography>
+          </Box>
+        </Stack>
+      </Paper>
+
       {error && (
         <Typography color="error" sx={{ px: { xs: 2, lg: 3 }, py: 1 }}>
           {error}
         </Typography>
       )}
-      <ShiftsBoard
-        title="Community Shifts"
-        shifts={shifts}
-        loading={loading}
-        useServerFiltering
-        filters={filters}
-        onFiltersChange={handleFiltersChange}
-        totalCount={totalCount}
-        page={page}
-        pageSize={pageSize}
-        onPageChange={setPage}
-        savedShiftIds={Array.from(savedShiftIds)}
-        onToggleSave={handleToggleSave}
-        onApplyAll={handleApplyAll}
-        onApplySlot={handleApplySlot}
-        onSubmitCounterOffer={handleSubmitCounterOffer}
-        initialAppliedShiftIds={appliedShiftIds}
-        initialAppliedSlotIds={appliedSlotIds}
-        onRejectShift={handleRejectShift}
-        onRejectSlot={handleRejectSlot}
-        initialRejectedShiftIds={rejectedShiftIds}
-        initialRejectedSlotIds={rejectedSlotIds}
-      />
-    </>
+
+      <Paper
+        elevation={0}
+        sx={{
+          borderRadius: { xs: 3, md: 4 },
+          border: `1px solid ${alpha(theme.palette.divider, 0.7)}`,
+        }}
+      >
+        {!hideTabs && (
+          <Tabs
+            value={boardTab}
+            onChange={(_, value) => handleBoardTabChange(value as any)}
+            variant="scrollable"
+            allowScrollButtonsMobile
+            sx={{
+              px: { xs: 1.5, md: 2.5 },
+              pt: { xs: 1.5, md: 2 },
+              '& .MuiTabs-flexContainer': {
+                gap: { xs: 1, sm: 1.5 },
+                justifyContent: { xs: 'flex-start', md: 'center' },
+              },
+              '& .MuiTabs-indicator': {
+                display: 'none',
+              },
+              '& .MuiTab-root': {
+                textTransform: 'none',
+                fontWeight: 700,
+                fontSize: { xs: 14, sm: 16 },
+                minHeight: 52,
+                minWidth: 0,
+                borderRadius: 999,
+                px: { xs: 2.5, sm: 3.5 },
+                py: { xs: 1, sm: 1.3 },
+                color: alpha(theme.palette.text.primary, 0.72),
+                border: `1px solid ${alpha(theme.palette.divider, 0.6)}`,
+                transition: theme.transitions.create(['color', 'background-color', 'border-color', 'box-shadow']),
+                '&.Mui-selected': {
+                  color: theme.palette.primary.main,
+                  backgroundColor: alpha(theme.palette.primary.main, 0.15),
+                  borderColor: alpha(theme.palette.primary.main, 0.45),
+                  boxShadow: `0 6px 16px ${alpha(theme.palette.primary.main, 0.18)}`,
+                },
+                '&:not(.Mui-selected):hover': {
+                  backgroundColor: alpha(theme.palette.primary.main, 0.08),
+                  borderColor: alpha(theme.palette.primary.main, 0.25),
+                },
+              },
+            }}
+          >
+            <Tab value="browse" label="Browse" disableRipple />
+            <Tab value="saved" label={`Saved (${savedShiftIds.size})`} disableRipple />
+            <Tab value="interested" label="Interested" disableRipple />
+            <Tab value="rejected" label="Rejected" disableRipple />
+          </Tabs>
+        )}
+        <Box
+          sx={{
+            px: { xs: 1.5, md: 2.5 },
+            pb: { xs: 2, md: 3 },
+            pt: { xs: 2, md: 3 },
+          }}
+        >
+          {boardTab === 'browse' || boardTab === 'saved' ? (
+            <ShiftsBoard
+              title="Community Shifts"
+              shifts={shifts}
+              loading={loading}
+              useServerFiltering
+              filters={filters}
+              onFiltersChange={handleFiltersChange}
+              totalCount={totalCount}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              savedShiftIds={Array.from(savedShiftIds)}
+              onToggleSave={handleToggleSave}
+              onApplyAll={handleApplyAll}
+              onApplySlot={handleApplySlot}
+              onSubmitCounterOffer={handleSubmitCounterOffer}
+              initialAppliedShiftIds={appliedShiftIds}
+              initialAppliedSlotIds={appliedSlotIds}
+              onRejectShift={handleRejectShift}
+              onRejectSlot={handleRejectSlot}
+              initialRejectedShiftIds={rejectedShiftIds}
+              initialRejectedSlotIds={rejectedSlotIds}
+              hideTabs
+              activeTabOverride={boardTab === 'saved' ? 'saved' : 'browse'}
+              onActiveTabChange={(tab) => handleBoardTabChange(tab)}
+              onRefresh={() => loadShifts(filters, page)}
+            />
+          ) : boardTab === 'interested' ? (
+            <Typography variant="body1" color="text.secondary">
+              Interested shifts will appear here soon.
+            </Typography>
+          ) : (
+            <Typography variant="body1" color="text.secondary">
+              Rejected shifts will appear here soon.
+            </Typography>
+          )}
+        </Box>
+      </Paper>
+    </Box>
   );
 }

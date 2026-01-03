@@ -219,6 +219,7 @@ export default function PublicJobBoardPage() {
           onApplyAll={() => requireLogin()}
           onApplySlot={() => requireLogin()}
           hideCounterOffer
+          onRefresh={() => loadShifts(filters, page)}
         />
       </Box>
 

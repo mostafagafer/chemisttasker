@@ -1542,6 +1542,7 @@ class ShiftCounterOfferSlot(models.Model):
         null=True,
         blank=True
     )
+    slot_date = models.DateField(null=True, blank=True)
     proposed_start_time = models.TimeField()
     proposed_end_time = models.TimeField()
     proposed_rate = models.DecimalField(
@@ -1552,9 +1553,9 @@ class ShiftCounterOfferSlot(models.Model):
     )
 
     class Meta:
-        unique_together = ("offer", "slot")
+        unique_together = ("offer", "slot", "slot_date")
         indexes = [
-            models.Index(fields=["offer", "slot"]),
+            models.Index(fields=["offer", "slot", "slot_date"]),
         ]
 
     def __str__(self):

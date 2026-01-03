@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Container, Typography, Snackbar, Alert } from '@mui/material';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -40,7 +40,7 @@ const WorkerShiftDetailPage: React.FC = () => {
     severity: 'success',
   });
 
-  useEffect(() => {
+  const loadShift = useCallback(async () => {
     if (!id || !user) {
       setLoading(false);
       return;
@@ -51,39 +51,38 @@ const WorkerShiftDetailPage: React.FC = () => {
       setLoading(false);
       return;
     }
+    setLoading(true);
+    setError(null);
+    try {
+      const [detail, interests, rejections] = await Promise.all([
+        fetchWorkerShiftDetailService(shiftId),
+        fetchShiftInterests({ userId: user.id }),
+        fetchShiftRejections({ userId: user.id }),
+      ]);
 
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const [detail, interests, rejections] = await Promise.all([
-          fetchWorkerShiftDetailService(shiftId),
-          fetchShiftInterests({ userId: user.id }),
-          fetchShiftRejections({ userId: user.id }),
-        ]);
-
-        setShift(detail);
-        setAppliedSlotIds(
-          interests.map((i: any) => i.slotId).filter((slotId: unknown): slotId is number => typeof slotId === 'number')
-        );
-        setAppliedShiftIds(
-          interests.filter((i: any) => i.slotId == null).map((i: any) => i.shift)
-        );
-        setRejectedSlotIds(
-          rejections.map((r: any) => r.slotId).filter((slotId: unknown): slotId is number => typeof slotId === 'number')
-        );
-        setRejectedShiftIds(
-          rejections.filter((r: any) => r.slotId == null).map((r: any) => r.shift)
-        );
-      } catch (err) {
-        setError(getErrorMessage(err, 'Failed to load shift details. It may not exist or is no longer available.'));
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    load();
+      setShift(detail);
+      setAppliedSlotIds(
+        interests.map((i: any) => i.slotId).filter((slotId: unknown): slotId is number => typeof slotId === 'number')
+      );
+      setAppliedShiftIds(
+        interests.filter((i: any) => i.slotId == null).map((i: any) => i.shift)
+      );
+      setRejectedSlotIds(
+        rejections.map((r: any) => r.slotId).filter((slotId: unknown): slotId is number => typeof slotId === 'number')
+      );
+      setRejectedShiftIds(
+        rejections.filter((r: any) => r.slotId == null).map((r: any) => r.shift)
+      );
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to load shift details. It may not exist or is no longer available.'));
+    } finally {
+      setLoading(false);
+    }
   }, [id, user]);
+
+  useEffect(() => {
+    loadShift();
+  }, [loadShift]);
 
   const handleApplyAll = async (targetShift: Shift) => {
     try {
@@ -172,6 +171,7 @@ const WorkerShiftDetailPage: React.FC = () => {
         hideSaveToggle
         hideFiltersAndSort
         hideTabs
+        onRefresh={loadShift}
       />
       <Snackbar
         open={snackbar.open}

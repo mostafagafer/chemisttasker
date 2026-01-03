@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Container,
   Typography,
@@ -255,13 +255,15 @@ const ActiveShiftsPage: React.FC = () => {
     open: boolean;
     candidate: ShiftMemberStatus | null;
     shiftId: number | null;
-  }>({ open: false, candidate: null, shiftId: null });
+    counterOffer: any | null;
+  }>({ open: false, candidate: null, shiftId: null, counterOffer: null });
   const [platformInterestDialog, setPlatformInterestDialog] = useState<{
     open: boolean;
     user: ShiftUser | null;
     shiftId: number | null;
     interest: ShiftInterest | null;
-  }>({ open: false, user: null, shiftId: null, interest: null });
+    counterOffer: any | null;
+  }>({ open: false, user: null, shiftId: null, interest: null, counterOffer: null });
   const [workerRatingSummary, setWorkerRatingSummary] = useState<ShiftRatingSummary | null>(null);
   const [workerRatingComments, setWorkerRatingComments] = useState<ShiftRatingComment[]>([]);
   const [workerCommentsPage, setWorkerCommentsPage] = useState(1);
@@ -300,6 +302,7 @@ const ActiveShiftsPage: React.FC = () => {
     setLoadingShifts(true);
     try {
       const data = await fetchActiveShifts();
+      console.log('[ActiveShiftsPage] fetched shifts', { count: (data || []).length, data });
       const filtered =
         scopedPharmacyId != null
           ? data.filter((shift: Shift) => {
@@ -307,6 +310,7 @@ const ActiveShiftsPage: React.FC = () => {
               return Number(target) === scopedPharmacyId;
             })
           : data;
+      console.log('[ActiveShiftsPage] filtered shifts', { count: (filtered || []).length, scopedPharmacyId, filtered });
       setShifts(filtered);
     } catch (error) {
       console.error('Failed to load active shifts', error);
@@ -586,8 +590,8 @@ const ActiveShiftsPage: React.FC = () => {
     try {
       await acceptShiftCandidateService(shiftId, { userId, slotId });
       showSnackbar('User assigned successfully.');
-      setReviewCandidateDialog({ open: false, candidate: null, shiftId: null });
-      setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null });
+      setReviewCandidateDialog({ open: false, candidate: null, shiftId: null, counterOffer: null });
+      setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null, counterOffer: null });
       setShifts(prev => prev.filter(shift => shift.id !== shiftId));
       setExpandedShift(prev => (prev === shiftId ? false : prev));
       setTabData(prev => {
@@ -607,9 +611,9 @@ const ActiveShiftsPage: React.FC = () => {
     }
   };
 
-  const handleReviewCandidate = async (candidate: ShiftMemberStatus, shiftId: number) => {
+  const handleReviewCandidate = async (candidate: ShiftMemberStatus, shiftId: number, counterOffer: any | null = null) => {
     resetWorkerRatings();
-    setReviewCandidateDialog({ open: true, candidate, shiftId });
+    setReviewCandidateDialog({ open: true, candidate, shiftId, counterOffer });
     if (candidate.userId != null) {
       setReviewLoadingId(candidate.userId);
     }
@@ -622,7 +626,11 @@ const ActiveShiftsPage: React.FC = () => {
     }
   };
 
-  const handleRevealPlatform = async (shift: Shift, interest: ShiftInterest) => {
+  const handleRevealPlatform = async (
+    shift: Shift,
+    interest: ShiftInterest,
+    counterOffer?: any | null
+  ) => {
     if (interest.userId == null) {
       showSnackbar('Unable to reveal this interest.');
       return;
@@ -634,7 +642,13 @@ const ActiveShiftsPage: React.FC = () => {
         userId: interest.userId,
         slotId: interest.slotId ?? null,
       });
-      setPlatformInterestDialog({ open: true, user: userDetail, shiftId: shift.id, interest });
+    setPlatformInterestDialog({
+      open: true,
+      user: userDetail,
+      shiftId: shift.id,
+      interest,
+      counterOffer: counterOffer ?? null,
+    });
       if (userDetail?.id) {
         setReviewLoadingId(userDetail.id);
         await loadWorkerRatings(userDetail.id, 1);
@@ -774,7 +788,14 @@ const ActiveShiftsPage: React.FC = () => {
     <ThemeProvider theme={customTheme}>
       <Container
         maxWidth={false}
-        sx={{ py: 4, backgroundColor: customTheme.palette.background.default, minHeight: '100vh' }}
+        sx={{
+          py: 4,
+          px: { xs: 1.5, md: 3.5 },
+          backgroundColor: customTheme.palette.background.default,
+          minHeight: '100vh',
+          maxWidth: 1440,
+          margin: '0 auto',
+        }}
       >
         <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: '#111827' }}>
           Active Shifts
@@ -1285,7 +1306,7 @@ const ActiveShiftsPage: React.FC = () => {
         <Dialog
           open={reviewCandidateDialog.open}
           onClose={() => {
-            setReviewCandidateDialog({ open: false, candidate: null, shiftId: null });
+            setReviewCandidateDialog({ open: false, candidate: null, shiftId: null, counterOffer: null });
             resetWorkerRatings();
           }}
           fullWidth
@@ -1299,6 +1320,44 @@ const ActiveShiftsPage: React.FC = () => {
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   {reviewCandidateDialog.candidate.employmentType}
                 </Typography>
+                {reviewCandidateDialog.counterOffer && (
+                  <Box sx={{ mt: 2 }}>
+                    <Divider sx={{ mb: 1 }} />
+                    <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                      Counter Offer
+                    </Typography>
+                    <Stack spacing={1}>
+                      {(reviewCandidateDialog.counterOffer.slots || []).map((slot: any) => (
+                        <Paper
+                          key={`${slot.slotId ?? slot.id ?? ''}-${slot.slotDate ?? slot.slot?.date ?? slot.date ?? ''}`}
+                          variant="outlined"
+                          sx={{ p: 1.5, borderRadius: 2 }}
+                        >
+                          <Typography variant="body2" fontWeight="bold">
+                            {slot.slotDate ?? slot.slot?.date ?? slot.date
+                              ? new Date(slot.slotDate ?? slot.slot?.date ?? slot.date!).toLocaleDateString()
+                              : 'Shift-wide'}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {(slot.proposedStartTime ?? slot.proposed_start_time ?? slot.startTime ?? slot.start_time)?.slice(0, 5)} -{' '}
+                            {(slot.proposedEndTime ?? slot.proposed_end_time ?? slot.endTime ?? slot.end_time)?.slice(0, 5)}
+                          </Typography>
+                          {slot.proposedRate != null && (
+                            <Typography variant="body2" color="text.secondary">
+                              Proposed rate: {slot.proposedRate}
+                            </Typography>
+                          )}
+                        </Paper>
+                      ))}
+                      {reviewCandidateDialog.counterOffer.requestTravel && <Chip size="small" color="info" label="Requested travel support" />}
+                      {reviewCandidateDialog.counterOffer.message && (
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                          {reviewCandidateDialog.counterOffer.message}
+                        </Typography>
+                      )}
+                    </Stack>
+                  </Box>
+                )}
                 <Divider sx={{ my: 2 }} />
                 <Typography variant="subtitle1" gutterBottom fontWeight="bold">
                   Ratings & Reviews
@@ -1360,7 +1419,7 @@ const ActiveShiftsPage: React.FC = () => {
           <DialogActions sx={{ p: '16px 24px' }}>
             <Button
               onClick={() => {
-                setReviewCandidateDialog({ open: false, candidate: null, shiftId: null });
+                setReviewCandidateDialog({ open: false, candidate: null, shiftId: null, counterOffer: null });
                 resetWorkerRatings();
               }}
             >
@@ -1383,7 +1442,7 @@ const ActiveShiftsPage: React.FC = () => {
         <Dialog
           open={platformInterestDialog.open}
           onClose={() => {
-            setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null });
+            setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null, counterOffer: null });
             resetWorkerRatings();
           }}
           fullWidth
@@ -1393,9 +1452,20 @@ const ActiveShiftsPage: React.FC = () => {
           <DialogContent>
             {platformInterestDialog.user && !loadingWorkerRatings ? (
               <Box>
-                <Typography variant="h6">
-                  {platformInterestDialog.user.firstName} {platformInterestDialog.user.lastName}
-                </Typography>
+                {platformInterestDialog.shiftId && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                    Shift #{platformInterestDialog.shiftId}
+                  </Typography>
+                )}
+                {(() => {
+                  const platformShift = shifts.find(s => s.id === platformInterestDialog.shiftId);
+                  const isPublic = platformShift?.visibility === PUBLIC_LEVEL_KEY;
+                  return (
+                    <Typography variant="h6">
+                      {isPublic ? 'Anonymous candidate' : `${platformInterestDialog.user.firstName} ${platformInterestDialog.user.lastName}`}
+                    </Typography>
+                  );
+                })()}
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   {platformInterestDialog.user.email}
                 </Typography>
@@ -1408,6 +1478,46 @@ const ActiveShiftsPage: React.FC = () => {
                   <Typography variant="body2" sx={{ mt: 1 }}>
                     {platformInterestDialog.user.shortBio}
                   </Typography>
+                )}
+                {platformInterestDialog.counterOffer && (
+                  <Box sx={{ mt: 2 }}>
+                    <Divider sx={{ mb: 1 }} />
+                    <Typography variant="subtitle1" fontWeight="bold">
+                      Counter Offer
+                    </Typography>
+                    <Stack spacing={1} sx={{ mt: 1 }}>
+                      {(platformInterestDialog.counterOffer.slots || []).map((slot: any) => (
+                        <Paper
+                          key={`${slot.slotId ?? slot.id ?? ''}-${slot.slotDate ?? slot.slot?.date ?? slot.date ?? ''}`}
+                          variant="outlined"
+                          sx={{ p: 1.5, borderRadius: 2 }}
+                        >
+                          <Typography variant="body2" fontWeight="bold">
+                            {slot.slotDate ?? slot.slot?.date ?? slot.date
+                              ? new Date(slot.slotDate ?? slot.slot?.date ?? slot.date!).toLocaleDateString()
+                              : 'Shift-wide'}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {(slot.proposedStartTime ?? slot.proposed_start_time ?? slot.startTime ?? slot.start_time)?.slice(0, 5)} -{' '}
+                            {(slot.proposedEndTime ?? slot.proposed_end_time ?? slot.endTime ?? slot.end_time)?.slice(0, 5)}
+                          </Typography>
+                          {slot.proposedRate != null ? (
+                            <Typography variant="body2" color="text.secondary">
+                              Proposed rate: {slot.proposedRate}
+                            </Typography>
+                          ) : null}
+                        </Paper>
+                      ))}
+                      {platformInterestDialog.counterOffer.requestTravel && (
+                        <Chip size="small" color="info" label="Requested travel support" />
+                      )}
+                      {platformInterestDialog.counterOffer.message && (
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                          {platformInterestDialog.counterOffer.message}
+                        </Typography>
+                      )}
+                    </Stack>
+                  </Box>
                 )}
                 <Divider sx={{ my: 2 }} />
                 <Typography variant="subtitle1" gutterBottom fontWeight="bold">
@@ -1470,7 +1580,7 @@ const ActiveShiftsPage: React.FC = () => {
           <DialogActions sx={{ p: '16px 24px' }}>
             <Button
               onClick={() => {
-                setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null });
+                setPlatformInterestDialog({ open: false, user: null, shiftId: null, interest: null, counterOffer: null });
                 resetWorkerRatings();
               }}
             >

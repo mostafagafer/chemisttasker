@@ -2640,7 +2640,8 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 user=shift.created_by,
                 role=shift.created_by.role.lower(),      
             )
-            applicant_name = user.get_full_name() or user.email
+            is_public = (shift.visibility == 'PLATFORM')
+            applicant_name = "A candidate" if is_public else (user.get_full_name() or user.email)
             notification_payload = None
             if shift.created_by_id:
                 notification_payload = {
@@ -2687,10 +2688,22 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
         # Handle single user shifts
         if shift.single_user_only:
-            # For single user shifts, always look for slot=None interest
-            interest = get_object_or_404(
-                ShiftInterest, shift=shift, slot__isnull=True, user=candidate
-            )
+            # For single user shifts, try slot-specific first (recurring slots share one user), then fallback to slot=None
+            if slot_id is not None:
+                interest = ShiftInterest.objects.filter(
+                    shift=shift, slot_id=slot_id, user=candidate
+                ).first()
+                if not interest:
+                    interest = ShiftInterest.objects.filter(
+                        shift=shift, slot__isnull=True, user=candidate
+                    ).first()
+            else:
+                interest = ShiftInterest.objects.filter(
+                    shift=shift, slot__isnull=True, user=candidate
+                ).first()
+
+            if not interest:
+                return Response({'detail': 'No ShiftInterest matches the given query.'}, status=status.HTTP_404_NOT_FOUND)
         else:
             # Existing multi-slot logic
             if slot_id is not None:
@@ -2917,6 +2930,10 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
         serializer = ShiftCounterOfferSerializer(data=request.data, context={'request': request, 'shift': shift})
         serializer.is_valid(raise_exception=True)
+        try:
+            print(f"[counter_offers POST] shift={shift.id} user={getattr(request.user, 'id', None)} slots_payload={request.data.get('slots')}")
+        except Exception:
+            pass
         offer = serializer.save()
 
         # Ensure the user is marked as interested in the targeted slots (or shift-level) without triggering the
@@ -2945,9 +2962,12 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 continue
             seen_emails.add(recipient.email)
             ctx = build_shift_counter_offer_context(shift, offer, recipient=recipient)
+            is_public = (shift.visibility == 'PLATFORM')
+            sender_name = "A candidate" if is_public else (offer.user.get_full_name() if offer.user else "A candidate")
+            # Include pharmacy name for all visibility levels so owners can identify the shift; anonymize sender on public.
             notification_payload = {
                 "title": f"New counter offer: {shift.pharmacy.name}",
-                "body": f"{offer.user.get_full_name() if offer.user else 'A candidate'} sent a counter offer.",
+                "body": f"{sender_name} sent a counter offer.",
                 "payload": {"shift_id": shift.id},
             }
             if ctx.get("shift_link"):
@@ -3002,12 +3022,14 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
         for offer_slot in offer_slots:
             slot = offer_slot.slot
-            if ShiftSlotAssignment.objects.filter(slot=slot, slot_date=slot.date).exists():
+            slot_date = offer_slot.slot_date or slot.date
+            if ShiftSlotAssignment.objects.filter(slot=slot, slot_date=slot_date).exists():
                 return Response({'detail': 'One or more slots are no longer available.'}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
             for offer_slot in offer_slots:
                 slot = offer_slot.slot
+                slot_date = offer_slot.slot_date or slot.date
                 if shift.flexible_timing:
                     if offer_slot.proposed_start_time != slot.start_time or offer_slot.proposed_end_time != slot.end_time:
                         slot.start_time = offer_slot.proposed_start_time
@@ -3024,13 +3046,13 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                         shift=shift,
                         slot=slot,
                         user=offer.user,
-                        override_date=slot.date
+                        override_date=slot_date
                     )
 
                 ShiftSlotAssignment.objects.create(
                     shift=shift,
                     slot=slot,
-                    slot_date=slot.date,
+                    slot_date=slot_date,
                     user=offer.user,
                     unit_rate=unit_rate,
                     rate_reason=rate_reason,
@@ -3384,35 +3406,21 @@ class CommunityShiftViewSet(BaseShiftViewSet):
         Allows a worker to claim an open, unassigned community shift.
         Deep debug version for permission tracing.
         """
-        # print("\n" + "="*70)
-        # print(f"[CLAIM_DBG] CLAIM STARTED for user={request.user.email} (id={request.user.id}) pk={pk}")
-        # print("[CLAIM_DBG] -> entering get_object() ...")
 
         try:
             shift = self.get_object()
         except Exception as e:
             import traceback
-            # print("[CLAIM_DBG] ❌ get_object() FAILED")
-            # print(traceback.format_exc())
             return Response({"detail": f"get_object() failed: {e}"}, status=status.HTTP_403_FORBIDDEN)
 
-        # print(f"[CLAIM_DBG] -> got shift id={shift.id} vis={shift.visibility} pharmacy={shift.pharmacy_id}")
 
         user = request.user
         slot_id = request.data.get('slot_id')
 
-        # print("\n" + "=" * 80)
-        # print(f"[CLAIM_DBG] START CLAIM SHIFT DEBUG")
-        # print(f"User ID: {getattr(user, 'id', None)} | Email: {getattr(user, 'email', None)} | Role: {getattr(user, 'role', None)}")
-        # print(f"Shift ID: {shift.id} | Pharmacy ID: {shift.pharmacy_id} | Name: {getattr(shift.pharmacy, 'name', None)}")
-        # print(f"Shift visibility: {shift.visibility} | Role needed: {shift.role_needed} | Emp type: {shift.employment_type}")
-        # print("=" * 80)
 
         # --- 1. Visibility check ---
         is_eligible = self.get_queryset().filter(pk=shift.pk).exists()
-        # print(f"[CLAIM_DBG] Step 1 - Visibility eligibility = {is_eligible}")
         if not is_eligible:
-            # print("[CLAIM_DBG] ❌ FAIL: User cannot see this shift in get_queryset() filter")
             return Response(
                 {"detail": "You do not have permission to perform this action. [DBG:NOT_ELIGIBLE_VIS]"},
                 status=status.HTTP_403_FORBIDDEN
@@ -3423,17 +3431,14 @@ class CommunityShiftViewSet(BaseShiftViewSet):
             Membership.objects.filter(user=user, is_active=True)
             .values('pharmacy_id', 'role', 'employment_type', 'is_active')
         )
-        # print(f"[CLAIM_DBG] Step 2 - User active memberships ({len(all_memberships)}): {all_memberships}")
 
         is_member_of_pharmacy = Membership.objects.filter(
             user=user,
             pharmacy=shift.pharmacy,
             is_active=True
         ).exists()
-        # print(f"[CLAIM_DBG] Step 2 - Is member of this pharmacy? {is_member_of_pharmacy}")
 
         if not is_member_of_pharmacy:
-            # print("[CLAIM_DBG] ❌ FAIL: User is not active member of this pharmacy")
             return Response(
                 {"detail": "You must be an active member of this pharmacy to claim this shift. [DBG:NOT_MEMBER]"},
                 status=status.HTTP_403_FORBIDDEN
@@ -3442,33 +3447,24 @@ class CommunityShiftViewSet(BaseShiftViewSet):
         membership = Membership.objects.filter(
             user=user, pharmacy=shift.pharmacy, is_active=True
         ).first()
-        # print(f"[CLAIM_DBG] Step 2 - Membership employment_type={getattr(membership,'employment_type',None)} | "
-        #     f"role={getattr(membership,'role',None)}")
-
         # --- 3. Tier eligibility check ---
         allowed_ftpt = {'FULL_TIME', 'PART_TIME', 'CASUAL'}
         allowed_locum = {'LOCUM', 'SHIFT_HERO'}
 
         if shift.visibility == 'FULL_PART_TIME':
             ok = membership and membership.employment_type in allowed_ftpt
-            # print(f"[CLAIM_DBG] Step 3 - Tier check FULL_PART_TIME → ok={ok}")
             if not ok:
-                # print("[CLAIM_DBG] ❌ FAIL: Tier mismatch for FULL_PART_TIME visibility")
                 return Response(
                     {"detail": f"Only full/part-time/casual pharmacy members can claim this shift. [DBG:TIER_MISMATCH emp={getattr(membership,'employment_type',None)}]"},
                     status=status.HTTP_403_FORBIDDEN
                 )
         elif shift.visibility == 'LOCUM_CASUAL':
             ok = membership and membership.employment_type in allowed_locum
-            # print(f"[CLAIM_DBG] Step 3 - Tier check LOCUM_CASUAL → ok={ok}")
             if not ok:
-                # print("[CLAIM_DBG] ❌ FAIL: Tier mismatch for LOCUM_CASUAL visibility")
                 return Response(
                     {"detail": f"Only locum/shift-hero members can claim this shift. [DBG:TIER_MISMATCH emp={getattr(membership,'employment_type',None)}]"},
                     status=status.HTTP_403_FORBIDDEN
                 )
-        # else:
-        #     print(f"[CLAIM_DBG] Step 3 - Tier check skipped (visibility={shift.visibility})")
 
         # --- 4. Role match check ---
         user_role = getattr(user, 'role', None)
@@ -3479,18 +3475,14 @@ class CommunityShiftViewSet(BaseShiftViewSet):
             try:
                 onboarding = OtherStaffOnboarding.objects.get(user=user)
                 onboarding_role = onboarding.role_type
-                # print(f"[CLAIM_DBG] Step 4 - OtherStaff onboarding role_type={onboarding_role}")
             except OtherStaffOnboarding.DoesNotExist:
-                # print("[CLAIM_DBG] ❌ FAIL: Missing OtherStaffOnboarding record")
                 return Response(
                     {"detail": "Cannot determine your specific role. Please complete your onboarding. [DBG:NO_OTHERSTAFF_ONBOARDING]"},
                     status=status.HTTP_403_FORBIDDEN
                 )
 
         effective_user_role = onboarding_role or user_role
-        # print(f"[CLAIM_DBG] Step 4 - Effective user role={effective_user_role} | Required={shift.role_needed}")
         if effective_user_role != shift.role_needed:
-            # print("[CLAIM_DBG] ❌ FAIL: Role mismatch")
             return Response(
                 {"detail": f"This shift requires a {shift.role_needed}, but your role is {effective_user_role}. [DBG:ROLE_MISMATCH]"},
                 status=status.HTTP_403_FORBIDDEN
@@ -3498,25 +3490,19 @@ class CommunityShiftViewSet(BaseShiftViewSet):
 
         # --- 5. Check if shift already taken ---
         any_assigned = ShiftSlotAssignment.objects.filter(shift=shift).exists()
-        # print(f"[CLAIM_DBG] Step 5 - Already assigned? {any_assigned}")
         if any_assigned:
-            # print("[CLAIM_DBG] ❌ FAIL: Shift already assigned")
             return Response({"detail": "This shift is no longer available."}, status=status.HTTP_400_BAD_REQUEST)
 
         # --- 6. Slot selection ---
         if shift.single_user_only:
             slots_to_claim = list(shift.slots.all())
-            # print(f"[CLAIM_DBG] Step 6 - Single-user shift → claiming all slots ({len(slots_to_claim)})")
         elif slot_id:
             slot = get_object_or_404(ShiftSlot, pk=slot_id, shift=shift)
             slots_to_claim = [slot]
-            # print(f"[CLAIM_DBG] Step 6 - Slot specified id={slot_id}")
         else:
             slots_to_claim = list(shift.slots.all())
-            # print(f"[CLAIM_DBG] Step 6 - Multi-slot shift → claiming all slots ({len(slots_to_claim)})")
 
         if not slots_to_claim:
-            # print("[CLAIM_DBG] ❌ FAIL: No slots found to claim")
             return Response({"detail": "No valid slots found to claim for this shift."}, status=status.HTTP_400_BAD_REQUEST)
 
         # --- 7. Create assignments ---
@@ -3524,12 +3510,10 @@ class CommunityShiftViewSet(BaseShiftViewSet):
         with transaction.atomic():
             for slot in slots_to_claim:
                 taken = ShiftSlotAssignment.objects.filter(slot=slot, slot_date=slot.date).exists()
-                # print(f"[CLAIM_DBG] Step 7 - Slot {slot.id} ({slot.date}) taken? {taken}")
                 if taken:
                     continue
 
                 rate, reason = get_locked_rate_for_slot(shift=shift, slot=slot, user=user, override_date=slot.date)
-                # print(f"[CLAIM_DBG] Step 7 - Rate calc slot={slot.id} rate={rate} reason={reason}")
 
                 assignment = ShiftSlotAssignment.objects.create(
                     shift=shift,
@@ -3573,8 +3557,6 @@ class CommunityShiftViewSet(BaseShiftViewSet):
             except Exception as e:
                 print(f"[CLAIM_DBG] Step 8 - Notification error={e}")
 
-        # print(f"[CLAIM_DBG] ✅ SUCCESS: Assignments created: {assignment_ids}")
-        # print("=" * 80 + "\n")
 
         return Response({
             "detail": "Shift claimed successfully.",
@@ -3725,13 +3707,27 @@ class ActiveShiftViewSet(BaseShiftViewSet):
             Q(assigned_count__lt=F('slot_count'))
         )
 
-        qs = qs.filter(
+        # Treat recurring slots as "future" through their recurring_end_date, so single-user recurring
+        # shifts aren't dropped once the first occurrence date passes.
+        future_slot_filter = (
             Q(employment_type__in=['FULL_TIME', 'PART_TIME'], slot_count=0) |
+            Q(slots__is_recurring=True, slots__recurring_end_date__gte=today) |
             Q(slots__date__gt=today) |
             Q(slots__date=today, slots__end_time__gt=now.time())
         )
 
-        return qs.distinct()
+        qs = qs.filter(future_slot_filter)
+
+        qs = qs.distinct()
+        try:
+            ids = list(qs.values_list('id', flat=True))
+            print(
+                f"[ActiveShiftViewSet:get_queryset] user_id={getattr(user, 'id', None)} "
+                f"role={getattr(user, 'role', None)} total={len(ids)} ids={ids}"
+            )
+        except Exception:
+            pass
+        return qs
 
     @action(detail=True, methods=['get'])
     def member_status(self, request, pk=None):

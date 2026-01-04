@@ -90,6 +90,8 @@ type CounterOfferFormSlot = {
   endTime: string;
   rate: string;
 };
+// Local extension to include slotDate until upstream package type publishes it.
+type ShiftCounterOfferSlotPayloadWithDate = ShiftCounterOfferSlotPayload & { slotDate?: string };
 type CounterOfferTrack = {
   slots: Record<number, { rate: string; start: string; end: string }>;
   message?: string;
@@ -1295,6 +1297,18 @@ useEffect(() => {
       setCounterOfferError('This shift has no slots to attach a counter offer. Please contact the poster.');
       return;
     }
+
+    // Deduplicate (slotId, slotDate) pairs to avoid backend duplicate validation errors.
+    const dedupedSlots: CounterOfferFormSlot[] = [];
+    const seenPairs = new Set<string>();
+    slotsToSend.forEach((slot) => {
+      const normalizedDate = slot.dateValue ? dayjs(slot.dateValue).format('YYYY-MM-DD') : '';
+      const key = `${slot.slotId ?? 'none'}|${normalizedDate}`;
+      if (seenPairs.has(key)) return;
+      seenPairs.add(key);
+      dedupedSlots.push({ ...slot, dateValue: normalizedDate || undefined });
+    });
+
     if (slotsToSend.some((s) => !s.startTime || !s.endTime)) {
       setCounterOfferError('Start and end time are required.');
       return;
@@ -1303,11 +1317,11 @@ useEffect(() => {
       shiftId: counterOfferShift.id,
       message: counterOfferMessage,
       requestTravel: counterOfferTravel,
-      slots: slotsToSend.map(
-        (slot): ShiftCounterOfferSlotPayload => ({
+      slots: dedupedSlots.map(
+        (slot): ShiftCounterOfferSlotPayloadWithDate => ({
           slotId: slot.slotId != null ? (slot.slotId as number) : undefined,
-          // @ts-expect-error slotDate is supported by backend even if not in typed payload
-          slotDate: slot.dateValue,
+          // Normalize to an ISO date string so recurring instances do not collapse into duplicates.
+          slotDate: slot.dateValue ? dayjs(slot.dateValue).format('YYYY-MM-DD') : undefined,
           proposedStartTime: slot.startTime,
           proposedEndTime: slot.endTime,
           proposedRate: canNegotiateRate && slot.rate ? Number(slot.rate) : null,

@@ -2932,6 +2932,8 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         try:
             print(f"[counter_offers POST] shift={shift.id} user={getattr(request.user, 'id', None)} slots_payload={request.data.get('slots')}")
+            vd = getattr(serializer, 'validated_data', {})
+            print(f"[counter_offers POST] validated slots count={len(vd.get('slots', []))} slots={vd.get('slots')}")
         except Exception:
             pass
         offer = serializer.save()
@@ -2982,6 +2984,10 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 notification=notification_payload
             )
         output = ShiftCounterOfferSerializer(offer, context={'request': request, 'shift': shift})
+        try:
+            print(f"[counter_offers POST] saved slots={list(offer.slots.values('id','slot_id','slot_date','proposed_start_time','proposed_end_time','proposed_rate'))}")
+        except Exception:
+            pass
         return Response(output.data, status=status.HTTP_201_CREATED)
 
     @staticmethod

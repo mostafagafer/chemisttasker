@@ -66,6 +66,7 @@ import {
   ShiftUser,
   EscalationLevelKey,
   fetchActiveShifts,
+  fetchShiftCounterOffersService,
   fetchShiftInterests,
   fetchShiftRejections,
   fetchShiftMemberStatus,
@@ -73,6 +74,8 @@ import {
   escalateShiftService,
   deleteActiveShiftService,
   acceptShiftCandidateService,
+  acceptShiftCounterOfferService,
+  rejectShiftCounterOfferService,
   revealShiftInterestService,
   fetchRatingsSummaryService,
   fetchRatingsPageService,
@@ -272,6 +275,10 @@ const ActiveShiftsPage: React.FC = () => {
   const [revealingInterestId, setRevealingInterestId] = useState<number | null>(null);
   const [assigning, setAssigning] = useState(false);
   const [reviewLoadingId, setReviewLoadingId] = useState<number | null>(null);
+  const [reviewOfferDialog, setReviewOfferDialog] = useState<{ open: boolean; offer: any | null }>({ open: false, offer: null });
+  const [counterOffersByShift, setCounterOffersByShift] = useState<Record<number, any[]>>({});
+  const [counterOffersLoading, setCounterOffersLoading] = useState<Set<number>>(new Set());
+  const [counterActionLoading, setCounterActionLoading] = useState<number | null>(null);
 
   const showSnackbar = useCallback((message: string) => {
     setSnackbar({ open: true, message });
@@ -280,6 +287,27 @@ const ActiveShiftsPage: React.FC = () => {
   const closeSnackbar = useCallback(() => {
     setSnackbar({ open: false, message: '' });
   }, []);
+
+  const loadCounterOffers = useCallback(async (shiftId: number) => {
+    if (counterOffersLoading.has(shiftId)) return;
+    setCounterOffersLoading(prev => {
+      const next = new Set(prev);
+      next.add(shiftId);
+      return next;
+    });
+    try {
+      const offers = await fetchShiftCounterOffersService(shiftId);
+      setCounterOffersByShift(prev => ({ ...prev, [shiftId]: Array.isArray(offers) ? offers : [] }));
+    } catch (error) {
+      console.warn('Failed to load counter offers for shift', shiftId, error);
+    } finally {
+      setCounterOffersLoading(prev => {
+        const next = new Set(prev);
+        next.delete(shiftId);
+        return next;
+      });
+    }
+  }, [counterOffersLoading]);
 
   const resetWorkerRatings = () => {
     setWorkerRatingSummary(null);
@@ -473,9 +501,10 @@ const ActiveShiftsPage: React.FC = () => {
             loadTabData(shift, level.key);
           }
         });
+        loadCounterOffers(shiftId);
       }
     },
-    [deriveLevelSequence, getTabKey, loadTabData, tabData]
+    [deriveLevelSequence, getTabKey, loadTabData, tabData, loadCounterOffers]
   );
 
   const handleLevelSelect = useCallback(
@@ -784,6 +813,71 @@ const ActiveShiftsPage: React.FC = () => {
     </Card>
   );
 
+  const renderOfferList = (offers: any[], filterSlotId: number | null) => {
+    const list = Array.isArray(offers) ? offers : [];
+    const filtered = filterSlotId == null
+      ? list
+      : list.filter((offer) => (offer.slots || []).some((s: any) => (s.slotId ?? s.slot?.id ?? s.id) === filterSlotId));
+    if (filtered.length === 0) {
+      return (
+        <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+          No counter offers yet.
+        </Typography>
+      );
+    }
+    return (
+      <Stack spacing={1}>
+        {filtered.map((offer: any) => (
+          <Paper key={offer.id ?? Math.random()} variant="outlined" sx={{ p: 1.5 }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+              <Box>
+                {offer.message && (
+                  <Typography variant="body2" fontWeight={600} sx={{ whiteSpace: 'pre-line' }}>
+                    {offer.message.length > 80 ? `${offer.message.slice(0, 80)}…` : offer.message}
+                  </Typography>
+                )}
+              </Box>
+              <Button size="small" onClick={() => setReviewOfferDialog({ open: true, offer })}>
+                {offer.user ? 'Review offer' : 'Reveal offer'}
+              </Button>
+            </Stack>
+          </Paper>
+        ))}
+      </Stack>
+    );
+  };
+
+  const handleAcceptOffer = async (offer: any) => {
+    if (!offer?.id || !offer?.shift) return;
+    setCounterActionLoading(offer.id);
+    try {
+      await acceptShiftCounterOfferService({ shiftId: offer.shift, offerId: offer.id });
+      showSnackbar('Counter offer accepted.');
+      loadCounterOffers(offer.shift);
+      loadShifts();
+    } catch (error) {
+      console.error('Failed to accept counter offer', error);
+      showSnackbar('Failed to accept counter offer.');
+    } finally {
+      setCounterActionLoading(null);
+    }
+  };
+
+  const handleRejectOffer = async (offer: any) => {
+    if (!offer?.id || !offer?.shift) return;
+    setCounterActionLoading(offer.id);
+    try {
+      await rejectShiftCounterOfferService({ shiftId: offer.shift, offerId: offer.id });
+      showSnackbar('Counter offer rejected.');
+      loadCounterOffers(offer.shift);
+    } catch (error) {
+      console.error('Failed to reject counter offer', error);
+      showSnackbar('Failed to reject counter offer.');
+    } finally {
+      setCounterActionLoading(null);
+    }
+  };
+
   return (
     <ThemeProvider theme={customTheme}>
       <Container
@@ -855,6 +949,7 @@ const ActiveShiftsPage: React.FC = () => {
             if (!allowedKeys.size) {
               ESCALATION_LEVELS.forEach(level => allowedKeys.add(level.key));
             }
+            const offers = counterOffersByShift[shift.id] || [];
               return (
                 <Card
                   key={shift.id}
@@ -1187,18 +1282,26 @@ const ActiveShiftsPage: React.FC = () => {
                             const slotAssignments = (shift.slotAssignments || []).filter(
                               a => selectedSlotId ? a.slotId === selectedSlotId : true
                             );
+                            const offersForView = renderOfferList(offers, multiSlots ? selectedSlotId : null);
+                            const hasOfferContent = Array.isArray(offers) && offers.length > 0;
+                            const hasInterestContent =
+                              (!multiSlots && interestsAll.length > 0) ||
+                              (multiSlots && (slotInterests.length > 0 || slotRejections.length > 0 || slotAssignments.length > 0));
 
                             return (
                               <>
                                 {multiSlots && renderSlotSelector(slots, selectedSlotId)}
 
-                                {(!multiSlots && interestsAll.length === 0) ||
-                                (multiSlots && slotInterests.length === 0 && slotRejections.length === 0 && slotAssignments.length === 0) ? (
+                                {(!hasOfferContent && !hasInterestContent) ? (
                                   <Typography color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
                                     No public interest yet.
                                   </Typography>
                                 ) : (
                                   <Stack spacing={2} mt={1}>
+                                    <Paper variant="outlined" sx={{ p: 2 }}>
+                                      <Typography variant="subtitle2">Counter offers</Typography>
+                                      {offersForView}
+                                    </Paper>
                                     {slotAssignments.length > 0 && (
                                       <Paper variant="outlined" sx={{ p: 2 }}>
                                         <Typography variant="subtitle2">Assigned</Typography>
@@ -1261,24 +1364,30 @@ const ActiveShiftsPage: React.FC = () => {
                           const assigned = slotMembers.filter(m => m.status === 'accepted');
                           const rejected = slotMembers.filter(m => m.status === 'rejected');
                           const noResponse = slotMembers.filter(m => m.status === 'no_response');
-
-                          if (slotMembers.length === 0) {
-                            return (
-                                <Typography color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
-                                  No candidates found for this level.
-                                </Typography>
-                            )
-                          }
+                          const offersForView = renderOfferList(offers, multiSlots ? selectedSlotId : null);
+                          const hasMembers = slotMembers.length > 0;
 
                           return (
                             <Stack spacing={2}>
                               {slotSelector}
-                              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 2 }}>
-                                {renderStatusCard('Interested', interested, <UserCheck />, 'success', shift.id)}
-                                {renderStatusCard('Assigned', assigned, <Check />, 'info', shift.id)}
-                                {renderStatusCard('Rejected', rejected, <UserX />, 'error', shift.id)}
-                                {renderStatusCard('No Response', noResponse, <Clock />, 'warning', shift.id)}
-                              </Box>
+                              <Paper variant="outlined" sx={{ p: 2 }}>
+                                <Typography variant="subtitle2">
+                                  Counter offers {shift.singleUserOnly ? '(whole shift)' : '(selected slot)'}
+                                </Typography>
+                                {offersForView}
+                              </Paper>
+                              {hasMembers ? (
+                                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 2 }}>
+                                  {renderStatusCard('Interested', interested, <UserCheck />, 'success', shift.id)}
+                                  {renderStatusCard('Assigned', assigned, <Check />, 'info', shift.id)}
+                                  {renderStatusCard('Rejected', rejected, <UserX />, 'error', shift.id)}
+                                  {renderStatusCard('No Response', noResponse, <Clock />, 'warning', shift.id)}
+                                </Box>
+                              ) : (
+                                <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                                  No candidates found for this level.
+                                </Typography>
+                              )}
                             </Stack>
                           );
                         })()}
@@ -1599,6 +1708,75 @@ const ActiveShiftsPage: React.FC = () => {
             )}
           </DialogActions>
         </Dialog>
+
+        <Dialog
+          open={reviewOfferDialog.open}
+          onClose={() => setReviewOfferDialog({ open: false, offer: null })}
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle sx={{ fontWeight: 'bold' }}>Counter Offer</DialogTitle>
+          <DialogContent dividers>
+            {reviewOfferDialog.offer ? (
+              <Stack spacing={1.5}>
+                {reviewOfferDialog.offer.message && (
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {reviewOfferDialog.offer.message}
+                  </Typography>
+                )}
+                {(reviewOfferDialog.offer.slots || []).map((slot: any, idx: number) => (
+                  <Paper
+                    key={`${slot.slotId ?? slot.id ?? idx}-${slot.slotDate ?? slot.slot?.date ?? slot.date ?? idx}`}
+                    variant="outlined"
+                    sx={{ p: 1.5, borderRadius: 2 }}
+                  >
+                    <Typography variant="body2" fontWeight="bold">
+                      {slot.slotDate ?? slot.slot?.date ?? slot.date
+                        ? new Date(slot.slotDate ?? slot.slot?.date ?? slot.date!).toLocaleDateString()
+                        : 'Shift-wide'}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {(slot.proposedStartTime ?? slot.proposed_start_time ?? slot.startTime ?? slot.start_time)?.slice(0, 5)} -{' '}
+                      {(slot.proposedEndTime ?? slot.proposed_end_time ?? slot.endTime ?? slot.end_time)?.slice(0, 5)}
+                    </Typography>
+                    {slot.proposedRate != null && (
+                      <Typography variant="body2" color="text.secondary">
+                        Proposed rate: {slot.proposedRate}
+                      </Typography>
+                    )}
+                  </Paper>
+              ))}
+              {reviewOfferDialog.offer.requestTravel && <Chip size="small" color="info" label="Requested travel support" />}
+            </Stack>
+          ) : (
+            <Typography color="text.secondary">No offer selected.</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReviewOfferDialog({ open: false, offer: null })}>Close</Button>
+          {reviewOfferDialog.offer && (
+            <>
+              <Button
+                variant="contained"
+                color="success"
+                onClick={() => reviewOfferDialog.offer && handleAcceptOffer(reviewOfferDialog.offer)}
+                disabled={counterActionLoading === reviewOfferDialog.offer.id}
+                startIcon={counterActionLoading === reviewOfferDialog.offer.id ? <CircularProgress size={16} color="inherit" /> : undefined}
+              >
+                Accept offer
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                onClick={() => reviewOfferDialog.offer && handleRejectOffer(reviewOfferDialog.offer)}
+                disabled={counterActionLoading === reviewOfferDialog.offer.id}
+              >
+                Reject offer
+              </Button>
+            </>
+          )}
+        </DialogActions>
+      </Dialog>
 
         <Dialog open={openDeleteConfirm} onClose={() => setOpenDeleteConfirm(false)}>
           <DialogTitle>Confirm Delete</DialogTitle>

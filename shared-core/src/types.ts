@@ -667,6 +667,7 @@ export interface ShiftCounterOfferSlotApi {
     id?: number;
     slot_id?: number;
     slot?: ShiftSlotApi | null;
+    slot_date?: string | null;
     proposed_start_time: string;
     proposed_end_time: string;
     proposed_rate?: string | number | null;
@@ -686,6 +687,7 @@ export interface ShiftCounterOfferApi {
 
 export interface ShiftCounterOfferSlotPayload {
     slotId?: number;
+    slotDate?: string;
     proposedStartTime: string;
     proposedEndTime: string;
     proposedRate?: number | null;

@@ -1,0 +1,20 @@
+        }));
+      }
+
+      if (expanded) {
+        const levels = deriveLevelSequence(shift);
+        const currentIdx = Math.max(0, levels.findIndex(level => level.key === shift.visibility));
+        const currentLevel = levels[currentIdx];
+
+        // Set the initially selected level to the shift's current level
+        setSelectedLevelByShift(prev => ({ ...prev, [shiftId]: currentLevel.key }));
+
+        // Pre-load data for all levels up to the current one
+        const levelsToEnsure = levels.slice(0, currentIdx + 1);
+        levelsToEnsure.forEach(level => {
+          const tabKey = getTabKey(shiftId, level.key);
+          if (!tabData[tabKey]) {
+            loadTabData(shift, level.key);
+          }
+        });
+      }

@@ -817,6 +817,8 @@ export async function submitShiftCounterOfferService(payload) {
         request_travel: payload.requestTravel ?? false,
         slots: (payload.slots || []).map((slot) => ({
             slot_id: slot.slotId,
+            // Carry per-occurrence date so recurring shifts capture every instance.
+            slot_date: slot.slotDate,
             proposed_start_time: slot.proposedStartTime,
             proposed_end_time: slot.proposedEndTime,
             proposed_rate: slot.proposedRate ?? null,

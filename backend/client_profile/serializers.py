@@ -4022,17 +4022,26 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Shift context is required.')
         if not slots_data:
             raise serializers.ValidationError({'slots': 'At least one slot is required.'})
+        try:
+            print("[ShiftCounterOfferSerializer.validate] incoming slots", slots_data)
+        except Exception:
+            pass
 
         shift_slots_qs = shift.slots.all()
         shift_slots = {slot.id: slot for slot in shift_slots_qs}
-        seen_pairs = set()
+        # Deduplicate pairs up front instead of throwing an error so UI quirks don't block submissions.
+        normalized_slots = []
+        seen_pairs = {}
         for entry in slots_data:
             slot_id = entry.get('slot_id')
             slot_date = entry.get('slot_date')
             key = (slot_id, slot_date)
             if key in seen_pairs:
-                raise serializers.ValidationError({'slots': 'Duplicate slots are not allowed.'})
-            seen_pairs.add(key)
+                # Keep the first occurrence; ignore later duplicates.
+                continue
+            seen_pairs[key] = entry
+            normalized_slots.append(entry)
+        slots_data = normalized_slots
 
         if shift_slots_qs.exists():
             invalid = [entry.get('slot_id') for entry in slots_data if entry.get('slot_id') is not None and entry.get('slot_id') not in shift_slots]
@@ -4045,8 +4054,9 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({'slots': 'At least one slot is required for single-user shifts.'})
             else:
                 provided_ids = {entry.get('slot_id') for entry in slots_data if entry.get('slot_id') is not None}
-                if provided_ids != set(shift_slots.keys()):
-                    raise serializers.ValidationError({'slots': 'All slots must be included for multi-slot counter offers.'})
+                if not provided_ids:
+                    raise serializers.ValidationError({'slots': 'At least one slot is required for multi-slot counter offers.'})
+                # Allow subsets: do not require every slot to be included.
         else:
             # Slotless shift (e.g., FT/PT without slots): allow a single pseudo slot
             if any(entry.get('slot_id') is not None for entry in slots_data):
@@ -4087,6 +4097,7 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
                         'slots': f'Slot {slot.id} does not allow rate changes.'
                     })
 
+        attrs['slots'] = slots_data
         return attrs
 
     def create(self, validated_data):

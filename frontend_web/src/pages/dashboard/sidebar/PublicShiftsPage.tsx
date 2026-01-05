@@ -69,7 +69,16 @@ export default function PublicShiftsPage({
   const location = useLocation();
   const navigate = useNavigate();
   const theme = useTheme();
-  const [isVerified, setIsVerified] = useState<boolean>((user as any)?.verified ?? false);
+  const coerceVerified = (value: any) => {
+    if (value === true || value === 'true' || value === 'True') return true;
+    if (value === 1 || value === '1') return true;
+    return false;
+  };
+  const initialVerified =
+    coerceVerified((user as any)?.verified) ||
+    coerceVerified((user as any)?.pharmacist_profile?.verified) ||
+    coerceVerified((user as any)?.other_staff_profile?.verified);
+  const [isVerified, setIsVerified] = useState<boolean>(initialVerified);
 
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,7 +104,7 @@ export default function PublicShiftsPage({
   }, [activeTabOverride]);
 
   const showError = (message: string) => {
-    setError(message);
+    setError(message && message.trim().length > 0 ? message : 'Something went wrong. Please try again.');
     setErrorOpen(true);
   };
 
@@ -224,9 +233,7 @@ export default function PublicShiftsPage({
           onboarding?.verified ??
           onboarding?.data?.verified ??
           (roleKey === 'pharmacist' ? onboarding?.ahpra_verified : undefined);
-        if (verifiedFlag !== undefined) {
-          setIsVerified(Boolean(verifiedFlag));
-        }
+        setIsVerified(coerceVerified(verifiedFlag));
       } catch (err) {
         console.warn('Failed to fetch onboarding verification', err);
       }
@@ -245,8 +252,9 @@ export default function PublicShiftsPage({
 
   const handleApplyAll = async (shift: Shift) => {
     if (!isVerified) {
-      showError('Please complete onboarding and verification before applying to public shifts.');
-      return;
+      const msg = 'You must be verified by an admin before applying to public shifts.';
+      showError(msg);
+      throw new Error(msg);
     }
     try {
       const slots = shift.slots ?? [];
@@ -269,8 +277,9 @@ export default function PublicShiftsPage({
 
   const handleApplySlot = async (shift: Shift, slotId: number) => {
     if (!isVerified) {
-      showError('Please complete onboarding and verification before applying to public shifts.');
-      return;
+      const msg = 'You must be verified by an admin before applying to public shifts.';
+      showError(msg);
+      throw new Error(msg);
     }
     try {
       await expressInterestInPublicShiftService({ shiftId: shift.id, slotId });
@@ -319,6 +328,11 @@ export default function PublicShiftsPage({
   };
 
   const handleSubmitCounterOffer = async (payload: ShiftCounterOfferPayload) => {
+    if (!isVerified) {
+      const msg = 'You must be verified by an admin before applying to public shifts.';
+      showError(msg);
+      throw new Error(msg);
+    }
     try {
       await submitShiftCounterOfferService(payload);
     } catch (err) {
@@ -362,6 +376,7 @@ export default function PublicShiftsPage({
           activeTabOverride={boardTab === 'saved' ? 'saved' : 'browse'}
           onActiveTabChange={(tab) => handleBoardTabChange(tab)}
           onRefresh={() => loadShifts(debouncedFilters, page)}
+          disableLocalPersistence
         />
       );
     }
@@ -423,12 +438,6 @@ export default function PublicShiftsPage({
           </Box>
         </Stack>
       </Paper>
-
-      {error && (
-        <Typography color="error" sx={{ px: { xs: 2, lg: 3 }, py: 1 }}>
-          {error}
-        </Typography>
-      )}
 
       <Paper
         elevation={0}
@@ -497,7 +506,7 @@ export default function PublicShiftsPage({
 
       <Snackbar open={errorOpen} autoHideDuration={4000} onClose={handleCloseError}>
         <Alert severity="error" onClose={handleCloseError} sx={{ width: '100%' }}>
-          {error}
+          {error || 'Something went wrong. Please try again.'}
         </Alert>
       </Snackbar>
     </Box>

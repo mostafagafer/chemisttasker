@@ -222,6 +222,7 @@ const getStartHour = (slot: ShiftSlot) => {
 };
 
 const getShiftRoleLabel = (shift: Shift) => shift.roleLabel ?? shift.roleNeeded ?? 'Role';
+const normalizeRoleValue = (value?: string | null) => (value ?? '').toString().trim().toLowerCase();
 const getShiftAddress = (shift: Shift) => shift.uiAddressLine ?? '';
 const getShiftCity = (shift: Shift) => shift.uiLocationCity ?? '';
 const getShiftState = (shift: Shift) => shift.uiLocationState ?? '';
@@ -556,6 +557,10 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   const [counterOfferError, setCounterOfferError] = useState<string | null>(null);
   const [pharmacyRatings, setPharmacyRatings] = useState<Record<number, { average: number; count: number }>>({});
   const ratingFetchRef = useRef<Set<number>>(new Set());
+  const normalizedSelectedRoles = useMemo(
+    () => new Set(filterConfig.roles.map((role) => normalizeRoleValue(role))),
+    [filterConfig.roles]
+  );
 
   const savedLoadRef = useRef(false);
   const markersLoadRef = useRef(false);
@@ -868,12 +873,15 @@ useEffect(() => {
 }, [shifts, isHydrated]);
 
   const uniqueRoles = useMemo(() => {
-    const set = new Set<string>();
+    // Track by normalized value so casing/spacing differences don't duplicate options.
+    const map = new Map<string, string>();
     shifts.forEach((shift) => {
       const label = getShiftRoleLabel(shift);
-      if (label) set.add(label);
+      const key = normalizeRoleValue(label);
+      if (!label || !key) return;
+      if (!map.has(key)) map.set(key, label);
     });
-    return Array.from(set).sort();
+    return Array.from(map.values()).sort();
   }, [shifts]);
   const roleOptions = useMemo(() => {
     if (roleOptionsOverride && roleOptionsOverride.length > 0) {
@@ -1125,7 +1133,10 @@ useEffect(() => {
       if (filterConfig.accommodationProvided && !shift.hasAccommodation) return false;
       if (filterConfig.bulkShiftsOnly && slots.length < 5) return false;
       if (filterConfig.city.length > 0 && !filterConfig.city.includes(getShiftCity(shift))) return false;
-      if (filterConfig.roles.length > 0 && !filterConfig.roles.includes(getShiftRoleLabel(shift))) return false;
+      if (filterConfig.roles.length > 0) {
+        const roleKey = normalizeRoleValue(getShiftRoleLabel(shift));
+        if (!normalizedSelectedRoles.has(roleKey)) return false;
+      }
       if (filterConfig.employmentTypes.length > 0) {
         const employmentType = (shift.employmentType ?? '').toString();
         if (!filterConfig.employmentTypes.includes(employmentType)) return false;
@@ -1183,7 +1194,7 @@ useEffect(() => {
     });
 
     return applySort(result);
-  }, [shifts, activeTab, savedShiftIds, filterConfig, sortConfig, pharmacistRatePref, useServerFiltering, savedFeatureEnabled]);
+  }, [shifts, activeTab, savedShiftIds, filterConfig, sortConfig, pharmacistRatePref, useServerFiltering, savedFeatureEnabled, normalizedSelectedRoles]);
 
   const openCounterOffer = async (shift: Shift, selectedSlots?: Set<number>) => {
     if (!onSubmitCounterOffer || hideCounterOffer) return;
@@ -1401,11 +1412,16 @@ useEffect(() => {
   };
 
   const handleApplyAll = async (shift: Shift) => {
-    if (readOnlyActions) {
+    try {
+      if (readOnlyActions) {
+        await onApplyAll(shift);
+        return;
+      }
       await onApplyAll(shift);
+    } catch (err) {
+      // Parent is responsible for showing any error/snackbar; skip local state updates.
       return;
     }
-    await onApplyAll(shift);
     await refreshShifts();
     setAppliedShiftIds((prev) => {
       const next = new Set(prev);
@@ -1423,11 +1439,15 @@ useEffect(() => {
   };
 
   const handleApplySlot = async (shift: Shift, slotId: number) => {
-    if (readOnlyActions) {
+    try {
+      if (readOnlyActions) {
+        await onApplySlot(shift, slotId);
+        return;
+      }
       await onApplySlot(shift, slotId);
+    } catch (err) {
       return;
     }
-    await onApplySlot(shift, slotId);
     await refreshShifts();
     setAppliedSlotIds((prev) => {
       const next = new Set(prev);

@@ -131,6 +131,7 @@ type ShiftsBoardProps = {
   hideTabs?: boolean;
   activeTabOverride?: 'browse' | 'saved';
   onActiveTabChange?: (tab: 'browse' | 'saved') => void;
+  roleOptionsOverride?: string[];
 };
 
 type SortKey = 'shiftDate' | 'postedDate' | 'rate' | 'distance';
@@ -442,6 +443,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   activeTabOverride,
   onActiveTabChange,
   onRefresh,
+  roleOptionsOverride,
 }) => {
   const auth = useAuth();
   const currentUserId = (auth as any)?.user?.id ?? null;
@@ -601,6 +603,11 @@ useEffect(() => {
   }, [savedShiftIdsProp, savedFeatureEnabled]);
 
   useEffect(() => {
+    // Public pages (no token) shouldn't hit the protected ratings endpoint, otherwise
+    // the axios interceptor will bounce the user to /login.
+    if (!auth?.token) {
+      return;
+    }
     const ids = new Set<number>();
     shifts.forEach((shift) => {
       const pharmacyId = getShiftPharmacyId(shift);
@@ -628,7 +635,7 @@ useEffect(() => {
           // ignore fetch errors; leave rating absent
         });
     });
-  }, [shifts]);
+  }, [shifts, auth?.token]);
 
   const handleActiveTabChange = (nextTab: 'browse' | 'saved') => {
     if (!activeTabOverride) {
@@ -868,6 +875,19 @@ useEffect(() => {
     });
     return Array.from(set).sort();
   }, [shifts]);
+  const roleOptions = useMemo(() => {
+    if (roleOptionsOverride && roleOptionsOverride.length > 0) {
+      // Keep override ordering but drop duplicates/empties
+      const seen = new Set<string>();
+      return roleOptionsOverride.filter((role) => {
+        if (!role) return false;
+        if (seen.has(role)) return false;
+        seen.add(role);
+        return true;
+      });
+    }
+    return uniqueRoles;
+  }, [roleOptionsOverride, uniqueRoles]);
 
   const locationGroups = useMemo(() => {
     const groups: Record<string, Set<string>> = {};
@@ -1529,7 +1549,7 @@ useEffect(() => {
       {renderFilterSection(
         filterSections.roles,
         <Stack spacing={1}>
-          {uniqueRoles.map((role) => (
+          {roleOptions.map((role) => (
             <FormControlLabel
               key={role}
               control={

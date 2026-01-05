@@ -275,7 +275,7 @@ const ActiveShiftsPage: React.FC = () => {
   const [revealingInterestId, setRevealingInterestId] = useState<number | null>(null);
   const [assigning, setAssigning] = useState(false);
   const [reviewLoadingId, setReviewLoadingId] = useState<number | null>(null);
-  const [reviewOfferDialog, setReviewOfferDialog] = useState<{ open: boolean; offer: any | null }>({ open: false, offer: null });
+  const [reviewOfferDialog, setReviewOfferDialog] = useState<{ open: boolean; offer: any | null; candidate: any | null; slotId: number | null }>({ open: false, offer: null, candidate: null, slotId: null });
   const [counterOffersByShift, setCounterOffersByShift] = useState<Record<number, any[]>>({});
   const [counterOffersLoading, setCounterOffersLoading] = useState<Set<number>>(new Set());
   const [counterActionLoading, setCounterActionLoading] = useState<number | null>(null);
@@ -645,13 +645,11 @@ const ActiveShiftsPage: React.FC = () => {
     setReviewCandidateDialog({ open: true, candidate, shiftId, counterOffer });
     if (candidate.userId != null) {
       setReviewLoadingId(candidate.userId);
-    }
-    try {
-      if (candidate.userId != null) {
+      try {
         await loadWorkerRatings(candidate.userId, 1);
+      } finally {
+        setReviewLoadingId(null);
       }
-    } finally {
-      setReviewLoadingId(null);
     }
   };
 
@@ -664,6 +662,7 @@ const ActiveShiftsPage: React.FC = () => {
       showSnackbar('Unable to reveal this interest.');
       return;
     }
+
     setRevealingInterestId(interest.id);
     try {
       resetWorkerRatings();
@@ -671,37 +670,19 @@ const ActiveShiftsPage: React.FC = () => {
         userId: interest.userId,
         slotId: interest.slotId ?? null,
       });
-    setPlatformInterestDialog({
-      open: true,
-      user: userDetail,
-      shiftId: shift.id,
-      interest,
-      counterOffer: counterOffer ?? null,
-    });
+      setPlatformInterestDialog({
+        open: true,
+        user: userDetail,
+        shiftId: shift.id,
+        interest: { ...interest, revealed: true, user: userDetail },
+        counterOffer: counterOffer ?? null,
+      });
       if (userDetail?.id) {
         setReviewLoadingId(userDetail.id);
         await loadWorkerRatings(userDetail.id, 1);
       }
       setReviewLoadingId(null);
-
-      const tabKey = getTabKey(shift.id, PUBLIC_LEVEL_KEY);
-      setTabData(prev => {
-        const current = prev[tabKey];
-        if (!current) return prev;
-        const updatedInterestsBySlot = { ...(current.interestsBySlot || {}) };
-        if (interest.slotId !== null && updatedInterestsBySlot[interest.slotId]) {
-          updatedInterestsBySlot[interest.slotId] = updatedInterestsBySlot[interest.slotId].map(item =>
-            item.id === interest.id ? { ...item, revealed: true } : item
-          );
-        }
-        const updatedInterestsAll = (current.interestsAll || []).map(item =>
-          item.id === interest.id ? { ...item, revealed: true } : item
-        );
-        return {
-          ...prev,
-          [tabKey]: { ...current, interestsBySlot: updatedInterestsBySlot, interestsAll: updatedInterestsAll },
-        };
-      });
+      markInterestRevealed(shift.id, PUBLIC_LEVEL_KEY, interest.id, userDetail);
     } catch (error) {
       console.error('Failed to reveal platform candidate', error);
       showSnackbar('Failed to reveal candidate.');
@@ -813,7 +794,13 @@ const ActiveShiftsPage: React.FC = () => {
     </Card>
   );
 
-  const renderOfferList = (offers: any[], filterSlotId: number | null) => {
+  const renderOfferList = (
+    offers: any[],
+    filterSlotId: number | null,
+    onOpen: (offer: any) => void,
+    labelResolver?: (offer: any) => string,
+    titleResolver?: (offer: any) => string
+  ) => {
     const list = Array.isArray(offers) ? offers : [];
     const filtered = filterSlotId == null
       ? list
@@ -831,14 +818,12 @@ const ActiveShiftsPage: React.FC = () => {
           <Paper key={offer.id ?? Math.random()} variant="outlined" sx={{ p: 1.5 }}>
             <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
               <Box>
-                {offer.message && (
-                  <Typography variant="body2" fontWeight={600} sx={{ whiteSpace: 'pre-line' }}>
-                    {offer.message.length > 80 ? `${offer.message.slice(0, 80)}…` : offer.message}
-                  </Typography>
-                )}
+                <Typography variant="body2" fontWeight={600}>
+                  {titleResolver ? titleResolver(offer) : offer.user ? 'Offer' : 'Anonymous offer'}
+                </Typography>
               </Box>
-              <Button size="small" onClick={() => setReviewOfferDialog({ open: true, offer })}>
-                {offer.user ? 'Review offer' : 'Reveal offer'}
+              <Button size="small" onClick={() => onOpen(offer)}>
+                {labelResolver ? labelResolver(offer) : (offer.user ? 'Review offer' : 'Reveal offer')}
               </Button>
             </Stack>
           </Paper>
@@ -851,7 +836,11 @@ const ActiveShiftsPage: React.FC = () => {
     if (!offer?.id || !offer?.shift) return;
     setCounterActionLoading(offer.id);
     try {
-      await acceptShiftCounterOfferService({ shiftId: offer.shift, offerId: offer.id });
+      await acceptShiftCounterOfferService({
+        shiftId: offer.shift,
+        offerId: offer.id,
+        slotId: reviewOfferDialog.slotId ?? null,
+      });
       showSnackbar('Counter offer accepted.');
       loadCounterOffers(offer.shift);
       loadShifts();
@@ -861,6 +850,138 @@ const ActiveShiftsPage: React.FC = () => {
     } finally {
       setCounterActionLoading(null);
     }
+  };
+
+  const findInterestForOffer = (offer: any, currentTabData: any, selectedSlotId: number | null) => {
+    if (!offer?.user || !currentTabData) return null;
+    const rawList = selectedSlotId != null
+      ? currentTabData.interestsBySlot?.[selectedSlotId] || []
+      : currentTabData.interestsAll || [];
+    const userId = offer.user;
+    return rawList.find((interest: any) => {
+      const iid = interest.userId ?? interest.user?.id ?? interest.user ?? null;
+      return iid != null && iid === userId;
+    }) || null;
+  };
+
+  const markInterestRevealed = (shiftId: number, levelKey: EscalationLevelKey, interestId: number | null, userDetail?: any) => {
+    if (!interestId) return;
+    const tabKey = getTabKey(shiftId, levelKey);
+    setTabData(prev => {
+      const current = prev[tabKey];
+      if (!current) return prev;
+      const nextInterestsBySlot: Record<number, any[]> = {};
+      Object.entries(current.interestsBySlot || {}).forEach(([sid, list]) => {
+        nextInterestsBySlot[Number(sid)] = (list as any[]).map(item =>
+          item.id === interestId ? { ...item, revealed: true, user: userDetail || item.user } : item
+        );
+      });
+      const nextInterestsAll = (current.interestsAll || []).map((item: any) =>
+        item.id === interestId ? { ...item, revealed: true, user: userDetail || item.user } : item
+      );
+      return {
+        ...prev,
+        [tabKey]: { ...current, interestsBySlot: nextInterestsBySlot, interestsAll: nextInterestsAll },
+      };
+    });
+  };
+
+  const getUserDisplayName = (user: any): string | undefined => {
+    if (!user) return undefined;
+    if (user.firstName && user.lastName) return `${user.firstName} ${user.lastName}`;
+    return user.name || user.displayName || user.fullName || user.email || undefined;
+  };
+
+  const getInterestDisplayName = (interest: any, userDetail?: any): string => {
+    return (
+      interest?.userName ||
+      interest?.displayName ||
+      interest?.name ||
+      getUserDisplayName(userDetail || interest?.user) ||
+      interest?.user ||
+      'Candidate'
+    );
+  };
+
+  const mapOfferSlotsWithShift = (offer: any, shift: Shift | undefined, filterSlotId: number | null = null) => {
+    const shiftSlotMap = new Map<number, any>();
+    (shift?.slots || []).forEach(s => {
+      if (s.id != null) shiftSlotMap.set(Number(s.id), s);
+    });
+    const baseList = (offer?.slots || []);
+    let filtered = filterSlotId == null
+      ? baseList
+      : baseList.filter((slot: any) => (slot.slotId ?? slot.slot?.id ?? slot.id) === filterSlotId);
+    if (filterSlotId != null && filtered.length === 0) {
+      filtered = baseList;
+    }
+    return filtered.map((slot: any, idx: number) => {
+      const slotId = slot.slotId ?? slot.slot?.id ?? slot.id ?? null;
+      const base = slotId != null ? shiftSlotMap.get(Number(slotId)) : null;
+      const date = slot.slotDate ?? slot.slot_date ?? slot.slot?.date ?? slot.date ?? base?.date ?? null;
+      const proposedStart = slot.proposedStartTime ?? slot.proposed_start_time ?? slot.start ?? slot.startTime ?? slot.start_time ?? base?.startTime;
+      const proposedEnd = slot.proposedEndTime ?? slot.proposed_end_time ?? slot.end ?? slot.endTime ?? slot.end_time ?? base?.endTime;
+      const proposedRate = slot.proposedRate ?? slot.proposed_rate ?? slot.rate ?? base?.rate ?? null;
+      return {
+        id: slotId ?? idx,
+        slotId: slotId ?? null,
+        date,
+        proposedStart,
+        proposedEnd,
+        proposedRate,
+      };
+    });
+  };
+
+  const handleOfferOpen = async (
+    shift: Shift,
+    offer: any,
+    currentTabData: any,
+    selectedSlotId: number | null
+  ) => {
+    resetWorkerRatings();
+    let interest = shift.visibility === PUBLIC_LEVEL_KEY
+      ? findInterestForOffer(offer, currentTabData, selectedSlotId)
+      : null;
+    let revealedUser: any = null;
+    if (interest) {
+      try {
+        revealedUser = await revealShiftInterestService(shift.id, {
+          userId: interest.userId ?? interest.user?.id ?? interest.user,
+          slotId: interest.slotId ?? null,
+        });
+        interest = { ...interest, revealed: true, user: revealedUser || (interest as any).user };
+        markInterestRevealed(shift.id, PUBLIC_LEVEL_KEY, interest.id, revealedUser);
+      } catch (error) {
+        console.error('Failed to reveal offer candidate', error);
+      }
+    }
+
+    const candidate = interest ? {
+      name: getInterestDisplayName(interest, revealedUser),
+      email: revealedUser?.email || interest.user?.email || interest.email,
+      shortBio: interest.shortBio || interest.user?.shortBio || revealedUser?.shortBio,
+    } : null;
+
+    const ratingsUserId = (revealedUser?.id ?? interest?.userId ?? interest?.user?.id) ?? null;
+    if (ratingsUserId != null) {
+      setReviewLoadingId(ratingsUserId);
+      try {
+        await loadWorkerRatings(ratingsUserId, 1);
+      } finally {
+        setReviewLoadingId(null);
+      }
+    }
+
+    const mappedSlots = mapOfferSlotsWithShift(offer, shift, selectedSlotId);
+    console.debug('[ReviewOffer] mapped slots', { shiftId: shift.id, offerId: offer.id, selectedSlotId, mappedSlots, rawSlots: offer?.slots });
+
+    setReviewOfferDialog({
+      open: true,
+      offer: { ...offer, _mappedSlots: mappedSlots },
+      candidate,
+      slotId: selectedSlotId,
+    });
   };
 
   const handleRejectOffer = async (offer: any) => {
@@ -1273,16 +1394,40 @@ const ActiveShiftsPage: React.FC = () => {
                             const multiSlots = !shift.singleUserOnly && slots.length > 0;
                             const selectedSlotId =
                               multiSlots ? (selectedSlotByShift[shift.id] ?? slots[0]?.id ?? null) : null;
-                            const slotInterests = selectedSlotId
+                          const offerUserIds = new Set(
+                            (offers || [])
+                              .map((o: any) => o?.user)
+                              .filter((id: any) => id != null)
+                          );
+                            const slotInterestsRaw = selectedSlotId
                               ? interestsBySlot[selectedSlotId] || []
                               : interestsAll;
+                            const slotInterests = slotInterestsRaw.filter((interest: any) => {
+                              const uid = interest.userId ?? interest.user?.id ?? null;
+                              return uid == null || !offerUserIds.has(uid);
+                            });
                             const slotRejections = selectedSlotId
                               ? rejectionsBySlot[selectedSlotId] || []
                               : [];
                             const slotAssignments = (shift.slotAssignments || []).filter(
                               a => selectedSlotId ? a.slotId === selectedSlotId : true
                             );
-                            const offersForView = renderOfferList(offers, multiSlots ? selectedSlotId : null);
+                          const offersForView = renderOfferList(
+                            offers,
+                            multiSlots ? selectedSlotId : null,
+                            (offer) => handleOfferOpen(shift, offer, currentTabData, selectedSlotId),
+                            (offer) => {
+                              const interest = findInterestForOffer(offer, currentTabData, selectedSlotId);
+                              return interest && interest.revealed ? 'Review offer' : 'Reveal offer';
+                            },
+                            (offer) => {
+                              const interest = findInterestForOffer(offer, currentTabData, selectedSlotId);
+                              if (interest && interest.revealed) {
+                                return getInterestDisplayName(interest);
+                              }
+                              return 'Anonymous offer';
+                            }
+                          );
                             const hasOfferContent = Array.isArray(offers) && offers.length > 0;
                             const hasInterestContent =
                               (!multiSlots && interestsAll.length > 0) ||
@@ -1315,14 +1460,18 @@ const ActiveShiftsPage: React.FC = () => {
                                     {slotInterests.length > 0 && (
                                       <Paper variant="outlined" sx={{ p: 2 }}>
                                         <Typography variant="subtitle2">Interested</Typography>
-                                        {slotInterests.map(interest => (
-                                          <Box key={interest.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1, pt: 1, borderTop: '1px solid #eee' }}>
-                                            <Typography variant="body2">{interest.user}</Typography>
-                                            <Button
-                                              size="small"
-                                              variant={interest.revealed ? 'outlined' : 'contained'}
-                                              onClick={() => handleRevealPlatform(shift, interest)}
-                                              disabled={revealingInterestId === interest.id || assigning}
+                                    {slotInterests.map(interest => (
+                                      <Box key={interest.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1, pt: 1, borderTop: '1px solid #eee' }}>
+                                        <Typography variant="body2">
+                                          {interest.revealed
+                                            ? getInterestDisplayName(interest)
+                                            : 'Anonymous Interest User'}
+                                        </Typography>
+                                        <Button
+                                          size="small"
+                                          variant={interest.revealed ? 'outlined' : 'contained'}
+                                          onClick={() => handleRevealPlatform(shift, interest)}
+                                          disabled={revealingInterestId === interest.id || assigning}
                                               startIcon={
                                                 revealingInterestId === interest.id ? (
                                                   <CircularProgress size={16} color="inherit" />
@@ -1364,7 +1513,11 @@ const ActiveShiftsPage: React.FC = () => {
                           const assigned = slotMembers.filter(m => m.status === 'accepted');
                           const rejected = slotMembers.filter(m => m.status === 'rejected');
                           const noResponse = slotMembers.filter(m => m.status === 'no_response');
-                          const offersForView = renderOfferList(offers, multiSlots ? selectedSlotId : null);
+                          const offersForView = renderOfferList(
+                            offers,
+                            multiSlots ? selectedSlotId : null,
+                            (offer) => setReviewOfferDialog({ open: true, offer: { ...offer, _mappedSlots: mapOfferSlotsWithShift(offer, shift, selectedSlotId) }, candidate: null, slotId: selectedSlotId })
+                          );
                           const hasMembers = slotMembers.length > 0;
 
                           return (
@@ -1561,20 +1714,9 @@ const ActiveShiftsPage: React.FC = () => {
           <DialogContent>
             {platformInterestDialog.user && !loadingWorkerRatings ? (
               <Box>
-                {platformInterestDialog.shiftId && (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                    Shift #{platformInterestDialog.shiftId}
-                  </Typography>
-                )}
-                {(() => {
-                  const platformShift = shifts.find(s => s.id === platformInterestDialog.shiftId);
-                  const isPublic = platformShift?.visibility === PUBLIC_LEVEL_KEY;
-                  return (
-                    <Typography variant="h6">
-                      {isPublic ? 'Anonymous candidate' : `${platformInterestDialog.user.firstName} ${platformInterestDialog.user.lastName}`}
-                    </Typography>
-                  );
-                })()}
+                <Typography variant="h6">
+                  {getUserDisplayName(platformInterestDialog.user) || 'Candidate'}
+                </Typography>
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   {platformInterestDialog.user.email}
                 </Typography>
@@ -1595,20 +1737,24 @@ const ActiveShiftsPage: React.FC = () => {
                       Counter Offer
                     </Typography>
                     <Stack spacing={1} sx={{ mt: 1 }}>
-                      {(platformInterestDialog.counterOffer.slots || []).map((slot: any) => (
+                      {mapOfferSlotsWithShift(
+                        platformInterestDialog.counterOffer,
+                        shifts.find(s => s.id === platformInterestDialog.shiftId),
+                        platformInterestDialog.interest?.slotId ?? null
+                      ).map((slot: any) => (
                         <Paper
-                          key={`${slot.slotId ?? slot.id ?? ''}-${slot.slotDate ?? slot.slot?.date ?? slot.date ?? ''}`}
+                          key={`${slot.id ?? ''}-${slot.date ?? ''}`}
                           variant="outlined"
                           sx={{ p: 1.5, borderRadius: 2 }}
                         >
                           <Typography variant="body2" fontWeight="bold">
-                            {slot.slotDate ?? slot.slot?.date ?? slot.date
-                              ? new Date(slot.slotDate ?? slot.slot?.date ?? slot.date!).toLocaleDateString()
+                            {slot.date
+                              ? new Date(slot.date).toLocaleDateString()
                               : 'Shift-wide'}
                           </Typography>
                           <Typography variant="body2" color="text.secondary">
-                            {(slot.proposedStartTime ?? slot.proposed_start_time ?? slot.startTime ?? slot.start_time)?.slice(0, 5)} -{' '}
-                            {(slot.proposedEndTime ?? slot.proposed_end_time ?? slot.endTime ?? slot.end_time)?.slice(0, 5)}
+                            {(slot.proposedStart ?? slot.proposedStartTime ?? slot.proposed_start_time ?? slot.startTime ?? slot.start_time)?.slice(0, 5)} -{' '}
+                            {(slot.proposedEnd ?? slot.proposedEndTime ?? slot.proposed_end_time ?? slot.endTime ?? slot.end_time)?.slice(0, 5)}
                           </Typography>
                           {slot.proposedRate != null ? (
                             <Typography variant="body2" color="text.secondary">
@@ -1711,7 +1857,7 @@ const ActiveShiftsPage: React.FC = () => {
 
         <Dialog
           open={reviewOfferDialog.open}
-          onClose={() => setReviewOfferDialog({ open: false, offer: null })}
+          onClose={() => setReviewOfferDialog({ open: false, offer: null, candidate: null, slotId: null })}
           fullWidth
           maxWidth="sm"
         >
@@ -1724,36 +1870,117 @@ const ActiveShiftsPage: React.FC = () => {
                     {reviewOfferDialog.offer.message}
                   </Typography>
                 )}
-                {(reviewOfferDialog.offer.slots || []).map((slot: any, idx: number) => (
+                {reviewOfferDialog.candidate && (
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="subtitle2">Candidate</Typography>
+                    <Typography variant="body2" fontWeight={600}>
+                      {reviewOfferDialog.candidate.name || 'Candidate'}
+                    </Typography>
+                    {reviewOfferDialog.candidate.email && (
+                      <Typography variant="body2" color="text.secondary">
+                        {reviewOfferDialog.candidate.email}
+                      </Typography>
+                    )}
+                    {reviewOfferDialog.candidate.shortBio && (
+                      <Typography variant="body2" sx={{ mt: 0.5 }}>
+                        {reviewOfferDialog.candidate.shortBio}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+                <Divider sx={{ my: 1 }} />
+                {(() => {
+                  const rawSlots = reviewOfferDialog.offer._mappedSlots || reviewOfferDialog.offer.slots || [];
+                  const filterId = reviewOfferDialog.slotId;
+                  const visible = filterId == null
+                    ? rawSlots
+                    : rawSlots.filter((s: any) => (s.slotId ?? s.slot_id ?? s.slot?.id ?? s.id) === filterId);
+                  return visible.length ? visible : rawSlots;
+                })().map((slot: any, idx: number) => (
                   <Paper
                     key={`${slot.slotId ?? slot.id ?? idx}-${slot.slotDate ?? slot.slot?.date ?? slot.date ?? idx}`}
                     variant="outlined"
                     sx={{ p: 1.5, borderRadius: 2 }}
                   >
                     <Typography variant="body2" fontWeight="bold">
-                      {slot.slotDate ?? slot.slot?.date ?? slot.date
-                        ? new Date(slot.slotDate ?? slot.slot?.date ?? slot.date!).toLocaleDateString()
+                      {slot.date || slot.slotDate || slot.slot?.date
+                        ? new Date(slot.date || slot.slotDate || slot.slot?.date!).toLocaleDateString()
                         : 'Shift-wide'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      {(slot.proposedStartTime ?? slot.proposed_start_time ?? slot.startTime ?? slot.start_time)?.slice(0, 5)} -{' '}
-                      {(slot.proposedEndTime ?? slot.proposed_end_time ?? slot.endTime ?? slot.end_time)?.slice(0, 5)}
+                      {(slot.proposedStart ?? slot.proposedStartTime ?? slot.proposed_start_time ?? slot.startTime ?? slot.start_time)?.slice(0, 5)} -{' '}
+                      {(slot.proposedEnd ?? slot.proposedEndTime ?? slot.proposed_end_time ?? slot.endTime ?? slot.end_time)?.slice(0, 5)}
                     </Typography>
-                    {slot.proposedRate != null && (
+                    {slot.proposedRate != null ? (
                       <Typography variant="body2" color="text.secondary">
                         Proposed rate: {slot.proposedRate}
                       </Typography>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        Proposed rate: N/A
+                      </Typography>
                     )}
                   </Paper>
-              ))}
-              {reviewOfferDialog.offer.requestTravel && <Chip size="small" color="info" label="Requested travel support" />}
-            </Stack>
-          ) : (
-            <Typography color="text.secondary">No offer selected.</Typography>
-          )}
+                ))}
+                {reviewOfferDialog.offer.requestTravel && <Chip size="small" color="info" label="Requested travel support" />}
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Ratings & Reviews
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  {workerRatingSummary ? (
+                    <>
+                      <Rating value={workerRatingSummary.average} precision={0.5} readOnly />
+                      <Typography variant="body1" color="text.secondary">
+                        {workerRatingSummary.average.toFixed(1)} ({workerRatingSummary.count} reviews)
+                      </Typography>
+                    </>
+                  ) : (
+                    <Skeleton variant="rectangular" width={200} height={28} />
+                  )}
+                </Box>
+                <Box sx={{ display: 'grid', gap: 1.5, mt: 2 }}>
+                  {workerRatingComments.map(comment => (
+                    <Paper key={comment.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'background.default' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Rating value={comment.stars} readOnly size="small" />
+                        {comment.createdAt && (
+                          <Typography variant="caption" color="text.secondary">
+                            {new Date(comment.createdAt).toLocaleDateString()}
+                          </Typography>
+                        )}
+                      </Box>
+                      {comment.comment && (
+                        <Typography variant="body2" sx={{ mt: 0.5 }}>
+                          {comment.comment}
+                        </Typography>
+                      )}
+                    </Paper>
+                  ))}
+                  {workerRatingComments.length === 0 && (
+                    <Typography variant="body2" color="text.secondary">
+                      No reviews yet.
+                    </Typography>
+                  )}
+                  {workerCommentsPageCount > 1 && (
+                    <Box display="flex" justifyContent="center" mt={1}>
+                      <Pagination
+                        count={workerCommentsPageCount}
+                        page={workerCommentsPage}
+                        onChange={handleWorkerCommentsPageChange}
+                        color="primary"
+                        size="small"
+                      />
+                    </Box>
+                  )}
+                </Box>
+              </Stack>
+            ) : (
+              <Typography color="text.secondary">No offer selected.</Typography>
+            )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setReviewOfferDialog({ open: false, offer: null })}>Close</Button>
+          <Button onClick={() => setReviewOfferDialog({ open: false, offer: null, candidate: null, slotId: null })}>Close</Button>
           {reviewOfferDialog.offer && (
             <>
               <Button

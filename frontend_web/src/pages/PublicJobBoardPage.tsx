@@ -51,6 +51,9 @@ const DEFAULT_FILTERS: FilterConfig = {
   bulkShiftsOnly: false,
 };
 
+// Show all supported roles in the public filter, even when no shifts exist yet.
+const PUBLIC_ROLE_OPTIONS = ['Pharmacist', 'Intern', 'Assistant', 'Technician', 'Student'];
+
 export default function PublicJobBoardPage() {
   const [searchParams] = useSearchParams();
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -212,6 +215,7 @@ export default function PublicJobBoardPage() {
           hideSaveToggle
           readOnlyActions
           disableLocalPersistence
+          roleOptionsOverride={PUBLIC_ROLE_OPTIONS}
           initialAppliedShiftIds={[]}
           initialAppliedSlotIds={[]}
           initialRejectedShiftIds={[]}

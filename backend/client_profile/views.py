@@ -2721,41 +2721,45 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 )
 
         # Rest of the reveal logic remains the same...
+        already_revealed_user = shift.revealed_users.filter(pk=user_id).exists()
+        already_revealed_interest = bool(interest.revealed)
+
         if (shift.reveal_quota is not None
             and shift.reveal_count >= shift.reveal_quota
-            and not shift.revealed_users.filter(pk=user_id).exists()):
+            and not already_revealed_user):
             return Response({'detail': 'Reveal quota exceeded.'}, status=status.HTTP_403_FORBIDDEN)
 
-        if not shift.revealed_users.filter(pk=user_id).exists():
+        if not already_revealed_user:
             shift.revealed_users.add(candidate)
             shift.reveal_count += 1
             shift.save()
 
-        if not interest.revealed:
+        if not already_revealed_interest:
             interest.revealed = True
             interest.save()
 
-        # Send email and return profile data...
-        ctx = build_shift_email_context(shift, user=candidate, role=candidate.role.lower())
-        notification_payload = {
-            "title": f"Profile revealed: {shift.pharmacy.name}",
-            "body": f"Your profile was shared with {shift.pharmacy.name} for an upcoming shift.",
-            "payload": {
-                "shift_id": shift.id,
-            },
-        }
-        if ctx.get("shift_link"):
-            notification_payload["action_url"] = ctx["shift_link"]
+        # Send email only on first reveal for this candidate/shift to avoid inflating reveal count or duplicate notifications.
+        if not already_revealed_user:
+            ctx = build_shift_email_context(shift, user=candidate, role=candidate.role.lower())
+            notification_payload = {
+                "title": f"Profile revealed: {shift.pharmacy.name}",
+                "body": f"Your profile was shared with {shift.pharmacy.name} for an upcoming shift.",
+                "payload": {
+                    "shift_id": shift.id,
+                },
+            }
+            if ctx.get("shift_link"):
+                notification_payload["action_url"] = ctx["shift_link"]
 
-        async_task(
-            'users.tasks.send_async_email',
-            subject=f"Your profile was revealed for a shift at {shift.pharmacy.name}",
-            recipient_list=[candidate.email],
-            template_name="emails/shift_reveal.html",
-            context=ctx,
-            text_template="emails/shift_reveal.txt",
-            notification=notification_payload
-        )
+            async_task(
+                'users.tasks.send_async_email',
+                subject=f"Your profile was revealed for a shift at {shift.pharmacy.name}",
+                recipient_list=[candidate.email],
+                template_name="emails/shift_reveal.html",
+                context=ctx,
+                text_template="emails/shift_reveal.txt",
+                notification=notification_payload
+            )
 
         try:
             po = PharmacistOnboarding.objects.get(user=candidate)
@@ -3019,12 +3023,20 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
 
         offer = get_object_or_404(ShiftCounterOffer, pk=offer_id, shift=shift)
-        if offer.status != ShiftCounterOffer.Status.PENDING:
-            return Response({'detail': 'Counter offer is not pending.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        offer_slots = list(offer.slots.select_related('slot'))
+        slot_id = request.data.get('slot_id')
+        # Allow per-slot acceptance even if the offer was already accepted for another slot.
+        if offer.status != ShiftCounterOffer.Status.PENDING and slot_id is None:
+            return Response({'detail': 'Counter offer is not pending.'}, status=status.HTTP_400_BAD_REQUEST)
+        if offer.status == ShiftCounterOffer.Status.REJECTED:
+            return Response({'detail': 'Counter offer has been rejected.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        offer_slots_qs = offer.slots.select_related('slot')
+        if slot_id is not None:
+            offer_slots_qs = offer_slots_qs.filter(slot_id=slot_id)
+        offer_slots = list(offer_slots_qs)
         if not offer_slots:
-            return Response({'detail': 'Counter offer has no slots.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Counter offer has no slots for this selection.'}, status=status.HTTP_400_BAD_REQUEST)
 
         for offer_slot in offer_slots:
             slot = offer_slot.slot
@@ -3065,10 +3077,17 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                     is_rostered=True
                 )
 
+        if slot_id is None:
+            # Accepting the whole offer (all slots)
             offer.status = ShiftCounterOffer.Status.ACCEPTED
             offer.decided_by = request.user
             offer.decided_at = timezone.now()
             offer.save(update_fields=['status', 'decided_by', 'decided_at', 'updated_at'])
+        else:
+            # Per-slot acceptance: keep offer pending so remaining slots can be processed.
+            offer.decided_by = request.user
+            offer.decided_at = timezone.now()
+            offer.save(update_fields=['decided_by', 'decided_at', 'updated_at'])
 
         return Response({'detail': 'Counter offer accepted.'}, status=status.HTTP_200_OK)
 

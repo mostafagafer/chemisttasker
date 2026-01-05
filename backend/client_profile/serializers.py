@@ -3998,6 +3998,7 @@ class ShiftCounterOfferSlotSerializer(serializers.ModelSerializer):
 
 class ShiftCounterOfferSerializer(serializers.ModelSerializer):
     user = serializers.PrimaryKeyRelatedField(read_only=True)
+    user_detail = serializers.SerializerMethodField()
     slots = ShiftCounterOfferSlotSerializer(many=True)
 
     class Meta:
@@ -4006,6 +4007,7 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
             'id',
             'shift',
             'user',
+            'user_detail',
             'message',
             'request_travel',
             'status',
@@ -4121,6 +4123,18 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
                 **entry
             )
         return offer
+
+    def get_user_detail(self, obj):
+        user = getattr(obj, 'user', None)
+        if not user:
+            return None
+        # Always return the user detail so the frontend can render the name after reveal (or for owners).
+        return {
+            'id': user.id,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'email': user.email,
+        }
 
 class MyShiftSerializer(serializers.ModelSerializer):
     # reuse the full PharmacySerializer (with all the file‐fields)

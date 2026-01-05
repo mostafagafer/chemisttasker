@@ -2798,10 +2798,62 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'user_id is required'}, status=status.HTTP_400_BAD_REQUEST)
         
         candidate = get_object_or_404(User, pk=user_id)
+        # Normalize slot id from various payload shapes and auto-pick when possible
         slot_id = request.data.get('slot_id')
+        if slot_id in (None, ''):
+            slot_id = request.data.get('slotId')
+        if slot_id in (None, ''):
+            slot_id = request.data.get('slot')  # alternate key some clients send
+        if slot_id in ('', 'null'):
+            slot_id = None
+        if isinstance(slot_id, str) and slot_id.isdigit():
+            slot_id = int(slot_id)
+
+        # TEMP DEBUG - remove after investigation
+        try:
+            slots_qs = shift.slots.all()
+            unassigned_ids = [
+                s.id for s in slots_qs
+                if not ShiftSlotAssignment.objects.filter(slot=s).exists()
+            ]
+            print({
+                "DBG": "accept_user",
+                "shift_id": shift.id,
+                "single_user_only": shift.single_user_only,
+                "slot_id_raw": request.data.get('slot_id'),
+                "slotId_raw": request.data.get('slotId'),
+                "slot_alt_raw": request.data.get('slot'),
+                "slot_id_normalized": slot_id,
+                "slots_count": slots_qs.count(),
+                "unassigned_ids": unassigned_ids,
+                "user_id": user_id,
+            })
+        except Exception as e:
+            print({"DBG": "accept_user_error", "error": str(e)})
+        # For multi-slot shifts, auto-pick when possible (prefer unassigned)
+        if not shift.single_user_only and slot_id is None:
+            slots_qs = shift.slots.all()
+            if slots_qs.count() == 1:
+                slot_id = slots_qs.first().id
+            else:
+                unassigned_ids = [
+                    s.id for s in slots_qs
+                    if not ShiftSlotAssignment.objects.filter(slot=s).exists()
+                ]
+                if len(unassigned_ids) == 1:
+                    slot_id = unassigned_ids[0]
+                elif unassigned_ids:
+                    slot_id = unassigned_ids[0]
 
         membership = Membership.objects.filter(user=candidate, pharmacy=shift.pharmacy).first()
         is_internal_staff = membership and membership.employment_type in ['FULL_TIME', 'PART_TIME']
+
+        # For multi-slot shifts, prefer an explicit slot_id; if still None after auto-pick, raise.
+        if not shift.single_user_only and slot_id is None:
+            return Response(
+                {'detail': 'slot_id is required for multi-slot shifts.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # --- FIX: NEW LOGIC TO HANDLE BOTH EMPLOYEE TYPES ---
 
@@ -2811,10 +2863,11 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             assignment_ids = []
             slots_to_assign = []
             
-            if shift.single_user_only or slot_id is None:
+            if shift.single_user_only:
                 slots_to_assign = shift.slots.all()
             else:
-                slots_to_assign = shift.slots.filter(pk=slot_id)
+                slot = get_object_or_404(shift.slots, pk=slot_id)
+                slots_to_assign = [slot]
 
             for slot in slots_to_assign:
                 for entry in expand_shift_slots(shift):
@@ -2874,18 +2927,7 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                     )
                     assignment_ids.append(a.id)
             
-            # CASE 2: MULTI-SLOT (ALL UNASSIGNED)
-            elif slot_id is None:
-                for entry in expand_shift_slots(shift):
-                    if not ShiftSlotAssignment.objects.filter(slot=entry['slot'], slot_date=entry['date']).exists():
-                        rate, reason = get_locked_rate_for_slot(shift=shift, slot=entry['slot'], user=candidate, override_date=entry['date'])
-                        a, _ = ShiftSlotAssignment.objects.update_or_create(
-                            slot=entry['slot'], slot_date=entry['date'],
-                            defaults={'shift': shift, 'user': candidate, 'unit_rate': rate, 'rate_reason': reason}
-                        )
-                        assignment_ids.append(a.id)
-
-            # CASE 3: SPECIFIC SLOT IN MULTI-SLOT SHIFT
+            # CASE 2: SPECIFIC SLOT IN MULTI-SLOT SHIFT (slot_id required for multi-slot)
             else:
                 slot = get_object_or_404(shift.slots, pk=slot_id)
                 for entry in expand_shift_slots(shift):
@@ -2929,7 +2971,15 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             offers = shift.counter_offers.select_related('user', 'decided_by').prefetch_related('slots__slot')
             if not self._user_can_manage_pharmacy(request.user, shift.pharmacy):
                 offers = offers.filter(user=request.user)
-            serializer = ShiftCounterOfferSerializer(offers, many=True, context={'request': request, 'shift': shift})
+            serializer = ShiftCounterOfferSerializer(
+                offers,
+                many=True,
+                context={
+                    'request': request,
+                    'shift': shift,
+                    'include_user_detail': True,  # owner can see identity (after reveal check in serializer)
+                },
+            )
             return Response(serializer.data)
 
         serializer = ShiftCounterOfferSerializer(data=request.data, context={'request': request, 'shift': shift})
@@ -3025,6 +3075,10 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         offer = get_object_or_404(ShiftCounterOffer, pk=offer_id, shift=shift)
 
         slot_id = request.data.get('slot_id')
+        # For multi-slot shifts, enforce an explicit slot selection so we don't
+        # accidentally assign all slots to one candidate when a slot isn't specified.
+        if not shift.single_user_only and slot_id is None:
+            return Response({'detail': 'slot_id is required for multi-slot shifts.'}, status=status.HTTP_400_BAD_REQUEST)
         # Allow per-slot acceptance even if the offer was already accepted for another slot.
         if offer.status != ShiftCounterOffer.Status.PENDING and slot_id is None:
             return Response({'detail': 'Counter offer is not pending.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -3977,16 +4031,16 @@ class HistoryShiftViewSet(BaseShiftViewSet):
             assigned_count=Count('slots__assignments', distinct=True)
         ).filter(assigned_count__gte=F('slot_count'))
 
-        # slots ended
-        # past_oneoff = (
-        #     Q(slots__date__lt=today) |
-        #     Q(slots__date=today, slots__end_time__lt=now.time())
-        # )
-        # past_recurring = Q(
-        #     slots__is_recurring=True,
-        #     slots__recurring_end_date__lt=today
-        # )
-        # qs = qs.filter(past_oneoff | past_recurring)
+        # Only include shifts whose slot occurrences are entirely in the past
+        past_oneoff = (
+            Q(slots__date__lt=today) |
+            Q(slots__date=today, slots__end_time__lt=now.time())
+        )
+        past_recurring = Q(
+            slots__is_recurring=True,
+            slots__recurring_end_date__lt=today
+        )
+        qs = qs.filter(past_oneoff | past_recurring)
 
         return qs.distinct()
 

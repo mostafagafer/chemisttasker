@@ -152,7 +152,8 @@ export default function ConfirmedShiftsPage() {
     return (
       <>
         {displayedShifts.map(shift => {
-          const assignments = shift.slotAssignments ?? [];
+          // Support both camelCase and snake_case from the API
+          const assignments = shift.slotAssignments ?? (shift as any).slot_assignments ?? [];
           return (
             <Paper key={shift.id} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
               <Typography variant="h6">{shift.pharmacyDetail?.name ?? 'Unknown Pharmacy'}</Typography>

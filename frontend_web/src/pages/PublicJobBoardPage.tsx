@@ -54,6 +54,15 @@ const DEFAULT_FILTERS: FilterConfig = {
 // Show all supported roles in the public filter, even when no shifts exist yet.
 const PUBLIC_ROLE_OPTIONS = ['Pharmacist', 'Intern', 'Assistant', 'Technician', 'Student'];
 
+const normalizeRoleForApi = (role: string) =>
+  role
+    ? role
+        .toString()
+        .trim()
+        .replace(/\s+/g, '_')
+        .toUpperCase()
+    : '';
+
 export default function PublicJobBoardPage() {
   const [searchParams] = useSearchParams();
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -136,10 +145,14 @@ export default function PublicJobBoardPage() {
       setError(null);
       try {
         const org = searchParams.get('organization');
+        const roleFilters = activeFilters.roles
+          .map(normalizeRoleForApi)
+          .filter((value) => Boolean(value));
         const payload: any = {
           organization: org || undefined,
           search: activeFilters.search,
-          roles: activeFilters.roles,
+          // Backend expects enum codes (e.g. PHARMACIST), while the UI uses labels.
+          roles: roleFilters,
           employment_types: activeFilters.employmentTypes,
           city: activeFilters.city,
           state: [],

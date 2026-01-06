@@ -171,6 +171,22 @@ def anonymize_pharmacy_detail(detail: dict | None) -> dict | None:
     return masked
 
 
+def _get_user_short_bio(user):
+    """
+    Retrieve the first non-empty short_bio from the user's onboarding profile(s),
+    falling back to any short_bio directly on the user if present.
+    """
+    if not user:
+        return None
+    for attr in ("pharmacistonboarding", "otherstaffonboarding", "exploreronboarding"):
+        profile = getattr(user, attr, None)
+        if profile:
+            bio = getattr(profile, "short_bio", None)
+            if bio:
+                return bio
+    return getattr(user, "short_bio", None)
+
+
 class SyncUserMixin:
     USER_FIELDS = ['username', 'first_name', 'last_name']
     @staticmethod
@@ -3931,6 +3947,8 @@ class ShiftInterestSerializer(serializers.ModelSerializer):
     user_id  = serializers.IntegerField(source='user.id', read_only=True)
     slot_id  = serializers.IntegerField(source='slot.id', read_only=True)
     slot_time = serializers.SerializerMethodField()
+    short_bio = serializers.SerializerMethodField()
+    user_detail = serializers.SerializerMethodField()
     revealed = serializers.BooleanField(read_only=True)
 
     class Meta:
@@ -3943,11 +3961,13 @@ class ShiftInterestSerializer(serializers.ModelSerializer):
             'slot_time',
             'user',
             'user_id',
+            'short_bio',
+            'user_detail',
             'revealed',
             'expressed_at',
         ]
         read_only_fields = [
-            'id','user','user_id','slot_time','revealed','expressed_at'
+            'id','user','user_id','slot_time','short_bio','user_detail','revealed','expressed_at'
         ]
 
     def get_user(self, obj):
@@ -3958,6 +3978,27 @@ class ShiftInterestSerializer(serializers.ModelSerializer):
         # For debugging, return the full name if revealed or not public.
         return obj.user.get_full_name()
 
+    def get_short_bio(self, obj):
+        is_public = obj.shift.visibility == 'PLATFORM'
+        if is_public and not obj.revealed:
+            return None
+        return _get_user_short_bio(obj.user)
+
+    def get_user_detail(self, obj):
+        is_public = obj.shift.visibility == 'PLATFORM'
+        if is_public and not obj.revealed:
+            return None
+        user = getattr(obj, 'user', None)
+        if not user:
+            return None
+        return {
+            'id': user.id,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'email': user.email,
+            'short_bio': _get_user_short_bio(user),
+        }
+
     def get_slot_time(self, obj):
         slot = obj.slot
         if not slot:
@@ -3966,7 +4007,7 @@ class ShiftInterestSerializer(serializers.ModelSerializer):
         date_str  = slot.date.strftime('%Y-%m-%d')
         start_str = slot.start_time.strftime('%H:%M')
         end_str   = slot.end_time.strftime('%H:%M')
-        return f"{date_str} {start_str}–{end_str}"
+        return f"{date_str} {start_str}-{end_str}"
 
 class ShiftRejectionSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
@@ -4134,6 +4175,7 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
             'first_name': user.first_name,
             'last_name': user.last_name,
             'email': user.email,
+            'short_bio': _get_user_short_bio(user),
         }
 
 class MyShiftSerializer(serializers.ModelSerializer):

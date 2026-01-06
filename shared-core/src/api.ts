@@ -177,13 +177,16 @@ const mapShiftInterest = (api) => {
     const displayName = (typeof api.user === 'string' ? api.user : '') ||
         `${api.user_first_name ?? ''} ${api.user_last_name ?? ''}`.trim() ||
         'Candidate';
+    const userDetail = camelCaseKeysDeep(api.user_detail);
+    const userValue = typeof api.user === 'object' && api.user !== null ? camelCaseKeysDeep(api.user) : displayName;
     return {
         ...base,
         displayName,
         averageRating: base.averageRating ?? base.rating ?? null,
         rating: base.rating ?? base.averageRating ?? null,
         slotId: base.slot ?? null,
-        user: displayName,
+        user: userValue,
+        userDetail,
     };
 };
 const mapShiftShareLink = (api) => camelCaseKeysDeep(api);

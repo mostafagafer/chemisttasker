@@ -7,9 +7,7 @@ import {
     fetchShiftMemberStatus,
 } from '@chemisttasker/shared-core';
 import { TabDataState } from '../types';
-
-const PUBLIC_LEVEL_KEY = 'public';
-const COMMUNITY_LEVEL_KEY = 'community';
+import { PUBLIC_LEVEL_KEY } from '../utils/shiftHelpers';
 
 export function useTabData(
     shifts: Shift[],
@@ -24,6 +22,7 @@ export function useTabData(
             setTabData(prev => ({ ...prev, [key]: { loading: true } }));
 
             try {
+                // Public/platform: interests/rejections
                 if (levelKey === PUBLIC_LEVEL_KEY) {
                     const interests = await fetchShiftInterests(shift.id);
                     const interestsBySlot: Record<number, any[]> = {};
@@ -39,22 +38,40 @@ export function useTabData(
                             interestsBySlot,
                         },
                     }));
-                } else if (levelKey === COMMUNITY_LEVEL_KEY) {
-                    const members = await fetchShiftMemberStatus(shift.id, {});
-                    const membersBySlot: Record<number, ShiftMemberStatus[]> = {};
-                    (shift.slots || []).forEach(slot => {
-                        membersBySlot[slot.id] = members.filter((m: any) => m.slotId === slot.id || m.slotId == null);
-                    });
-
-                    setTabData(prev => ({
-                        ...prev,
-                        [key]: {
-                            loading: false,
-                            members,
-                            membersBySlot,
-                        },
-                    }));
+                    return;
                 }
+
+                // Community/other levels: member status by slot
+                const membersBySlotEntries = await Promise.all(
+                    (shift.slots || []).map(async slot => {
+                        try {
+                            const members = await fetchShiftMemberStatus(shift.id, {
+                                slotId: slot.id,
+                                visibility: levelKey,
+                            });
+                            return [slot.id, members] as const;
+                        } catch (error) {
+                            console.error(`Failed to load members for shift ${shift.id} slot ${slot.id}`, error);
+                            return [slot.id, [] as ShiftMemberStatus[]] as const;
+                        }
+                    })
+                );
+
+                const membersBySlot = membersBySlotEntries.reduce<Record<number, ShiftMemberStatus[]>>((acc, [slotId, members]) => {
+                    acc[slotId] = members;
+                    return acc;
+                }, {});
+
+                const members = membersBySlotEntries.flatMap(([, list]) => list);
+
+                setTabData(prev => ({
+                    ...prev,
+                    [key]: {
+                        loading: false,
+                        membersBySlot,
+                        members,
+                    },
+                }));
             } catch (error) {
                 console.error('Failed to load tab data', error);
                 setTabData(prev => ({ ...prev, [key]: { loading: false } }));
@@ -65,8 +82,8 @@ export function useTabData(
 
     useEffect(() => {
         shifts.forEach(shift => {
-            const levelKey = selectedLevelByShift[shift.id] || PUBLIC_LEVEL_KEY;
-            loadTabDataForShift(shift, levelKey);
+            const currentLevel = selectedLevelByShift[shift.id] || (shift as any).visibility || PUBLIC_LEVEL_KEY;
+            loadTabDataForShift(shift, currentLevel as EscalationLevelKey);
         });
     }, [shifts, selectedLevelByShift, loadTabDataForShift]);
 

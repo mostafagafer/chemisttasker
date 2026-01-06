@@ -10,12 +10,19 @@ export function useWorkerRatings() {
 
     const loadRatings = useCallback(async (workerId: number, pageNum: number) => {
         try {
-            const summaryData = await fetchRatingsSummaryService(workerId);
-            const pageData: any = await fetchRatingsPageService(workerId);
+            const summaryData = await fetchRatingsSummaryService({
+                targetType: 'worker',
+                targetId: workerId,
+            });
+            const pageData: any = await fetchRatingsPageService({
+                targetType: 'worker',
+                targetId: workerId,
+                page: pageNum,
+            });
 
             setSummary({
-                average: summaryData.average_rating ?? 0,
-                count: summaryData.total_reviews ?? 0,
+                average: summaryData.average ?? summaryData.average_rating ?? 0,
+                count: summaryData.count ?? summaryData.total_reviews ?? 0,
             });
             setComments(pageData.results || []);
             setPage(pageNum);

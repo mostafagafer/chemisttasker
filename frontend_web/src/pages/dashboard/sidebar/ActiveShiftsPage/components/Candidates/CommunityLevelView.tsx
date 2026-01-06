@@ -33,9 +33,9 @@ export const CommunityLevelView: React.FC<CommunityLevelViewProps> = ({
     const slots = (shift as any).slots || [];
     const multiSlots = !(shift as any).singleUserOnly && slots.length > 0;
 
-    // Filter members by slot if multi-slot
+    // Filter members by slot if multi-slot; include shift-level members with no slotId
     const slotMembers = multiSlots
-        ? members.filter((m) => (m as any).slotId === selectedSlotId)
+        ? members.filter((m) => (m as any).slotId === selectedSlotId || (m as any).slotId == null)
         : members;
 
     // Categorize members by status
@@ -48,7 +48,8 @@ export const CommunityLevelView: React.FC<CommunityLevelViewProps> = ({
 
     const getOfferForMember = (member: ShiftMemberStatus) => {
         const offer = findOfferForMemberInShift(offers, member, selectedSlotId);
-        return { offer, slotId: selectedSlotId };
+        // If multi-slot, lock to the selected slot; otherwise use null
+        return { offer, slotId: multiSlots ? selectedSlotId : null };
     };
 
     return (
@@ -61,17 +62,6 @@ export const CommunityLevelView: React.FC<CommunityLevelViewProps> = ({
                     onSelectSlot={onSelectSlot}
                 />
             )}
-
-            {/* Counter Offers Section */}
-            <Paper variant="outlined" sx={{ p: 2 }}>
-                <Typography variant="subtitle2">
-                    Counter offers {(shift as any).singleUserOnly ? '(whole shift)' : '(selected slot)'}
-                </Typography>
-                {/* Counter offers list would go here */}
-                <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-                    No counter offers
-                </Typography>
-            </Paper>
 
             <Divider>
                 <Chip label="Candidates" />

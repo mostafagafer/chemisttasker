@@ -67,7 +67,6 @@ export const CounterOfferList: React.FC<CounterOfferListProps> = ({
                             )}
                         </Box>
                         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                            {offer.requestTravel && <Chip label="Travel" size="small" color="info" />}
                             {onRevealOffer && label.toLowerCase().includes('reveal') ? (
                                 <Button
                                     size="small"

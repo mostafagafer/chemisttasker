@@ -85,7 +85,7 @@ const ActiveShiftsPage: React.FC = () => {
     // Escalation level tracking
     const [selectedLevelByShift, setSelectedLevelByShift] = useState<Record<number, EscalationLevelKey>>({});
     const [selectedSlotByShift, setSelectedSlotByShift] = useState<Record<number, number>>({});
-    const [reviewLoadingId, setReviewLoadingId] = useState<number | null>(null);
+    const reviewLoadingId: number | null = null;
 
     // Dialogs
     const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<DeleteConfirmDialogState>({
@@ -605,7 +605,11 @@ const ActiveShiftsPage: React.FC = () => {
                                                     ) : (
                                                         <CommunityLevelView
                                                             shift={shift}
-                                                            members={currentTabData.members || []}
+                                                            members={
+                                                                currentTabData.membersBySlot?.[
+                                                                    selectedSlotId ?? -1
+                                                                ] || []
+                                                            }
                                                             selectedSlotId={selectedSlotId}
                                                             offers={offers}
                                                             onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}

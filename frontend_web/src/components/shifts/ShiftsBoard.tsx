@@ -1301,6 +1301,9 @@ useEffect(() => {
 
   const closeCounterOffer = () => {
     setCounterOfferOpen(false);
+    if (counterOfferShift?.id != null) {
+      clearSelection(counterOfferShift.id);
+    }
     setCounterOfferShift(null);
     setCounterOfferSlots([]);
     // Reload shifts on close to reflect any changes (e.g., new offer)
@@ -2184,6 +2187,8 @@ useEffect(() => {
               // Rate negotiation is only enabled in the modal when rate is flexible; time negotiation follows flexible_timing even for FT/PT.
               const showCounter = !hideCounterOffer && (getShiftFlexibleTime(shift) || getShiftNegotiable(shift)) && !isRejectedShift;
               const showNegotiable = getShiftNegotiable(shift) && !isRejectedShift;
+              const superValue = Number(shift.superPercent);
+              const showSuperChip = !isFullOrPartTime && Number.isFinite(superValue) && superValue > 0;
               const counterInfo = counterOffers[shift.id];
               const paymentType =
                 shift.paymentPreference ||
@@ -2333,6 +2338,13 @@ useEffect(() => {
                           </Stack>
                           {isFullOrPartTime && shift.superPercent && (
                             <Chip label={`+ Superannuation (${shift.superPercent}%)`} size="small" />
+                          )}
+                          {showSuperChip && (
+                            <Chip
+                              label="+Super"
+                              size="small"
+                              sx={{ bgcolor: '#D7ECFF', color: '#0B4D8C' }}
+                            />
                           )}
                           {showNegotiable && (
                             <Chip icon={<PaidIcon />} label="Negotiable" size="small" color="info" />

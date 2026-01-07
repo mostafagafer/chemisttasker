@@ -53,10 +53,10 @@ import {
   EscalationLevelKey,
   fetchPharmaciesService,
   fetchActiveShiftDetailService,
+  calculateShiftRates,
   createOwnerShiftService,
   updateOwnerShiftService,
 } from '@chemisttasker/shared-core';
-import apiClient from '../../../utils/apiClient';
 
 // --- Interface Definitions ---
 type PharmacyOption = PharmacySummary & { hasChain?: boolean; claimed?: boolean };
@@ -101,6 +101,7 @@ const WEEK_DAYS = [
 ];
 
 const DAY_LABELS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DEFAULT_SUPER_PERCENT = 11.5;
 
 const toIsoDate = (value: string): Date | null => {
   if (!value) return null;
@@ -209,6 +210,10 @@ const PostShiftPage: React.FC = () => {
   const [hasTravel, setHasTravel] = useState(false);
   const [hasAccommodation, setHasAccommodation] = useState(false);
   const [isUrgent, setIsUrgent] = useState(false);
+  const [notifyPharmacyStaff, setNotifyPharmacyStaff] = useState(false);
+  const [notifyFavoriteStaff, setNotifyFavoriteStaff] = useState(false);
+  const [notifyChainMembers, setNotifyChainMembers] = useState(false);
+  const [locumSuperIncluded, setLocumSuperIncluded] = useState(true);
 
   // --- Timetable State ---
   const [slots, setSlots] = useState<SlotEntry[]>([]);
@@ -307,6 +312,12 @@ const PostShiftPage: React.FC = () => {
           setHasTravel(Boolean((detail as any).hasTravel ?? (detail as any).has_travel));
           setHasAccommodation(Boolean((detail as any).hasAccommodation ?? (detail as any).has_accommodation));
           setIsUrgent(Boolean((detail as any).isUrgent ?? (detail as any).is_urgent));
+          const detailSuper = (detail as any).superPercent ?? (detail as any).super_percent;
+          if (detailSuper === null || detailSuper === undefined) {
+            setLocumSuperIncluded(true);
+          } else {
+            setLocumSuperIncluded(Number(detailSuper) > 0);
+          }
           setEscalationDates({
             LOCUM_CASUAL: toInputDateTimeLocal(detail.escalateToLocumCasual),
             OWNER_CHAIN: toInputDateTimeLocal(detail.escalateToOwnerChain),
@@ -366,6 +377,16 @@ const PostShiftPage: React.FC = () => {
       setVisibility(allowedVis[0]);
     }
   }, [allowedVis, visibility]);
+
+  const showNotifyPharmacyStaff = !editingShiftId && ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(visibility);
+  const showNotifyFavoriteStaff = !editingShiftId && ['LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(visibility);
+  const showNotifyChainMembers = !editingShiftId && ['OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(visibility);
+
+  useEffect(() => {
+    if (!showNotifyPharmacyStaff) setNotifyPharmacyStaff(false);
+    if (!showNotifyFavoriteStaff) setNotifyFavoriteStaff(false);
+    if (!showNotifyChainMembers) setNotifyChainMembers(false);
+  }, [showNotifyPharmacyStaff, showNotifyFavoriteStaff, showNotifyChainMembers]);
 
   useEffect(() => {
     if (!selectedPharmacy) return;
@@ -658,11 +679,10 @@ const PostShiftPage: React.FC = () => {
       payload.rateLateNight = rateLateNight || undefined;
     }
 
-    apiClient
-      .post('/client-profile/shifts/calculate-rates/', payload)
+    calculateShiftRates(payload)
       .then((resp) => {
         if (cancelled) return;
-        const list: any[] = Array.isArray(resp.data) ? resp.data : [];
+        const list: any[] = Array.isArray(resp) ? resp : [];
         setSlotRateRows((prev) =>
           expandedSlots.map((_slot, idx) => {
             const entry: any = list[idx] ?? {};
@@ -832,6 +852,14 @@ const PostShiftPage: React.FC = () => {
         rate: slotRateForEntry(s),
       })),
     };
+    if (isLocumLike) {
+      payload.super_percent = locumSuperIncluded ? DEFAULT_SUPER_PERCENT : 0;
+    }
+    if (!editingShiftId) {
+      payload.notify_pharmacy_staff = notifyPharmacyStaff;
+      payload.notify_favorite_staff = notifyFavoriteStaff;
+      payload.notify_chain_members = notifyChainMembers;
+    }
 
     if (!isLocumLike) {
       if (ftptPayMode === 'HOURLY') {
@@ -1117,6 +1145,50 @@ const PostShiftPage: React.FC = () => {
                 </Select>
               </FormControl>
             </Grid>
+            {(showNotifyPharmacyStaff || showNotifyFavoriteStaff || showNotifyChainMembers) && (
+              <Grid size={12}>
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, borderColor: 'grey.200' }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Send emails and in-app notifications
+                  </Typography>
+                  <Stack spacing={1}>
+                    {showNotifyPharmacyStaff && (
+                      <FormControlLabel
+                        control={(
+                          <Checkbox
+                            checked={notifyPharmacyStaff}
+                            onChange={(_, checked) => setNotifyPharmacyStaff(checked)}
+                          />
+                        )}
+                        label="Email and notify pharmacy staff members"
+                      />
+                    )}
+                    {showNotifyFavoriteStaff && (
+                      <FormControlLabel
+                        control={(
+                          <Checkbox
+                            checked={notifyFavoriteStaff}
+                            onChange={(_, checked) => setNotifyFavoriteStaff(checked)}
+                          />
+                        )}
+                        label="Email and notify pharmacy favourite staff"
+                      />
+                    )}
+                    {showNotifyChainMembers && (
+                      <FormControlLabel
+                        control={(
+                          <Checkbox
+                            checked={notifyChainMembers}
+                            onChange={(_, checked) => setNotifyChainMembers(checked)}
+                          />
+                        )}
+                        label="Email and notify your chain members"
+                      />
+                    )}
+                  </Stack>
+                </Paper>
+              </Grid>
+            )}
             {startIdx > -1 && allowedVis.slice(startIdx + 1).map(tier => (
               <Grid key={tier} size={{ xs: 12, sm: 6 }}>
                 <TextField
@@ -1579,6 +1651,17 @@ const PostShiftPage: React.FC = () => {
             </FormControl>
           </Grid>
         ) : null;
+        const superCheckbox = isLocumLike ? (
+          <FormControlLabel
+            control={(
+              <Checkbox
+                checked={locumSuperIncluded}
+                onChange={(_, checked) => setLocumSuperIncluded(checked)}
+              />
+            )}
+            label="Include superannuation (+super)"
+          />
+        ) : null;
 
         if (!isLocumLike) {
           return (
@@ -1739,6 +1822,11 @@ const PostShiftPage: React.FC = () => {
                   </FormControl>
                 </Grid>
                 {paymentField}
+                {superCheckbox && (
+                  <Grid size={{ xs: 12 }}>
+                    {superCheckbox}
+                  </Grid>
+                )}
               </Grid>
 
               {rateType !== 'PHARMACIST_PROVIDED' && (
@@ -1848,6 +1936,7 @@ const PostShiftPage: React.FC = () => {
               </Tooltip>
             </Typography>
             {paymentField}
+            {superCheckbox}
             <TextField
               label="Owner Bonus ($/hr, optional)"
               type="number"

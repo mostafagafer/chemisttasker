@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>New Shift Available</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
+        .btn {
+            display: inline-block;
+            background: #23b59c;
+            color: #fff;
+            padding: 12px 28px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.05rem;
+            margin: 16px 0;
+            box-shadow: 0 1px 3px #e0e0e0;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #199982; }
+        .meta { margin: 12px 0; font-size: 0.95rem; color: #5f5f5f; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>A new shift is available</h2>
+        <p>
+            A <b>{{ role_label }}</b> shift has been posted at <b>{{ pharmacy_name }}</b>.
+            {% if employment_type_label %}({{ employment_type_label }}){% endif %}
+        </p>
+        {% if slot_summary %}
+        <p class="meta">
+            Next shift: {{ slot_summary }}
+        </p>
+        {% endif %}
+        <a class="btn" href="{{ shift_link }}">View Shift Details</a>
+        <p>
+            Log in to review the shift details and express interest if it is a good fit.
+        </p>
+        <p>
+            If you have any questions, just reply to this email.
+        </p>
+        <p>Thanks,<br>The ChemistTasker Team</p>
+    </div>
+</body>
+</html>

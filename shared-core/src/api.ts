@@ -2125,3 +2125,276 @@ export async function toggleRoomPinService(roomId, payload) {
     const data = await toggleRoomPin(roomId, body);
     return mapChatRoom(data);
 }
+
+
+
+// ============ CALENDAR & WORK NOTES ============
+
+export interface CalendarEventFilters {
+    pharmacyId?: number;
+    organizationId?: number;
+    dateFrom?: string;
+    dateTo?: string;
+    source?: string;
+}
+
+export interface WorkNoteFilters {
+    pharmacyId?: number;
+    dateFrom?: string;
+    dateTo?: string;
+    status?: string;
+    assignedToMe?: boolean;
+}
+
+const mapCalendarEvent = (api: any) => ({
+    id: api.id,
+    pharmacy: api.pharmacy,
+    organization: api.organization,
+    title: api.title,
+    description: api.description,
+    date: api.date,
+    startTime: api.start_time,
+    endTime: api.end_time,
+    allDay: api.all_day ?? true,
+    source: api.source,
+    sourceDisplay: api.source_display,
+    sourceMembership: api.source_membership,
+    isReadOnly: api.is_read_only ?? false,
+    createdBy: api.created_by,
+    createdByName: api.created_by_name,
+    createdAt: api.created_at,
+    updatedAt: api.updated_at,
+});
+
+const mapWorkNoteAssignee = (api: any) => ({
+    id: api.id,
+    membershipId: api.membership_id,
+    userId: api.user_id,
+    userName: api.user_name,
+    notifiedAt: api.notified_at,
+    createdAt: api.created_at,
+});
+
+const mapWorkNote = (api: any) => ({
+    id: api.id,
+    pharmacy: api.pharmacy,
+    date: api.date,
+    title: api.title,
+    body: api.body,
+    status: api.status,
+    notifyOnShiftStart: api.notify_on_shift_start ?? false,
+    isGeneral: api.is_general ?? false,
+    assignees: ensureArray(api.assignees).map(mapWorkNoteAssignee),
+    createdBy: api.created_by,
+    createdByName: api.created_by_name,
+    createdAt: api.created_at,
+    updatedAt: api.updated_at,
+});
+
+// Calendar Events
+export function getCalendarEvents(params: CalendarEventFilters) {
+    const query = buildQuery({
+        pharmacy_id: params.pharmacyId,
+        organization_id: params.organizationId,
+        date_from: params.dateFrom,
+        date_to: params.dateTo,
+        source: params.source,
+    });
+    return fetchApi(`/client-profile/calendar-events/${query}`);
+}
+
+export async function fetchCalendarEvents(params: CalendarEventFilters) {
+    const data = await getCalendarEvents(params);
+    return asList(data).map(mapCalendarEvent);
+}
+
+export function getCalendarEventDetail(id: number) {
+    return fetchApi(`/client-profile/calendar-events/${id}/`);
+}
+
+export async function fetchCalendarEventDetail(id: number) {
+    const data = await getCalendarEventDetail(id);
+    return mapCalendarEvent(data);
+}
+
+export function createCalendarEvent(payload: {
+    pharmacy?: number;
+    organization?: number;
+    title: string;
+    description?: string;
+    date: string;
+    startTime?: string;
+    endTime?: string;
+    allDay?: boolean;
+}) {
+    return fetchApi('/client-profile/calendar-events/', {
+        method: 'POST',
+        body: JSON.stringify({
+            pharmacy: payload.pharmacy,
+            organization: payload.organization,
+            title: payload.title,
+            description: payload.description,
+            date: payload.date,
+            start_time: payload.startTime,
+            end_time: payload.endTime,
+            all_day: payload.allDay ?? true,
+        }),
+    });
+}
+
+export async function createCalendarEventService(payload: Parameters<typeof createCalendarEvent>[0]) {
+    const data = await createCalendarEvent(payload);
+    return mapCalendarEvent(data);
+}
+
+export function updateCalendarEvent(id: number, payload: Partial<Parameters<typeof createCalendarEvent>[0]>) {
+    return fetchApi(`/client-profile/calendar-events/${id}/`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+            title: payload.title,
+            description: payload.description,
+            date: payload.date,
+            start_time: payload.startTime,
+            end_time: payload.endTime,
+            all_day: payload.allDay,
+        }),
+    });
+}
+
+export async function updateCalendarEventService(id: number, payload: Parameters<typeof updateCalendarEvent>[1]) {
+    const data = await updateCalendarEvent(id, payload);
+    return mapCalendarEvent(data);
+}
+
+export function deleteCalendarEvent(id: number) {
+    return fetchApi(`/client-profile/calendar-events/${id}/`, { method: 'DELETE' });
+}
+
+export async function deleteCalendarEventService(id: number) {
+    await deleteCalendarEvent(id);
+}
+
+// Work Notes
+export function getWorkNotes(params: WorkNoteFilters) {
+    const query = buildQuery({
+        pharmacy_id: params.pharmacyId,
+        date_from: params.dateFrom,
+        date_to: params.dateTo,
+        status: params.status,
+        assigned_to_me: params.assignedToMe ? 'true' : undefined,
+    });
+    return fetchApi(`/client-profile/work-notes/${query}`);
+}
+
+export async function fetchWorkNotes(params: WorkNoteFilters) {
+    const data = await getWorkNotes(params);
+    return asList(data).map(mapWorkNote);
+}
+
+export function getWorkNoteDetail(id: number) {
+    return fetchApi(`/client-profile/work-notes/${id}/`);
+}
+
+export async function fetchWorkNoteDetail(id: number) {
+    const data = await getWorkNoteDetail(id);
+    return mapWorkNote(data);
+}
+
+export function createWorkNote(payload: {
+    pharmacy: number;
+    date: string;
+    title: string;
+    body?: string;
+    status?: string;
+    notifyOnShiftStart?: boolean;
+    isGeneral?: boolean;
+    assigneeMembershipIds?: number[];
+}) {
+    return fetchApi('/client-profile/work-notes/', {
+        method: 'POST',
+        body: JSON.stringify({
+            pharmacy: payload.pharmacy,
+            date: payload.date,
+            title: payload.title,
+            body: payload.body,
+            status: payload.status,
+            notify_on_shift_start: payload.notifyOnShiftStart ?? false,
+            is_general: payload.isGeneral ?? false,
+            assignee_membership_ids: payload.assigneeMembershipIds ?? [],
+        }),
+    });
+}
+
+export async function createWorkNoteService(payload: Parameters<typeof createWorkNote>[0]) {
+    const data = await createWorkNote(payload);
+    return mapWorkNote(data);
+}
+
+export function updateWorkNote(id: number, payload: Partial<Parameters<typeof createWorkNote>[0]>) {
+    return fetchApi(`/client-profile/work-notes/${id}/`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+            title: payload.title,
+            body: payload.body,
+            status: payload.status,
+            notify_on_shift_start: payload.notifyOnShiftStart,
+            is_general: payload.isGeneral,
+            assignee_membership_ids: payload.assigneeMembershipIds,
+        }),
+    });
+}
+
+export async function updateWorkNoteService(id: number, payload: Parameters<typeof updateWorkNote>[1]) {
+    const data = await updateWorkNote(id, payload);
+    return mapWorkNote(data);
+}
+
+export function deleteWorkNote(id: number) {
+    return fetchApi(`/client-profile/work-notes/${id}/`, { method: 'DELETE' });
+}
+
+export async function deleteWorkNoteService(id: number) {
+    await deleteWorkNote(id);
+}
+
+export function markWorkNoteDone(id: number) {
+    return fetchApi(`/client-profile/work-notes/${id}/mark_done/`, { method: 'POST' });
+}
+
+export async function markWorkNoteDoneService(id: number) {
+    const data = await markWorkNoteDone(id);
+    return mapWorkNote(data);
+}
+
+export function markWorkNoteOpen(id: number) {
+    return fetchApi(`/client-profile/work-notes/${id}/mark_open/`, { method: 'POST' });
+}
+
+export async function markWorkNoteOpenService(id: number) {
+    const data = await markWorkNoteOpen(id);
+    return mapWorkNote(data);
+}
+
+// Calendar Feed (aggregated)
+export function getCalendarFeed(params: CalendarEventFilters) {
+    const query = buildQuery({
+        pharmacy_id: params.pharmacyId,
+        organization_id: params.organizationId,
+        date_from: params.dateFrom,
+        date_to: params.dateTo,
+    });
+    return fetchApi(`/client-profile/calendar-feed/${query}`);
+}
+
+export async function fetchCalendarFeed(params: CalendarEventFilters) {
+    const data = await getCalendarFeed(params);
+    return {
+        events: ensureArray(data.events).map(mapCalendarEvent),
+        workNotes: ensureArray(data.work_notes).map(mapWorkNote),
+        dateFrom: data.date_from,
+        dateTo: data.date_to,
+        pharmacyId: data.pharmacy_id,
+        organizationId: data.organization_id,
+    };
+}
+

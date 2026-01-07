@@ -1,6 +1,11 @@
 # client_profile/urls.py
 from django.urls import path, include
 from .views import *
+from .calendar_views import (
+    CalendarEventViewSet,
+    CalendarFeedView,
+    WorkNoteViewSet,
+)
 from .hub.api import (
     HubCommentViewSet,
     HubCommunityGroupViewSet,
@@ -62,6 +67,12 @@ router.register(r'device-tokens', DeviceTokenViewSet, basename='device-token')
 
 # explorer post
 router.register(r'explorer-posts', ExplorerPostViewSet, basename='explorer-post')
+
+# Calendar & Work Notes
+router.register(r'calendar-events', CalendarEventViewSet, basename='calendar-event')
+router.register(r'work-notes', WorkNoteViewSet, basename='work-note')
+router.register(r'calendar-feed', CalendarFeedView, basename='calendar-feed')
+
 
 hub_group_list = HubCommunityGroupViewSet.as_view({"get": "list", "post": "create"})
 hub_group_detail = HubCommunityGroupViewSet.as_view(

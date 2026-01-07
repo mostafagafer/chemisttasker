@@ -9,7 +9,7 @@ from users.serializers import UserProfileSerializer
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from decimal import Decimal
-from client_profile.utils import q6, send_referee_emails, clean_email, enforce_public_shift_daily_limit
+from client_profile.utils import q6, send_referee_emails, clean_email, enforce_public_shift_daily_limit, build_shift_email_context
 from client_profile.admin_helpers import has_admin_capability, CAPABILITY_MANAGE_ROSTER
 from datetime import date, timedelta
 from django.utils import timezone
@@ -3007,6 +3007,7 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
             "organization",
             "verified",
             "abn",
+            "timezone",
             # "asic_number",
             # your file fields:
             "methadone_s8_protocols",
@@ -3590,6 +3591,9 @@ class ShiftSerializer(serializers.ModelSerializer):
 
     allowed_escalation_levels = serializers.SerializerMethodField()
     is_single_user = serializers.BooleanField(source='single_user_only', read_only=True)
+    notify_pharmacy_staff = serializers.BooleanField(write_only=True, required=False, default=False)
+    notify_favorite_staff = serializers.BooleanField(write_only=True, required=False, default=False)
+    notify_chain_members = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
         model = Shift
@@ -3607,6 +3611,7 @@ class ShiftSerializer(serializers.ModelSerializer):
             'has_travel', 'has_accommodation', 'is_urgent',
             'role_label', 'ui_is_negotiable', 'ui_is_flexible_time', 'ui_allow_partial',
             'ui_location_city', 'ui_location_state', 'ui_address_line', 'ui_distance_km', 'ui_is_urgent',
+            'notify_pharmacy_staff', 'notify_favorite_staff', 'notify_chain_members',
         ]
         read_only_fields = [
             'id', 'created_by', 'escalation_level',
@@ -3663,7 +3668,7 @@ class ShiftSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError('Super percent is required when annual package is provided.')
         else:
             # Strip FT/PT pay fields for locum/casual
-            for key in ['min_hourly_rate', 'max_hourly_rate', 'min_annual_salary', 'max_annual_salary', 'super_percent']:
+            for key in ['min_hourly_rate', 'max_hourly_rate', 'min_annual_salary', 'max_annual_salary']:
                 attrs.pop(key, None)
 
         return attrs
@@ -3820,7 +3825,131 @@ class ShiftSerializer(serializers.ModelSerializer):
             normalized.append(slot)
         return normalized
 
+    def _collect_membership_users(self, shift, pharmacy_ids, employment_types):
+        qs = Membership.objects.filter(
+            pharmacy_id__in=pharmacy_ids,
+            role=shift.role_needed,
+            employment_type__in=employment_types,
+            is_active=True,
+            user__is_active=True,
+        ).select_related("user")
+        users = []
+        for membership in qs:
+            user = membership.user
+            if not user or not user.email:
+                continue
+            if shift.created_by_id and user.id == shift.created_by_id:
+                continue
+            users.append(user)
+        return users
+
+    def _send_posted_shift_notifications(
+        self,
+        shift,
+        slots_data,
+        *,
+        notify_pharmacy_staff=False,
+        notify_favorite_staff=False,
+        notify_chain_members=False,
+    ):
+        visibility_rules = {
+            'FULL_PART_TIME': {'notify_pharmacy_staff'},
+            'LOCUM_CASUAL': {'notify_pharmacy_staff', 'notify_favorite_staff'},
+            'OWNER_CHAIN': {'notify_pharmacy_staff', 'notify_favorite_staff', 'notify_chain_members'},
+            'ORG_CHAIN': {'notify_pharmacy_staff', 'notify_favorite_staff', 'notify_chain_members'},
+            'PLATFORM': {'notify_pharmacy_staff', 'notify_favorite_staff', 'notify_chain_members'},
+        }
+        allowed = set(visibility_rules.get(shift.visibility, set()))
+        if not allowed:
+            return
+
+        if not notify_pharmacy_staff:
+            allowed.discard('notify_pharmacy_staff')
+        if not notify_favorite_staff:
+            allowed.discard('notify_favorite_staff')
+        if not notify_chain_members:
+            allowed.discard('notify_chain_members')
+
+        if not allowed:
+            return
+
+        staff_types = {'FULL_TIME', 'PART_TIME', 'CASUAL'}
+        favorite_types = {'LOCUM', 'SHIFT_HERO'}
+        recipient_map = {}
+
+        if 'notify_pharmacy_staff' in allowed:
+            users = self._collect_membership_users(shift, [shift.pharmacy_id], staff_types)
+            for user in users:
+                recipient_map[user.id] = user
+
+        if 'notify_favorite_staff' in allowed:
+            users = self._collect_membership_users(shift, [shift.pharmacy_id], favorite_types)
+            for user in users:
+                recipient_map[user.id] = user
+
+        if 'notify_chain_members' in allowed:
+            if shift.pharmacy and shift.pharmacy.owner_id:
+                chain_pharmacy_ids = list(
+                    Chain.objects.filter(
+                        owner_id=shift.pharmacy.owner_id,
+                        pharmacies=shift.pharmacy,
+                        is_active=True,
+                    ).values_list('pharmacies__id', flat=True)
+                )
+            else:
+                chain_pharmacy_ids = []
+            if chain_pharmacy_ids:
+                users = self._collect_membership_users(
+                    shift,
+                    chain_pharmacy_ids,
+                    staff_types | favorite_types,
+                )
+                for user in users:
+                    recipient_map[user.id] = user
+
+        if not recipient_map:
+            return
+
+        first_slot = slots_data[0] if slots_data else {}
+        slot_date = first_slot.get('date') if isinstance(first_slot, dict) else None
+        slot_start = first_slot.get('start_time') if isinstance(first_slot, dict) else None
+        slot_end = first_slot.get('end_time') if isinstance(first_slot, dict) else None
+        slot_summary = None
+        if slot_date and slot_start and slot_end:
+            slot_summary = f"{slot_date} {slot_start}-{slot_end}"
+
+        for user in recipient_map.values():
+            ctx = build_shift_email_context(shift, user=user)
+            ctx.update({
+                "role_label": shift.get_role_needed_display(),
+                "employment_type_label": shift.get_employment_type_display(),
+                "slot_summary": slot_summary,
+                "slot_date": slot_date,
+                "slot_start": slot_start,
+                "slot_end": slot_end,
+            })
+            notification_payload = {
+                "title": "New shift available",
+                "body": f"{ctx['role_label']} shift at {shift.pharmacy.name}.",
+                "type": "shift",
+                "action_url": ctx.get("shift_link"),
+                "payload": {"shift_id": shift.id},
+                "user_ids": [user.id],
+            }
+            async_task(
+                'users.tasks.send_async_email',
+                subject=f"New {ctx['role_label']} shift at {shift.pharmacy.name}",
+                recipient_list=[user.email],
+                template_name="emails/shift_posted.html",
+                context=ctx,
+                text_template="emails/shift_posted.txt",
+                notification=notification_payload,
+            )
+
     def create(self, validated_data):
+        notify_pharmacy_staff = validated_data.pop('notify_pharmacy_staff', False)
+        notify_favorite_staff = validated_data.pop('notify_favorite_staff', False)
+        notify_chain_members = validated_data.pop('notify_chain_members', False)
         slots_data = self._normalize_slots_payload(validated_data.pop('slots'))
         user        = self.context['request'].user
         pharmacy    = validated_data['pharmacy']
@@ -3872,10 +4001,22 @@ class ShiftSerializer(serializers.ModelSerializer):
             shift = Shift.objects.create(**validated_data)
             for slot in slots_data:
                 ShiftSlot.objects.create(shift=shift, **slot)
+            transaction.on_commit(
+                lambda: self._send_posted_shift_notifications(
+                    shift,
+                    slots_data,
+                    notify_pharmacy_staff=notify_pharmacy_staff,
+                    notify_favorite_staff=notify_favorite_staff,
+                    notify_chain_members=notify_chain_members,
+                )
+            )
 
         return shift
 
     def update(self, instance, validated_data):
+        validated_data.pop('notify_pharmacy_staff', None)
+        validated_data.pop('notify_favorite_staff', None)
+        validated_data.pop('notify_chain_members', None)
         # If visibility is changing, recalc escalation_level
         if 'visibility' in validated_data:
             allowed_tiers = self.build_allowed_tiers(instance.pharmacy)

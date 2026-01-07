@@ -1,0 +1,16 @@
+New shift available
+
+A {{ role_label }} shift has been posted at {{ pharmacy_name }}{% if employment_type_label %} ({{ employment_type_label }}){% endif %}.
+{% if slot_summary %}
+Next shift: {{ slot_summary }}
+{% endif %}
+
+View shift details:
+{{ shift_link }}
+
+Log in to review the shift details and express interest if it is a good fit.
+
+If you have any questions, just reply to this email.
+
+Thanks,
+The ChemistTasker Team

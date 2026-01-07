@@ -1,23 +1,24 @@
 // src/navigation.tsx
 import { Navigation } from "@toolpad/core";
-import DashboardIcon           from '@mui/icons-material/Dashboard'
-import MedicationLiquidIcon    from '@mui/icons-material/MedicationLiquid'
-import CorporateFareIcon       from '@mui/icons-material/CorporateFare'
-import PostAddIcon             from '@mui/icons-material/PostAdd'
-import AccessTimeIcon          from '@mui/icons-material/AccessTime'
-import EventAvailableIcon      from '@mui/icons-material/EventAvailable'
-import FavoriteIcon            from '@mui/icons-material/Favorite'
-import SchoolIcon              from '@mui/icons-material/School'
-import LogoutIcon              from '@mui/icons-material/Logout'
+import DashboardIcon from '@mui/icons-material/Dashboard'
+import MedicationLiquidIcon from '@mui/icons-material/MedicationLiquid'
+import CorporateFareIcon from '@mui/icons-material/CorporateFare'
+import PostAddIcon from '@mui/icons-material/PostAdd'
+import AccessTimeIcon from '@mui/icons-material/AccessTime'
+import EventAvailableIcon from '@mui/icons-material/EventAvailable'
+import FavoriteIcon from '@mui/icons-material/Favorite'
+import SchoolIcon from '@mui/icons-material/School'
+import LogoutIcon from '@mui/icons-material/Logout'
 import ManageAccountsSharpIcon from '@mui/icons-material/ManageAccountsSharp'
-import StoreIcon               from '@mui/icons-material/Store'
-import PublicIcon              from '@mui/icons-material/Public'
-import GroupsIcon              from '@mui/icons-material/Groups'
-import ForumIcon               from '@mui/icons-material/Forum'
-import PlayArrowIcon    from '@mui/icons-material/PlayArrow';
-import CheckCircleIcon  from '@mui/icons-material/CheckCircle';
-import HistoryIcon      from '@mui/icons-material/History';
+import StoreIcon from '@mui/icons-material/Store'
+import PublicIcon from '@mui/icons-material/Public'
+import GroupsIcon from '@mui/icons-material/Groups'
+import ForumIcon from '@mui/icons-material/Forum'
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import HistoryIcon from '@mui/icons-material/History';
 import ReceiptIcon from '@mui/icons-material/Receipt';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 // import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import Chip from "@mui/material/Chip";
 import type { AdminAssignment } from "./contexts/AuthContext";
@@ -41,42 +42,45 @@ const NewMessagesChip = () => (
 export function getOrganizationNav(hasUnreadMessages: boolean): Navigation {
   return [
     { kind: 'header' as const, title: 'Organization Management' },
-    { segment: 'dashboard/organization/overview', title: 'Overview',        icon: <GroupsIcon /> },
-    { segment: 'dashboard/organization/invite',   title: 'Invite Staff',    icon: <ManageAccountsSharpIcon /> },
-    { 
-      segment: 'dashboard/organization/chat', 
-      title: 'Chat', 
+    { segment: 'dashboard/organization/overview', title: 'Overview', icon: <GroupsIcon /> },
+    { segment: 'dashboard/organization/invite', title: 'Invite Staff', icon: <ManageAccountsSharpIcon /> },
+    {
+      segment: 'dashboard/organization/chat',
+      title: 'Chat',
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
     { segment: 'dashboard/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
+    { segment: 'dashboard/organization/calendar', title: 'Calendar', icon: <CalendarMonthIcon /> },
     { kind: 'divider' as const },
     { kind: 'header' as const, title: 'Manage Pharmacies and Shifts' },
-    { segment: 'dashboard/organization/manage-pharmacies',
+    {
+      segment: 'dashboard/organization/manage-pharmacies',
       title: 'Manage Pharmacies',
       icon: <MedicationLiquidIcon />,
       children: [
         { segment: 'my-pharmacies', title: 'My Pharmacies', icon: <StoreIcon /> },
-        { segment: 'my-chain',      title: 'My Chain',      icon: <CorporateFareIcon /> },
+        { segment: 'my-chain', title: 'My Chain', icon: <CorporateFareIcon /> },
         { segment: 'roster', title: 'Internal Roster', icon: <EventAvailableIcon /> },
       ],
     },
     { segment: 'dashboard/organization/post-shift', title: 'Post Shift', icon: <PostAddIcon /> },
-    { segment: 'dashboard/organization/shift-center',
+    {
+      segment: 'dashboard/organization/shift-center',
       title: 'Shift Centre',
       icon: <AccessTimeIcon />,
       children: [
-        { segment: 'active',    title: 'Active Shifts',    icon: <PlayArrowIcon /> },
+        { segment: 'active', title: 'Active Shifts', icon: <PlayArrowIcon /> },
         { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
-        { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
+        { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
       ],
     },
     { kind: 'divider' as const },
     { kind: 'header' as const, title: 'Learning & Explorer Hub' },
-    { segment: 'dashboard/organization/interests',     title: 'Explore Interests', icon: <FavoriteIcon /> },
-    { segment: 'dashboard/organization/learning',      title: 'Learning Materials',icon: <SchoolIcon /> },
+    { segment: 'dashboard/organization/interests', title: 'Explore Interests', icon: <FavoriteIcon /> },
+    { segment: 'dashboard/organization/learning', title: 'Learning Materials', icon: <SchoolIcon /> },
     { kind: 'divider' as const },
-    { segment: 'dashboard/organization/logout',        title: 'Logout',            icon: <LogoutIcon /> },
+    { segment: 'dashboard/organization/logout', title: 'Logout', icon: <LogoutIcon /> },
   ]
 }
 
@@ -104,7 +108,8 @@ export function getOwnerNav(progressPercent: number, hasUnreadMessages: boolean)
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
     { segment: "dashboard/pharmacy-hub", title: "Pharmacy Hub", icon: <ForumIcon /> },
-        { kind: "divider" as const },
+    { segment: "dashboard/owner/calendar", title: "Calendar", icon: <CalendarMonthIcon /> },
+    { kind: "divider" as const },
     { kind: "header" as const, title: "Manage Pharmacies and Shifts" },
     {
       segment: "dashboard/owner/manage-pharmacies",
@@ -201,7 +206,8 @@ export function getAdminNav({
 
   if (canManageComms) {
     navigation.push(
-      { segment: "dashboard/pharmacy-hub", title: "Pharmacy Hub", icon: <ForumIcon /> }
+      { segment: "dashboard/pharmacy-hub", title: "Pharmacy Hub", icon: <ForumIcon /> },
+      { segment: buildPath("calendar"), title: "Calendar", icon: <CalendarMonthIcon /> }
     );
   }
 
@@ -253,16 +259,16 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
   // 1. Define dynamic children for the "Shifts" section, changing based on workspace
   const shiftsChildren = workspace === 'internal'
     ? [
-        { segment: 'roster', title: 'My Roster', icon: <EventAvailableIcon /> },
-        { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
-        { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
-        { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
-      ]
+      { segment: 'roster', title: 'My Roster', icon: <EventAvailableIcon /> },
+      { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
+      { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
+      { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
+    ]
     : [
-        { segment: 'public',    title: 'Public Shifts',    icon: <PublicIcon /> },
-        { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
-        { segment: 'history',   title: 'Shifts History',   icon: <HistoryIcon /> },
-      ];
+      { segment: 'public', title: 'Public Shifts', icon: <PublicIcon /> },
+      { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
+      { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
+    ];
 
   // 2. Build and return the navigation array, matching the structure of the pharmacist nav
   return [
@@ -282,7 +288,7 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
     //     />
     //   ),
     // },
-      {
+    {
       segment: 'dashboard/otherstaff/onboarding',
       title: 'Profile',
       icon: <ManageAccountsSharpIcon />,
@@ -295,13 +301,14 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
         />
       ),
     },
-    { 
-      segment: 'dashboard/otherstaff/chat', 
-      title: 'Chat', 
+    {
+      segment: 'dashboard/otherstaff/chat',
+      title: 'Chat',
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
     { segment: 'dashboard/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
+    { segment: 'dashboard/otherstaff/calendar', title: 'Calendar', icon: <CalendarMonthIcon /> },
     { segment: 'dashboard/otherstaff/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
 
     // -- Divider & Shifts Section --
@@ -329,19 +336,19 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
 
 
 export function getPharmacistNavDynamic(progress_percent: number, workspace: 'internal' | 'platform', hasUnreadMessages: boolean) {
-  const shiftsChildren = workspace === 'internal' 
+  const shiftsChildren = workspace === 'internal'
     ? [
-        { segment: 'roster', title: 'My Roster', icon: <EventAvailableIcon /> },
-        { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
-        { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
-        { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
+      { segment: 'roster', title: 'My Roster', icon: <EventAvailableIcon /> },
+      { segment: 'community', title: 'Community Shifts', icon: <GroupsIcon /> },
+      { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
+      { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
 
-      ]
+    ]
     : [
-        { segment: 'public', title: 'Public Shifts', icon: <PublicIcon /> },
-        { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
-        { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
-      ];
+      { segment: 'public', title: 'Public Shifts', icon: <PublicIcon /> },
+      { segment: 'confirmed', title: 'Confirmed Shifts', icon: <CheckCircleIcon /> },
+      { segment: 'history', title: 'Shifts History', icon: <HistoryIcon /> },
+    ];
 
   return [
     { kind: 'header' as const, title: 'Profile and Availability' },
@@ -360,18 +367,18 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
         />
       ),
     },
-    { 
-      segment: 'dashboard/pharmacist/chat', 
-      title: 'Chat', 
+    {
+      segment: 'dashboard/pharmacist/chat',
+      title: 'Chat',
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
     { segment: 'dashboard/pharmacy-hub', title: 'Pharmacy Hub', icon: <ForumIcon /> },
-
+    { segment: 'dashboard/pharmacist/calendar', title: 'Calendar', icon: <CalendarMonthIcon /> },
     { segment: 'dashboard/pharmacist/availability', title: 'Set Availability', icon: <EventAvailableIcon /> },
     { kind: 'divider' as const },
     { kind: 'header' as const, title: 'Shifts & Invoices' },
-    { 
+    {
       segment: 'dashboard/pharmacist/shifts',
       title: 'Shift Centre',
       icon: <AccessTimeIcon />,
@@ -393,7 +400,7 @@ export function getExplorerNav(progress_percent: number, hasUnreadMessages: bool
     { kind: 'header' as const, title: 'Profile settings' },
     { segment: 'dashboard/explorer/overview', title: 'Overview', icon: <DashboardIcon /> },
 
-          {
+    {
       segment: 'dashboard/explorer/onboarding',
       title: 'Profile',
       icon: <ManageAccountsSharpIcon />,
@@ -407,17 +414,18 @@ export function getExplorerNav(progress_percent: number, hasUnreadMessages: bool
       ),
     },
 
-    { 
-      segment: 'dashboard/explorer/chat', 
-      title: 'Chat', 
+    {
+      segment: 'dashboard/explorer/chat',
+      title: 'Chat',
       icon: <GroupsIcon />,
       action: hasUnreadMessages ? <NewMessagesChip /> : null,
     },
     { kind: 'divider' as const },
     { kind: 'header' as const, title: 'Learning & Explorer Hub' },
-    { segment: 'dashboard/explorer/interests',     title: 'Explore Interests', icon: <FavoriteIcon /> },
-    { segment: 'dashboard/explorer/learning',      title: 'Learning Materials',icon: <SchoolIcon /> },
+    { segment: 'dashboard/explorer/calendar', title: 'Calendar', icon: <CalendarMonthIcon /> },
+    { segment: 'dashboard/explorer/interests', title: 'Explore Interests', icon: <FavoriteIcon /> },
+    { segment: 'dashboard/explorer/learning', title: 'Learning Materials', icon: <SchoolIcon /> },
     { kind: 'divider' as const },
-    { segment: 'dashboard/explorer/logout',        title: 'Logout',            icon: <LogoutIcon /> },
+    { segment: 'dashboard/explorer/logout', title: 'Logout', icon: <LogoutIcon /> },
   ]
 }

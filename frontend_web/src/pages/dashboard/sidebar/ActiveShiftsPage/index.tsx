@@ -112,6 +112,7 @@ const ActiveShiftsPage: React.FC = () => {
     const { tabData, setTabData, loadTabDataForShift } = useTabData(shifts, selectedLevelByShift, getTabKey);
     const {
         counterOffersByShift,
+        counterOffersLoadingByShift,
         loadCounterOffers,
         acceptOffer,
         rejectOffer,
@@ -427,7 +428,9 @@ const ActiveShiftsPage: React.FC = () => {
                             const tabKey = getTabKey(shift.id, currentLevel);
                             const currentTabData = tabData[tabKey] || { loading: false };
                             const selectedSlotId = selectedSlotByShift[shift.id] ?? shift.slots?.[0]?.id ?? null;
-                            const offers = counterOffersByShift[shift.id] || [];
+                            const offers = counterOffersByShift[shift.id];
+                            const counterOffersLoaded = Object.prototype.hasOwnProperty.call(counterOffersByShift, shift.id);
+                            const counterOffersLoading = counterOffersLoadingByShift[shift.id] ?? false;
 
                             const cardBorderColor = getCardBorderColor((shift as any).visibility ?? 'PLATFORM');
                             const summaryText = getShiftSummary(shift);
@@ -590,18 +593,25 @@ const ActiveShiftsPage: React.FC = () => {
                                                             <CircularProgress />
                                                         </Box>
                                                     ) : currentLevel === PUBLIC_LEVEL_KEY ? (
-                                                        <PublicLevelView
-                                                            shift={shift}
-                                                            slotId={selectedSlotId}
-                                                            interestsAll={currentTabData.interestsAll || []}
-                                                            counterOffers={offers}
-                                                            onReveal={handleRevealInterest}
-                                                            onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
-                                                            onReviewOffer={(s, o, slotId) =>
-                                                                handleReviewOffer(s, o, currentTabData, slotId)
-                                                            }
-                                                            revealingInterestId={revealingInterestId}
-                                                        />
+                                                        counterOffersLoading || !counterOffersLoaded ? (
+                                                            <Box display="flex" justifyContent="center" py={4}>
+                                                                <CircularProgress />
+                                                            </Box>
+                                                        ) : (
+                                                            <PublicLevelView
+                                                                shift={shift}
+                                                                slotId={selectedSlotId}
+                                                                interestsAll={currentTabData.interestsAll || []}
+                                                                counterOffers={offers || []}
+                                                                counterOffersLoaded={counterOffersLoaded}
+                                                                onReveal={handleRevealInterest}
+                                                                onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
+                                                                onReviewOffer={(s, o, slotId) =>
+                                                                    handleReviewOffer(s, o, currentTabData, slotId)
+                                                                }
+                                                                revealingInterestId={revealingInterestId}
+                                                            />
+                                                        )
                                                     ) : (
                                                         <CommunityLevelView
                                                             shift={shift}
@@ -611,7 +621,7 @@ const ActiveShiftsPage: React.FC = () => {
                                                                 ] || []
                                                             }
                                                             selectedSlotId={selectedSlotId}
-                                                            offers={offers}
+                                                            offers={offers || []}
                                                             onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
                                                             onReviewCandidate={(member, _shiftId, offer, slotId) => handleReviewCandidate(shift, member, offer, slotId)}
                                                             reviewLoadingId={reviewLoadingId}

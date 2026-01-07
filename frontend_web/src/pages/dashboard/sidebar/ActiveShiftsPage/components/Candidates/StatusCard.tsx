@@ -80,6 +80,10 @@ export const StatusCard: React.FC<StatusCardProps> = ({
                         {members.map((member) => {
                             const memberAny = member as any;
                             const ratingValue = memberAny.averageRating ?? memberAny.rating ?? null;
+                            const match = getOfferForMember
+                                ? getOfferForMember(member)
+                                : { offer: null, slotId: null };
+                            const hasOffer = Boolean(match.offer);
                             return (
                                 <Paper key={memberAny.userId} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
                                     <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -93,15 +97,20 @@ export const StatusCard: React.FC<StatusCardProps> = ({
                                                 </Typography>
                                             )}
                                         </Stack>
-                                        {ratingValue ? (
-                                            <Chip
-                                                icon={<Star sx={{ fontSize: 16 }} />}
-                                                label={ratingValue.toFixed(1)}
-                                                size="small"
-                                                color="warning"
-                                                variant="outlined"
-                                            />
-                                        ) : null}
+                                        <Stack direction="row" spacing={1} alignItems="center">
+                                            {title === 'Interested' && hasOffer && (
+                                                <Chip label="Counter offer" size="small" color="info" />
+                                            )}
+                                            {ratingValue ? (
+                                                <Chip
+                                                    icon={<Star sx={{ fontSize: 16 }} />}
+                                                    label={ratingValue.toFixed(1)}
+                                                    size="small"
+                                                    color="warning"
+                                                    variant="outlined"
+                                                />
+                                            ) : null}
+                                        </Stack>
                                     </Stack>
                                     {title === 'Interested' && (
                                         <Button
@@ -111,9 +120,6 @@ export const StatusCard: React.FC<StatusCardProps> = ({
                                             fullWidth
                                             sx={{ mt: 1.5 }}
                                             onClick={() => {
-                                                const match = getOfferForMember
-                                                    ? getOfferForMember(member)
-                                                    : { offer: null, slotId: null };
                                                 onReviewCandidate(member, shiftId, match.offer, match.slotId);
                                             }}
                                             disabled={reviewLoadingId === memberAny.userId}
@@ -123,7 +129,7 @@ export const StatusCard: React.FC<StatusCardProps> = ({
                                                 ) : undefined
                                             }
                                         >
-                                            Review Candidate
+                                            {hasOffer ? 'Review offer' : 'Review Candidate'}
                                         </Button>
                                     )}
                                 </Paper>

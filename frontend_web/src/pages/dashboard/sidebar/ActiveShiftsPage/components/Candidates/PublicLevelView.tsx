@@ -10,6 +10,7 @@ interface PublicLevelViewProps {
     slotId: number | null;
     interestsAll: any[];
     counterOffers: any[];
+    counterOffersLoaded: boolean;
     onReveal: (shift: Shift, interest: ShiftInterest) => void;
     onReviewOffer: (shift: Shift, offer: any, slotId: number | null) => void;
     onSelectSlot?: (slotId: number) => void;
@@ -21,6 +22,7 @@ export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
     slotId,
     interestsAll,
     counterOffers,
+    counterOffersLoaded,
     onReveal,
     onReviewOffer,
     onSelectSlot,
@@ -28,6 +30,7 @@ export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
 }) => {
     const slots = (shift as any).slots || [];
     const multiSlots = !(shift as any).singleUserOnly && slots.length > 0;
+    const offersList = counterOffersLoaded ? counterOffers : [];
 
     // Filter interests based on slot
     const slotInterests = slotId
@@ -40,7 +43,19 @@ export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
             const offerSlots = o.slots || o.offer_slots || [];
             return offerSlots.some((s: any) => (s.slot_id ?? s.slotId ?? s.slot?.id) === slotId);
         })
-        : counterOffers;
+        : offersList;
+
+    const offerUserIds = new Set(
+        slotOffers
+            .map(o => (typeof o.user === 'object' ? o.user?.id : o.user))
+            .filter((id: any) => id != null)
+    );
+
+    const slotInterestsFiltered = slotInterests.filter(interest => {
+        const iUserId = interest.userId ?? interest.user?.id ?? null;
+        if (iUserId == null) return true;
+        return !offerUserIds.has(iUserId);
+    });
 
     return (
         <Stack spacing={2}>
@@ -62,18 +77,6 @@ export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
                         offers={slotOffers}
                         slotId={slotId}
                         onOpenOffer={(offer) => onReviewOffer(shift, offer, slotId)}
-                        onRevealOffer={(offer) => {
-                            // Find interest for this offer
-                            const interest = interestsAll.find((i: any) => {
-                                const iUserId = i.userId ?? i.user?.id ?? null;
-                                const offerUserId = typeof offer.user === 'object' ? offer.user?.id : offer.user;
-                                return iUserId === offerUserId;
-                            });
-                            if (interest) {
-                                onReveal(shift, interest);
-                            }
-                        }}
-                        revealingOfferId={revealingInterestId}
                         labelResolver={(offer: any) => {
                             // Find interest for this offer to check reveal status
                             const interest = interestsAll.find((i: any) => {
@@ -124,20 +127,11 @@ export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
             {/* Simple Interests Section */}
             <Paper variant="outlined" sx={{ p: 2 }}>
                 <Typography variant="subtitle2" gutterBottom>
-                    Interests ({slotInterests.length})
+                    Interests ({slotInterestsFiltered.length})
                 </Typography>
-                {slotInterests.length > 0 ? (
+                {slotInterestsFiltered.length > 0 ? (
                     <Stack spacing={1}>
-                        {slotInterests.map(interest => {
-                            // Check if this interest already has a counter offer
-                            const hasOffer = counterOffers.some(o => {
-                                const offerUserId = typeof o.user === 'object' ? o.user?.id : o.user;
-                                const iUserId = interest.userId ?? interest.user?.id ?? null;
-                                return offerUserId === iUserId;
-                            });
-
-                            if (hasOffer) return null; // Don't show if they have a counter offer
-
+                        {slotInterestsFiltered.map(interest => {
                             return (
                                 <Box
                                     key={interest.id}

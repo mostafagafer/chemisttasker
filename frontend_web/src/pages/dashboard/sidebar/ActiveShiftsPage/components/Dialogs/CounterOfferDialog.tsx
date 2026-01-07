@@ -63,11 +63,6 @@ export const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                                 <Typography variant="body2" fontWeight={600}>
                                     {candidate.name || 'Candidate'}
                                 </Typography>
-                                {candidate.email && (
-                                    <Typography variant="body2" color="text.secondary">
-                                        {candidate.email}
-                                    </Typography>
-                                )}
                                 {candidate.shortBio && (
                                     <Typography variant="body2" sx={{ mt: 0.5 }}>
                                         {candidate.shortBio}

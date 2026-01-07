@@ -7,15 +7,19 @@ import {
 
 export function useCounterOffers() {
     const [counterOffersByShift, setCounterOffersByShift] = useState<Record<number, any[]>>({});
+    const [counterOffersLoadingByShift, setCounterOffersLoadingByShift] = useState<Record<number, boolean>>({});
     const [counterActionLoading, setCounterActionLoading] = useState<number | null>(null);
 
     const loadCounterOffers = useCallback(async (shiftId: number) => {
+        setCounterOffersLoadingByShift(prev => ({ ...prev, [shiftId]: true }));
         try {
             const offers = await fetchShiftCounterOffersService(shiftId);
             setCounterOffersByShift(prev => ({ ...prev, [shiftId]: offers }));
         } catch (error) {
             console.error('Failed to load counter offers', error);
             setCounterOffersByShift(prev => ({ ...prev, [shiftId]: [] }));
+        } finally {
+            setCounterOffersLoadingByShift(prev => ({ ...prev, [shiftId]: false }));
         }
     }, []);
 
@@ -61,6 +65,7 @@ export function useCounterOffers() {
 
     return {
         counterOffersByShift,
+        counterOffersLoadingByShift,
         loadCounterOffers,
         acceptOffer,
         rejectOffer,

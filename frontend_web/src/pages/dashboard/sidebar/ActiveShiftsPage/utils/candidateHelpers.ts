@@ -96,14 +96,22 @@ export function findOfferForMemberInShift(
     if (!offers || offers.length === 0) return null;
 
     const memberAny = member as any;
-    const userId = memberAny.userId;
+    const userId = memberAny.userId ?? memberAny.user?.id ?? null;
     const memberSlotId = memberAny.slotId ?? null;
 
     return offers.find((offer: any) => {
-        const offerUserId = offer.userId ?? offer.user_id;
-        const offerSlotId = offer.slotId ?? offer.slot_id ?? null;
+        const offerUserId = typeof offer.user === 'object' ? offer.user?.id : (offer.user ?? offer.userId ?? offer.user_id);
+        if (offerUserId !== userId) return false;
 
-        // Match by user ID and slot ID
-        return offerUserId === userId && offerSlotId === (selectedSlotId ?? memberSlotId);
+        const effectiveSlotId = selectedSlotId ?? memberSlotId;
+        if (effectiveSlotId == null) return true;
+
+        const offerSlots = offer.slots || offer.offer_slots || [];
+        if (offerSlots.length === 0) {
+            const offerSlotId = offer.slotId ?? offer.slot_id ?? null;
+            return offerSlotId == null || offerSlotId === effectiveSlotId;
+        }
+
+        return offerSlots.some((s: any) => (s.slot_id ?? s.slotId ?? s.slot?.id) === effectiveSlotId);
     }) || null;
 }

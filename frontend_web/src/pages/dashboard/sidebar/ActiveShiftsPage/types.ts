@@ -17,6 +17,7 @@ export interface ReviewCandidateDialogState {
 
 export interface ReviewOfferDialogState {
     open: boolean;
+    shiftId: number | null;
     offer: any | null;
     candidate: any | null;
     slotId: number | null;

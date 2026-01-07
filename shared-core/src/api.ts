@@ -576,8 +576,12 @@ export function createShiftCounterOffer(shiftId, data) {
         body: JSON.stringify(data),
     });
 }
-export function acceptShiftCounterOffer(shiftId, offerId) {
-    return fetchApi(`/client-profile/shifts/${shiftId}/counter-offers/${offerId}/accept/`, { method: 'POST' });
+export function acceptShiftCounterOffer(shiftId, offerId, slotId) {
+    const body = slotId == null ? undefined : JSON.stringify({ slot_id: slotId });
+    return fetchApi(`/client-profile/shifts/${shiftId}/counter-offers/${offerId}/accept/`, {
+        method: 'POST',
+        body,
+    });
 }
 export function rejectShiftCounterOffer(shiftId, offerId) {
     return fetchApi(`/client-profile/shifts/${shiftId}/counter-offers/${offerId}/reject/`, { method: 'POST' });
@@ -831,7 +835,7 @@ export async function submitShiftCounterOfferService(payload) {
     return mapShiftCounterOffer(data);
 }
 export async function acceptShiftCounterOfferService(payload) {
-    await acceptShiftCounterOffer(payload.shiftId, payload.offerId);
+    await acceptShiftCounterOffer(payload.shiftId, payload.offerId, payload.slotId);
 }
 export async function rejectShiftCounterOfferService(payload) {
     await rejectShiftCounterOffer(payload.shiftId, payload.offerId);

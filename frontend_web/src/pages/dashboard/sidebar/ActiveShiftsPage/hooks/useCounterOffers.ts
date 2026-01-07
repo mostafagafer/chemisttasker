@@ -24,10 +24,14 @@ export function useCounterOffers() {
     }, []);
 
     const acceptOffer = useCallback(
-        async (offer: any, onSuccess?: () => void) => {
-            setCounterActionLoading(offer.id);
+        async (payload: { offer: any; shiftId: number; slotId: number | null }, onSuccess?: () => void) => {
+            setCounterActionLoading(payload.offer.id);
             try {
-                await acceptShiftCounterOfferService(offer.id);
+                await acceptShiftCounterOfferService({
+                    shiftId: payload.shiftId,
+                    offerId: payload.offer.id,
+                    slotId: payload.slotId ?? undefined,
+                });
                 if (onSuccess) onSuccess();
             } catch (error) {
                 console.error('Failed to accept counter offer', error);
@@ -39,10 +43,13 @@ export function useCounterOffers() {
     );
 
     const rejectOffer = useCallback(
-        async (offer: any, onSuccess?: () => void) => {
-            setCounterActionLoading(offer.id);
+        async (payload: { offer: any; shiftId: number }, onSuccess?: () => void) => {
+            setCounterActionLoading(payload.offer.id);
             try {
-                await rejectShiftCounterOfferService(offer.id);
+                await rejectShiftCounterOfferService({
+                    shiftId: payload.shiftId,
+                    offerId: payload.offer.id,
+                });
                 if (onSuccess) onSuccess();
             } catch (error) {
                 console.error('Failed to reject counter offer', error);

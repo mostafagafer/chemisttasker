@@ -31,6 +31,7 @@ import {
     ShiftMemberStatus,
     EscalationLevelKey,
 } from '@chemisttasker/shared-core';
+import { useAuth } from '../../../../contexts/AuthContext';
 
 
 // Hooks
@@ -71,7 +72,12 @@ import { customTheme } from './theme';
 
 const ActiveShiftsPage: React.FC = () => {
     const navigate = useNavigate();
+    const { user, activePersona, activeAdminPharmacyId } = useAuth();
     const selectedPharmacyId = null; // TODO: Get from proper context
+    const scopedPharmacyId =
+        activePersona === 'admin' && typeof activeAdminPharmacyId === 'number'
+            ? activeAdminPharmacyId
+            : null;
 
     // Snackbar
     const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -94,6 +100,7 @@ const ActiveShiftsPage: React.FC = () => {
     });
     const [reviewOfferDialog, setReviewOfferDialog] = useState<ReviewOfferDialogState>({
         open: false,
+        shiftId: null,
         offer: null,
         candidate: null,
         slotId: null,
@@ -210,6 +217,7 @@ const ActiveShiftsPage: React.FC = () => {
         // Open dialog (no counter offer, just showing interest)
         setReviewOfferDialog({
             open: true,
+            shiftId: shift.id,
             offer: null,
             candidate,
             slotId: interest.slotId ?? null,
@@ -285,6 +293,7 @@ const ActiveShiftsPage: React.FC = () => {
             // Open dialog
             setReviewOfferDialog({
                 open: true,
+                shiftId: shift.id,
                 offer: { ...offer, _mappedSlots: mappedSlots },
                 candidate,
                 slotId,
@@ -328,6 +337,7 @@ const ActiveShiftsPage: React.FC = () => {
 
             setReviewOfferDialog({
                 open: true,
+                shiftId: shift.id,
                 offer: offer ? { ...offer, _mappedSlots: mappedSlots } : null,
                 candidate,
                 slotId,
@@ -338,10 +348,11 @@ const ActiveShiftsPage: React.FC = () => {
 
     // Handle accept/reject counter offer
     const handleAcceptOffer = useCallback(
-        async (offer: any) => {
-            await acceptOffer(offer, async () => {
+        async (offer: any, shiftId: number | null, slotId: number | null) => {
+            if (!offer || shiftId == null) return;
+            await acceptOffer({ offer, shiftId, slotId }, async () => {
                 showSnackbar('Counter offer accepted');
-                setReviewOfferDialog({ open: false, offer: null, candidate: null, slotId: null });
+                setReviewOfferDialog({ open: false, shiftId: null, offer: null, candidate: null, slotId: null });
                 await loadShifts();
             });
         },
@@ -349,10 +360,11 @@ const ActiveShiftsPage: React.FC = () => {
     );
 
     const handleRejectOffer = useCallback(
-        async (offer: any) => {
-            await rejectOffer(offer, async () => {
+        async (offer: any, shiftId: number | null) => {
+            if (!offer || shiftId == null) return;
+            await rejectOffer({ offer, shiftId }, async () => {
                 showSnackbar('Counter offer rejected');
-                setReviewOfferDialog({ open: false, offer: null, candidate: null, slotId: null });
+                setReviewOfferDialog({ open: false, shiftId: null, offer: null, candidate: null, slotId: null });
                 await loadShifts();
             });
         },
@@ -385,6 +397,16 @@ const ActiveShiftsPage: React.FC = () => {
     const handleSlotSelection = useCallback((shiftId: number, slotId: number) => {
         setSelectedSlotByShift(prev => ({ ...prev, [shiftId]: slotId }));
     }, []);
+
+    const handleEditShift = useCallback((shiftId: number) => {
+        const baseRoute =
+            scopedPharmacyId != null
+                ? `/dashboard/admin/${scopedPharmacyId}/post-shift`
+                : user?.role?.startsWith('ORG_')
+                    ? '/dashboard/organization/post-shift'
+                    : '/dashboard/owner/post-shift';
+        navigate(`${baseRoute}?edit=${shiftId}`);
+    }, [navigate, scopedPharmacyId, user?.role]);
 
     // Load counter offers when shift expands
     React.useEffect(() => {
@@ -493,7 +515,7 @@ const ActiveShiftsPage: React.FC = () => {
                                                         size="small"
                                                         onClick={e => {
                                                             e.stopPropagation();
-                                                            navigate(`/dashboard/shifts/edit/${shift.id}`);
+                                                            handleEditShift(shift.id);
                                                         }}
                                                     >
                                                         <Edit fontSize="small" />
@@ -662,9 +684,9 @@ const ActiveShiftsPage: React.FC = () => {
                     workerCommentsPage={workerCommentsPage}
                     workerCommentsPageCount={workerCommentsPageCount}
                     counterActionLoading={counterActionLoading}
-                    onClose={() => setReviewOfferDialog({ open: false, offer: null, candidate: null, slotId: null })}
-                    onAccept={handleAcceptOffer}
-                    onReject={handleRejectOffer}
+                    onClose={() => setReviewOfferDialog({ open: false, shiftId: null, offer: null, candidate: null, slotId: null })}
+                    onAccept={(offer) => handleAcceptOffer(offer, reviewOfferDialog.shiftId, reviewOfferDialog.slotId)}
+                    onReject={(offer) => handleRejectOffer(offer, reviewOfferDialog.shiftId)}
                     onPageChange={(_, value) => {
                         if (reviewOfferDialog.candidate) {
                             // Re-load ratings for the new page

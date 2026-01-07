@@ -1122,12 +1122,25 @@ export default function PharmacyCalendarPage() {
                                                             </Typography>
                                                         )}
                                                         {item.completedBy && item.completedBy.length > 0 && (
-                                                            <Typography
-                                                                variant="body2"
-                                                                sx={{ color: "text.secondary", fontFamily: '"Inter", sans-serif' }}
-                                                            >
-                                                                Completed by: {item.completedBy.join(", ")}
-                                                            </Typography>
+                                                            <Box sx={{ mt: 0.5 }}>
+                                                                <Typography
+                                                                    variant="body2"
+                                                                    sx={{ color: "text.secondary", fontFamily: '"Inter", sans-serif' }}
+                                                                >
+                                                                    Completed by
+                                                                </Typography>
+                                                                <Stack spacing={0.25} sx={{ mt: 0.25 }}>
+                                                                    {item.completedBy.map((name, idx) => (
+                                                                        <Typography
+                                                                            key={`${name}-${idx}`}
+                                                                            variant="body2"
+                                                                            sx={{ color: "text.secondary", fontFamily: '"Inter", sans-serif' }}
+                                                                        >
+                                                                            - {name}
+                                                                        </Typography>
+                                                                    ))}
+                                                                </Stack>
+                                                            </Box>
                                                         )}
                                                     </Box>
                                                 )}

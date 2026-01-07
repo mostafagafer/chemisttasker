@@ -65,6 +65,11 @@ class CalendarScopeMixin:
         pharmacy_ids.update(
             pharmacies_user_admins(user).values_list('id', flat=True)
         )
+
+        # Pharmacy owners
+        pharmacy_ids.update(
+            Pharmacy.objects.filter(owner__user=user).values_list('id', flat=True)
+        )
         
         # Organization memberships with pharmacy visibility
         org_memberships = user.organization_memberships.select_related('organization').prefetch_related('pharmacies')
@@ -104,7 +109,7 @@ class CalendarScopeMixin:
             return True
         
         # Check org-level permissions
-        pharmacy = Pharmacy.objects.filter(id=pharmacy_id).select_related('organization').first()
+        pharmacy = Pharmacy.objects.filter(id=pharmacy_id).select_related('organization', 'owner').first()
         if pharmacy and pharmacy.organization_id:
             org_membership = OrganizationMembership.objects.filter(
                 user=user,
@@ -114,6 +119,11 @@ class CalendarScopeMixin:
                 caps = membership_capabilities(org_membership)
                 if OrgCapability.MANAGE_ROSTER in caps or OrgCapability.MANAGE_ADMINS in caps:
                     return True
+
+        if pharmacy and pharmacy.owner_id:
+            owner_user_id = getattr(pharmacy.owner, "user_id", None)
+            if owner_user_id == user.id:
+                return True
         
         return False
     

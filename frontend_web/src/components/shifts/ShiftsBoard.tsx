@@ -430,6 +430,20 @@ const expandRecurringSlotsForDisplay = (slots: ShiftSlot[]): ShiftSlot[] => {
   return expanded.length ? expanded : slots;
 };
 
+const isSlotRecurring = (slot: ShiftSlot) => {
+  const raw: any = slot;
+  const isRecurring = raw?.isRecurring ?? raw?.is_recurring;
+  const recurringDays = raw?.recurringDays ?? raw?.recurring_days ?? [];
+  const recurringEnd = raw?.recurringEndDate ?? raw?.recurring_end_date;
+  return Boolean(isRecurring || (Array.isArray(recurringDays) && recurringDays.length > 0 && recurringEnd));
+};
+
+const getExpandedSlotsForDisplay = (slots: ShiftSlot[]) => {
+  if (!slots.length) return slots;
+  if (!slots.some(isSlotRecurring)) return slots;
+  return expandRecurringSlotsForDisplay(slots);
+};
+
 // Render offers as returned by API (one entry per slot/slot_date with proposed times/rate).
 const expandOfferSlotsForDisplay = (offerSlots: any[], shiftSlots: ShiftSlot[]): any[] => {
   if (!Array.isArray(offerSlots) || offerSlots.length === 0) return [];
@@ -1183,7 +1197,7 @@ useEffect(() => {
       // Apply local min-rate filter even with server filtering to catch pharmacist-provided zeros.
       if (filterConfig.minRate > 0) {
         serverResult = serverResult.filter((shift) => {
-          const slots = shift.slots ?? [];
+          const slots = getExpandedSlotsForDisplay(shift.slots ?? []);
           const maxRate = Math.max(
             ...(slots || [])
               .map((slot) => getSlotRate(slot, shift, pharmacistRatePref))
@@ -1201,7 +1215,7 @@ useEffect(() => {
     }
 
     result = result.filter((shift) => {
-      const slots = shift.slots ?? [];
+      const slots = getExpandedSlotsForDisplay(shift.slots ?? []);
       const hasOverlap = (predicate: (slot: ShiftSlot) => boolean) => slots.some(predicate);
 
       if (filterConfig.onlyUrgent && !getShiftUrgent(shift)) return false;
@@ -1295,10 +1309,7 @@ useEffect(() => {
       }
     }
     const baseSlots = shift.slots ?? [];
-    const normalizedSlots =
-      shift.singleUserOnly && baseSlots.length > 0
-        ? expandRecurringSlotsForDisplay(baseSlots as any as ShiftSlot[])
-        : baseSlots;
+    const normalizedSlots = getExpandedSlotsForDisplay(baseSlots as ShiftSlot[]);
     const slotIds = selectedSlots && selectedSlots.size > 0 ? selectedSlots : null;
     const slotsToUse = slotIds ? normalizedSlots.filter((slot) => slotIds.has(slot.id)) : normalizedSlots;
 
@@ -2369,10 +2380,7 @@ useEffect(() => {
 
             {processedShifts.map((shift) => {
               const rawSlots = shift.slots ?? [];
-              const slots =
-                shift.singleUserOnly && rawSlots.length > 0
-                  ? expandRecurringSlotsForDisplay(rawSlots as ShiftSlot[])
-                  : rawSlots;
+              const slots = getExpandedSlotsForDisplay(rawSlots as ShiftSlot[]);
               const isMulti = slots.length > 1;
               const isExpanded = Boolean(expandedCards[shift.id]);
               const selection = selectedSlotIds[shift.id] ?? new Set<number>();

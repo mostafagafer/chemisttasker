@@ -11,7 +11,7 @@ from django.db import transaction
 from decimal import Decimal
 from client_profile.utils import q6, send_referee_emails, clean_email, enforce_public_shift_daily_limit, build_shift_email_context
 from client_profile.admin_helpers import has_admin_capability, CAPABILITY_MANAGE_ROSTER
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime, time
 from django.utils import timezone
 from django_q.tasks import async_task
 import logging
@@ -3910,13 +3910,122 @@ class ShiftSerializer(serializers.ModelSerializer):
         if not recipient_map:
             return
 
+        def format_slot_date(value):
+            if not value:
+                return None
+            if isinstance(value, date):
+                parsed = value
+            elif isinstance(value, datetime):
+                parsed = value.date()
+            elif isinstance(value, str):
+                try:
+                    parsed = datetime.strptime(value, "%Y-%m-%d").date()
+                except ValueError:
+                    try:
+                        parsed = datetime.fromisoformat(value).date()
+                    except ValueError:
+                        return value
+            else:
+                return str(value)
+            return parsed.strftime("%d %B, %Y").lstrip("0")
+
+        def format_slot_time(value):
+            if not value:
+                return None
+            if isinstance(value, time):
+                parsed = value
+            elif isinstance(value, datetime):
+                parsed = value.time()
+            elif isinstance(value, str):
+                parsed = None
+                for fmt in ("%H:%M:%S", "%H:%M"):
+                    try:
+                        parsed = datetime.strptime(value, fmt).time()
+                        break
+                    except ValueError:
+                        continue
+                if parsed is None:
+                    return value
+            else:
+                return str(value)
+            return parsed.strftime("%I:%M %p").lstrip("0")
+
+        def format_money(value):
+            if value is None or value == "":
+                return None
+            try:
+                amount = Decimal(str(value))
+            except Exception:
+                return None
+            formatted = f"{amount:.2f}".rstrip("0").rstrip(".")
+            return f"${formatted}"
+
         first_slot = slots_data[0] if slots_data else {}
         slot_date = first_slot.get('date') if isinstance(first_slot, dict) else None
         slot_start = first_slot.get('start_time') if isinstance(first_slot, dict) else None
         slot_end = first_slot.get('end_time') if isinstance(first_slot, dict) else None
         slot_summary = None
         if slot_date and slot_start and slot_end:
-            slot_summary = f"{slot_date} {slot_start}-{slot_end}"
+            slot_summary = f"{format_slot_date(slot_date)} — {format_slot_time(slot_start)} to {format_slot_time(slot_end)}"
+
+        slot_lines = []
+        for slot in slots_data or []:
+            if not isinstance(slot, dict):
+                continue
+            date_text = format_slot_date(slot.get('date'))
+            start_text = format_slot_time(slot.get('start_time'))
+            end_text = format_slot_time(slot.get('end_time'))
+            if date_text and start_text and end_text:
+                slot_lines.append(f"{date_text} — {start_text} to {end_text}")
+        max_slots_in_email = 6
+        slots_display = slot_lines[:max_slots_in_email]
+        slots_extra_count = max(0, len(slot_lines) - len(slots_display))
+
+        location_line = None
+        if shift.pharmacy:
+            location_line = ", ".join(
+                part for part in [
+                    getattr(shift.pharmacy, "street_address", None),
+                    getattr(shift.pharmacy, "suburb", None),
+                    getattr(shift.pharmacy, "state", None),
+                    getattr(shift.pharmacy, "postcode", None),
+                ] if part
+            ) or None
+
+        rate_summary = None
+        min_annual = getattr(shift, "min_annual_salary", None)
+        max_annual = getattr(shift, "max_annual_salary", None)
+        min_hourly = getattr(shift, "min_hourly_rate", None)
+        max_hourly = getattr(shift, "max_hourly_rate", None)
+        fixed_rate = getattr(shift, "fixed_rate", None)
+        slot_rates = [
+            Decimal(str(s.get("rate")))
+            for s in slots_data or []
+            if isinstance(s, dict) and s.get("rate") not in (None, "")
+        ]
+        if min_annual or max_annual:
+            min_display = format_money(min_annual)
+            max_display = format_money(max_annual)
+            if min_display and max_display:
+                rate_summary = f"{min_display}–{max_display} package"
+            else:
+                rate_summary = f"{min_display or max_display} package"
+        elif fixed_rate:
+            rate_summary = f"{format_money(fixed_rate)}/hr"
+        elif min_hourly or max_hourly:
+            min_display = format_money(min_hourly)
+            max_display = format_money(max_hourly)
+            if min_display and max_display:
+                rate_summary = f"{min_display}–{max_display}/hr"
+            else:
+                rate_summary = f"{min_display or max_display}/hr"
+        elif slot_rates:
+            min_rate = min(slot_rates)
+            max_rate = max(slot_rates)
+            if min_rate == max_rate:
+                rate_summary = f"{format_money(min_rate)}/hr"
+            else:
+                rate_summary = f"{format_money(min_rate)}–{format_money(max_rate)}/hr"
 
         for user in recipient_map.values():
             ctx = build_shift_email_context(shift, user=user)
@@ -3927,6 +4036,10 @@ class ShiftSerializer(serializers.ModelSerializer):
                 "slot_date": slot_date,
                 "slot_start": slot_start,
                 "slot_end": slot_end,
+                "slots_display": slots_display,
+                "slots_extra_count": slots_extra_count,
+                "location_line": location_line,
+                "rate_summary": rate_summary,
             })
             notification_payload = {
                 "title": "New shift available",

@@ -118,6 +118,10 @@ export default function App() {
     ) {
       const adminBase = `/dashboard/admin/${scopedAdminPharmacyId}`;
       const pathname = location.pathname;
+      const isDashboardRoot =
+        pathname === "/dashboard" || pathname === "/dashboard/";
+      const isAdminRoute = pathname.startsWith("/dashboard/admin");
+      const shouldForceAdminRedirect = isDashboardRoot || isAdminRoute;
       const isOnCurrentAdminRoute =
         pathname === adminBase ||
         pathname === `${adminBase}/` ||
@@ -134,6 +138,7 @@ export default function App() {
 
       if (
         personaOrPharmacyChanged &&
+        shouldForceAdminRedirect &&
         (!isOnCurrentAdminRoute || isExactlyAdminBase)
       ) {
         navigate(`${adminBase}/overview`, { replace: true });

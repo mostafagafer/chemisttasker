@@ -30,7 +30,27 @@
             A <b>{{ role_label }}</b> shift has been posted at <b>{{ pharmacy_name }}</b>.
             {% if employment_type_label %}({{ employment_type_label }}){% endif %}
         </p>
-        {% if slot_summary %}
+        {% if location_line %}
+        <p class="meta">
+            <strong>Location:</strong> {{ location_line }}
+        </p>
+        {% endif %}
+        {% if rate_summary %}
+        <p class="meta">
+            <strong>Rate:</strong> {{ rate_summary }}
+        </p>
+        {% endif %}
+        {% if slots_display %}
+        <p class="meta"><strong>Schedule</strong></p>
+        <ul style="font-size: 15px; padding-left: 18px; margin: 0 0 12px 0;">
+            {% for slot_line in slots_display %}
+            <li>{{ slot_line }}</li>
+            {% endfor %}
+            {% if slots_extra_count %}
+            <li>and {{ slots_extra_count }} more</li>
+            {% endif %}
+        </ul>
+        {% elif slot_summary %}
         <p class="meta">
             Next shift: {{ slot_summary }}
         </p>

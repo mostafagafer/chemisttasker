@@ -3143,6 +3143,26 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             offer.decided_at = timezone.now()
             offer.save(update_fields=['decided_by', 'decided_at', 'updated_at'])
 
+        # Notify the candidate that their counter offer was accepted.
+        if offer.user and offer.user.email:
+            ctx = build_shift_email_context(shift, user=offer.user, role=offer.user.role.lower())
+            notification_payload = {
+                "title": f"Shift confirmed: {shift.pharmacy.name}",
+                "body": f"Your counter offer was accepted for {shift.pharmacy.name}.",
+                "payload": {"shift_id": shift.id},
+            }
+            if ctx.get("shift_link"):
+                notification_payload["action_url"] = ctx["shift_link"]
+            async_task(
+                'users.tasks.send_async_email',
+                subject=f"Your counter offer was accepted for {shift.pharmacy.name}",
+                recipient_list=[offer.user.email],
+                template_name="emails/shift_accept.html",
+                context=ctx,
+                text_template="emails/shift_accept.txt",
+                notification=notification_payload
+            )
+
         return Response({'detail': 'Counter offer accepted.'}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='counter-offers/(?P<offer_id>[^/.]+)/reject')

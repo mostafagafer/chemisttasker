@@ -1,4 +1,5 @@
 import os
+import urllib.parse
 from .settings import *
 from .settings import BASE_DIR
 import dj_database_url
@@ -113,3 +114,34 @@ MEDIA_URL = (
     f"https://{env('AZURE_ACCOUNT_NAME')}"
     f".blob.core.windows.net/{env('AZURE_CONTAINER')}/"
 )
+
+def _log_redis_config() -> None:
+    try:
+        redis_url = os.environ.get("REDIS_URL") or globals().get("REDIS_URL")
+        if not redis_url:
+            print("[deployment] REDIS_URL not set")
+            return
+        parsed = urllib.parse.urlparse(redis_url)
+        db = parsed.path.lstrip("/") if parsed.path and parsed.path != "/" else "0"
+        print(
+            "[deployment] REDIS scheme=%s host=%s port=%s db=%s"
+            % (parsed.scheme, parsed.hostname, parsed.port, db)
+        )
+        q_redis = (globals().get("Q_CLUSTER") or {}).get("redis", {})
+        if isinstance(q_redis, dict) and q_redis:
+            print(
+                "[deployment] Q_CLUSTER redis host=%s port=%s db=%s ssl=%s"
+                % (q_redis.get("host"), q_redis.get("port"), q_redis.get("db"), q_redis.get("ssl"))
+            )
+        channel_hosts = (
+            (globals().get("CHANNEL_LAYERS") or {})
+            .get("default", {})
+            .get("CONFIG", {})
+            .get("hosts")
+        )
+        if channel_hosts:
+            print("[deployment] CHANNEL_LAYERS hosts=%s" % channel_hosts)
+    except Exception as exc:
+        print("[deployment] Failed to log redis config: %s" % exc)
+
+_log_redis_config()

@@ -97,8 +97,29 @@ INSTALLED_APPS = [
 
 
 
+# Use a single REDIS_URL env var everywhere
+# Examples:
+#   Local dev: redis://127.0.0.1:6379/0
+#   Azure Cache for Redis (TLS): rediss://:<PASSWORD>@<NAME>.redis.cache.windows.net:6380/0
+REDIS_URL = env("REDIS_URL", default="redis://127.0.0.1:6379/0")
+
 # Parse the REDIS_URL to get connection details dynamically
-_redis_url = urllib.parse.urlparse(env('REDIS_URL', default='redis://127.0.0.1:6379/0'))
+_redis_url = urllib.parse.urlparse(REDIS_URL)
+_redis_is_ssl = _redis_url.scheme == "rediss"
+_redis_port = _redis_url.port or (6380 if _redis_is_ssl else 6379)
+_redis_options = {
+    'host': _redis_url.hostname or '127.0.0.1',
+    'port': _redis_port,
+    'db': int(_redis_url.path.strip('/')) if _redis_url.path and _redis_url.path != '/' else 0,
+    'password': _redis_url.password,
+}
+if _redis_is_ssl:
+    _redis_options.update({
+        'ssl': True,
+        # Disable cert verification to avoid TLS handshake issues on managed Redis.
+        # If you want strict verification, set ssl_cert_reqs to "required" and provide CA certs.
+        'ssl_cert_reqs': None,
+    })
 
 Q_CLUSTER = {
     'name': 'DjangoQ',
@@ -107,12 +128,7 @@ Q_CLUSTER = {
     'retry': 400,
     'queue_limit': 50,
     'bulk': 10,
-    'redis': {
-        'host': _redis_url.hostname,
-        'port': _redis_url.port,
-        'db': int(_redis_url.path.strip('/')) if _redis_url.path and _redis_url.path != '/' else 0,
-        'password': _redis_url.password,
-    }
+    'redis': _redis_options,
 }
 
 
@@ -370,15 +386,6 @@ MOBILEMESSAGE_SENDER = env('MOBILEMESSAGE_SENDER')
 # Channels (ASGI) configuration
 # ---------------------------------------------------------------------
 ASGI_APPLICATION = "core.asgi.application"
-
-# Use a single REDIS_URL env var everywhere
-# Examples:
-#   Local dev (Docker): redis://127.0.0.1:6379/0
-#   Azure Cache for Redis (TLS): rediss://:<PASSWORD>@<NAME>.redis.cache.windows.net:6380/0
-from environ import Env
-env = Env()
-
-REDIS_URL = env("REDIS_URL", default="redis://127.0.0.1:6379/0")
 
 CHANNEL_LAYERS = {
     "default": {

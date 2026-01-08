@@ -70,7 +70,12 @@ import {
 // Theme
 import { customTheme } from './theme';
 
-const ActiveShiftsPage: React.FC = () => {
+type ActiveShiftsPageProps = {
+    shiftId?: number | null;
+    title?: string;
+};
+
+const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, title = 'Active Shifts' }) => {
     const navigate = useNavigate();
     const { user, activePersona, activeAdminPharmacyId } = useAuth();
     const selectedPharmacyId = null; // TODO: Get from proper context
@@ -115,7 +120,7 @@ const ActiveShiftsPage: React.FC = () => {
     }, []);
 
     // Data hooks
-    const { shifts, setShifts, loading: shiftsLoading, loadShifts } = useShiftsData({ selectedPharmacyId });
+    const { shifts, setShifts, loading: shiftsLoading, loadShifts } = useShiftsData({ selectedPharmacyId, shiftId });
     const { tabData, setTabData, loadTabDataForShift } = useTabData(shifts, selectedLevelByShift, getTabKey);
     const {
         counterOffersByShift,
@@ -432,7 +437,7 @@ const ActiveShiftsPage: React.FC = () => {
             <Container maxWidth="lg" sx={{ py: 4 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                     <Typography variant="h4" fontWeight="bold">
-                        Active Shifts
+                        {title}
                     </Typography>
                 </Box>
 

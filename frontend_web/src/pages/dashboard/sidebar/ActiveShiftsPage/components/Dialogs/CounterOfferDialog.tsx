@@ -17,6 +17,26 @@ import {
     Pagination,
 } from '@mui/material';
 
+const TRAVEL_ORIGIN_PREFIX = 'Traveling from:';
+
+const extractTravelOrigin = (message?: string | null) => {
+    if (!message) return { cleanMessage: '', travelOrigin: null as string | null };
+    const lines = message.split(/\r?\n/);
+    let travelOrigin: string | null = null;
+    const filtered = lines.filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return true;
+        if (trimmed.startsWith(TRAVEL_ORIGIN_PREFIX)) {
+            if (!travelOrigin) {
+                travelOrigin = trimmed.slice(TRAVEL_ORIGIN_PREFIX.length).trim();
+            }
+            return false;
+        }
+        return true;
+    });
+    return { cleanMessage: filtered.join('\n').trim(), travelOrigin };
+};
+
 interface CounterOfferDialogProps {
     open: boolean;
     offer: any | null;
@@ -48,6 +68,8 @@ export const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
     onReject,
     onPageChange,
 }) => {
+    const { cleanMessage, travelOrigin } = extractTravelOrigin(offer?.message);
+
     return (
         <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
             <DialogTitle sx={{ fontWeight: 'bold' }}>
@@ -75,9 +97,9 @@ export const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                         {offer && (
                             <>
                                 {/* Message */}
-                                {offer.message && (
+                                {cleanMessage && (
                                     <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                                        {offer.message}
+                                        {cleanMessage}
                                     </Typography>
                                 )}
 
@@ -140,7 +162,14 @@ export const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
 
                                 {/* Travel Support */}
                                 {offer.requestTravel && (
-                                    <Chip size="small" color="info" label="Requested travel support" />
+                                    <Stack spacing={0.5}>
+                                        <Chip size="small" color="info" label="Requested travel support" />
+                                        {travelOrigin && (
+                                            <Typography variant="body2" color="text.secondary">
+                                                Traveling from: {travelOrigin}
+                                            </Typography>
+                                        )}
+                                    </Stack>
                                 )}
 
                                 <Divider sx={{ my: 2 }} />

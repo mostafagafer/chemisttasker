@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
+  Alert,
   Box,
   Button,
   Checkbox,
@@ -12,6 +13,7 @@ import {
   Drawer,
   FormControl,
   FormControlLabel,
+  GlobalStyles,
   IconButton,
   InputAdornment,
   InputLabel,
@@ -69,6 +71,7 @@ import {
   calculateShiftRates,
   fetchShiftCounterOffersService,
 } from '@chemisttasker/shared-core';
+import { Autocomplete, useJsApiLoader } from '@react-google-maps/api';
 import apiClient from '../../utils/apiClient';
 import { API_ENDPOINTS } from '../../constants/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -89,6 +92,15 @@ type CounterOfferFormSlot = {
   startTime: string;
   endTime: string;
   rate: string;
+};
+type TravelLocation = {
+  streetAddress: string;
+  suburb: string;
+  state: string;
+  postcode: string;
+  googlePlaceId: string;
+  latitude: number | null;
+  longitude: number | null;
 };
 // Local extension to include slotDate until upstream package type publishes it.
 type ShiftCounterOfferSlotPayloadWithDate = ShiftCounterOfferSlotPayload & { slotDate?: string };
@@ -160,6 +172,62 @@ const formatDateLong = (value?: string | null) =>
 
 const formatTime = (value?: string | null) =>
   value ? dayjs(`1970-01-01T${value}`).format('HH:mm') : '';
+
+const EMPTY_TRAVEL_LOCATION: TravelLocation = {
+  streetAddress: '',
+  suburb: '',
+  state: '',
+  postcode: '',
+  googlePlaceId: '',
+  latitude: null,
+  longitude: null,
+};
+
+const GOOGLE_LIBRARIES = ['places'] as Array<'places'>;
+const COUNTER_OFFER_TRAVEL_AUTOCOMPLETE_ID = 'counter-offer-travel-autocomplete';
+
+const parseLocationNumber = (value: any) => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const normalizeOnboardingLocation = (raw: any): TravelLocation => {
+  const source = raw?.data ?? raw ?? {};
+  return {
+    streetAddress: source.street_address ?? source.streetAddress ?? '',
+    suburb: source.suburb ?? '',
+    state: source.state ?? '',
+    postcode: source.postcode ?? '',
+    googlePlaceId: source.google_place_id ?? source.googlePlaceId ?? '',
+    latitude: parseLocationNumber(source.latitude),
+    longitude: parseLocationNumber(source.longitude),
+  };
+};
+
+const formatTravelLocation = (location: TravelLocation) => {
+  const street = location.streetAddress.trim();
+  const suburb = location.suburb.trim();
+  const state = location.state.trim();
+  const postcode = location.postcode.trim();
+  const cityLine = [suburb, state, postcode].filter(Boolean).join(' ');
+  const parts = [street, cityLine].filter(Boolean);
+  return parts.join(', ');
+};
+
+const buildCounterOfferMessage = (
+  message: string,
+  travelRequested: boolean,
+  location: TravelLocation
+) => {
+  const base = (message ?? '').trim();
+  if (!travelRequested) return base;
+  const travelLine = formatTravelLocation(location);
+  if (!travelLine) return base;
+  const travelMessage = `Traveling from: ${travelLine}`;
+  if (base.includes(travelMessage)) return base;
+  return base ? `${base}\n\n${travelMessage}` : travelMessage;
+};
 
 type RatePreference = {
   weekday?: string | number | null;
@@ -448,6 +516,10 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
 }) => {
   const auth = useAuth();
   const currentUserId = (auth as any)?.user?.id ?? null;
+  const { isLoaded: isTravelMapsLoaded, loadError: travelMapsLoadError } = useJsApiLoader({
+    googleMapsApiKey: import.meta.env.VITE_Maps_API_KEY || '',
+    libraries: GOOGLE_LIBRARIES,
+  });
   // Single source of truth for pharmacist rates: use the rate_preference from the user payload (as returned by /users/me).
   const userRatePreference: RatePreference | undefined =
     (auth as any)?.user?.rate_preference ||
@@ -548,12 +620,14 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   const [reviewLoading, setReviewLoading] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
   const serverCounterSyncRef = useRef<Set<number>>(new Set());
+  const travelAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
 
   const [counterOfferOpen, setCounterOfferOpen] = useState(false);
   const [counterOfferShift, setCounterOfferShift] = useState<Shift | null>(null);
   const [counterOfferSlots, setCounterOfferSlots] = useState<CounterOfferFormSlot[]>([]);
   const [counterOfferMessage, setCounterOfferMessage] = useState('');
   const [counterOfferTravel, setCounterOfferTravel] = useState(false);
+  const [counterOfferTravelLocation, setCounterOfferTravelLocation] = useState<TravelLocation>(EMPTY_TRAVEL_LOCATION);
   const [counterOfferError, setCounterOfferError] = useState<string | null>(null);
   const [pharmacyRatings, setPharmacyRatings] = useState<Record<number, { average: number; count: number }>>({});
   const ratingFetchRef = useRef<Set<number>>(new Set());
@@ -561,6 +635,10 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     () => new Set(filterConfig.roles.map((role) => normalizeRoleValue(role))),
     [filterConfig.roles]
   );
+  const hasCounterOfferTravelLocation = useMemo(() => {
+    const { googlePlaceId, streetAddress, suburb, state, postcode } = counterOfferTravelLocation;
+    return Boolean(googlePlaceId || streetAddress || suburb || state || postcode);
+  }, [counterOfferTravelLocation]);
 
   const savedLoadRef = useRef(false);
   const markersLoadRef = useRef(false);
@@ -1199,20 +1277,21 @@ useEffect(() => {
   const openCounterOffer = async (shift: Shift, selectedSlots?: Set<number>) => {
     if (!onSubmitCounterOffer || hideCounterOffer) return;
     let ratePref = pharmacistRatePref;
-    // On-demand fetch if rates still missing
-    if (!ratePref && auth?.user?.role?.toUpperCase() === 'PHARMACIST') {
+    setCounterOfferTravelLocation(EMPTY_TRAVEL_LOCATION);
+    if (auth?.user?.role?.toUpperCase() === 'PHARMACIST') {
       try {
         const onboarding: any = await getOnboardingDetail('pharmacist');
         const fromOnboarding =
           onboarding?.rate_preference ||
           onboarding?.ratePreference ||
           (onboarding?.data ? onboarding.data.rate_preference || onboarding.data.ratePreference : undefined);
-        if (fromOnboarding) {
+        if (!ratePref && fromOnboarding) {
           ratePref = fromOnboarding;
           console.log('Counter offer fetched rate preference from onboarding', fromOnboarding);
         }
+        setCounterOfferTravelLocation(normalizeOnboardingLocation(onboarding));
       } catch (err) {
-        console.warn('Failed to fetch onboarding rate preference on counter-offer open', err);
+        console.warn('Failed to fetch onboarding details on counter-offer open', err);
       }
     }
     const baseSlots = shift.slots ?? [];
@@ -1239,6 +1318,7 @@ useEffect(() => {
     setCounterOfferShift(shift);
     setCounterOfferMessage('');
     setCounterOfferTravel(false);
+    setCounterOfferError(null);
     let calculatorRates: string[] | null = null;
     if (shift.rateType === 'PHARMACIST_PROVIDED' && ratePref) {
       try {
@@ -1306,8 +1386,46 @@ useEffect(() => {
     }
     setCounterOfferShift(null);
     setCounterOfferSlots([]);
+    setCounterOfferTravelLocation(EMPTY_TRAVEL_LOCATION);
     // Reload shifts on close to reflect any changes (e.g., new offer)
     onPageChange?.(page ?? 1);
+  };
+
+  const clearCounterOfferTravelLocation = () => {
+    setCounterOfferTravelLocation(EMPTY_TRAVEL_LOCATION);
+    const input = document.getElementById(COUNTER_OFFER_TRAVEL_AUTOCOMPLETE_ID) as HTMLInputElement | null;
+    if (input) input.value = '';
+  };
+
+  const handleCounterOfferTravelPlaceChanged = () => {
+    if (!travelAutocompleteRef.current) return;
+    const place = travelAutocompleteRef.current.getPlace();
+    if (!place || !place.address_components) return;
+
+    let streetNumber = '';
+    let route = '';
+    let locality = '';
+    let postalCode = '';
+    let stateShort = '';
+
+    place.address_components.forEach((component) => {
+      const types = component.types;
+      if (types.includes('street_number')) streetNumber = component.long_name;
+      if (types.includes('route')) route = component.short_name;
+      if (types.includes('locality')) locality = component.long_name;
+      if (types.includes('postal_code')) postalCode = component.long_name;
+      if (types.includes('administrative_area_level_1')) stateShort = component.short_name;
+    });
+
+    setCounterOfferTravelLocation({
+      streetAddress: `${streetNumber} ${route}`.trim(),
+      suburb: locality,
+      postcode: postalCode,
+      state: stateShort,
+      googlePlaceId: place.place_id || '',
+      latitude: place.geometry?.location ? place.geometry.location.lat() : null,
+      longitude: place.geometry?.location ? place.geometry.location.lng() : null,
+    });
   };
 
   const handleCounterSlotChange = (index: number, key: keyof CounterOfferFormSlot, value: string) => {
@@ -1319,6 +1437,11 @@ useEffect(() => {
   const handleSubmitCounterOffer = async () => {
     if (!counterOfferShift || !onSubmitCounterOffer) return;
     const canNegotiateRate = getShiftNegotiable(counterOfferShift);
+    const messageToSend = buildCounterOfferMessage(
+      counterOfferMessage,
+      counterOfferTravel,
+      counterOfferTravelLocation
+    );
     const slotOfferMap: Record<number, { rate: string; start: string; end: string }> = {};
     const hasRealSlots = (counterOfferShift.slots?.length ?? 0) > 0;
     const slotsToSendRaw = hasRealSlots
@@ -1349,7 +1472,7 @@ useEffect(() => {
     }
     const payload: ShiftCounterOfferPayload = {
       shiftId: counterOfferShift.id,
-      message: counterOfferMessage,
+      message: messageToSend,
       requestTravel: counterOfferTravel,
       slots: dedupedSlots.map(
         (slot): ShiftCounterOfferSlotPayloadWithDate => ({
@@ -1382,7 +1505,7 @@ useEffect(() => {
       ...counterOffers,
       [counterOfferShift.id]: {
         slots: slotOfferMap,
-        message: counterOfferMessage,
+        message: messageToSend,
         summary: sentCount > 0 ? `Counter offer sent (${sentCount} slot${sentCount > 1 ? 's' : ''})` : 'Counter offer sent',
       },
     };
@@ -1813,7 +1936,14 @@ useEffect(() => {
 
   return (
     <Box sx={{ px: { xs: 0, lg: 2 }, py: 2 }}>
-      <Dialog open={counterOfferOpen} onClose={closeCounterOffer} fullWidth maxWidth="md">
+      <GlobalStyles styles={{ '.pac-container': { zIndex: 1400 } }} />
+      <Dialog
+        open={counterOfferOpen}
+        onClose={closeCounterOffer}
+        fullWidth
+        maxWidth="md"
+        disableEnforceFocus
+      >
         <DialogTitle>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Box>
@@ -1907,6 +2037,97 @@ useEffect(() => {
                   }
                   label="Request travel allowance"
                 />
+              )}
+              {counterOfferTravel && (
+                <Paper variant="outlined" sx={{ p: 2, borderColor: 'grey.200' }}>
+                  <Stack spacing={1.5}>
+                    <Typography variant="subtitle2">Traveling from</Typography>
+                    {travelMapsLoadError && (
+                      <Alert severity="error">Google Maps failed to load.</Alert>
+                    )}
+                    {isTravelMapsLoaded && !hasCounterOfferTravelLocation && (
+                      <Autocomplete
+                        onLoad={(ref) => (travelAutocompleteRef.current = ref)}
+                        onPlaceChanged={handleCounterOfferTravelPlaceChanged}
+                        options={{
+                          componentRestrictions: { country: 'au' },
+                          fields: ['address_components', 'geometry', 'place_id', 'name'],
+                        }}
+                      >
+                        <TextField
+                          fullWidth
+                          margin="normal"
+                          label="Search Address"
+                          id={COUNTER_OFFER_TRAVEL_AUTOCOMPLETE_ID}
+                        />
+                      </Autocomplete>
+                    )}
+                    {hasCounterOfferTravelLocation && (
+                      <Box
+                        sx={{
+                          mt: 2,
+                          p: 2,
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          borderRadius: 1,
+                          bgcolor: 'action.hover',
+                        }}
+                      >
+                        <TextField
+                          label="Street Address"
+                          fullWidth
+                          margin="normal"
+                          value={counterOfferTravelLocation.streetAddress}
+                          onChange={(event) =>
+                            setCounterOfferTravelLocation((prev) => ({
+                              ...prev,
+                              streetAddress: event.target.value,
+                            }))
+                          }
+                        />
+                        <TextField
+                          label="Suburb"
+                          fullWidth
+                          margin="normal"
+                          value={counterOfferTravelLocation.suburb}
+                          onChange={(event) =>
+                            setCounterOfferTravelLocation((prev) => ({
+                              ...prev,
+                              suburb: event.target.value,
+                            }))
+                          }
+                        />
+                        <TextField
+                          label="State"
+                          fullWidth
+                          margin="normal"
+                          value={counterOfferTravelLocation.state}
+                          onChange={(event) =>
+                            setCounterOfferTravelLocation((prev) => ({
+                              ...prev,
+                              state: event.target.value,
+                            }))
+                          }
+                        />
+                        <TextField
+                          label="Postcode"
+                          fullWidth
+                          margin="normal"
+                          value={counterOfferTravelLocation.postcode}
+                          onChange={(event) =>
+                            setCounterOfferTravelLocation((prev) => ({
+                              ...prev,
+                              postcode: event.target.value,
+                            }))
+                          }
+                        />
+                        <Button size="small" onClick={clearCounterOfferTravelLocation} sx={{ mt: 1 }}>
+                          Clear Address & Search Again
+                        </Button>
+                      </Box>
+                    )}
+                  </Stack>
+                </Paper>
               )}
               <TextField
                 label="Message"

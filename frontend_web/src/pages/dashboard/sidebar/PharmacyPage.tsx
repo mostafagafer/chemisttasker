@@ -20,7 +20,7 @@ import {
   FormControlLabel,
   FormGroup,
   GlobalStyles,
-  Grid,
+  GridLegacy as Grid,
   InputAdornment,
   InputLabel,
   Link as MuiLink,

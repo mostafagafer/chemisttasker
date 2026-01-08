@@ -63,6 +63,20 @@ def build_shift_counter_offer_context(shift, offer, recipient=None):
     """
     Build context for counter-offer notifications. Reuses the shift link logic so owners/admins land on the shift page.
     """
+    travel_origin = ""
+    cleaned_message = offer.message or ""
+    if cleaned_message:
+        lines = cleaned_message.splitlines()
+        filtered_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("Traveling from:"):
+                if not travel_origin:
+                    travel_origin = stripped.replace("Traveling from:", "", 1).strip()
+                continue
+            filtered_lines.append(line)
+        cleaned_message = "\n".join(filtered_lines).strip()
+
     base_ctx = build_shift_email_context(shift, user=recipient)
     slots = []
     for offer_slot in offer.slots.select_related('slot'):
@@ -77,8 +91,9 @@ def build_shift_counter_offer_context(shift, offer, recipient=None):
     base_ctx.update({
         "worker_name": offer.user.get_full_name() if offer.user else "",
         "worker_email": offer.user.email if offer.user else "",
-        "message": offer.message or "",
+        "message": cleaned_message,
         "request_travel": bool(offer.request_travel),
+        "travel_origin": travel_origin,
         "slots": slots,
     })
     return base_ctx

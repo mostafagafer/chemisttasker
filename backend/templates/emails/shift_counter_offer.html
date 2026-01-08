@@ -29,6 +29,9 @@
         {% if request_travel %}
           <p style="font-size: 15px; margin: 0 0 12px 0;">Travel allowance requested.</p>
         {% endif %}
+        {% if travel_origin %}
+          <p style="font-size: 15px; margin: 0 0 12px 0;">Traveling from: {{ travel_origin }}</p>
+        {% endif %}
         <p style="margin: 16px 0;">
           <a href="{{ shift_link }}" style="background:#2f6fec;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:6px;display:inline-block;">Review counter offer</a>
         </p>

@@ -10,6 +10,7 @@ Summary:
 
 {% if message %}Message: {{ message }}{% endif %}
 {% if request_travel %}Travel allowance requested.{% endif %}
+{% if travel_origin %}Traveling from: {{ travel_origin }}{% endif %}
 
 Review here: {{ shift_link }}
 

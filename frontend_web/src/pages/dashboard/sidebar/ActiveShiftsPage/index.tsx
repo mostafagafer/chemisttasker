@@ -56,6 +56,7 @@ import {
     PUBLIC_LEVEL_KEY,
     getCurrentLevelKey,
     getShiftSummary,
+    deriveLevelSequence,
 } from './utils/shiftHelpers';
 import { findInterestForOffer } from './utils/candidateHelpers';
 import { mapOfferSlotsWithShift } from './utils/offerHelpers';
@@ -392,10 +393,16 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
     // Handle level change
     const handleLevelChange = useCallback(
         (shift: Shift, newLevel: EscalationLevelKey) => {
+            const currentLevelKey = getCurrentLevelKey(shift) as EscalationLevelKey;
+            const viewableLevels = deriveLevelSequence(currentLevelKey) as EscalationLevelKey[];
+            if (!viewableLevels.includes(newLevel)) {
+                showSnackbar('Escalate to this level to review members status.');
+                return;
+            }
             setSelectedLevelByShift(prev => ({ ...prev, [shift.id]: newLevel }));
             loadTabDataForShift(shift, newLevel);
         },
-        [loadTabDataForShift]
+        [loadTabDataForShift, showSnackbar]
     );
 
     // Handle slot selection
@@ -449,15 +456,21 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                     <Stack spacing={2}>
                         {shifts.map(shift => {
                             const isExpanded = expandedShifts.has(shift.id);
+                            const isSingleUserShift = Boolean((shift as any).singleUserOnly);
                             // Use shift's actual visibility level, not PUBLIC as default
                             const shiftLevel = getCurrentLevelKey(shift);
-                            const currentLevel = selectedLevelByShift[shift.id] ?? shiftLevel;
-                            const tabKey = getTabKey(shift.id, currentLevel);
+                            const selectedLevel = selectedLevelByShift[shift.id] ?? shiftLevel;
+                            const tabKey = getTabKey(shift.id, selectedLevel);
                             const currentTabData = tabData[tabKey] || { loading: false };
-                            const selectedSlotId = selectedSlotByShift[shift.id] ?? shift.slots?.[0]?.id ?? null;
+                            const selectedSlotId = isSingleUserShift
+                                ? null
+                                : selectedSlotByShift[shift.id] ?? shift.slots?.[0]?.id ?? null;
                             const offers = counterOffersByShift[shift.id];
                             const counterOffersLoaded = Object.prototype.hasOwnProperty.call(counterOffersByShift, shift.id);
                             const counterOffersLoading = counterOffersLoadingByShift[shift.id] ?? false;
+                            const membersForView = isSingleUserShift
+                                ? currentTabData.members || []
+                                : currentTabData.membersBySlot?.[selectedSlotId ?? -1] || [];
 
                             const cardBorderColor = getCardBorderColor((shift as any).visibility ?? 'PLATFORM');
                             const summaryText = getShiftSummary(shift);
@@ -600,18 +613,24 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                                     {/* Escalation Stepper - Inline from backup */}
                                                     <EscalationStepper
                                                         shift={shift}
-                                                        currentLevel={currentLevel as any}
-                                                        selectedLevel={currentLevel as any}
+                                                        currentLevel={shiftLevel as any}
+                                                        selectedLevel={selectedLevel as any}
                                                         onSelectLevel={(levelKey: any) => handleLevelChange(shift, levelKey)}
-                                                        onEscalate={(_s: any, _levelKey: any) => {
-                                                            // Escalate logic here
-                                                            handleEscalate(shift.id);
+                                                        onEscalate={async (_s: any, _levelKey: any) => {
+                                                            const success = await handleEscalate(shift.id);
+                                                            if (!success) return;
+                                                            setSelectedLevelByShift(prev => {
+                                                                const next = { ...prev };
+                                                                delete next[shift.id];
+                                                                return next;
+                                                            });
+                                                            await loadShifts();
                                                         }}
                                                         escalating={actionLoading[`escalate_${shift.id}`]}
                                                     />
 
                                                     <Divider sx={{ my: 3 }}>
-                                                        <Chip label={`Candidates for ${currentLevel}`} />
+                                                        <Chip label={`Candidates for ${selectedLevel}`} />
                                                     </Divider>
 
                                                     {/* Content based on level */}
@@ -619,7 +638,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                                         <Box display="flex" justifyContent="center" py={4}>
                                                             <CircularProgress />
                                                         </Box>
-                                                    ) : currentLevel === PUBLIC_LEVEL_KEY ? (
+                                                    ) : selectedLevel === PUBLIC_LEVEL_KEY ? (
                                                         counterOffersLoading || !counterOffersLoaded ? (
                                                             <Box display="flex" justifyContent="center" py={4}>
                                                                 <CircularProgress />
@@ -642,11 +661,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                                     ) : (
                                                         <CommunityLevelView
                                                             shift={shift}
-                                                            members={
-                                                                currentTabData.membersBySlot?.[
-                                                                    selectedSlotId ?? -1
-                                                                ] || []
-                                                            }
+                                                            members={membersForView}
                                                             selectedSlotId={selectedSlotId}
                                                             offers={offers || []}
                                                             onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}

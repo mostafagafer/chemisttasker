@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Stack, Paper, Typography, Divider, Chip } from '@mui/material';
+import { Box, Stack, Typography, Divider, Chip } from '@mui/material';
 import {
     CheckCircle as Check,
     PersonAdd as UserCheck,
@@ -9,7 +9,7 @@ import {
 import { Shift, ShiftMemberStatus } from '@chemisttasker/shared-core';
 import { StatusCard } from './StatusCard';
 import { SlotSelector } from './SlotSelector';
-import { findOfferForMemberInShift } from '../../utils/candidateHelpers';
+import { dedupeMembers, findOfferForMemberInShift } from '../../utils/candidateHelpers';
 
 interface CommunityLevelViewProps {
     shift: Shift;
@@ -34,9 +34,10 @@ export const CommunityLevelView: React.FC<CommunityLevelViewProps> = ({
     const multiSlots = !(shift as any).singleUserOnly && slots.length > 0;
 
     // Filter members by slot if multi-slot; include shift-level members with no slotId
-    const slotMembers = multiSlots
+    const slotMembersRaw = multiSlots
         ? members.filter((m) => (m as any).slotId === selectedSlotId || (m as any).slotId == null)
         : members;
+    const slotMembers = dedupeMembers(slotMembersRaw);
 
     // Categorize members by status
     const interested = slotMembers.filter((m) => m.status === 'interested');

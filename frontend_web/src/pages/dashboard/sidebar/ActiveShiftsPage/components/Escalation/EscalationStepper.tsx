@@ -99,6 +99,7 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                 {levelSequence.map((level, idx) => {
                     const levelPassed = idx <= currentLevelIdx;
                     const levelSelectable = idx <= currentLevelIdx + 1 && allowedKeys.has(level.key);
+                    const levelViewable = idx <= currentLevelIdx;
 
                     return (
                         <Step key={level.key} completed={levelPassed && idx < currentLevelIdx}>
@@ -114,14 +115,15 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                                                 mt: 1.5,
                                                 fontWeight: 500,
                                                 color:
-                                                    selectedLevel === level.key
-                                                        ? theme.palette.primary.main
-                                                        : theme.palette.text.secondary,
-                                                ...(!levelSelectable && { color: theme.palette.text.disabled }),
-                                            },
-                                        }}
-                                    >
-                                        {level.label}
+                                                    levelViewable
+                                                        ? selectedLevel === level.key
+                                                            ? theme.palette.primary.main
+                                                            : theme.palette.text.secondary
+                                                        : theme.palette.text.disabled,
+                                        },
+                                    }}
+                                >
+                                    {level.label}
                                     </StepLabel>
                                 );
 

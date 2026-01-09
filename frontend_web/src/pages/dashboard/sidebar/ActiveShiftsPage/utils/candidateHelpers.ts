@@ -1,11 +1,13 @@
 import { ShiftMemberStatus } from '@chemisttasker/shared-core';
 
 export function dedupeMembers(members: ShiftMemberStatus[]): ShiftMemberStatus[] {
-    const seen = new Set<number>();
+    const seen = new Set<number | string>();
     return members.filter(m => {
-        if (m.userId == null) return false;
-        if (seen.has(m.userId)) return false;
-        seen.add(m.userId);
+        const memberAny = m as any;
+        const userId = memberAny.userId ?? memberAny.user?.id ?? memberAny.user_id ?? memberAny.id ?? null;
+        if (userId == null) return true;
+        if (seen.has(userId)) return false;
+        seen.add(userId);
         return true;
     });
 }

@@ -54,6 +54,7 @@ import { CommunityLevelView } from './components/Candidates/CommunityLevelView';
 // Utils
 import {
     PUBLIC_LEVEL_KEY,
+    CustomEscalationLevelKey,
     getCurrentLevelKey,
     getShiftSummary,
     deriveLevelSequence,
@@ -141,8 +142,15 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
         loadRatings: loadWorkerRatings,
         reset: resetWorkerRatings,
     } = useWorkerRatings();
-    const { actionLoading, handleEscalate, handleDelete } = useShiftActions(setShifts, showSnackbar);
+    const { actionLoading, handleEscalate, handleDelete, handleAccept } = useShiftActions(setShifts, showSnackbar);
     const { sharingShiftId, handleShare } = useShareShift(showSnackbar);
+
+    const getOfferSlotIds = useCallback((offer: any): number[] => {
+        const offerSlots = offer?.slots || offer?.offer_slots || [];
+        return offerSlots
+            .map((s: any) => s.slot_id ?? s.slotId ?? s.slot?.id ?? null)
+            .filter((id: any) => id != null);
+    }, []);
 
     // Handle reveal interest
     const handleRevealInterest = useCallback(async (shift: Shift, interest: ShiftInterest) => {
@@ -190,6 +198,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
         const interestAny = interest as any;
 
         const candidate = {
+            userId: interest.userId ?? userObj?.id ?? null,
             name:
                 // Try object properties first
                 (userObj?.firstName && userObj?.lastName)
@@ -267,6 +276,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
             const candidate =
                 userObj || interest
                     ? {
+                        userId: userObj?.id ?? interestAny?.userId ?? interest?.userId ?? offer?.user?.id ?? null,
                         name:
                             userObj?.firstName && userObj?.lastName
                                 ? `${userObj.firstName} ${userObj.lastName}`
@@ -293,8 +303,25 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                 }
             }
 
+            const isSingleUserShift = Boolean((shift as any).singleUserOnly);
+            const offerSlotIds = getOfferSlotIds(offer);
+            const slotFromOffer = offerSlotIds[0] ?? null;
+            const fallbackSlotId = shift.slots?.[0]?.id ?? null;
+            const slotMatchesOffer = slotId != null && offerSlotIds.length > 0 ? offerSlotIds.includes(slotId) : true;
+            const resolvedSlotId = isSingleUserShift
+                ? null
+                : (slotMatchesOffer ? slotId : null) ?? slotFromOffer ?? slotId ?? fallbackSlotId;
+
+            console.log('[ActiveShifts] Review offer slot resolution', {
+                shiftId: shift.id,
+                offerId: offer?.id,
+                slotId,
+                offerSlotIds,
+                resolvedSlotId,
+            });
+
             // Map slots
-            const mappedSlots = mapOfferSlotsWithShift(offer, shift, slotId);
+            const mappedSlots = mapOfferSlotsWithShift(offer, shift, resolvedSlotId);
 
             // Open dialog
             setReviewOfferDialog({
@@ -302,7 +329,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                 shiftId: shift.id,
                 offer: { ...offer, _mappedSlots: mappedSlots },
                 candidate,
-                slotId,
+                slotId: resolvedSlotId,
             });
         },
         [
@@ -321,6 +348,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
             resetWorkerRatings();
 
             const candidate = {
+                userId: (member as any).userId ?? (member as any).user?.id ?? null,
                 name:
                     (member as any).firstName && (member as any).lastName
                         ? `${(member as any).firstName} ${(member as any).lastName}`
@@ -338,15 +366,32 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                 }
             }
 
+            const isSingleUserShift = Boolean((shift as any).singleUserOnly);
+            const offerSlotIds = getOfferSlotIds(offer);
+            const slotFromOffer = offerSlotIds[0] ?? null;
+            const fallbackSlotId = shift.slots?.[0]?.id ?? null;
+            const slotMatchesOffer = slotId != null && offerSlotIds.length > 0 ? offerSlotIds.includes(slotId) : true;
+            const resolvedSlotId = isSingleUserShift
+                ? null
+                : (slotMatchesOffer ? slotId : null) ?? slotFromOffer ?? slotId ?? fallbackSlotId;
+
+            console.log('[ActiveShifts] Review candidate slot resolution', {
+                shiftId: shift.id,
+                offerId: offer?.id,
+                slotId,
+                offerSlotIds,
+                resolvedSlotId,
+            });
+
             // Map slots if offer exists
-            const mappedSlots = offer ? mapOfferSlotsWithShift(offer, shift, slotId) : [];
+            const mappedSlots = offer ? mapOfferSlotsWithShift(offer, shift, resolvedSlotId) : [];
 
             setReviewOfferDialog({
                 open: true,
                 shiftId: shift.id,
                 offer: offer ? { ...offer, _mappedSlots: mappedSlots } : null,
                 candidate,
-                slotId,
+                slotId: resolvedSlotId,
             });
         },
         [resetWorkerRatings, loadWorkerRatings]
@@ -356,13 +401,32 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
     const handleAcceptOffer = useCallback(
         async (offer: any, shiftId: number | null, slotId: number | null) => {
             if (!offer || shiftId == null) return;
-            await acceptOffer({ offer, shiftId, slotId }, async () => {
+            const targetShift = shifts.find(s => s.id === shiftId);
+            const requiresSlot = targetShift ? !((targetShift as any).singleUserOnly) : false;
+            const offerSlotIds = getOfferSlotIds(offer);
+            const slotMatchesOffer = slotId != null && offerSlotIds.length > 0 ? offerSlotIds.includes(slotId) : true;
+            const resolvedSlotId = requiresSlot
+                ? (slotMatchesOffer ? slotId : null) ?? offerSlotIds[0] ?? slotId
+                : null;
+            if (requiresSlot && resolvedSlotId == null) {
+                showSnackbar('Select a slot to accept this offer.');
+                return;
+            }
+            console.log('[ActiveShifts] Accept counter offer payload', {
+                shiftId,
+                offerId: offer?.id,
+                slotId,
+                offerSlotIds,
+                resolvedSlotId,
+                requiresSlot,
+            });
+            await acceptOffer({ offer, shiftId, slotId: resolvedSlotId }, async () => {
                 showSnackbar('Counter offer accepted');
                 setReviewOfferDialog({ open: false, shiftId: null, offer: null, candidate: null, slotId: null });
                 await loadShifts();
             });
         },
-        [acceptOffer, showSnackbar, loadShifts]
+        [acceptOffer, showSnackbar, loadShifts, shifts, getOfferSlotIds]
     );
 
     const handleRejectOffer = useCallback(
@@ -375,6 +439,18 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
             });
         },
         [rejectOffer, showSnackbar, loadShifts]
+    );
+
+    const handleAssignCandidate = useCallback(
+        async (userId: number, shiftId: number | null, slotId: number | null) => {
+            if (!userId || shiftId == null) return;
+            const success = await handleAccept(shiftId, userId, slotId);
+            if (success) {
+                setReviewOfferDialog({ open: false, shiftId: null, offer: null, candidate: null, slotId: null });
+                await loadShifts();
+            }
+        },
+        [handleAccept, loadShifts]
     );
 
     // Toggle shift expansion
@@ -393,9 +469,9 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
     // Handle level change
     const handleLevelChange = useCallback(
         (shift: Shift, newLevel: EscalationLevelKey) => {
-            const currentLevelKey = getCurrentLevelKey(shift) as EscalationLevelKey;
-            const viewableLevels = deriveLevelSequence(currentLevelKey) as EscalationLevelKey[];
-            if (!viewableLevels.includes(newLevel)) {
+            const currentLevelKey = getCurrentLevelKey(shift);
+            const viewableLevels = deriveLevelSequence(currentLevelKey);
+            if (!viewableLevels.includes(newLevel as CustomEscalationLevelKey)) {
                 showSnackbar('Escalate to this level to review members status.');
                 return;
             }
@@ -699,6 +775,16 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                     offer={reviewOfferDialog.offer}
                     candidate={reviewOfferDialog.candidate}
                     slotId={reviewOfferDialog.slotId}
+                    assignLabel={
+                        reviewOfferDialog.slotId != null
+                            ? 'Assign to Slot'
+                            : 'Assign to Shift'
+                    }
+                    assignLoading={
+                        reviewOfferDialog.shiftId != null && reviewOfferDialog.candidate?.userId != null
+                            ? actionLoading[`accept_${reviewOfferDialog.shiftId}_${reviewOfferDialog.candidate.userId}`] ?? false
+                            : false
+                    }
                     workerRatingSummary={workerRatingSummary}
                     workerRatingComments={workerRatingComments}
                     workerCommentsPage={workerCommentsPage}
@@ -707,10 +793,11 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                     onClose={() => setReviewOfferDialog({ open: false, shiftId: null, offer: null, candidate: null, slotId: null })}
                     onAccept={(offer) => handleAcceptOffer(offer, reviewOfferDialog.shiftId, reviewOfferDialog.slotId)}
                     onReject={(offer) => handleRejectOffer(offer, reviewOfferDialog.shiftId)}
+                    onAssign={(userId, slotId) => handleAssignCandidate(userId, reviewOfferDialog.shiftId, slotId)}
                     onPageChange={(_, value) => {
                         if (reviewOfferDialog.candidate) {
                             // Re-load ratings for the new page
-                            const userId = (reviewOfferDialog.offer?.user as any)?.id;
+                            const userId = (reviewOfferDialog.offer?.user as any)?.id ?? reviewOfferDialog.candidate?.userId;
                             if (userId) {
                                 loadWorkerRatings(userId, value);
                             }

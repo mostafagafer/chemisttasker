@@ -47,9 +47,12 @@ interface CounterOfferDialogProps {
     workerCommentsPage: number;
     workerCommentsPageCount: number;
     counterActionLoading: number | null;
+    assignLoading?: boolean;
+    assignLabel?: string;
     onClose: () => void;
     onAccept: (offer: any) => void;
     onReject: (offer: any) => void;
+    onAssign?: (userId: number, slotId: number | null) => void;
     onPageChange: (_: React.ChangeEvent<unknown>, value: number) => void;
 }
 
@@ -63,9 +66,12 @@ export const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
     workerCommentsPage,
     workerCommentsPageCount,
     counterActionLoading,
+    assignLoading,
+    assignLabel,
     onClose,
     onAccept,
     onReject,
+    onAssign,
     onPageChange,
 }) => {
     const { cleanMessage, travelOrigin } = extractTravelOrigin(offer?.message);
@@ -243,6 +249,21 @@ export const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
             </DialogContent>
             <DialogActions>
                 <Button onClick={onClose}>Close</Button>
+                {!offer && onAssign && candidate?.userId != null && (
+                    <Button
+                        variant="contained"
+                        color="success"
+                        onClick={() => onAssign(candidate.userId, slotId)}
+                        disabled={assignLoading}
+                        startIcon={
+                            assignLoading ? (
+                                <CircularProgress size={16} color="inherit" />
+                            ) : undefined
+                        }
+                    >
+                        {assignLabel || 'Assign to Shift'}
+                    </Button>
+                )}
                 {offer && (
                     <>
                         <Button

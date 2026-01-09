@@ -24,7 +24,7 @@ export function useTabData(
             try {
                 // Public/platform: interests/rejections
                 if (levelKey === PUBLIC_LEVEL_KEY) {
-                    const interests = await fetchShiftInterests(shift.id);
+                    const interests = await fetchShiftInterests({ shiftId: shift.id });
                     const interestsBySlot: Record<number, any[]> = {};
                     (shift.slots || []).forEach(slot => {
                         interestsBySlot[slot.id] = interests.filter((i: any) => i.slotId === slot.id || i.slotId == null);

@@ -154,6 +154,12 @@ export default function ConfirmedShiftsPage() {
         {displayedShifts.map(shift => {
           // Support both camelCase and snake_case from the API
           const assignments = shift.slotAssignments ?? (shift as any).slot_assignments ?? [];
+          const assignedSlotIds = new Set(
+            assignments
+              .map((entry: any) => entry.slotId ?? entry.slot_id ?? null)
+              .filter((id: any) => id != null)
+          );
+          const assignedSlots = (shift.slots ?? []).filter((slot: any) => assignedSlotIds.has(slot.id));
           return (
             <Paper key={shift.id} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
               <Typography variant="h6">{shift.pharmacyDetail?.name ?? 'Unknown Pharmacy'}</Typography>
@@ -162,11 +168,15 @@ export default function ConfirmedShiftsPage() {
               <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
                 {shift.singleUserOnly ? (
                   <>
-                    {(shift.slots ?? []).map(slot => (
+                    {assignedSlots.length > 0 ? assignedSlots.map(slot => (
                       <Typography key={slot.id} variant="body2">
                         {slot.date} {slot.startTime}{slot.endTime}
                       </Typography>
-                    ))}
+                    )) : (
+                      <Typography variant="body2" color="text.secondary">
+                        No assigned slots yet.
+                      </Typography>
+                    )}
                     {assignments.length > 0 && assignments[0].userId != null && (
                       <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                         <Button
@@ -183,7 +193,7 @@ export default function ConfirmedShiftsPage() {
                     )}
                   </>
                 ) : (
-                  (shift.slots ?? []).map(slot => {
+                  assignedSlots.length > 0 ? assignedSlots.map(slot => {
                     const assign = assignments.find(entry => entry.slotId === slot.id);
                     return assign ? (
                       <Box
@@ -209,7 +219,11 @@ export default function ConfirmedShiftsPage() {
                         </Button>
                       </Box>
                     ) : null;
-                  })
+                  }) : (
+                    <Typography variant="body2" color="text.secondary">
+                      No assigned slots yet.
+                    </Typography>
+                  )
                 )}
               </Box>
             </Paper>

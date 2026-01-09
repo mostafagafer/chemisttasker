@@ -50,15 +50,15 @@ export function useShiftActions(
     );
 
     const handleAccept = useCallback(
-        async (shiftId: number, userId: number, _slotId: number | null) => {
+        async (shiftId: number, userId: number, slotId: number | null) => {
             setActionLoading(prev => ({ ...prev, [`accept_${shiftId}_${userId}`]: true }));
             try {
-                await acceptShiftCandidateService(shiftId, userId);
-                showSnackbar('Candidate accepted successfully');
+                await acceptShiftCandidateService(shiftId, { userId, slotId });
+                showSnackbar('Candidate assigned successfully');
                 return true;
             } catch (error) {
                 console.error('Failed to accept candidate', error);
-                showSnackbar('Failed to accept candidate');
+                showSnackbar('Failed to assign candidate');
                 return false;
             } finally {
                 setActionLoading(prev => ({ ...prev, [`accept_${shiftId}_${userId}`]: false }));

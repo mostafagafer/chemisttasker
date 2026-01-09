@@ -32,6 +32,29 @@ export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
     const multiSlots = !(shift as any).singleUserOnly && slots.length > 0;
     const offersList = counterOffersLoaded ? counterOffers : [];
 
+    const getOfferSlotId = (offer: any): number | null => {
+        const offerSlots = offer?.slots || offer?.offer_slots || [];
+        const slotIdFromSlots =
+            offerSlots
+                .map((s: any) => s.slot_id ?? s.slotId ?? s.slot?.id ?? null)
+                .find((id: any) => id != null) ?? null;
+        const fallback = offer?.slotId ?? offer?.slot_id ?? null;
+        return slotIdFromSlots ?? fallback ?? null;
+    };
+
+    const findInterestForOffer = (offer: any, offerSlotId: number | null) => {
+        const offerUserId = typeof offer.user === 'object' ? offer.user?.id : offer.user;
+        if (offerUserId == null) return null;
+        return interestsAll.find((i: any) => {
+            const iUserId = i.userId ?? i.user?.id ?? null;
+            if (iUserId !== offerUserId) return false;
+            if (offerSlotId == null) {
+                return i.slotId == null;
+            }
+            return i.slotId === offerSlotId;
+        }) || null;
+    };
+
     // Filter interests based on slot
     const slotInterests = slotId
         ? interestsAll.filter(i => i.slotId === slotId || i.slotId == null)
@@ -76,23 +99,18 @@ export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
                     <CounterOfferList
                         offers={slotOffers}
                         slotId={slotId}
-                        onOpenOffer={(offer) => onReviewOffer(shift, offer, slotId)}
+                        onOpenOffer={(offer) => {
+                            const offerSlotId = slotId ?? getOfferSlotId(offer);
+                            onReviewOffer(shift, offer, offerSlotId);
+                        }}
                         labelResolver={(offer: any) => {
-                            // Find interest for this offer to check reveal status
-                            const interest = interestsAll.find((i: any) => {
-                                const iUserId = i.userId ?? i.user?.id ?? null;
-                                const offerUserId = typeof offer.user === 'object' ? offer.user?.id : offer.user;
-                                return iUserId === offerUserId;
-                            });
+                            const offerSlotId = slotId ?? getOfferSlotId(offer);
+                            const interest = findInterestForOffer(offer, offerSlotId);
                             return interest && !interest.revealed ? 'Reveal offer' : 'Review offer';
                         }}
                         titleResolver={(offer: any) => {
-                            // Find the interest that has user info
-                            const interest = interestsAll.find((i: any) => {
-                                const iUserId = i.userId ?? i.user?.id ?? null;
-                                const offerUserId = typeof offer.user === 'object' ? offer.user?.id : offer.user;
-                                return iUserId === offerUserId;
-                            });
+                            const offerSlotId = slotId ?? getOfferSlotId(offer);
+                            const interest = findInterestForOffer(offer, offerSlotId);
 
                             if (interest && interest.revealed) {
                                 // Try to get name from interest.user object

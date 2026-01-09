@@ -2873,14 +2873,22 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 for entry in expand_shift_slots(shift):
                     if entry['slot'].id == slot.id:
                         slot_date = entry['date']
+                        rate, reason = get_locked_rate_for_slot(
+                            shift=shift,
+                            slot=slot,
+                            user=candidate,
+                            override_date=slot_date,
+                        )
+                        if not isinstance(reason, dict):
+                            reason = {"source": "Pharmacy"}
                         assn, _ = ShiftSlotAssignment.objects.update_or_create(
                             slot=slot,
                             slot_date=slot_date,
                             defaults={
                                 "shift": shift,
                                 "user": candidate,
-                                "unit_rate": Decimal('0.00'),
-                                "rate_reason": {"source": "Rostered via shift interest"},
+                                "unit_rate": rate,
+                                "rate_reason": {**reason, "rostered_via": "shift interest"},
                                 "is_rostered": True # Mark as a rostered shift
                             }
                         )
@@ -3075,8 +3083,46 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         offer = get_object_or_404(ShiftCounterOffer, pk=offer_id, shift=shift)
 
         slot_id = request.data.get('slot_id')
+        if slot_id in (None, ''):
+            slot_id = request.query_params.get('slot_id')
+        if slot_id in ('', 'null'):
+            slot_id = None
+        if isinstance(slot_id, str) and slot_id.isdigit():
+            slot_id = int(slot_id)
+        log.info(
+            "[counter_offer_accept] shift_id=%s offer_id=%s slot_id=%s single_user_only=%s request_data=%s",
+            shift.id,
+            offer.id,
+            slot_id,
+            shift.single_user_only,
+            dict(request.data),
+        )
+        log.info(
+            "[counter_offer_accept] request_query=%s",
+            dict(request.query_params),
+        )
+
+        offer_slot_ids = list(offer.slots.values_list('slot_id', flat=True))
+        log.info(
+            "[counter_offer_accept] offer_slot_ids=%s offer_status=%s",
+            offer_slot_ids,
+            offer.status,
+        )
         # For multi-slot shifts, enforce an explicit slot selection so we don't
         # accidentally assign all slots to one candidate when a slot isn't specified.
+        if not shift.single_user_only and slot_id is None:
+            if offer_slot_ids:
+                unassigned_offer_slots = [
+                    sid for sid in offer_slot_ids
+                    if not ShiftSlotAssignment.objects.filter(slot_id=sid).exists()
+                ]
+                slot_id = unassigned_offer_slots[0] if unassigned_offer_slots else offer_slot_ids[0]
+                log.info(
+                    "[counter_offer_accept] auto-selected slot_id=%s from offer slots",
+                    slot_id,
+                )
+            else:
+                return Response({'detail': 'slot_id is required for multi-slot shifts.'}, status=status.HTTP_400_BAD_REQUEST)
         if not shift.single_user_only and slot_id is None:
             return Response({'detail': 'slot_id is required for multi-slot shifts.'}, status=status.HTTP_400_BAD_REQUEST)
         # Allow per-slot acceptance even if the offer was already accepted for another slot.
@@ -3963,7 +4009,7 @@ class ConfirmedShiftViewSet(BaseShiftViewSet):
         qs = qs.annotate(
             slot_count=Count('slots', distinct=True),
             assigned_count=Count('slots__assignments', distinct=True)
-        ).filter(assigned_count__gte=F('slot_count'))
+        ).filter(assigned_count__gte=1)
 
         qs = qs.filter(
             Q(slots__date__gt=today) |

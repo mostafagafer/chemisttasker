@@ -9,6 +9,7 @@ from django_q.models import Schedule
 from urllib.parse import urlencode
 from django.apps import apps
 from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.storage import default_storage
@@ -20,6 +21,7 @@ from bs4 import BeautifulSoup
 from scrapingbee import ScrapingBeeClient
 from users.tasks import send_async_email
 from client_profile.models import ShiftSlotAssignment, OnboardingNotification, MembershipApplication, Membership, Pharmacy, PharmacyAdmin
+from client_profile.timezone_utils import get_pharmacy_timezone
 from django.contrib.contenttypes.models import ContentType
 from client_profile.utils import build_shift_email_context, simple_name_match,clean_email,get_candidate_role, send_referee_emails, get_frontend_dashboard_url 
 import logging
@@ -875,39 +877,70 @@ def final_evaluation(model_name, object_pk, retry_count=0, is_reminder=False):
 # ========== Shift Reminder (Scheduled) ==========
 
 def send_shift_reminders():
-    now = timezone.now()
-    window_start = now + timedelta(hours=12)
-    window_end = now + timedelta(hours=13)
+    now_utc = timezone.now()
+    today_utc = now_utc.date()
+    date_window = [today_utc + timedelta(days=delta) for delta in (-1, 0, 1, 2)]
 
-    assignments = ShiftSlotAssignment.objects.select_related('shift', 'slot', 'user') \
-        .filter(
-            slot_date=window_start.date(),
-            slot__start_time__gte=window_start.time(),
-            slot__start_time__lt=window_end.time(),
-        )
+    assignments = (
+        ShiftSlotAssignment.objects.select_related("shift", "shift__pharmacy", "slot", "user")
+        .filter(Q(slot_date__in=date_window) | Q(slot_date__isnull=True))
+    )
 
-    logger.info(f"[send_shift_reminders] Found {assignments.count()} assignments for reminders.")
+    pharmacy_assignment_map = {}
     for assignment in assignments:
-        shift = assignment.shift
-        candidate = assignment.user
-        slot = assignment.slot
-        slot_time = f"{assignment.slot_date} {slot.start_time.strftime('%H:%M')}–{slot.end_time.strftime('%H:%M')}"
+        pharmacy = assignment.shift.pharmacy
+        if pharmacy is None:
+            continue
+        pharmacy_assignment_map.setdefault(pharmacy.id, {"pharmacy": pharmacy, "assignments": []})[
+            "assignments"
+        ].append(assignment)
 
-        async_task(
-            'users.tasks.send_async_email',
-            subject=f"Reminder: Your upcoming shift at {shift.pharmacy.name}",
-            recipient_list=[candidate.email],
-            template_name="emails/shift_reminder.html",
-            context=build_shift_email_context(
-                shift,
-                user=candidate,
-                role=getattr(candidate, "role", "pharmacist").lower() if hasattr(candidate, "role") else "pharmacist",
-                extra={"slot_time": slot_time}
-            ),
-            text_template="emails/shift_reminder.txt"
-        )
+    total_sent = 0
+    for entry in pharmacy_assignment_map.values():
+        pharmacy = entry["pharmacy"]
+        tz = get_pharmacy_timezone(pharmacy)
+        local_now = now_utc.astimezone(tz)
+        window_start = local_now + timedelta(hours=12)
+        window_end = local_now + timedelta(hours=13)
 
-    logger.info("[send_shift_reminders] Completed sending reminders.")
+        def _in_window(slot_date, start_time):
+            if window_start.date() == window_end.date():
+                return slot_date == window_start.date() and window_start.time() <= start_time < window_end.time()
+            if slot_date == window_start.date():
+                return start_time >= window_start.time()
+            if slot_date == window_end.date():
+                return start_time < window_end.time()
+            return False
+
+        for assignment in entry["assignments"]:
+            slot_date = assignment.slot_date or getattr(assignment.slot, "date", None)
+            start_time = getattr(assignment.slot, "start_time", None)
+            if not slot_date or not start_time:
+                continue
+            if not _in_window(slot_date, start_time):
+                continue
+
+            shift = assignment.shift
+            candidate = assignment.user
+            slot = assignment.slot
+            slot_time = f"{slot_date} {slot.start_time.strftime('%H:%M')}–{slot.end_time.strftime('%H:%M')}"
+
+            async_task(
+                'users.tasks.send_async_email',
+                subject=f"Reminder: Your upcoming shift at {shift.pharmacy.name}",
+                recipient_list=[candidate.email],
+                template_name="emails/shift_reminder.html",
+                context=build_shift_email_context(
+                    shift,
+                    user=candidate,
+                    role=getattr(candidate, "role", "pharmacist").lower() if hasattr(candidate, "role") else "pharmacist",
+                    extra={"slot_time": slot_time}
+                ),
+                text_template="emails/shift_reminder.txt"
+            )
+            total_sent += 1
+
+    logger.info(f"[send_shift_reminders] Completed sending reminders. Sent {total_sent} emails.")
 
 
 

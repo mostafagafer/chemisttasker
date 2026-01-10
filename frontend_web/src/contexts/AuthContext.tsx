@@ -14,6 +14,7 @@ import {
 import { getRooms } from "@chemisttasker/shared-core";
 import { type PersonaMode, type AdminLevel } from "@chemisttasker/shared-core";
 import { AdminCapability, ALL_ADMIN_CAPABILITIES } from "../constants/adminCapabilities";
+import { AUTH_TOKENS_CLEARED_EVENT } from "../utils/tokenService";
 
 export interface OrgMembership {
   organization_id: number;
@@ -459,7 +460,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     localStorage.setItem("user", JSON.stringify(userInfo));
   };
 
-  const logout = () => {
+  const logout = useCallback(() => {
     const previousUserId = user?.id;
     setAccess(null);
     setRefresh(null);
@@ -472,7 +473,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (previousUserId) {
       localStorage.removeItem(personaStorageKey(previousUserId));
     }
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    const handleTokensCleared = () => {
+      logout();
+    };
+    window.addEventListener(AUTH_TOKENS_CLEARED_EVENT, handleTokensCleared);
+    return () => {
+      window.removeEventListener(AUTH_TOKENS_CLEARED_EVENT, handleTokensCleared);
+    };
+  }, [logout]);
 
   return (
     <AuthContext.Provider

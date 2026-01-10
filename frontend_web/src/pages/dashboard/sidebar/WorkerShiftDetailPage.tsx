@@ -11,7 +11,7 @@ import {
   fetchWorkerShiftDetailService,
   rejectShiftService,
 } from '@chemisttasker/shared-core';
-import ShiftsBoard from '../../../components/shifts/ShiftsBoard';
+import ShiftsBoard from './ShiftsBoard';
 
 const getErrorMessage = (error: unknown, fallback: string) => {
   const detail = (error as any)?.response?.data?.detail;

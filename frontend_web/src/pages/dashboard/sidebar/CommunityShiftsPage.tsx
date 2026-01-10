@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Typography, Box, Paper, Stack, Tabs, Tab, alpha, useTheme } from '@mui/material';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
-import ShiftsBoard from '../../../components/shifts/ShiftsBoard';
+import ShiftsBoard from './ShiftsBoard';
 import {
   Shift,
   ShiftCounterOfferPayload,
@@ -53,8 +53,8 @@ const DEFAULT_FILTERS: FilterConfig = {
 };
 
 type CommunityShiftsPageProps = {
-  activeTabOverride?: 'browse' | 'saved';
-  onActiveTabChange?: (tab: 'browse' | 'saved') => void;
+  activeTabOverride?: 'browse' | 'saved' | 'interested' | 'rejected';
+  onActiveTabChange?: (tab: 'browse' | 'saved' | 'interested' | 'rejected') => void;
   hideTabs?: boolean;
 };
 
@@ -85,12 +85,12 @@ export default function CommunityShiftsPage({
   const [savedShiftIds, setSavedShiftIds] = useState<Set<number>>(new Set());
   const [savedMap, setSavedMap] = useState<Map<number, number>>(new Map()); // shiftId -> savedId
   const [boardTab, setBoardTab] = useState<'browse' | 'saved' | 'interested' | 'rejected'>(
-    activeTabOverride === 'saved' ? 'saved' : 'browse'
+    activeTabOverride ?? 'browse'
   );
 
   useEffect(() => {
     if (activeTabOverride) {
-      setBoardTab(activeTabOverride === 'saved' ? 'saved' : 'browse');
+      setBoardTab(activeTabOverride);
     }
   }, [activeTabOverride]);
 
@@ -324,9 +324,7 @@ export default function CommunityShiftsPage({
 
   const handleBoardTabChange = (tab: 'browse' | 'saved' | 'interested' | 'rejected') => {
     setBoardTab(tab);
-    if (tab === 'browse' || tab === 'saved') {
-      onActiveTabChange?.(tab);
-    }
+    onActiveTabChange?.(tab);
   };
 
   return (
@@ -439,7 +437,11 @@ export default function CommunityShiftsPage({
             pt: { xs: 2, md: 3 },
           }}
         >
-          {boardTab === 'browse' || boardTab === 'saved' ? (
+          {boardTab === 'browse' || boardTab === 'saved' || boardTab === 'interested' || boardTab === 'rejected' ? (
+            (() => {
+              const slotFilterMode =
+                boardTab === 'interested' ? 'interested' : boardTab === 'rejected' ? 'rejected' : 'all';
+              return (
             <ShiftsBoard
               title="Community Shifts"
               shifts={shifts}
@@ -466,16 +468,11 @@ export default function CommunityShiftsPage({
               activeTabOverride={boardTab === 'saved' ? 'saved' : 'browse'}
               onActiveTabChange={(tab) => handleBoardTabChange(tab)}
               onRefresh={() => loadShifts(filters, page)}
+              slotFilterMode={slotFilterMode}
             />
-          ) : boardTab === 'interested' ? (
-            <Typography variant="body1" color="text.secondary">
-              Interested shifts will appear here soon.
-            </Typography>
-          ) : (
-            <Typography variant="body1" color="text.secondary">
-              Rejected shifts will appear here soon.
-            </Typography>
-          )}
+              );
+            })()
+          ) : null}
         </Box>
       </Paper>
     </Box>

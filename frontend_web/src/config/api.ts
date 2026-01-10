@@ -1,15 +1,20 @@
 import { configureApi, configureStorage } from '@chemisttasker/shared-core';
-import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../utils/tokenService';
+import { getAccessToken, getRefreshToken, setTokens, clearTokens, isTokenExpired } from '../utils/tokenService';
 
 let configured = false;
 let refreshPromise: Promise<string | null> | null = null;
 
 async function getAccessWithRefresh(baseURL: string) {
   const existing = getAccessToken();
-  if (existing) return existing;
+  if (existing && !isTokenExpired(existing)) return existing;
 
   const refresh = getRefreshToken();
-  if (!refresh) return null;
+  if (!refresh) {
+    if (existing) {
+      clearTokens();
+    }
+    return null;
+  }
 
   if (refreshPromise) {
     return refreshPromise;

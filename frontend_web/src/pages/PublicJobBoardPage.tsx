@@ -11,7 +11,7 @@ import {
   Snackbar,
   Typography,
 } from '@mui/material';
-import ShiftsBoard from '../components/shifts/ShiftsBoard';
+import ShiftsBoard from './dashboard/sidebar/ShiftsBoard';
 import {
   Shift,
   PaginatedResponse,

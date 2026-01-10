@@ -34,31 +34,13 @@ export default function ShiftBoardTabsPage() {
   const BrowseComponent: ComponentType<any> =
     workspace === 'internal' ? CommunityShiftsPage : PublicShiftsPage;
 
-  const renderContent = () => {
-    if (activeTab === 'browse' || activeTab === 'saved') {
-      return (
-        <BrowseComponent
-          hideTabs
-          activeTabOverride={activeTab === 'saved' ? 'saved' : 'browse'}
-          onActiveTabChange={(tab: ShiftBoardTab) => setActiveTab(tab)}
-        />
-      );
-    }
-
-    if (activeTab === 'interested') {
-      return (
-        <Typography variant="body1" color="text.secondary">
-          Interested shifts will appear here soon.
-        </Typography>
-      );
-    }
-
-    return (
-      <Typography variant="body1" color="text.secondary">
-        Rejected shifts will appear here soon.
-      </Typography>
-    );
-  };
+  const renderContent = () => (
+    <BrowseComponent
+      hideTabs
+      activeTabOverride={activeTab}
+      onActiveTabChange={(tab: ShiftBoardTab) => setActiveTab(tab)}
+    />
+  );
 
   return (
     <Box

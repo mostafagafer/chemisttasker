@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Typography, Snackbar, Alert, Box, Paper, Stack, Tabs, Tab, alpha, useTheme } from '@mui/material';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
-import ShiftsBoard from '../../../components/shifts/ShiftsBoard';
+import ShiftsBoard from './ShiftsBoard';
 import {
   Shift,
   ShiftCounterOfferPayload,
@@ -36,8 +36,8 @@ type FilterConfig = {
 };
 
 type PublicShiftsPageProps = {
-  activeTabOverride?: 'browse' | 'saved';
-  onActiveTabChange?: (tab: 'browse' | 'saved') => void;
+  activeTabOverride?: 'browse' | 'saved' | 'interested' | 'rejected';
+  onActiveTabChange?: (tab: 'browse' | 'saved' | 'interested' | 'rejected') => void;
   hideTabs?: boolean;
 };
 
@@ -94,12 +94,12 @@ export default function PublicShiftsPage({
   const [savedShiftIds, setSavedShiftIds] = useState<Set<number>>(new Set());
   const [savedMap, setSavedMap] = useState<Map<number, number>>(new Map()); // shiftId -> savedId
   const [boardTab, setBoardTab] = useState<'browse' | 'saved' | 'interested' | 'rejected'>(
-    activeTabOverride === 'saved' ? 'saved' : 'browse'
+    activeTabOverride ?? 'browse'
   );
 
   useEffect(() => {
     if (activeTabOverride) {
-      setBoardTab(activeTabOverride === 'saved' ? 'saved' : 'browse');
+      setBoardTab(activeTabOverride);
     }
   }, [activeTabOverride]);
 
@@ -346,13 +346,13 @@ export default function PublicShiftsPage({
 
   const handleBoardTabChange = (tab: 'browse' | 'saved' | 'interested' | 'rejected') => {
     setBoardTab(tab);
-    if (tab === 'browse' || tab === 'saved') {
-      onActiveTabChange?.(tab);
-    }
+    onActiveTabChange?.(tab);
   };
 
   const renderContent = () => {
-    if (boardTab === 'browse' || boardTab === 'saved') {
+    if (boardTab === 'browse' || boardTab === 'saved' || boardTab === 'interested' || boardTab === 'rejected') {
+      const slotFilterMode =
+        boardTab === 'interested' ? 'interested' : boardTab === 'rejected' ? 'rejected' : 'all';
       return (
         <ShiftsBoard
           title="Public Shifts"
@@ -377,23 +377,10 @@ export default function PublicShiftsPage({
           onActiveTabChange={(tab) => handleBoardTabChange(tab)}
           onRefresh={() => loadShifts(debouncedFilters, page)}
           disableLocalPersistence
+          slotFilterMode={slotFilterMode}
         />
       );
     }
-
-    if (boardTab === 'interested') {
-      return (
-        <Typography variant="body1" color="text.secondary">
-          Interested shifts will appear here soon.
-        </Typography>
-      );
-    }
-
-    return (
-      <Typography variant="body1" color="text.secondary">
-        Rejected shifts will appear here soon.
-      </Typography>
-    );
   };
 
   return (

@@ -20,6 +20,7 @@ import {
     fetchActiveShiftDetailService,
     createOwnerShiftService,
     updateOwnerShiftService,
+    calculateShiftRates,
 } from '@chemisttasker/shared-core';
 
 const ROLE_OPTIONS = ['PHARMACIST', 'TECHNICIAN', 'ASSISTANT', 'INTERN', 'STUDENT'];
@@ -96,6 +97,29 @@ export default function PostShiftScreen() {
     const [audienceMenuVisible, setAudienceMenuVisible] = useState(false);
     const [activeStep, setActiveStep] = useState<StepKey>('details');
 
+    // Rate calculation
+    const [calculatedRates, setCalculatedRates] = useState<Array<{ rate: number; error?: string }>>([]);
+    const [ratesLoading, setRatesLoading] = useState(false);
+
+    // Notification preferences
+    const [notifyPharmacyStaff, setNotifyPharmacyStaff] = useState(false);
+    const [notifyFavoriteStaff, setNotifyFavoriteStaff] = useState(false);
+    const [notifyChainMembers, setNotifyChainMembers] = useState(false);
+
+    // Payment & super
+    const [paymentPreference, setPaymentPreference] = useState<'ABN' | 'NON_ABN'>('ABN');
+    const [locumSuperIncluded, setLocumSuperIncluded] = useState(true);
+
+    // FT/PT specific
+    const [ftptPayMode, setFtptPayMode] = useState<'HOURLY' | 'ANNUAL'>('HOURLY');
+    const [minHourly, setMinHourly] = useState('');
+    const [maxHourly, setMaxHourly] = useState('');
+    const [minAnnual, setMinAnnual] = useState('');
+    const [maxAnnual, setMaxAnnual] = useState('');
+
+    // Other
+    const [applyRatesToPharmacy, setApplyRatesToPharmacy] = useState(false);
+
     const canSubmit = useMemo(() => Boolean(pharmacyId && slots.length > 0), [pharmacyId, slots.length]);
 
     const resetForm = useCallback(() => {
@@ -123,6 +147,19 @@ export default function PostShiftScreen() {
         setEscalationDates({});
         setToast('');
         setError('');
+        // Reset new fields
+        setCalculatedRates([]);
+        setNotifyPharmacyStaff(false);
+        setNotifyFavoriteStaff(false);
+        setNotifyChainMembers(false);
+        setPaymentPreference('ABN');
+        setLocumSuperIncluded(true);
+        setFtptPayMode('HOURLY');
+        setMinHourly('');
+        setMaxHourly('');
+        setMinAnnual('');
+        setMaxAnnual('');
+        setApplyRatesToPharmacy(false);
     }, []);
 
     // Reset escalation dates when the initial audience changes, mirroring web behaviour
@@ -274,6 +311,39 @@ export default function PostShiftScreen() {
     }, [editingId, loadPharmacies, resetForm]);
 
     useEffect(() => { if (editingId && pharmaciesLoaded) { void loadShift(); } }, [editingId, pharmaciesLoaded, loadShift]);
+
+    // Automatic rate calculation for PHARMACIST with FLEXIBLE rate type
+    useEffect(() => {
+        if (!pharmacyId || !slots.length || roleNeeded !== 'PHARMACIST' || rateMode !== 'FLEXIBLE') {
+            setCalculatedRates([]);
+            return;
+        }
+
+        const fetchRates = async () => {
+            setRatesLoading(true);
+            try {
+                const ratesData = await calculateShiftRates({
+                    pharmacyId: pharmacyId as number,
+                    role: roleNeeded,
+                    employmentType,
+                    slots: slots.map(s => ({
+                        date: s.date,
+                        startTime: s.startTime,
+                        endTime: s.endTime,
+                    })),
+                });
+                setCalculatedRates(ratesData);
+            } catch (error) {
+                console.error('Rate calculation failed:', error);
+                setCalculatedRates([]);
+            } finally {
+                setRatesLoading(false);
+            }
+        };
+
+        void fetchRates();
+    }, [pharmacyId, roleNeeded, employmentType, slots, rateMode]);
+
     const addSlot = () => {
         if (!slotDate || !slotStart || !slotEnd) return;
         setSlots((prev) => [
@@ -324,6 +394,13 @@ export default function PostShiftScreen() {
                     recurring_days: s.isRecurring ? s.recurringDays : [],
                     recurring_end_date: s.isRecurring && s.recurringEndDate ? s.recurringEndDate : undefined,
                 })),
+                // New fields
+                notify_pharmacy_staff: notifyPharmacyStaff,
+                notify_favorite_staff: notifyFavoriteStaff,
+                notify_chain_members: notifyChainMembers,
+                payment_preference: paymentPreference,
+                super_percent: locumSuperIncluded ? 11.5 : 0,
+                apply_rates_to_pharmacy: applyRatesToPharmacy,
             };
 
             if (roleNeeded === 'PHARMACIST') {
@@ -333,6 +410,17 @@ export default function PostShiftScreen() {
             } else {
                 if (ownerBonus) {
                     payload.owner_bonus = Number(ownerBonus);
+                }
+            }
+
+            // Add FT/PT specific fields
+            if (employmentType === 'FULL_TIME' || employmentType === 'PART_TIME') {
+                if (ftptPayMode === 'HOURLY') {
+                    if (minHourly) payload.min_hourly_rate = Number(minHourly);
+                    if (maxHourly) payload.max_hourly_rate = Number(maxHourly);
+                } else {
+                    if (minAnnual) payload.min_annual_salary = Number(minAnnual);
+                    if (maxAnnual) payload.max_annual_salary = Number(maxAnnual);
                 }
             }
 
@@ -583,6 +671,36 @@ export default function PostShiftScreen() {
                     </View>
                 ));
             })()}
+
+            {/* Notification Preferences */}
+            <Text style={styles.label}>Notifications</Text>
+            {initialAudience !== 'FULL_PART_TIME' && (
+                <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={() => setNotifyPharmacyStaff(v => !v)}
+                >
+                    <Checkbox status={notifyPharmacyStaff ? 'checked' : 'unchecked'} />
+                    <Text style={styles.rowText}>Notify pharmacy staff</Text>
+                </TouchableOpacity>
+            )}
+            {['LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(initialAudience) && (
+                <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={() => setNotifyFavoriteStaff(v => !v)}
+                >
+                    <Checkbox status={notifyFavoriteStaff ? 'checked' : 'unchecked'} />
+                    <Text style={styles.rowText}>Notify favorite staff</Text>
+                </TouchableOpacity>
+            )}
+            {['OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(initialAudience) && (
+                <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={() => setNotifyChainMembers(v => !v)}
+                >
+                    <Checkbox status={notifyChainMembers ? 'checked' : 'unchecked'} />
+                    <Text style={styles.rowText}>Notify chain members</Text>
+                </TouchableOpacity>
+            )}
         </Surface>
     );
 
@@ -629,6 +747,126 @@ export default function PostShiftScreen() {
                         keyboardType="numeric"
                         style={styles.input}
                     />
+                </>
+            )}
+
+            {/* Calculated Rates Display (Pharmacist + Flexible only) */}
+            {roleNeeded === 'PHARMACIST' && rateMode === 'FLEXIBLE' && calculatedRates.length > 0 && (
+                <View style={{ marginTop: 12, padding: 12, backgroundColor: '#F3F4F6', borderRadius: 8 }}>
+                    <Text style={[styles.label, { marginBottom: 8 }]}>Calculated Rates (Preview)</Text>
+                    {ratesLoading ? (
+                        <Text style={styles.helper}>Calculating...</Text>
+                    ) : (
+                        calculatedRates.map((rateData, idx) => (
+                            <Text key={idx} style={styles.helper}>
+                                Slot {idx + 1}: {rateData.error || `$${rateData.rate.toFixed(2)}/hr`}
+                            </Text>
+                        ))
+                    )}
+                </View>
+            )}
+
+            {/* Payment Preference */}
+            <Text style={[styles.label, { marginTop: 16 }]}>Payment Preference</Text>
+            <View style={styles.pills}>
+                {['ABN', 'NON_ABN'].map((pref) => {
+                    const selected = paymentPreference === pref;
+                    return (
+                        <Chip
+                            key={pref}
+                            selected={selected}
+                            onPress={() => setPaymentPreference(pref as 'ABN' | 'NON_ABN')}
+                            style={chipStyle(selected)}
+                            textStyle={chipTextStyle(selected)}
+                        >
+                            {pref === 'ABN' ? 'ABN' : 'Non-ABN'}
+                        </Chip>
+                    );
+                })}
+            </View>
+
+            {/* Super Toggle (LOCUM/CASUAL only) */}
+            {(employmentType === 'LOCUM' || employmentType === 'CASUAL') && (
+                <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={() => setLocumSuperIncluded(v => !v)}
+                >
+                    <Checkbox status={locumSuperIncluded ? 'checked' : 'unchecked'} />
+                    <Text style={styles.rowText}>Superannuation included in rate (11.5%)</Text>
+                </TouchableOpacity>
+            )}
+
+            {/* Apply Rates to Pharmacy */}
+            {roleNeeded === 'PHARMACIST' && rateMode === 'FIXED' && (
+                <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={() => setApplyRatesToPharmacy(v => !v)}
+                >
+                    <Checkbox status={applyRatesToPharmacy ? 'checked' : 'unchecked'} />
+                    <Text style={styles.rowText}>Save as default pharmacy rates</Text>
+                </TouchableOpacity>
+            )}
+
+            {/* FT/PT Specific Fields */}
+            {(employmentType === 'FULL_TIME' || employmentType === 'PART_TIME') && (
+                <>
+                    <Text style={[styles.label, { marginTop: 16 }]}>Salary Range</Text>
+                    <View style={styles.pills}>
+                        {['HOURLY', 'ANNUAL'].map((mode) => {
+                            const selected = ftptPayMode === mode;
+                            return (
+                                <Chip
+                                    key={mode}
+                                    selected={selected}
+                                    onPress={() => setFtptPayMode(mode as 'HOURLY' | 'ANNUAL')}
+                                    style={chipStyle(selected)}
+                                    textStyle={chipTextStyle(selected)}
+                                >
+                                    {mode === 'HOURLY' ? 'Hourly' : 'Annual Salary'}
+                                </Chip>
+                            );
+                        })}
+                    </View>
+
+                    {ftptPayMode === 'HOURLY' ? (
+                        <>
+                            <TextInput
+                                mode="outlined"
+                                label="Min Hourly Rate ($/hr)"
+                                value={minHourly}
+                                onChangeText={setMinHourly}
+                                keyboardType="numeric"
+                                style={styles.input}
+                            />
+                            <TextInput
+                                mode="outlined"
+                                label="Max Hourly Rate ($/hr)"
+                                value={maxHourly}
+                                onChangeText={setMaxHourly}
+                                keyboardType="numeric"
+                                style={styles.input}
+                            />
+                        </>
+                    ) : (
+                        <>
+                            <TextInput
+                                mode="outlined"
+                                label="Min Annual Salary ($)"
+                                value={minAnnual}
+                                onChangeText={setMinAnnual}
+                                keyboardType="numeric"
+                                style={styles.input}
+                            />
+                            <TextInput
+                                mode="outlined"
+                                label="Max Annual Salary ($)"
+                                value={maxAnnual}
+                                onChangeText={setMaxAnnual}
+                                keyboardType="numeric"
+                                style={styles.input}
+                            />
+                        </>
+                    )}
                 </>
             )}
         </Surface>

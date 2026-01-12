@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from 'react-native-paper';
-import ActiveShiftsView from '@/roles/shared/shifts/ActiveShiftsView';
+import ActiveShiftsView from '@/roles/shared/shifts/ActiveShiftsPage';
 import ConfirmedShiftsView from '@/roles/shared/shifts/ConfirmedShiftsView';
 import HistoryShiftsView from '@/roles/shared/shifts/HistoryShiftsView';
 

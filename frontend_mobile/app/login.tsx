@@ -40,8 +40,14 @@ export default function LoginScreen() {
         router.replace('/owner/dashboard' as never);
       } else if (userData.role === 'PHARMACIST') {
         router.replace('/pharmacist/dashboard' as never);
+      } else if (userData.role === 'OTHER_STAFF') {
+        router.replace('/otherstaff/shifts' as never);
+      } else if (userData.role === 'EXPLORER') {
+        router.replace('/explorer' as never);
+      } else if (userData.role === 'ORGANIZATION') {
+        router.replace('/organization' as never);
       } else {
-        router.replace('/dashboard' as never);
+        router.replace('/login' as never);
       }
     } catch (err: any) {
       setError(err.message);

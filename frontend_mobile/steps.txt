@@ -40,6 +40,9 @@ when have we sat this mostafarg.chemisttasker and where?
 
 
 We set com.mostafarg.chemisttasker when the EAS build prompt asked for the Android application id during the first dev build. After that, we saved it in frontend_mobile/app.json under expo.android.package so it persists for all builds.
+************
+eas build --profile production-apk --platform android --clear-cache
+eas build:download --platform android --latest
 
 =========================
 
@@ -94,7 +97,7 @@ Example:
 EXPO_PUBLIC_API_URL=http://192.168.1.2:8000/api
 
 5️⃣ Set Metro Packager to Use LAN IP
-set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.10
+set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.4
 
 6️⃣ Start Expo
 npx expo start --dev-client --lan --clear
@@ -131,6 +134,7 @@ State : OFF
 
 If not off, allow Node.js and Python through firewall manually or via:
 
+netsh advfirewall firewall add rule name="Expo Metro 8081" dir=in action=allow protocol=TCP localport=8081
 netsh advfirewall firewall add rule name="NodeJS" dir=in action=allow program="C:\Program Files\nodejs\node.exe" enable=yes
 netsh advfirewall firewall add rule name="Python" dir=in action=allow program="C:\Path\To\python.exe" enable=yes
 
@@ -192,6 +196,12 @@ npm run build
 npm pack
 
 
+cd ..\frontend_mobile
+rmdir /s /q node_modules
+rmdir /s /q .expo
+del /f /q package-lock.json
+npm install
+
 cd ..\frontend_web
 rmdir /s /q node_modules
 rmdir /s /q dist
@@ -200,12 +210,7 @@ del /f /q package-lock.json
 npm install
 
 
-cd ..\frontend_mobile
-rmdir /s /q node_modules
-rmdir /s /q .expo
-del /f /q package-lock.json
-npm install
-
+"""
 
 
 Quick setup

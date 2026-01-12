@@ -1,293 +1,404 @@
-import React, { useState, useEffect } from 'react';
-import { View, ScrollView, Linking, StyleSheet, Platform, TouchableOpacity } from 'react-native';
+// CommunityShiftsView - Mobile implementation using ShiftsBoard
+// Mirrors web logic for filters, pagination, and rejections
+
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, StyleSheet } from 'react-native';
+import { ActivityIndicator, Card, Snackbar, SegmentedButtons, Text } from 'react-native-paper';
 import {
-    ActivityIndicator,
-    Button,
-    Card,
-    Divider,
-    IconButton,
-    Snackbar,
-    Text,
-    Title,
-    Chip,
-    useTheme,
-} from 'react-native-paper';
-import { useAuth } from '@/context/AuthContext';
-import {
-    type Shift,
+    Shift,
+    ShiftCounterOfferPayload,
+    ShiftInterest,
+    PaginatedResponse,
+    deleteSavedShift,
     expressInterestInCommunityShiftService,
     fetchCommunityShifts,
+    fetchSavedShifts,
     fetchShiftInterests,
     fetchShiftRejections,
     rejectCommunityShiftService,
+    saveShift,
+    submitShiftCounterOfferService,
 } from '@chemisttasker/shared-core';
-import { formatDistanceToNow } from 'date-fns';
+import { useAuth } from '@/context/AuthContext';
+import { useWorkspace } from '@/context/WorkspaceContext';
+import ShiftsBoard from './ShiftsBoard';
+import type { FilterConfig } from './ShiftsBoard/types';
 
-export default function CommunityShiftsView() {
-    const theme = useTheme();
+type CommunityShiftsViewProps = {
+    activeTabOverride?: 'browse' | 'saved' | 'interested' | 'rejected';
+    onActiveTabChange?: (tab: 'browse' | 'saved' | 'interested' | 'rejected') => void;
+    hideTabs?: boolean;
+};
+
+const DEFAULT_FILTERS: FilterConfig = {
+    city: [],
+    roles: [],
+    employmentTypes: [],
+    minRate: 0,
+    search: '',
+    timeOfDay: [],
+    dateRange: { start: '', end: '' },
+    onlyUrgent: false,
+    negotiableOnly: false,
+    flexibleOnly: false,
+    travelProvided: false,
+    accommodationProvided: false,
+    bulkShiftsOnly: false,
+};
+
+export default function CommunityShiftsView({
+    activeTabOverride,
+    onActiveTabChange,
+    hideTabs,
+}: CommunityShiftsViewProps = {}) {
     const { user } = useAuth();
+    const { workspace } = useWorkspace();
+    const userId = user?.id;
+    const isWorkspaceReady = workspace === 'internal';
 
     const [shifts, setShifts] = useState<Shift[]>([]);
     const [loading, setLoading] = useState(true);
-    const [disabledSlots, setDisabledSlots] = useState<number[]>([]);
-    const [disabledShifts, setDisabledShifts] = useState<number[]>([]);
-    const [rejectedSlots, setRejectedSlots] = useState<number[]>([]);
-    const [rejectedShifts, setRejectedShifts] = useState<number[]>([]);
-    const [snackbarMsg, setSnackbarMsg] = useState('');
+    const [error, setError] = useState<string | null>(null);
+    const [appliedShiftIds, setAppliedShiftIds] = useState<number[]>([]);
+    const [appliedSlotIds, setAppliedSlotIds] = useState<number[]>([]);
+    const [rejectedShiftIds, setRejectedShiftIds] = useState<number[]>([]);
+    const [rejectedSlotIds, setRejectedSlotIds] = useState<number[]>([]);
+    const [filters, setFilters] = useState<FilterConfig>(DEFAULT_FILTERS);
+    const [page, setPage] = useState(1);
+    const pageSize = 10;
+    const [totalCount, setTotalCount] = useState<number | undefined>(undefined);
+    const [savedShiftIds, setSavedShiftIds] = useState<Set<number>>(new Set());
+    const [savedMap, setSavedMap] = useState<Map<number, number>>(new Map());
+    const [boardTab, setBoardTab] = useState<'browse' | 'saved' | 'interested' | 'rejected'>(
+        activeTabOverride ?? 'browse'
+    );
 
     useEffect(() => {
-        if (user?.id) {
-            load();
+        if (activeTabOverride) {
+            setBoardTab(activeTabOverride);
         }
-    }, [user?.id]);
+    }, [activeTabOverride]);
 
-    const load = async () => {
-        setLoading(true);
+    const loadSaved = useCallback(async () => {
         try {
-            const [community, interests, rejections] = await Promise.all([
-                fetchCommunityShifts({}),
-                fetchShiftInterests({ userId: user!.id }),
-                fetchShiftRejections({ userId: user!.id }),
-            ]);
-
-            const available = (community || []).filter((shift: Shift) => {
-                const assignedSlotCount = shift.slotAssignments?.length ?? 0;
-                const slots = shift.slots ?? [];
-                return slots.length === 0 || assignedSlotCount < slots.length;
+            const saved = await fetchSavedShifts();
+            const ids = new Set<number>();
+            const map = new Map<number, number>();
+            saved.forEach((entry: any) => {
+                if (typeof entry.shift === 'number') {
+                    ids.add(entry.shift);
+                    if (entry.id) map.set(entry.shift, entry.id);
+                }
             });
-            setShifts(available);
-
-            setDisabledSlots(interests.map((i: any) => i.slotId).filter((id: any) => typeof id === 'number'));
-            setDisabledShifts(interests.filter((i: any) => i.slotId == null).map((i: any) => i.shift));
-            setRejectedSlots(rejections.map((r: any) => r.slotId).filter((id: any) => typeof id === 'number'));
-            setRejectedShifts(rejections.filter((r: any) => r.slotId == null).map((r: any) => r.shift));
-
+            setSavedShiftIds(ids);
+            setSavedMap(map);
         } catch (err) {
-            setSnackbarMsg('Failed to load community shifts');
-        } finally {
-            setLoading(false);
+            console.error('Failed to load saved shifts', err);
         }
-    };
+    }, []);
 
-    const handleExpressInterest = async (shiftId: number, slotId: number | null) => {
-        const shift = shifts.find(s => s.id === shiftId);
-        if (!shift) return;
-
-        if (slotId === null) {
-            setDisabledShifts(ds => [...ds, shiftId]);
+    const loadShifts = useCallback(
+        async (activeFilters: FilterConfig, activePage: number) => {
+            setLoading(true);
+            setError(null);
             try {
-                if (shift.singleUserOnly) {
-                    await expressInterestInCommunityShiftService({ shiftId, slotId: null });
-                } else {
+                const apiFilters = {
+                    search: activeFilters.search,
+                    roles: activeFilters.roles,
+                    employmentTypes: activeFilters.employmentTypes,
+                    city: activeFilters.city,
+                    state: [],
+                    minRate: activeFilters.minRate || undefined,
+                    onlyUrgent: activeFilters.onlyUrgent || undefined,
+                    negotiableOnly: activeFilters.negotiableOnly || undefined,
+                    flexibleOnly: activeFilters.flexibleOnly || undefined,
+                    travelProvided: activeFilters.travelProvided || undefined,
+                    accommodationProvided: activeFilters.accommodationProvided || undefined,
+                    bulkShiftsOnly: activeFilters.bulkShiftsOnly || undefined,
+                    timeOfDay: activeFilters.timeOfDay,
+                    startDate: activeFilters.dateRange.start || undefined,
+                    endDate: activeFilters.dateRange.end || undefined,
+                    page: activePage,
+                    pageSize,
+                };
+
+                const [communityShifts, interests, rejections] = await Promise.all([
+                    fetchCommunityShifts(apiFilters) as Promise<PaginatedResponse<Shift>>,
+                    fetchShiftInterests({ userId }),
+                    fetchShiftRejections({ userId }),
+                ]);
+
+                const available = (communityShifts.results ?? []).filter((shift: Shift) => {
                     const slots = shift.slots ?? [];
-                    await Promise.all(slots.map(s => expressInterestInCommunityShiftService({ shiftId, slotId: s.id })));
-                }
-                setSnackbarMsg('Interest expressed!');
+                    if (slots.length === 0) return true;
+                    const assignedSlotCount = shift.slotAssignments?.length ?? 0;
+                    return assignedSlotCount < slots.length;
+                });
+
+                setShifts(available);
+                setTotalCount(communityShifts.count);
+
+                const nextShiftIds = new Set<number>();
+                const nextSlotIds = new Set<number>();
+                interests.forEach((interest: ShiftInterest) => {
+                    if (interest.slotId != null) {
+                        nextSlotIds.add(interest.slotId);
+                    } else if (typeof interest.shift === 'number') {
+                        nextShiftIds.add(interest.shift);
+                    }
+                });
+                setAppliedShiftIds(Array.from(nextShiftIds));
+                setAppliedSlotIds(Array.from(nextSlotIds));
+
+                const nextRejectedShiftIds = new Set<number>();
+                const nextRejectedSlotIds = new Set<number>();
+                (rejections || []).forEach((rejection: any) => {
+                    if (rejection.slotId != null) {
+                        nextRejectedSlotIds.add(rejection.slotId);
+                    } else if (typeof rejection.shift === 'number') {
+                        nextRejectedShiftIds.add(rejection.shift);
+                    }
+                });
+                setRejectedShiftIds(Array.from(nextRejectedShiftIds));
+                setRejectedSlotIds(Array.from(nextRejectedSlotIds));
             } catch (err) {
-                setSnackbarMsg('Failed to express interest');
-                setDisabledShifts(ds => ds.filter(id => id !== shiftId));
+                console.error('Failed to load community shifts', err);
+                setError('Failed to load community shifts.');
+            } finally {
+                setLoading(false);
             }
-        } else {
-            setDisabledSlots(ds => [...ds, slotId]);
-            try {
-                await expressInterestInCommunityShiftService({ shiftId, slotId });
-                setSnackbarMsg('Interest expressed!');
-            } catch (err) {
-                setSnackbarMsg('Failed to express interest');
-                setDisabledSlots(ds => ds.filter(id => id !== slotId));
+        },
+        [userId]
+    );
+
+    useEffect(() => {
+        if (!userId || !isWorkspaceReady) return;
+        loadSaved();
+    }, [loadSaved, userId, isWorkspaceReady]);
+
+    useEffect(() => {
+        if (!userId || !isWorkspaceReady) return;
+        loadShifts(filters, page);
+    }, [filters, page, loadShifts, userId, isWorkspaceReady]);
+
+    const handleApplyAll = async (shift: Shift) => {
+        try {
+            if (shift.singleUserOnly) {
+                await expressInterestInCommunityShiftService({ shiftId: shift.id, slotId: null });
+                setAppliedShiftIds((prev) => Array.from(new Set([...prev, shift.id])));
+                return;
             }
+
+            const slots = shift.slots ?? [];
+            await Promise.all(
+                slots.map((slot) => expressInterestInCommunityShiftService({ shiftId: shift.id, slotId: slot.id }))
+            );
+            setAppliedSlotIds((prev) => Array.from(new Set([...prev, ...slots.map((slot) => slot.id)])));
+        } catch (err) {
+            console.error('Failed to express interest', err);
+            setError('Failed to express interest in this shift.');
+            throw err;
         }
     };
 
-    const handleReject = async (shiftId: number, slotId: number | null) => {
-        const shift = shifts.find(s => s.id === shiftId);
-        if (!shift) return;
-
-        if (slotId === null) {
-            setRejectedShifts(rs => [...rs, shiftId]);
-            try {
-                if (shift.singleUserOnly) {
-                    await rejectCommunityShiftService({ shiftId, slotId: null });
-                } else {
-                    const slots = shift.slots ?? [];
-                    await Promise.all(slots.map(s => rejectCommunityShiftService({ shiftId, slotId: s.id })));
-                }
-                setSnackbarMsg('Shift rejected');
-            } catch (err) {
-                setSnackbarMsg('Failed to reject shift');
-                setRejectedShifts(rs => rs.filter(id => id !== shiftId));
-            }
-        } else {
-            setRejectedSlots(rs => [...rs, slotId]);
-            try {
-                await rejectCommunityShiftService({ shiftId, slotId });
-                setSnackbarMsg('Slot rejected');
-            } catch (err) {
-                setSnackbarMsg('Failed to reject slot');
-                setRejectedSlots(rs => rs.filter(id => id !== slotId));
-            }
+    const handleApplySlot = async (shift: Shift, slotId: number) => {
+        try {
+            await expressInterestInCommunityShiftService({ shiftId: shift.id, slotId });
+            setAppliedSlotIds((prev) => Array.from(new Set([...prev, slotId])));
+        } catch (err) {
+            console.error('Failed to express interest in slot', err);
+            setError('Failed to express interest in this slot.');
+            throw err;
         }
     };
 
-    const openMap = (address: string) => {
-        const query = encodeURIComponent(address);
-        const url = Platform.select({
-            ios: `maps:0,0?q=${query}`,
-            android: `geo:0,0?q=${query}`,
-            default: `https://www.google.com/maps/search/?api=1&query=${query}`
-        });
-        Linking.openURL(url!).catch(() => setSnackbarMsg('Could not open map'));
+    const handleSubmitCounterOffer = async (payload: ShiftCounterOfferPayload) => {
+        try {
+            await submitShiftCounterOfferService(payload);
+        } catch (err) {
+            console.error('Failed to submit counter offer', err);
+            setError('Failed to submit counter offer.');
+            throw err;
+        }
     };
 
-    const getPharmData = (shift: Shift) => {
-        const p = shift.pharmacy ?? shift.pharmacyDetail;
-        return typeof p === 'object' ? p : null;
+    const handleRejectShift = async (shift: Shift) => {
+        try {
+            if (shift.singleUserOnly) {
+                await rejectCommunityShiftService({ shiftId: shift.id, slotId: null });
+            } else {
+                const slots = shift.slots ?? [];
+                await Promise.all(
+                    slots.map((slot) => rejectCommunityShiftService({ shiftId: shift.id, slotId: slot.id }))
+                );
+            }
+        } catch (err) {
+            console.error('Failed to reject shift', err);
+            setError('Failed to reject this shift.');
+            throw err;
+        }
     };
 
-    const getSlotStatus = (shift: Shift, slotId: number) => {
-        if (rejectedSlots.includes(slotId)) return 'Rejected';
-        if (disabledSlots.includes(slotId)) return 'Requested';
-        if (rejectedShifts.includes(shift.id)) return 'Rejected';
-        if (disabledShifts.includes(shift.id)) return 'Requested';
-        return 'None';
+    const handleRejectSlot = async (shift: Shift, slotId: number) => {
+        try {
+            await rejectCommunityShiftService({ shiftId: shift.id, slotId });
+        } catch (err) {
+            console.error('Failed to reject slot', err);
+            setError('Failed to reject this slot.');
+            throw err;
+        }
     };
 
-    if (loading) {
+    const handleToggleSave = async (shiftId: number) => {
+        const savedId = savedMap.get(shiftId);
+        if (savedId) {
+            try {
+                await deleteSavedShift(savedId);
+                const next = new Set(savedShiftIds);
+                next.delete(shiftId);
+                setSavedShiftIds(next);
+                const nextMap = new Map(savedMap);
+                nextMap.delete(shiftId);
+                setSavedMap(nextMap);
+            } catch (err) {
+                console.error('Failed to unsave shift', err);
+                setError('Failed to unsave this shift.');
+            }
+            return;
+        }
+        try {
+            const created: any = await saveShift(shiftId);
+            const next = new Set(savedShiftIds);
+            next.add(shiftId);
+            setSavedShiftIds(next);
+            const nextMap = new Map(savedMap);
+            if (created?.id) nextMap.set(shiftId, created.id);
+            setSavedMap(nextMap);
+        } catch (err) {
+            console.error('Failed to save shift', err);
+            setError('Failed to save this shift.');
+        }
+    };
+
+    const handleFiltersChange = (nextFilters: FilterConfig) => {
+        setFilters(nextFilters);
+        setPage(1);
+    };
+
+    const handleBoardTabChange = (tab: 'browse' | 'saved' | 'interested' | 'rejected') => {
+        setBoardTab(tab);
+        onActiveTabChange?.(tab);
+    };
+
+    const slotFilterMode =
+        boardTab === 'interested' ? 'interested' : boardTab === 'rejected' ? 'rejected' : 'all';
+    const boardTabForBoard = boardTab === 'saved' ? 'saved' : 'browse';
+
+    if (!userId) return null;
+    if (!isWorkspaceReady) {
         return (
-            <View style={styles.centered}>
-                <ActivityIndicator size="large" color={theme.colors.primary} />
+            <View style={styles.container}>
+                <ActivityIndicator style={{ marginTop: 24 }} />
+                <Text style={{ textAlign: 'center', marginTop: 8 }}>Switching to Internal mode...</Text>
             </View>
         );
     }
 
     return (
         <View style={styles.container}>
-            <ScrollView contentContainerStyle={styles.scroll}>
-                {shifts.length === 0 ? (
-                    <Text style={{ textAlign: 'center', marginTop: 20, color: '#6B7280' }}>No community shifts available.</Text>
-                ) : (
-                    shifts.map(shift => {
-                        const pharm = getPharmData(shift);
-                        const isAnon = shift.postAnonymously;
-                        const heading = isAnon ? (pharm?.suburb ? `Shift in ${pharm.suburb}` : 'Anonymous Shift') : (pharm?.name ?? 'Unknown Pharmacy');
-                        const locationLine = !isAnon && pharm ? `${pharm.streetAddress || ''}, ${pharm.suburb || ''}` : (pharm?.suburb || '');
+            <Card style={styles.heroCard} mode="elevated">
+                <Card.Content>
+                    <Text variant="labelSmall" style={styles.heroLabel}>
+                        SHIFT BOARD
+                    </Text>
+                    <Text variant="headlineMedium" style={styles.heroTitle}>
+                        Discover shifts at a glance
+                    </Text>
+                    <Text variant="bodyMedium" style={styles.heroSubtitle}>
+                        Browse open shifts, review your saved list, and track interested or rejected opportunities.
+                    </Text>
+                </Card.Content>
+            </Card>
 
-                        let rateLabel = 'N/A';
-                        if (shift.rateType === 'FIXED') rateLabel = `Fixed — $${shift.fixedRate}/hr`;
-                        else if (shift.rateType === 'FLEXIBLE') rateLabel = 'Flexible';
-
-                        return (
-                            <Card key={shift.id} style={styles.card} mode="outlined">
-                                <Card.Content>
-                                    <Title>{heading}</Title>
-                                    {locationLine ? (
-                                        <TouchableOpacity disabled={isAnon} onPress={() => !isAnon && openMap(locationLine)}>
-                                            <Text style={{ color: isAnon ? '#6B7280' : theme.colors.primary, marginBottom: 8 }}>
-                                                {locationLine} {(!isAnon && locationLine) ? '📍' : ''}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ) : null}
-
-                                    {shift.description ? <Text style={{ marginBottom: 8 }}>{shift.description}</Text> : null}
-                                    <Divider style={{ marginVertical: 8 }} />
-
-                                    <Text style={{ fontWeight: 'bold' }}>Rate: {rateLabel}</Text>
-                                    {shift.ownerAdjustedRate ? (
-                                        <Text style={{ color: 'green', fontWeight: 'bold' }}>+${shift.ownerAdjustedRate}/hr Bonus</Text>
-                                    ) : null}
-
-                                    <View style={styles.tagsRow}>
-                                        {(shift.workloadTags || []).map(t => <Chip key={t} style={styles.chip} textStyle={{ fontSize: 10 }}>{t}</Chip>)}
-                                    </View>
-
-                                    <Text style={styles.sectionTitle}>Time Slots</Text>
-                                    {(shift.slots || []).map(slot => {
-                                        const status = getSlotStatus(shift, slot.id);
-                                        const isActionable = status === 'None';
-
-                                        return (
-                                            <View key={slot.id} style={styles.slotRow}>
-                                                <Text style={{ flex: 1, fontSize: 13 }}>
-                                                    {slot.date} {slot.startTime}–{slot.endTime}
-                                                </Text>
-                                                {!shift.singleUserOnly && (
-                                                    <View style={{ flexDirection: 'row' }}>
-                                                        {isActionable ? (
-                                                            <>
-                                                                <Button
-                                                                    mode="contained"
-                                                                    compact
-                                                                    onPress={() => handleExpressInterest(shift.id, slot.id)}
-                                                                    style={{ transform: [{ scale: 0.8 }], marginRight: -8 }}
-                                                                >
-                                                                    Interest
-                                                                </Button>
-                                                                <Button
-                                                                    mode="outlined"
-                                                                    compact
-                                                                    textColor={theme.colors.error}
-                                                                    onPress={() => handleReject(shift.id, slot.id)}
-                                                                    style={{ transform: [{ scale: 0.8 }], borderColor: theme.colors.error }}
-                                                                >
-                                                                    Reject
-                                                                </Button>
-                                                            </>
-                                                        ) : (
-                                                            <Text style={{ fontSize: 12, color: '#9CA3AF', alignSelf: 'center' }}>{status}</Text>
-                                                        )}
-                                                    </View>
-                                                )}
-                                            </View>
-                                        );
-                                    })}
-
-                                    {/* Whole Shift Actions */}
-                                    <View style={{ marginTop: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
-                                        {(!shift.singleUserOnly && (shift.slots?.length ?? 0) > 1) || shift.singleUserOnly ? (
-                                            <>
-                                                <Button
-                                                    mode="contained"
-                                                    disabled={disabledShifts.includes(shift.id) || rejectedShifts.includes(shift.id)}
-                                                    onPress={() => handleExpressInterest(shift.id, null)}
-                                                >
-                                                    {disabledShifts.includes(shift.id) ? 'Requested' : 'Express Interest (All)'}
-                                                </Button>
-                                                <Button
-                                                    mode="outlined"
-                                                    textColor={theme.colors.error}
-                                                    style={{ borderColor: theme.colors.error }}
-                                                    disabled={disabledShifts.includes(shift.id) || rejectedShifts.includes(shift.id)}
-                                                    onPress={() => handleReject(shift.id, null)}
-                                                >
-                                                    Reject Shift
-                                                </Button>
-                                            </>
-                                        ) : null}
-                                    </View>
-
-                                    <Text style={{ fontSize: 10, color: '#9CA3AF', marginTop: 8, textAlign: 'right' }}>
-                                        Posted {shift.createdAt ? formatDistanceToNow(new Date(shift.createdAt), { addSuffix: true }) : ''}
-                                    </Text>
-                                </Card.Content>
-                            </Card>
-                        );
-                    })
-                )}
-            </ScrollView>
-            <Snackbar visible={!!snackbarMsg} onDismiss={() => setSnackbarMsg('')} duration={3000}>
-                {snackbarMsg}
+            {!hideTabs && (
+                <View style={styles.tabsContainer}>
+                    <SegmentedButtons
+                        value={boardTab}
+                        onValueChange={(value) => handleBoardTabChange(value as any)}
+                        buttons={[
+                            { value: 'browse', label: 'Browse' },
+                            { value: 'saved', label: `Saved (${savedShiftIds.size})` },
+                            { value: 'interested', label: 'Interested' },
+                            { value: 'rejected', label: 'Rejected' },
+                        ]}
+                        theme={{ colors: { secondaryContainer: '#EEF2FF', onSecondaryContainer: '#6366F1' } }}
+                    />
+                </View>
+            )}
+            <ShiftsBoard
+                title="Community Shifts"
+                shifts={shifts}
+                loading={loading}
+                useServerFiltering
+                filters={filters}
+                onFiltersChange={handleFiltersChange}
+                totalCount={totalCount}
+                page={page}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                savedShiftIds={Array.from(savedShiftIds)}
+                onToggleSave={handleToggleSave}
+                onApplyAll={handleApplyAll}
+                onApplySlot={handleApplySlot}
+                onSubmitCounterOffer={handleSubmitCounterOffer}
+                initialAppliedShiftIds={appliedShiftIds}
+                initialAppliedSlotIds={appliedSlotIds}
+                onRejectShift={handleRejectShift}
+                onRejectSlot={handleRejectSlot}
+                initialRejectedShiftIds={rejectedShiftIds}
+                initialRejectedSlotIds={rejectedSlotIds}
+                hideTabs
+                activeTabOverride={boardTabForBoard}
+                onActiveTabChange={(tab) => handleBoardTabChange(tab as any)}
+                onRefresh={() => loadShifts(filters, page)}
+                slotFilterMode={slotFilterMode}
+            />
+            <Snackbar
+                visible={!!error}
+                onDismiss={() => setError(null)}
+                duration={3000}
+            >
+                {error}
             </Snackbar>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#F9FAFB' },
-    centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    scroll: { padding: 16 },
-    card: { marginBottom: 16, borderRadius: 12, backgroundColor: '#fff' },
-    tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginVertical: 8 },
-    chip: { height: 24, backgroundColor: '#EDE9FE' },
-    sectionTitle: { marginTop: 12, marginBottom: 4, fontWeight: '600', color: '#6B7280' },
-    slotRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }
+    container: {
+        flex: 1,
+    },
+    heroCard: {
+        margin: 16,
+        marginBottom: 8,
+        backgroundColor: '#4F46E5',
+    },
+    heroLabel: {
+        color: 'rgba(255, 255, 255, 0.7)',
+        letterSpacing: 1.6,
+        marginBottom: 4,
+    },
+    heroTitle: {
+        color: '#FFFFFF',
+        fontWeight: '800',
+        marginBottom: 8,
+    },
+    heroSubtitle: {
+        color: 'rgba(255, 255, 255, 0.9)',
+        maxWidth: 560,
+    },
+    tabsContainer: {
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+    },
 });

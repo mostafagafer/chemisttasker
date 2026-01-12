@@ -75,14 +75,19 @@ export default function VerifyOTPScreen() {
         try {
             await verifyOTP(code);
 
-            // Navigate based on user role - for now, replace with appropriate dashboard route
-            // After verification, check onboarding status and navigate accordingly
+            // Navigate based on user role - after verification, check onboarding status and navigate accordingly
             if (user?.role === 'OWNER') {
                 router.replace('/owner/onboarding/step1' as never);
             } else if (user?.role === 'PHARMACIST') {
                 router.replace('/pharmacist/dashboard' as never);
+            } else if (user?.role === 'OTHER_STAFF') {
+                router.replace('/otherstaff/shifts' as never);
+            } else if (user?.role === 'EXPLORER') {
+                router.replace('/explorer' as never);
+            } else if (user?.role === 'ORGANIZATION') {
+                router.replace('/organization' as never);
             } else {
-                router.replace('/dashboard' as never);
+                router.replace('/login' as never);
             }
         } catch (err: any) {
             setError(err.message);

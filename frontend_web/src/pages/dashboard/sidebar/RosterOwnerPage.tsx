@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import type { SyntheticEvent } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Container,
   Typography,
@@ -33,6 +34,7 @@ import {
 } from '@mui/material';
 
 import { Close as CloseIcon } from '@mui/icons-material';
+import PostShiftPage from './PostShiftPage';
 
 // Calendar Imports
 import { Calendar, momentLocalizer } from 'react-big-calendar';
@@ -57,18 +59,50 @@ import {
   fetchRosterOwnerMembersService,
   createShiftAndAssignService,
   deleteRosterAssignmentService,
+  deleteRosterShiftService,
   updateRosterShiftService,
   escalateRosterShiftService,
   approveLeaveRequestService,
   rejectLeaveRequestService,
-  createOpenShiftService,
   approveWorkerShiftRequestService,
   rejectWorkerShiftRequestService,
 } from '@chemisttasker/shared-core';
 
 const localizer = momentLocalizer(moment);
 
-type AssignmentViewModel = RosterAssignment;
+const DEFAULT_ESCALATION_LEVELS = [
+  'FULL_PART_TIME',
+  'LOCUM_CASUAL',
+  'OWNER_CHAIN',
+  'ORG_CHAIN',
+  'PLATFORM',
+];
+
+const getVisibilityLabel = (visibility?: string | null) => {
+  switch (visibility) {
+    case 'FULL_PART_TIME': return 'Full/Part Time';
+    case 'LOCUM_CASUAL': return 'Locum/Casual';
+    case 'OWNER_CHAIN': return 'Owner Chain';
+    case 'ORG_CHAIN': return 'Organization Chain';
+    case 'PLATFORM': return 'ChemistTasker';
+    default: return 'ChemistTasker';
+  }
+};
+
+type OpenShiftViewModel = OpenShift & {
+  visibility?: string | null;
+  allowedEscalationLevels?: string[];
+  pharmacyName?: string | null;
+};
+
+type AssignmentViewModel = RosterAssignment & {
+  isOpenShift?: boolean;
+  isCoverRequest?: boolean;
+  origin?: {
+    label?: string;
+  };
+  originalShift?: OpenShiftViewModel;
+};
 
 interface ShiftForEdit {
   id: number;
@@ -108,6 +142,8 @@ const RosterPageSkeleton = () => (
 
 export default function RosterOwnerPage() {
   const { activePersona, activeAdminPharmacyId } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const scopedPharmacyId =
     activePersona === 'admin' && typeof activeAdminPharmacyId === 'number'
       ? activeAdminPharmacyId
@@ -123,7 +159,7 @@ export default function RosterOwnerPage() {
   const [pharmacies, setPharmacies] = useState<PharmacySummary[]>([]);
   const [selectedPharmacyId, setSelectedPharmacyId] = useState<number | null>(null);
   const [assignments, setAssignments] = useState<AssignmentViewModel[]>([]);
-  const [openShifts, setOpenShifts] = useState<OpenShift[]>([]); // NEW: State for open shifts
+  const [openShifts, setOpenShifts] = useState<OpenShiftViewModel[]>([]); // NEW: State for open shifts
   const [workerRequests, setWorkerRequests] = useState<WorkerShiftRequest[]>([]); // NEW: State for cover requests
   const [pharmacyMembers, setPharmacyMembers] = useState<RosterPharmacyMember[]>([]);
   
@@ -144,12 +180,17 @@ export default function RosterOwnerPage() {
   const [dialogShiftEndTime, setDialogShiftEndTime] = useState<string | null>(null);
   const [dialogShiftDate, setDialogShiftDate] = useState<string | null>(null);
   const [newShiftRoleNeeded, setNewShiftRoleNeeded] = useState<string>('');
+  const [editIsOpenShift, setEditIsOpenShift] = useState(false);
+  const [editOpenShiftVisibility, setEditOpenShiftVisibility] = useState<string>('LOCUM_CASUAL');
+  const [pendingDeletionShiftId, setPendingDeletionShiftId] = useState<number | null>(null);
   
   const [selectedAssignment, setSelectedAssignment] = useState<AssignmentViewModel | null>(null);
   const [selectedUserForAssignment, setSelectedUserForAssignment] = useState<number | null>(null);
   const [isOptionsDialogOpen, setIsOptionsDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isEscalateDialogOpen, setIsEscalateDialogOpen] = useState(false);
+  const [isPostShiftModalOpen, setIsPostShiftModalOpen] = useState(false);
+  const [previousSearch, setPreviousSearch] = useState<string>(location.search);
   const [shiftToEdit, setShiftToEdit] = useState<ShiftForEdit | null>(null);
   const [filteredMembers, setFilteredMembers] = useState<RosterPharmacyMember[]>([]);
   const [escalationLevel, setEscalationLevel] = useState<string>('');
@@ -195,6 +236,7 @@ export default function RosterOwnerPage() {
   
   const [isCoverRequestDialogOpen, setIsCoverRequestDialogOpen] = useState(false); // NEW: Dialog for cover requests
   const [postAsOpenShift, setPostAsOpenShift] = useState(false);
+  const [openShiftVisibility, setOpenShiftVisibility] = useState<string>('LOCUM_CASUAL');
   const [selectedCoverRequest, setSelectedCoverRequest] = useState<WorkerShiftRequest | null>(null); // NEW
   const [roleFilters, setRoleFilters] = useState<string[]>([ALL_STAFF]);
   // --- Snackbar ---
@@ -285,6 +327,13 @@ export default function RosterOwnerPage() {
       loadAssignments(selectedPharmacyId, start.format('YYYY-MM-DD'), end.format('YYYY-MM-DD'));
   }
 
+  // Reset open-shift visibility when switching out of open-shift mode
+  useEffect(() => {
+    if (!postAsOpenShift) {
+      setOpenShiftVisibility('LOCUM_CASUAL');
+    }
+  }, [postAsOpenShift]);
+
   const loadAssignments = async (pharmacyId: number, startDate?: string, endDate?: string) => {
     setIsAssignmentsLoading(true);
     try {
@@ -351,16 +400,49 @@ export default function RosterOwnerPage() {
     if (!window.confirm("Are you sure you want to remove this assignment?")) return;
     setIsActionLoading(true);
     try {
-      await deleteRosterAssignmentService(selectedAssignment.id);
-      setAssignments(prev => prev.filter(a => a.id !== selectedAssignment.id));
-      showSnackbar("Assignment removed successfully.");
-      setIsOptionsDialogOpen(false);
+      if (selectedAssignment.isOpenShift) {
+        const shiftId = selectedAssignment.shift ?? selectedAssignment.originalShift?.id;
+        if (!shiftId) {
+          throw new Error("Open shift id is missing.");
+        }
+        await deleteRosterShiftService(shiftId);
+        showSnackbar("Open shift deleted successfully.");
+        setIsOptionsDialogOpen(false);
+        reloadAssignments();
+      } else {
+        await deleteRosterAssignmentService(selectedAssignment.id);
+        setAssignments(prev => prev.filter(a => a.id !== selectedAssignment.id));
+        showSnackbar("Assignment removed successfully.");
+        setIsOptionsDialogOpen(false);
+      }
     } catch (err: any) { showSnackbar(`Error: ${err.response?.data?.detail || err.message}`); }
     finally { setIsActionLoading(false); }
   };
 
   const handleSaveChanges = async () => {
     if (!shiftToEdit) return;
+    // If user chose to convert to an open shift, launch the Post Shift wizard overlay
+    if (editIsOpenShift) {
+      const slot = shiftToEdit.slots[0];
+      const params = new URLSearchParams();
+      params.set('pharmacy', String(selectedPharmacyId ?? ''));
+      params.set('role', shiftToEdit.roleNeeded ?? '');
+      if (slot?.date) params.set('date', slot.date);
+      if (slot?.startTime) params.set('start_time', slot.startTime);
+      if (slot?.endTime) params.set('end_time', slot.endTime);
+      if (editOpenShiftVisibility) params.set('visibility', editOpenShiftVisibility);
+      params.set('from_roster', '1');
+
+      // mark existing shift for deletion once the new post is completed
+      setPendingDeletionShiftId(shiftToEdit.id);
+
+      setPreviousSearch(location.search);
+      setIsEditDialogOpen(false);
+      navigate({ pathname: location.pathname, search: `?${params.toString()}` }, { replace: true });
+      setIsPostShiftModalOpen(true);
+      return;
+    }
+
     setIsActionLoading(true);
     const payload: Record<string, unknown> = {
       role_needed: shiftToEdit.roleNeeded,
@@ -438,30 +520,49 @@ export default function RosterOwnerPage() {
   };
   
   // NEW: Handle posting an open shift
-  const handleCreateOpenShift = async () => {
+  const handleCreateOpenShift = () => {
     if (!selectedPharmacyId || !newShiftRoleNeeded || !dialogShiftDate || !dialogShiftStartTime || !dialogShiftEndTime) {
       showSnackbar("Please ensure role, date, and times are selected."); return;
     }
-    setIsCreatingShift(true);
-    try {
-      await createOpenShiftService({
-        pharmacy_id: selectedPharmacyId,
-        role_needed: newShiftRoleNeeded,
-        slot_date: dialogShiftDate,
-        start_time: dialogShiftStartTime,
-        end_time: dialogShiftEndTime,
-        // You can add a description field to the dialog if needed
-        description: "Open shift posted by owner.",
-      });
-      showSnackbar("Open shift posted successfully!");
-      setIsAddAssignmentDialogOpen(false);
-      reloadAssignments();
-    } catch (err: any) {
-      showSnackbar(`Failed to post open shift: ${err.response?.data?.detail || err.message}`);
-    } finally {
-      setIsCreatingShift(false);
+
+    setPreviousSearch(location.search);
+
+    const params = new URLSearchParams();
+    params.set('pharmacy', String(selectedPharmacyId));
+    params.set('role', newShiftRoleNeeded);
+    params.set('date', dialogShiftDate);
+    params.set('start_time', dialogShiftStartTime);
+    params.set('end_time', dialogShiftEndTime);
+    if (openShiftVisibility) {
+      params.set('visibility', openShiftVisibility);
     }
+    params.set('from_roster', '1');
+
+    setIsAddAssignmentDialogOpen(false);
+    // Stay on the same route; update search to feed PostShiftPage prefill while showing it in a modal
+    navigate({ pathname: location.pathname, search: `?${params.toString()}` }, { replace: true });
+    setIsPostShiftModalOpen(true);
   };
+
+  const handleClosePostShiftModal = useCallback(() => {
+    navigate({ pathname: location.pathname, search: previousSearch || '' }, { replace: true });
+    setIsPostShiftModalOpen(false);
+  }, [navigate, location.pathname, previousSearch]);
+
+  const handlePostShiftCompleted = useCallback(() => {
+    handleClosePostShiftModal();
+    // delete old shift if we were replacing it via open-shift flow
+    if (pendingDeletionShiftId) {
+      deleteRosterShiftService(pendingDeletionShiftId)
+        .catch((err: any) => showSnackbar(`Failed to remove old shift: ${err?.response?.data?.detail || err?.message || 'Unknown error'}`))
+        .finally(() => {
+          setPendingDeletionShiftId(null);
+          reloadAssignments();
+        });
+      return;
+    }
+    reloadAssignments();
+  }, [handleClosePostShiftModal, pendingDeletionShiftId, reloadAssignments]);
 
   // NEW: Cover Request Handlers
   const handleApproveCoverRequest = async () => {
@@ -513,12 +614,23 @@ export default function RosterOwnerPage() {
       // For now, just show options dialog for open shifts (e.g., to delete it)
       // We create a temporary "Assignment-like" object for the dialog
       const firstSlot = item.originalShift.slots[0];
+      const visibility =
+        item.shiftDetail?.visibility ??
+        item.originalShift?.visibility ??
+        DEFAULT_ESCALATION_LEVELS[0];
+      const allowedEscalationLevels =
+        item.shiftDetail?.allowedEscalationLevels ??
+        item.originalShift?.allowedEscalationLevels ??
+        DEFAULT_ESCALATION_LEVELS;
       const tempAssignment: AssignmentViewModel = {
         id: item.originalShift.id,
         shift: item.originalShift.id,
         slot: firstSlot?.id ?? null,
         slotDate: firstSlot?.date ?? '',
         user: null,
+        isOpenShift: true,
+        origin: item.origin ?? { label: getVisibilityLabel(visibility) },
+        originalShift: item.originalShift,
         userDetail: {
           id: 0,
           firstName: 'Open',
@@ -535,10 +647,10 @@ export default function RosterOwnerPage() {
           : { id: 0, date: '', startTime: '', endTime: '' },
         shiftDetail: {
           id: item.originalShift.id,
-          pharmacyName: '',
+          pharmacyName: item.shiftDetail?.pharmacyName ?? item.originalShift?.pharmacyName ?? '',
           roleNeeded: item.shiftDetail?.roleNeeded || item.originalShift.roleNeeded || '',
-          visibility: item.shiftDetail?.visibility || 'PRIVATE',
-          allowedEscalationLevels: [],
+          visibility,
+          allowedEscalationLevels,
         },
         leaveRequest: null,
       };
@@ -603,7 +715,11 @@ export default function RosterOwnerPage() {
       .map(a => {
         const roleName = a.shiftDetail?.roleNeeded ?? '';
         const userFirstName = a.userDetail.firstName || '';
+        const originLabel = a.origin?.label;
         let title = `${userFirstName} (${roleName.substring(0,3)})`;
+        if (originLabel) {
+            title = `${title} • ${originLabel}`;
+        }
         // Add leave status to title
         if (a.leaveRequest) {
             title = `${title} (Leave: ${a.leaveRequest.status})`;
@@ -642,8 +758,13 @@ export default function RosterOwnerPage() {
         if (roleFilters.includes(ALL_STAFF)) return true;
         return roleFilters.includes(shift.roleNeeded);
       })
-      .flatMap(shift =>
-        shift.slots.map(slot => ({
+      .flatMap(shift => {
+        const visibility = shift.visibility ?? DEFAULT_ESCALATION_LEVELS[0];
+        const allowedEscalationLevels =
+          shift.allowedEscalationLevels && shift.allowedEscalationLevels.length
+            ? shift.allowedEscalationLevels
+            : DEFAULT_ESCALATION_LEVELS;
+        return shift.slots.map(slot => ({
             id: `open-${shift.id}-${slot.id}`,
             title: `OPEN: ${shift.roleNeeded}`,
             start: moment(`${slot.date} ${slot.startTime}`).toDate(),
@@ -651,11 +772,17 @@ export default function RosterOwnerPage() {
             allDay: false,
             resource: {
               isOpenShift: true,
+              shift: shift.id,
               originalShift: shift, // Keep original data for context
-              shiftDetail: { roleNeeded: shift.roleNeeded } // For filtering and styling
+              shiftDetail: {
+                roleNeeded: shift.roleNeeded,
+                visibility,
+                allowedEscalationLevels,
+              },
+              origin: { label: getVisibilityLabel(visibility) },
             }
-          }))
-    );
+          }));
+      });
 
     return [...assignmentEvents, ...requestEvents, ...openShiftEvents];
   }, [assignments, workerRequests, openShifts, roleFilters]);
@@ -799,10 +926,35 @@ export default function RosterOwnerPage() {
               </FormControl>
               <FormControlLabel
                 control={
-                  <Checkbox checked={postAsOpenShift} onChange={(e) => setPostAsOpenShift(e.target.checked)} />
+                  <Checkbox
+                    checked={postAsOpenShift}
+                    onChange={(e) => {
+                      setPostAsOpenShift(e.target.checked);
+                      if (e.target.checked) {
+                        setOpenShiftVisibility('LOCUM_CASUAL');
+                      }
+                    }}
+                  />
                 }
                 label="Post as an Open Shift for the community to claim"
               />
+
+              {postAsOpenShift && (
+                <FormControl fullWidth required>
+                  <InputLabel>Initial visibility</InputLabel>
+                  <Select
+                    value={openShiftVisibility}
+                    onChange={(e) => setOpenShiftVisibility(e.target.value as string)}
+                    label="Initial visibility"
+                  >
+                    <MenuItem value="FULL_PART_TIME">Full/Part Time</MenuItem>
+                    <MenuItem value="LOCUM_CASUAL">Locum/Casual</MenuItem>
+                    <MenuItem value="OWNER_CHAIN">Owner Chain</MenuItem>
+                    <MenuItem value="ORG_CHAIN">Organization Chain</MenuItem>
+                    <MenuItem value="PLATFORM">ChemistTasker (Public)</MenuItem>
+                  </Select>
+                </FormControl>
+              )}
 
               <FormControl fullWidth required disabled={postAsOpenShift}>
                 <InputLabel>Assign Staff Member</InputLabel>
@@ -839,7 +991,12 @@ export default function RosterOwnerPage() {
         <DialogTitle>Manage Assignment</DialogTitle>
         <DialogContent>
             {selectedAssignment && <List>
-                <ListItem><ListItemText primary="Staff" secondary={`${selectedAssignment.userDetail.firstName} ${selectedAssignment.userDetail.lastName}`} /></ListItem>
+                <ListItem><ListItemText primary="Staff" secondary={
+                  selectedAssignment.isOpenShift ? 'Open Shift' : `${selectedAssignment.userDetail.firstName} ${selectedAssignment.userDetail.lastName}`
+                } /></ListItem>
+                <ListItem><ListItemText primary="Source" secondary={
+                  selectedAssignment.origin?.label || getVisibilityLabel(selectedAssignment.shiftDetail?.visibility)
+                } /></ListItem>
                 <ListItem><ListItemText primary="Date & Time" secondary={`${selectedAssignment.slotDate} @ ${moment(selectedAssignment.slotDetail?.startTime ?? '00:00', ["HH:mm:ss","HH:mm"]).format("h:mm A")}`} /></ListItem>
                 {selectedAssignment.leaveRequest?.status === 'APPROVED' &&
                   <ListItem><Chip label="LEAVE APPROVED" color="error" size="small" /></ListItem>
@@ -859,6 +1016,8 @@ export default function RosterOwnerPage() {
                   roleNeeded: selectedAssignment.shiftDetail?.roleNeeded,
                   slots: selectedAssignment.slotDetail ? [selectedAssignment.slotDetail] : [],
                 });
+                setEditIsOpenShift(Boolean(selectedAssignment.isOpenShift));
+                setEditOpenShiftVisibility(selectedAssignment.shiftDetail?.visibility ?? openShiftVisibility);
                 setSelectedUserForAssignment(selectedAssignment.user ?? null);
               }}
             >
@@ -960,8 +1119,8 @@ export default function RosterOwnerPage() {
               {shiftToEdit && <Box component="form" sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
                   <TextField label="Date" type="date" value={moment(shiftToEdit.slots[0].date).format('YYYY-MM-DD')} onChange={e => setShiftToEdit(s => s && ({ ...s, slots: [{ ...s.slots[0], date: e.target.value }] }))} InputLabelProps={{ shrink: true }} fullWidth />
                   <Box sx={{ display: 'flex', gap: 2 }}>
-                    <TextField label="Start Time" type="time" value={shiftToEdit.slots[0].startTime.substring(0,5)} onChange={e => setShiftToEdit(s => s && ({ ...s, slots: [{ ...s.slots[0], startTime: e.target.value }] }))} InputLabelProps={{ shrink: true }} fullWidth />
-                    <TextField label="End Time" type="time" value={shiftToEdit.slots[0].endTime.substring(0,5)} onChange={e => setShiftToEdit(s => s && ({ ...s, slots: [{ ...s.slots[0], endTime: e.target.value }] }))} InputLabelProps={{ shrink: true }} fullWidth />
+                    <TextField label="Start Time" type="time" value={(shiftToEdit.slots[0].startTime || '').toString().slice(0,5)} onChange={e => setShiftToEdit(s => s && ({ ...s, slots: [{ ...s.slots[0], startTime: e.target.value }] }))} InputLabelProps={{ shrink: true }} fullWidth />
+                    <TextField label="End Time" type="time" value={(shiftToEdit.slots[0].endTime || '').toString().slice(0,5)} onChange={e => setShiftToEdit(s => s && ({ ...s, slots: [{ ...s.slots[0], endTime: e.target.value }] }))} InputLabelProps={{ shrink: true }} fullWidth />
                   </Box>
                   <FormControl fullWidth>
                       <InputLabel>Role Needed</InputLabel>
@@ -972,9 +1131,34 @@ export default function RosterOwnerPage() {
                           <MenuItem value="ASSISTANT">Assistant</MenuItem>
                       </Select>
                   </FormControl>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={editIsOpenShift}
+                        onChange={(e) => setEditIsOpenShift(e.target.checked)}
+                      />
+                    }
+                    label="Post as an Open Shift for the community to claim"
+                  />
+                  {editIsOpenShift && (
+                    <FormControl fullWidth required>
+                      <InputLabel>Initial visibility</InputLabel>
+                      <Select
+                        value={editOpenShiftVisibility}
+                        onChange={(e) => setEditOpenShiftVisibility(e.target.value as string)}
+                        label="Initial visibility"
+                      >
+                        <MenuItem value="FULL_PART_TIME">Full/Part Time</MenuItem>
+                        <MenuItem value="LOCUM_CASUAL">Locum/Casual</MenuItem>
+                        <MenuItem value="OWNER_CHAIN">Owner Chain</MenuItem>
+                        <MenuItem value="ORG_CHAIN">Organization Chain</MenuItem>
+                        <MenuItem value="PLATFORM">ChemistTasker (Public)</MenuItem>
+                      </Select>
+                    </FormControl>
+                  )}
                   <FormControl fullWidth>
                     <InputLabel>Assign Staff Member</InputLabel>
-                    <Select value={selectedUserForAssignment || ''} onChange={(e) => setSelectedUserForAssignment(e.target.value as number)} label="Assign Staff Member" disabled={!shiftToEdit.roleNeeded}>
+                    <Select value={selectedUserForAssignment || ''} onChange={(e) => setSelectedUserForAssignment(e.target.value as number)} label="Assign Staff Member" disabled={!shiftToEdit.roleNeeded || editIsOpenShift}>
                       {filteredMembers.length === 0 ? (
                         <MenuItem disabled value="">{shiftToEdit.roleNeeded ? "No staff for this role" : "Select a role first"}</MenuItem>
                       ) : (
@@ -1036,6 +1220,27 @@ export default function RosterOwnerPage() {
           </DialogActions>
       </Dialog>
 
+      {/* Full Post Shift wizard overlay */}
+      <Dialog
+        open={isPostShiftModalOpen}
+        onClose={handleClosePostShiftModal}
+        fullWidth
+        maxWidth="xl"
+        PaperProps={{
+          sx: {
+            width: '95vw',
+            height: '95vh',
+            m: 0,
+            borderRadius: 3,
+            overflow: 'hidden',
+          }
+        }}
+      >
+        <Box sx={{ height: '100%', overflow: 'auto', bgcolor: 'background.default' }}>
+          <PostShiftPage onCompleted={handlePostShiftCompleted} />
+        </Box>
+      </Dialog>
+
             <Snackbar
               open={snackbarOpen}
               onClose={closeSnackbar}
@@ -1052,12 +1257,6 @@ export default function RosterOwnerPage() {
     </Container>
   );
 }
-
-
-
-
-
-
 
 
 

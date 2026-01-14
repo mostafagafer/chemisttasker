@@ -244,3 +244,5 @@ npm run dev:5174
 cd frontend_web
 npm run dev:5175
 
+cd frontend_mobile
+npx expo start --dev-client --lan --clear

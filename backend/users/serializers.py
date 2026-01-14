@@ -60,9 +60,13 @@ ADMIN_LEVEL_CHOICES = tuple(
 )
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
+    email_duplicate_message = (
+        "There is already an account registered with this email. "
+        "Please log in or reset your password."
+    )
     email = serializers.EmailField(
         required=True,
-        validators=[UniqueValidator(queryset=User.objects.all())]
+        validators=[UniqueValidator(queryset=User.objects.all(), message=email_duplicate_message)]
     )
     password = serializers.CharField(write_only=True, min_length=8)
     confirm_password = serializers.CharField(write_only=True)
@@ -87,7 +91,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     def validate_email(self, value):
         value = value.strip().lower()
         if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("This email is already registered. Did you forget your password?")
+            raise serializers.ValidationError(self.email_duplicate_message)
         return value
 
     def create(self, validated_data):

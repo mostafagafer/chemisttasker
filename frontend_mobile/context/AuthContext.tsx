@@ -1,11 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import {
-  login as sharedLogin,
-  register as sharedRegister,
-  getOnboarding,
-} from '@chemisttasker/shared-core';
+import { login as sharedLogin, getOnboarding } from '@chemisttasker/shared-core';
 import apiClient from '../utils/apiClient';
 import { registerForPushNotificationsAsync, registerDeviceTokenWithBackend } from '../utils/pushNotifications';
 import * as Device from 'expo-device';
@@ -203,21 +199,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const register = async (data: RegisterData) => {
     try {
-      const response: any = await sharedRegister(data);
-      const tokens = response.tokens || {};
-      const newAccess = tokens.access || response.access;
-      const newRefresh = tokens.refresh || response.refresh;
-      const userData = response.user || response.userData || response.profile;
-      if (!newAccess || !newRefresh || !userData) {
-        throw new Error('Unexpected registration response');
-      }
-      await login(newAccess, newRefresh, userData);
+      await apiClient.post('/users/register/', data);
     } catch (error: any) {
+      const duplicateEmailMessage =
+        'There is already an account registered with this email. Please log in or reset your password.';
+      const responseData = error?.response?.data ?? error?.data;
+      const emailMsg = responseData?.email?.[0] || responseData?.email;
+      const emailMsgLower = typeof emailMsg === 'string' ? emailMsg.toLowerCase() : '';
+      const errorMessage = typeof error?.message === 'string' ? error.message : '';
+      const errorMessageLower = errorMessage.toLowerCase();
       const errorMsg =
-        error?.message ||
-        error?.response?.data?.email?.[0] ||
-        error?.response?.data?.detail ||
-        'Registration failed';
+        (emailMsgLower.includes('unique') ||
+          emailMsgLower.includes('already') ||
+          emailMsgLower.includes('registered') ||
+          errorMessageLower.includes('already') ||
+          errorMessageLower.includes('registered')
+          ? duplicateEmailMessage
+          : errorMessage || emailMsg || responseData?.detail || 'Registration failed');
       throw new Error(errorMsg);
     }
   };

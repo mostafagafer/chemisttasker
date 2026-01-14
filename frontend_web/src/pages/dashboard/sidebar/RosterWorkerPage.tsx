@@ -57,7 +57,11 @@ const mapPharmacySummaryToView = (summary: PharmacySummary): Pharmacy => ({
   name: summary.name ?? 'Unnamed Pharmacy',
 });
 
-const mapAssignmentToView = (assignment: RosterAssignment): Assignment => ({
+const mapAssignmentToView = (
+  assignment: RosterAssignment & {
+    origin?: { type?: string; label?: string; organizationName?: string | null };
+  }
+): Assignment => ({
   id: assignment.id,
   slot_date: assignment.slotDate,
   user: assignment.user ?? null,
@@ -94,6 +98,7 @@ const mapAssignmentToView = (assignment: RosterAssignment): Assignment => ({
   isOpenShift: false,
   originalShiftId: undefined,
   swap_request: undefined,
+  origin: assignment.origin,
 });
 
 const mapOpenShiftToView = (shift: SharedShift): OpenShift => {
@@ -161,6 +166,11 @@ interface Assignment {
   isOpenShift?: boolean; // NEW: added for owner-created open shifts
   originalShiftId?: number; // NEW: To store the original ID of an open shift
   swap_request?: WorkerSwapRequest;
+  origin?: {
+    type?: string;
+    label?: string;
+    organizationName?: string | null;
+  };
 }
 // NEW: Interface for an open shift (unassigned, community-visible)
 interface OpenShift {
@@ -287,7 +297,8 @@ const reloadAssignments = async () => {
       fetchWorkerShiftRequestsService({ pharmacyId: selectedPharmacyId, startDate, endDate }),
     ]);
     const assignments = assignmentsRes.map(mapAssignmentToView);
-    const openShifts = openShiftsRes.map(mapOpenShiftToView);
+    const openShiftResults = Array.isArray(openShiftsRes) ? openShiftsRes : openShiftsRes?.results ?? [];
+    const openShifts = openShiftResults.map(mapOpenShiftToView);
     const swapRequests = swapRes.map(mapWorkerRequestToView);
     // -------------------------------
     // 3️⃣ Map owner-created open shifts into calendar events
@@ -669,6 +680,9 @@ const handleSubmitLeaveRequest = async () => {
           if (a.leave_request) {
             title = `${title} (Leave: ${a.leave_request.status})`;
           }
+          if (a.origin?.label) {
+            title = `${title} • ${a.origin.label}`;
+          }
         }
         return {
             id: a.id,
@@ -803,6 +817,7 @@ const handleSubmitLeaveRequest = async () => {
               else if (assignment.isSwapRequest && assignment.status === "PENDING") statusLabel = "Pending Cover Request";
               else if (assignment.isSwapRequest && (assignment.status === "APPROVED" || assignment.status === "AUTO_PUBLISHED")) statusLabel = "Cover Approved";
               else if (assignment.isSwapRequest && assignment.status === "REJECTED") statusLabel = "Cover Rejected";
+              const originLabel = assignment.origin?.label;
               return (
                 <Box sx={{ px: 0.5, py: 0.3 }}>
                   <Typography
@@ -823,6 +838,20 @@ const handleSubmitLeaveRequest = async () => {
                       }}
                     >
                       {statusLabel}
+                    </Typography>
+                  )}
+                  {originLabel && !assignment.isOpenShift && !assignment.isSwapRequest && (
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        display: "block",
+                        color: "#fff",
+                        fontWeight: 500,
+                        fontSize: "0.7rem",
+                        mt: 0.3,
+                      }}
+                    >
+                      {originLabel}
                     </Typography>
                   )}
                 </Box>
@@ -915,6 +944,9 @@ const handleSubmitLeaveRequest = async () => {
             <>
                 <List dense>
                     <ListItem><ListItemText primary="Pharmacy" secondary={selectedAssignment.shift_detail.pharmacy_name} /></ListItem>
+                    {selectedAssignment.origin?.label && (
+                      <ListItem><ListItemText primary="Source" secondary={selectedAssignment.origin.label} /></ListItem>
+                    )}
                     <ListItem><ListItemText primary="Date" secondary={moment(selectedAssignment.slot_date).format('dddd, MMMM Do YYYY')} /></ListItem>
                     <ListItem><ListItemText primary="Time" secondary={`${moment(selectedAssignment.slot_detail.start_time, "HH:mm:ss").format("h:mm A")} - ${moment(selectedAssignment.slot_detail.end_time, "HH:mm:ss").format("h:mm A")}`} /></ListItem>
                 </List>

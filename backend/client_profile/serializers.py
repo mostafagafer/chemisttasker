@@ -4584,6 +4584,7 @@ class RosterAssignmentSerializer(serializers.ModelSerializer):
     slot_detail = ShiftSlotSerializer(source='slot', read_only=True)
     shift_detail = RosterShiftDetailSerializer(source='shift', read_only=True)
     leave_request = serializers.SerializerMethodField()
+    origin = serializers.SerializerMethodField()
 
     class Meta:
         model = ShiftSlotAssignment
@@ -4594,6 +4595,7 @@ class RosterAssignmentSerializer(serializers.ModelSerializer):
             "slot_detail",
             "shift_detail",
             "leave_request",
+            "origin",
         ]
 
     def get_leave_request(self, obj):
@@ -4610,10 +4612,62 @@ class RosterAssignmentSerializer(serializers.ModelSerializer):
             }
         return None
 
+    def get_origin(self, obj):
+        """
+        Returns a small descriptor showing where this worker came from
+        relative to the shift's pharmacy: pharmacy staff, favourite staff
+        (locum/shift hero in the same pharmacy), chain staff, organization
+        staff (with org name), or public ChemistTasker pool.
+        """
+        shift = getattr(obj, "shift", None)
+        user = getattr(obj, "user", None)
+        if not shift or not user or not shift.pharmacy:
+            return {"type": "UNKNOWN", "label": "Unknown"}
+
+        pharmacy = shift.pharmacy
+
+        # 1) Direct membership in the pharmacy
+        membership = Membership.objects.filter(
+            user=user,
+            pharmacy=pharmacy,
+            is_active=True
+        ).first()
+        if membership:
+            if membership.employment_type in ("LOCUM", "SHIFT_HERO"):
+                return {"type": "FAV_STAFF", "label": "Fav Staff"}
+            return {"type": "PHARMACY_STAFF", "label": "Pharmacy staff"}
+
+        # 2) Membership in any pharmacy that sits in the same chain(s)
+        chain_qs = pharmacy.chains.all()
+        if chain_qs.exists():
+            org_name = chain_qs.filter(
+                organization__isnull=False,
+                pharmacies__memberships__user=user,
+                pharmacies__memberships__is_active=True
+            ).values_list("organization__name", flat=True).distinct().first()
+            if org_name:
+                return {
+                    "type": "ORG_STAFF",
+                    "label": f"Organization staff ({org_name})",
+                    "organization_name": org_name,
+                }
+            owner_chain_match = chain_qs.filter(
+                organization__isnull=True,
+                pharmacies__memberships__user=user,
+                pharmacies__memberships__is_active=True
+            ).exists()
+            if owner_chain_match:
+                return {"type": "CHAIN_STAFF", "label": "Chain staff"}
+
+        # 3) Public/other pool
+        return {"type": "PUBLIC", "label": "ChemistTasker"}
+
 
 class OpenShiftSerializer(serializers.ModelSerializer):
     slots = ShiftSlotSerializer(many=True, read_only=True)
     pharmacy_name = serializers.CharField(source='pharmacy.name', read_only=True)
+    visibility = serializers.CharField(read_only=True)
+    allowed_escalation_levels = serializers.SerializerMethodField()
 
     class Meta:
         model = Shift
@@ -4622,9 +4676,14 @@ class OpenShiftSerializer(serializers.ModelSerializer):
             "pharmacy",
             "pharmacy_name",
             "role_needed",
+            "visibility",
+            "allowed_escalation_levels",
             "description",
             "slots",
         ]
+
+    def get_allowed_escalation_levels(self, obj):
+        return ShiftSerializer.build_allowed_tiers(obj.pharmacy)
 
 # === Invoice ===
 class InvoiceLineItemSerializer(serializers.ModelSerializer):

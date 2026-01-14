@@ -1018,6 +1018,11 @@ export interface RosterAssignmentApi {
     shift_detail: RosterShiftDetailApi;
     leave_request?: LeaveRequestApi | null;
     swap_request?: WorkerShiftRequestApi | null;
+    origin?: {
+        type: string;
+        label: string;
+        organization_name?: string | null;
+    } | null;
 }
 
 export type RosterAssignment = CamelCasedPropertiesDeep<RosterAssignmentApi>;
@@ -1026,6 +1031,8 @@ export interface OpenShiftApi {
     id: number;
     pharmacy: number;
     role_needed: string;
+    visibility?: string;
+    allowed_escalation_levels?: string[];
     slots: RosterSlotDetailApi[];
     description?: string | null;
 }

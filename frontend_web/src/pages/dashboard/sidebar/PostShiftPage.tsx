@@ -148,7 +148,11 @@ const describeRecurringDays = (days: number[]) => {
 
 const ORG_ROLE_VALUES = ORG_ROLES as readonly string[];
 
-const PostShiftPage: React.FC = () => {
+type PostShiftPageProps = {
+  onCompleted?: () => void;
+};
+
+const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
   const { user, activePersona, activeAdminPharmacyId } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -163,6 +167,17 @@ const PostShiftPage: React.FC = () => {
   const params = new URLSearchParams(location.search);
   const adminRedirectBase = scopedPharmacyId != null ? `/dashboard/admin/${scopedPharmacyId}` : null;
   const editingShiftId = params.get('edit');
+
+  const prefillPharmacyId = params.get('pharmacy') ?? params.get('pharmacy_id');
+  const prefillRoleNeeded = params.get('role') ?? params.get('role_needed');
+  const prefillDate = params.get('date') ?? params.get('slot_date');
+  const prefillStartTime = params.get('start_time') ?? params.get('start');
+  const prefillEndTime = params.get('end_time') ?? params.get('end');
+  const prefillVisibility = params.get('visibility');
+  const prefillEmploymentType = params.get('employment_type');
+  const hasPrefill = Boolean(
+    prefillPharmacyId || prefillRoleNeeded || prefillDate || prefillStartTime || prefillEndTime || prefillVisibility || prefillEmploymentType
+  );
 
   const orgMembership = useMemo(() => {
     const memberships = Array.isArray(user?.memberships) ? user.memberships : [];
@@ -231,6 +246,7 @@ const PostShiftPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
   const [activeStep, setActiveStep] = useState(0);
+  const [prefillApplied, setPrefillApplied] = useState(false);
 
   // --- Calendar Control State ---
   const todayStart = useMemo(() => dayjs().startOf('day'), []);
@@ -347,6 +363,52 @@ const PostShiftPage: React.FC = () => {
     };
   }, [editingShiftId, scopedPharmacyId, navigate]);
 
+
+  useEffect(() => {
+    if (!hasPrefill || editingShiftId || prefillApplied) {
+      return;
+    }
+
+    const parsedPharmacyId = prefillPharmacyId ? Number(prefillPharmacyId) : null;
+    if (parsedPharmacyId && scopedPharmacyId == null) {
+      setPharmacyId(parsedPharmacyId);
+    }
+    if (prefillRoleNeeded) {
+      setRoleNeeded(prefillRoleNeeded);
+    }
+    if (prefillEmploymentType) {
+      setEmploymentType(prefillEmploymentType);
+    }
+    if (prefillVisibility) {
+      setVisibility(prefillVisibility);
+    }
+
+    if (prefillDate) {
+      setSlotDate(prefillDate);
+      setSelectedDates([prefillDate]);
+      const parsedDate = dayjs(prefillDate);
+      if (parsedDate.isValid()) {
+        setCalendarDate(parsedDate.toDate());
+      }
+    }
+
+    const startTime = prefillStartTime || slotStartTime;
+    const endTime = prefillEndTime || slotEndTime;
+    if (prefillStartTime) {
+      setSlotStartTime(prefillStartTime);
+    }
+    if (prefillEndTime) {
+      setSlotEndTime(prefillEndTime);
+    }
+    if (prefillDate) {
+      setSelectedDateTimes((prev) => ({
+        ...prev,
+        [prefillDate]: { startTime, endTime },
+      }));
+    }
+
+    setPrefillApplied(true);
+  }, [hasPrefill, editingShiftId, prefillApplied, prefillPharmacyId, prefillRoleNeeded, prefillDate, prefillStartTime, prefillEndTime, prefillVisibility, prefillEmploymentType, scopedPharmacyId, slotStartTime, slotEndTime]);
 
   useEffect(() => {
     if (scopedPharmacyId != null) {
@@ -877,6 +939,7 @@ const PostShiftPage: React.FC = () => {
       }
     }
 
+    let success = false;
     try {
       if (editingShiftId) {
         await updateOwnerShiftService(Number(editingShiftId), payload);
@@ -884,6 +947,11 @@ const PostShiftPage: React.FC = () => {
       } else {
         await createOwnerShiftService(payload);
         showSnackbar('Shift posted successfully!');
+      }
+      success = true;
+      if (onCompleted) {
+        onCompleted();
+        return;
       }
 
       const targetPath = adminRedirectBase
@@ -898,6 +966,9 @@ const PostShiftPage: React.FC = () => {
       showSnackbar(formatErrorMessage(err), 'error');
     } finally {
       setSubmitting(false);
+      if (success && onCompleted) {
+        onCompleted();
+      }
     }
   };
   useEffect(() => {

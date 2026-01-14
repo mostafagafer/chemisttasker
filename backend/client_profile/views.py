@@ -2931,10 +2931,16 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                     rate, reason = get_locked_rate_for_slot(shift=shift, slot=slot, user=candidate, override_date=slot_date)
                     a, _ = ShiftSlotAssignment.objects.update_or_create(
                         slot=slot, slot_date=slot_date,
-                        defaults={'shift': shift, 'user': candidate, 'unit_rate': rate, 'rate_reason': reason}
+                        defaults={
+                            'shift': shift,
+                            'user': candidate,
+                            'unit_rate': rate,
+                            'rate_reason': reason,
+                            'is_rostered': True,  # Treat public/locum assignments as rostered so they render on roster
+                        }
                     )
                     assignment_ids.append(a.id)
-            
+
             # CASE 2: SPECIFIC SLOT IN MULTI-SLOT SHIFT (slot_id required for multi-slot)
             else:
                 slot = get_object_or_404(shift.slots, pk=slot_id)
@@ -2944,7 +2950,13 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                         rate, reason = get_locked_rate_for_slot(shift=shift, slot=slot, user=candidate, override_date=slot_date)
                         a, _ = ShiftSlotAssignment.objects.update_or_create(
                             slot=slot, slot_date=slot_date,
-                            defaults={'shift': shift, 'user': candidate, 'unit_rate': rate, 'rate_reason': reason}
+                            defaults={
+                                'shift': shift,
+                                'user': candidate,
+                                'unit_rate': rate,
+                                'rate_reason': reason,
+                                'is_rostered': True,  # Treat public/locum assignments as rostered so they render on roster
+                            }
                         )
                         assignment_ids.append(a.id)
 
@@ -4597,7 +4609,9 @@ class RosterOwnerViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = ShiftSlotAssignment.objects.filter(is_rostered=True)
+        # Include all assignments for controlled pharmacies (historical records
+        # may not have been marked is_rostered=True)
+        qs = ShiftSlotAssignment.objects.all()
 
         owned_pharmacies = Pharmacy.objects.none()
         if hasattr(user, 'owneronboarding'):
@@ -4836,11 +4850,31 @@ class RosterShiftManageViewSet(viewsets.ModelViewSet):
             rate_kwargs['rate_type'] = default_rate_type or 'FLEXIBLE'
             rate_kwargs['fixed_rate'] = default_fixed_rate if rate_kwargs['rate_type'] == 'FIXED' else None
 
+        # Determine starting visibility (escalation level)
+        allowed_tiers = self.serializer_class.build_allowed_tiers(pharmacy)
+        requested_visibility = request.data.get('visibility')
+        if requested_visibility:
+            if allowed_tiers and requested_visibility not in allowed_tiers:
+                return Response(
+                    {"detail": f"Invalid visibility. Must be one of {allowed_tiers}."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            start_visibility = requested_visibility
+        else:
+            # Default to LOCUM_CASUAL if permitted, else fall back to first allowed tier
+            if allowed_tiers and 'LOCUM_CASUAL' in allowed_tiers:
+                start_visibility = 'LOCUM_CASUAL'
+            elif allowed_tiers:
+                start_visibility = allowed_tiers[0]
+            else:
+                start_visibility = 'LOCUM_CASUAL'
+
         new_shift = Shift.objects.create(
             pharmacy=pharmacy,
             role_needed=role_needed,
-            employment_type='FULL_TIME',
-            visibility='FULL_PART_TIME',
+            # Open shifts should be treated as locum/casual so they don't require pay bands
+            employment_type='LOCUM',
+            visibility=start_visibility,
             single_user_only=True,
             created_by=requesting_user,
             description=description,
@@ -4955,7 +4989,8 @@ class CreateShiftAndAssignView(APIView):
         shift_data = {
             "pharmacy": pharmacy,
             "role_needed": role_needed,
-            "employment_type": "FULL_TIME",
+            # Use LOCUM to bypass FT/PT pay-band validation for roster-created slots
+            "employment_type": "LOCUM",
             "visibility": "FULL_PART_TIME",
             "single_user_only": True,
             "created_by": requesting_user,
@@ -5012,14 +5047,14 @@ class RosterWorkerViewSet(viewsets.ReadOnlyModelViewSet):
         user = self.request.user
         
         # Get all pharmacies where the user has an active membership
-        member_pharmacy_ids = Membership.objects.filter(
+        member_pharmacy_ids = list(Membership.objects.filter(
             user=user, is_active=True
-        ).values_list('pharmacy_id', flat=True)
+        ).values_list('pharmacy_id', flat=True))
         
-        # Start with a base queryset of all assignments in those pharmacies
+        # Start with a base queryset of all assignments either in those pharmacies
+        # OR explicitly assigned to the current user (to surface public-pool assignments).
         qs = ShiftSlotAssignment.objects.filter(
-            is_rostered=True,
-            shift__pharmacy_id__in=member_pharmacy_ids
+            Q(shift__pharmacy_id__in=member_pharmacy_ids) | Q(user=user)
         ).select_related('shift__pharmacy', 'slot', 'user').distinct()
 
         # --- START OF FIX (This part is correct, but the following part needs to be removed) ---
@@ -5035,8 +5070,16 @@ class RosterWorkerViewSet(viewsets.ReadOnlyModelViewSet):
                 if requested_pharmacy_id in member_pharmacy_ids:
                     qs = qs.filter(shift__pharmacy_id=requested_pharmacy_id)
                 else:
-                    # If user requests a pharmacy they aren't a member of, return nothing
-                    return ShiftSlotAssignment.objects.none()
+                    # If not a member, still allow if the user is directly assigned there
+                    has_assignment = ShiftSlotAssignment.objects.filter(
+                        is_rostered=True,
+                        user=user,
+                        shift__pharmacy_id=requested_pharmacy_id
+                    ).exists()
+                    if has_assignment:
+                        qs = qs.filter(shift__pharmacy_id=requested_pharmacy_id)
+                    else:
+                        return ShiftSlotAssignment.objects.none()
             except (ValueError, TypeError):
                 # If pharmacy_id is not a valid integer, ignore it
                 pass

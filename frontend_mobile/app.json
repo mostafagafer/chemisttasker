@@ -8,10 +8,13 @@
     "scheme": "frontendmobile",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.mostafarg.chemisttasker"
+      "bundleIdentifier": "com.chemisttasker.app",
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
+
     "android": {
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
@@ -19,13 +22,16 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.mostafarg.chemisttasker"
+      "package": "com.chemisttasker.app",
+      "versionCode": 1
     },
+
     "web": {
       "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
+
     "plugins": [
       "expo-router",
       [
@@ -40,9 +46,11 @@
       "expo-notifications",
       "expo-web-browser"
     ],
+
     "experiments": {
       "typedRoutes": true
     },
+
     "extra": {
       "eas": {
         "projectId": "75fa2fa5-e9ed-47af-a012-86967b951c5b"

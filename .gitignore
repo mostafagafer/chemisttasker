@@ -65,3 +65,7 @@ antenv/
 *.egg-info/
 build/
 dist/
+
+
+google-services.json
+GoogleService-Info.plist

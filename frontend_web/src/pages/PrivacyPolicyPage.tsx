@@ -44,9 +44,18 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>
               <Typography paragraph>
-                Payment-related data needed for invoicing or billing, including transaction status,
-                billing details, and payment method tokens. Full card details are handled by our
-                payment processors.
+                Verification and compliance documents (web and mobile), such as government IDs,
+                AHPRA or other credentials, resumes, certificates, and profile photos, where required
+                for onboarding or compliance.
+              </Typography>
+            </li>
+            <li>
+              <Typography paragraph>
+                Payment and invoicing data (if applicable): ChemistTasker does not currently take
+                in-app payments. Billing and invoicing information may be processed via our web/admin
+                workflows if enabled in the future. If payment processing is introduced, card details
+                will be handled by our payment processors and we will receive only tokens, billing
+                details, and transaction status — not full card numbers.
               </Typography>
             </li>
             <li>
@@ -57,19 +66,15 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>
               <Typography paragraph>
-                Crash logs and diagnostics data to help us identify and fix issues.
-              </Typography>
-            </li>
-            <li>
-              <Typography paragraph>
                 Push notification tokens used to deliver alerts about shifts, messages, and
                 platform updates.
               </Typography>
             </li>
             <li>
               <Typography paragraph>
-                Location data, such as approximate location from IP address or device settings.
-                We only collect precise location if you explicitly enable it in the app or browser.
+                Address-based location data you enter or select (including Google Places
+                autocomplete), such as street address, suburb, state, and postcode. If we introduce
+                device GPS in the future, we will ask for explicit permission.
               </Typography>
             </li>
             <li>
@@ -111,7 +116,7 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>
               <Typography paragraph>
-                Process payments, billing, and invoicing.
+                Support billing and invoicing workflows where applicable (if enabled).
               </Typography>
             </li>
             <li>
@@ -146,8 +151,8 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>
               <Typography paragraph>
-                Analytics and crash reporting providers (including Firebase Analytics and
-                Firebase Crashlytics).
+                Push notification delivery providers (including Expo push services and FCM/APNs
+                where applicable).
               </Typography>
             </li>
             <li>
@@ -157,7 +162,7 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>
               <Typography paragraph>
-                Notification services to deliver push notifications (including Firebase Cloud Messaging).
+                Storage providers for user-submitted files (such as Azure Blob Storage).
               </Typography>
             </li>
             <li>
@@ -214,6 +219,8 @@ export default function PrivacyPolicyPage() {
                 Access, correction, and deletion: You can request access, correction, or deletion of
                 your personal information by contacting us at the email address below. We may need
                 to verify your identity and retain certain records for legal or regulatory reasons.
+                You may also request account deletion from within the app (if available) or by
+                emailing us.
               </Typography>
             </li>
           </Box>

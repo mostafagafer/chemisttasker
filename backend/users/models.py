@@ -72,6 +72,8 @@ class User(AbstractUser):
     mobile_otp_created_at = models.DateTimeField(blank=True, null=True)
     is_mobile_verified = models.BooleanField(default=False)
 
+    deleted_at = models.DateTimeField(blank=True, null=True)
+
 
 class OrganizationMembership(models.Model):
     """

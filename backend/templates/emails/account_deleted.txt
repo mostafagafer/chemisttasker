@@ -1,0 +1,14 @@
+Your account deletion request
+
+Hi {{ name }},
+
+We have processed your request to delete your ChemistTasker account.
+Your account is now deactivated and you can no longer sign in.
+
+Verification documents are removed within 7 days. Remaining account data
+is retained only as required for legal and compliance reasons.
+
+If you did not request this, please contact us at {{ support_email }}.
+
+Thanks,
+The ChemistTasker Team

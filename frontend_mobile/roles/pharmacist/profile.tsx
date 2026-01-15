@@ -1,17 +1,22 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Card, Text, Button, Divider, Avatar, IconButton, List, Surface, Switch } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, Alert, Linking } from 'react-native';
+import { Card, Text, Button, Divider, Avatar, IconButton, List, Surface, Switch, Portal, Dialog, TextInput } from 'react-native-paper';
 import { useAuth } from '../../context/AuthContext';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+import { deleteAccount } from '@chemisttasker/shared-core';
 
 export default function PharmacistProfileScreen() {
-  const { user, logout, refreshUser } = useAuth();
+  const { user, logout } = useAuth();
   const router = useRouter();
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteText, setDeleteText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const webBaseUrl = 'https://www.chemisttasker.com.au';
 
   // Seed local photo from user profile (including onboarding photo) when available
   useEffect(() => {
@@ -25,12 +30,7 @@ export default function PharmacistProfileScreen() {
     }
   }, [user, profilePhoto]);
 
-  // If we have no photo yet, try refreshing onboarding profile once
-  useEffect(() => {
-    if (!user?.profile_photo && !user?.profile_photo_url) {
-      void refreshUser();
-    }
-  }, [user?.profile_photo, user?.profile_photo_url, refreshUser]);
+  // Profile refresh is handled centrally in AuthContext to avoid repeated calls.
 
   const pickImage = async () => {
     Alert.alert(
@@ -138,10 +138,40 @@ export default function PharmacistProfileScreen() {
   ];
 
   const supportItems = [
-    { title: 'Help Center', icon: 'help-circle', onPress: () => {} },
-    { title: 'Terms of Service', icon: 'file-document', onPress: () => {} },
-    { title: 'Privacy Policy', icon: 'shield-check', onPress: () => {} },
+    {
+      title: 'Terms of Service',
+      icon: 'file-document',
+      onPress: () => {
+        Linking.openURL(`${webBaseUrl}/terms-of-service`);
+      },
+    },
+    {
+      title: 'Privacy Policy',
+      icon: 'shield-check',
+      onPress: () => {
+        Linking.openURL(`${webBaseUrl}/privacy-policy`);
+      },
+    },
   ];
+
+  const canDelete = deleteText.trim().toUpperCase() === 'DELETE';
+
+  const handleDeleteAccount = async () => {
+    if (!canDelete || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteAccount();
+      await logout();
+      setDeleteDialogOpen(false);
+      setDeleteText('');
+      Alert.alert('Account deletion requested/completed.');
+      router.replace('/login' as any);
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to delete account.');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -232,19 +262,62 @@ export default function PharmacistProfileScreen() {
           </Surface>
         </View>
 
+        <Text variant="bodySmall" style={styles.deleteDescription}>
+          Deleting your account is permanent. You will be signed out immediately, and verification
+          documents are removed within 7 days.
+        </Text>
         <Button
           mode="outlined"
           textColor="#DC2626"
           style={styles.logoutButton}
           contentStyle={{ height: 48 }}
-          icon="logout"
-          onPress={async () => {
-            await logout();
-            router.replace('/login' as any);
-          }}
+          icon="delete"
+          onPress={() => setDeleteDialogOpen(true)}
         >
-          Logout
+          Delete My Account
         </Button>
+        <Portal>
+          <Dialog
+            visible={deleteDialogOpen}
+            onDismiss={() => {
+              if (deleting) return;
+              setDeleteDialogOpen(false);
+              setDeleteText('');
+            }}
+          >
+            <Dialog.Title>Delete account</Dialog.Title>
+            <Dialog.Content>
+              <Text variant="bodySmall" style={{ marginBottom: 12 }}>
+                This action cannot be undone. Type DELETE to confirm.
+              </Text>
+              <TextInput
+                label="Type DELETE to confirm"
+                value={deleteText}
+                onChangeText={setDeleteText}
+                autoCapitalize="characters"
+                disabled={deleting}
+              />
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button
+                onPress={() => {
+                  if (deleting) return;
+                  setDeleteDialogOpen(false);
+                  setDeleteText('');
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                textColor="#DC2626"
+                onPress={handleDeleteAccount}
+                disabled={!canDelete || deleting}
+              >
+                {deleting ? 'Deleting...' : 'Confirm Delete'}
+              </Button>
+            </Dialog.Actions>
+          </Dialog>
+        </Portal>
       </ScrollView>
     </SafeAreaView>
   );
@@ -362,5 +435,10 @@ const styles = StyleSheet.create({
     borderColor: '#FCA5A5',
     borderRadius: 12,
     backgroundColor: '#FEF2F2',
+  },
+  deleteDescription: {
+    marginHorizontal: 20,
+    marginTop: 8,
+    color: '#9CA3AF',
   },
 });

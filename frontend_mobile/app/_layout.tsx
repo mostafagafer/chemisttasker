@@ -1,13 +1,14 @@
 import { useEffect } from 'react';
 import { AppState, StatusBar } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import * as NavigationBar from 'expo-navigation-bar';
 import { PaperProvider } from 'react-native-paper';
 import { AuthProvider } from '../context/AuthContext';
 import { WorkspaceProvider } from '../context/WorkspaceContext';
 import { theme } from '../constants/theme';
 import '../config/api'; // Configure shared-core on app load
+import { useAuth } from '../context/AuthContext';
 
 const hideNav = async () => {
   try {
@@ -17,6 +18,25 @@ const hideNav = async () => {
     // ignore on platforms that don't support it
   }
 };
+
+function AuthGate() {
+  const router = useRouter();
+  const segments = useSegments();
+  const { user, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (isLoading) return;
+    const top = segments[0];
+    const publicRoutes = new Set(['login', 'register', 'welcome', 'verify-otp', 'index']);
+    const isPublic = publicRoutes.has(top ?? '');
+
+    if (!user && !isPublic) {
+      router.replace('/login');
+    }
+  }, [isLoading, segments, router, user]);
+
+  return null;
+}
 
 export default function RootLayout() {
   useEffect(() => {
@@ -36,6 +56,7 @@ export default function RootLayout() {
         <PaperProvider theme={theme}>
           <AuthProvider>
             <WorkspaceProvider>
+              <AuthGate />
               <Stack
                 screenOptions={{
                   headerShown: false,

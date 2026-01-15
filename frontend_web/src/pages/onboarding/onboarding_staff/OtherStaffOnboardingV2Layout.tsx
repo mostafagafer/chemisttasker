@@ -11,6 +11,7 @@ import {
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { getOnboardingDetail } from "@chemisttasker/shared-core";
+import AccountDeletionSection from "../../../components/AccountDeletionSection";
 
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
@@ -223,6 +224,7 @@ return (
 
 
         </Box>
+        <AccountDeletionSection />
       </Paper>
     </Container>
   </ThemeProvider>

@@ -17,6 +17,7 @@ import TermsOfServicePage from './pages/TermsOfServicePage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import NotFoundPage from './pages/NotFoundPage';
 import MobileOTPVerify from './pages/MobileOTPVerify';
+import AccountDeletionPage from './pages/AccountDeletionPage';
 
 import PublicJobBoardPage from './pages/PublicJobBoardPage';
 import SharedShiftLandingPage from './pages/SharedShiftLandingPage';
@@ -107,6 +108,7 @@ const router = createBrowserRouter([
       { path: 'password-reset', element: <PasswordResetRequestPage /> },
       { path: '/terms-of-service', element: <TermsOfServicePage /> },
       { path: '/privacy-policy', element: <PrivacyPolicyPage /> },
+      { path: '/account-deletion', element: <AccountDeletionPage /> },
 
 
       { path: 'shifts/public-board', element: <PublicJobBoardPage /> },

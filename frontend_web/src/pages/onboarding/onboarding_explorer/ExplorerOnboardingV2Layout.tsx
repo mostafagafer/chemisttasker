@@ -13,6 +13,7 @@ import { alpha } from "@mui/material/styles";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import { getOnboardingDetail } from "@chemisttasker/shared-core";
+import AccountDeletionSection from "../../../components/AccountDeletionSection";
 
 const BRAND = {
   grad: "linear-gradient(90deg, #7c3aed 0%, #2563eb 100%)",
@@ -221,6 +222,7 @@ return (
 
 
         </Box>
+        <AccountDeletionSection />
       </Paper>
     </Container>
   </ThemeProvider>

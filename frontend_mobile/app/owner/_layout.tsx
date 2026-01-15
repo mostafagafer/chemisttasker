@@ -24,7 +24,6 @@ const sidebarItems = [
   { label: 'Shifts', icon: 'calendar-month', route: '/owner/shifts' },
   { label: 'Messages', icon: 'message', route: '/owner/chat' },
   { label: 'Profile', icon: 'account-circle', route: '/owner/profile' },
-  { label: 'Settings', icon: 'cog', route: '/owner/profile/settings' },
 ];
 
 function OwnerSidebar({ visible, onDismiss }: { visible: boolean; onDismiss: () => void }) {
@@ -39,6 +38,7 @@ function OwnerSidebar({ visible, onDismiss }: { visible: boolean; onDismiss: () 
   const handleLogout = async () => {
     onDismiss();
     await logout();
+    router.replace('/login' as any);
   };
 
   return (

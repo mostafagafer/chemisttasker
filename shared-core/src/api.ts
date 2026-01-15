@@ -271,6 +271,9 @@ export function mobileVerifyOtp(data) {
 export function mobileResendOtp(data) {
     return fetchApi('/users/mobile/resend-otp/', { method: 'POST', body: JSON.stringify(data) });
 }
+export function deleteAccount() {
+    return fetchApi(API_ENDPOINTS.deleteAccount, { method: 'DELETE' });
+}
 export function getCurrentUser() {
     return fetchApi('/users/me/');
 }

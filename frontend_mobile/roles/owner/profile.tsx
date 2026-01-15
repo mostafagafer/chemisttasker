@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Text, Avatar, List, Button, Surface, Divider, Switch, IconButton, Card } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, Alert, Linking } from 'react-native';
+import { Text, Avatar, List, Button, Surface, Divider, Switch, IconButton, Card, Portal, Dialog, TextInput } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
-import { getOnboarding } from '@chemisttasker/shared-core';
+import { getOnboarding, deleteAccount } from '@chemisttasker/shared-core';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -25,6 +25,10 @@ export default function OwnerProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteText, setDeleteText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const webBaseUrl = 'https://www.chemisttasker.com.au';
   const menuItems = [
     {
       title: 'Personal Information',
@@ -226,38 +230,96 @@ export default function OwnerProfileScreen() {
           <Text variant="titleSmall" style={styles.sectionTitle}>Support</Text>
           <Surface style={styles.listSurface} elevation={0}>
             <List.Item
-              title="Help Center"
-              left={props => <List.Icon {...props} icon="help-circle" />}
-              right={props => <List.Icon {...props} icon="chevron-right" />}
-            />
-            <Divider />
-            <List.Item
               title="Terms of Service"
               left={props => <List.Icon {...props} icon="file-document" />}
               right={props => <List.Icon {...props} icon="chevron-right" />}
+              onPress={() => {
+                Linking.openURL(`${webBaseUrl}/terms-of-service`);
+              }}
             />
             <Divider />
             <List.Item
               title="Privacy Policy"
               left={props => <List.Icon {...props} icon="shield-check" />}
               right={props => <List.Icon {...props} icon="chevron-right" />}
+              onPress={() => {
+                Linking.openURL(`${webBaseUrl}/privacy-policy`);
+              }}
             />
           </Surface>
         </View>
 
         <View style={styles.logoutContainer}>
+          <Text variant="bodySmall" style={styles.deleteDescription}>
+            Deleting your account is permanent. You will be signed out immediately, and verification
+            documents are removed within 7 days.
+          </Text>
           <Button
             mode="outlined"
             textColor="#EF4444"
             style={styles.logoutButton}
-            icon="logout"
-            onPress={async () => {
-              await logout();
-              router.replace('/login' as any);
-            }}
+            icon="delete"
+            onPress={() => setDeleteDialogOpen(true)}
           >
-            Logout
+            Delete My Account
           </Button>
+          <Portal>
+            <Dialog
+              visible={deleteDialogOpen}
+              onDismiss={() => {
+                if (deleting) return;
+                setDeleteDialogOpen(false);
+                setDeleteText('');
+              }}
+            >
+              <Dialog.Title>Delete account</Dialog.Title>
+              <Dialog.Content>
+                <Text variant="bodySmall" style={{ marginBottom: 12 }}>
+                  This action cannot be undone. Type DELETE to confirm.
+                </Text>
+                <TextInput
+                  label="Type DELETE to confirm"
+                  value={deleteText}
+                  onChangeText={setDeleteText}
+                  autoCapitalize="characters"
+                  disabled={deleting}
+                />
+              </Dialog.Content>
+              <Dialog.Actions>
+                <Button
+                  onPress={() => {
+                    if (deleting) return;
+                    setDeleteDialogOpen(false);
+                    setDeleteText('');
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  textColor="#DC2626"
+                  onPress={async () => {
+                    if (deleteText.trim().toUpperCase() !== 'DELETE' || deleting) return;
+                    setDeleting(true);
+                    try {
+                      await deleteAccount();
+                      await logout();
+                      setDeleteDialogOpen(false);
+                      setDeleteText('');
+                      Alert.alert('Account deletion requested/completed.');
+                      router.replace('/login' as any);
+                    } catch (err: any) {
+                      Alert.alert('Error', err?.message || 'Failed to delete account.');
+                    } finally {
+                      setDeleting(false);
+                    }
+                  }}
+                  disabled={deleteText.trim().toUpperCase() !== 'DELETE' || deleting}
+                >
+                  {deleting ? 'Deleting...' : 'Confirm Delete'}
+                </Button>
+              </Dialog.Actions>
+            </Dialog>
+          </Portal>
           <Text variant="bodySmall" style={styles.versionText}>
             Version 1.0.0
           </Text>
@@ -390,6 +452,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF2F2',
     width: '100%',
     marginBottom: 16,
+  },
+  deleteDescription: {
+    color: '#9CA3AF',
+    marginBottom: 12,
+    textAlign: 'center',
   },
   versionText: {
     color: '#9CA3AF',

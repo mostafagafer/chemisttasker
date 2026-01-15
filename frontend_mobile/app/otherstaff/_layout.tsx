@@ -41,6 +41,7 @@ function OtherStaffSidebar({
   const handleLogout = async () => {
     onDismiss();
     await logout();
+    router.replace('/login' as any);
   };
 
   return (

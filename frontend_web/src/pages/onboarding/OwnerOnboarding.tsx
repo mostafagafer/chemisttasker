@@ -18,6 +18,7 @@ import { API_BASE_URL } from '../../constants/api';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { useNavigate } from 'react-router-dom';
 import ProfilePhotoUploader from '../../components/profilePhoto/ProfilePhotoUploader';
+import AccountDeletionSection from '../../components/AccountDeletionSection';
 
 interface FormData {
   username: string;
@@ -252,6 +253,8 @@ const handleSubmit = async (e: React.FormEvent) => {
             </Button>
           </Box>
         </Box>
+
+        <AccountDeletionSection />
       </Paper>
     </Container>
   );

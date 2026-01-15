@@ -147,7 +147,21 @@ export default function Register() {
           <ToggleButton value="OTHER_STAFF">Other Staff</ToggleButton>
           <ToggleButton value="EXPLORER">Explorer</ToggleButton>
         </ToggleButtonGroup>
-        <FormControlLabel control={ <Checkbox checked={acceptedTerms} onChange={e => setAcceptedTerms(e.target.checked)} required /> } label={ <span> I agree to the{" "} <RouterLink to="/terms-of-service" target="_blank"> Terms of Service </RouterLink> </span> } />
+        <FormControlLabel
+          control={<Checkbox checked={acceptedTerms} onChange={e => setAcceptedTerms(e.target.checked)} required />}
+          label={
+            <span>
+              I agree to the{" "}
+              <RouterLink to="/terms-of-service" target="_blank">
+                Terms of Service
+              </RouterLink>{" "}
+              and{" "}
+              <RouterLink to="/privacy-policy" target="_blank">
+                Privacy Policy
+              </RouterLink>
+            </span>
+          }
+        />
         <Box mb={2} display="flex" justifyContent="center"> <ReCAPTCHA sitekey={import.meta.env.VITE_RECAPTCHA_SITE_KEY} onChange={setCaptchaValue} /> </Box>
         {hasSubmitted && !acceptedTerms && ( <Alert severity="warning" sx={{ mt: 2 }}> You must accept the Terms of Service to register. </Alert> )}
         {hasSubmitted && !captchaValue && ( <Alert severity="warning" sx={{ mt: 2 }}> Please complete the CAPTCHA to register. </Alert> )}

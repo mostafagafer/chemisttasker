@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AppBar, Box, Button, Container, CssBaseline, IconButton, Menu, MenuItem, ThemeProvider,
-  Toolbar, Typography, createTheme, styled, Modal
+  Toolbar, Typography, createTheme, styled, Modal, Link
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import * as THREE from 'three';
@@ -13,6 +13,8 @@ const PAGE_ROUTES = {
   login: '/login',
   register: '/register',
   publicJobBoard: '/shifts/public-board',
+  privacyPolicy: '/privacy-policy',
+  termsOfService: '/terms-of-service',
 };
 
 // --- Theme and Global Styles ---
@@ -114,8 +116,16 @@ function LandingPage() {
 
       <Box component="footer" sx={{ bgcolor: '#e9ecef', py: 4, textAlign: 'center' }}>
         <Typography variant="body2" color="text.secondary">
-          &copy; {new Date().getFullYear()} ChemistTasker Pty Ltd. All rights reserved.
+          &copy; {new Date().getFullYear()} CHEMISTTASKER PTY LTD. All rights reserved.
         </Typography>
+        <Box sx={{ mt: 1 }}>
+          <Link href={PAGE_ROUTES.termsOfService} color="text.secondary" underline="hover" sx={{ mx: 1 }}>
+            Terms of Service
+          </Link>
+          <Link href={PAGE_ROUTES.privacyPolicy} color="text.secondary" underline="hover" sx={{ mx: 1 }}>
+            Privacy Policy
+          </Link>
+        </Box>
       </Box>
     </ThemeProvider>
   );

@@ -55,13 +55,13 @@ export default function TermsOfServicePage() {
         <Box sx={{ mt: 4 }}>
           <Typography variant="h5" gutterBottom>7. Intellectual Property</Typography>
           <Typography paragraph>
-            All content, trademarks, and intellectual property on ChemistTasker are owned or licensed by ChemistTasker ABN Pty Ltd. You may not copy, modify, distribute, or use any part of the Service without express written permission.
+            All content, trademarks, and intellectual property on ChemistTasker are owned or licensed by CHEMISTTASKER PTY LTD. You may not copy, modify, distribute, or use any part of the Service without express written permission.
           </Typography>
         </Box>
         <Box sx={{ mt: 4 }}>
           <Typography variant="h5" gutterBottom>8. Limitation of Liability</Typography>
           <Typography paragraph>
-            ChemistTasker is provided on an “as is” and “as available” basis. To the maximum extent permitted by law, ChemistTasker ABN Pty Ltd is not liable for any direct, indirect, incidental, or consequential damages arising from your use of the platform, including but not limited to loss of data, lost profits, or professional liability.
+            ChemistTasker is provided on an “as is” and “as available” basis. To the maximum extent permitted by law, CHEMISTTASKER PTY LTD is not liable for any direct, indirect, incidental, or consequential damages arising from your use of the platform, including but not limited to loss of data, lost profits, or professional liability.
           </Typography>
         </Box>
         <Box sx={{ mt: 4 }}>
@@ -78,7 +78,7 @@ export default function TermsOfServicePage() {
         </Box>
         <Box sx={{ mt: 6, textAlign: "center" }}>
           <Typography variant="subtitle2" color="text.secondary">
-            &copy; {new Date().getFullYear()} ChemistTasker ABN Pty Ltd. All rights reserved.
+            &copy; {new Date().getFullYear()} CHEMISTTASKER PTY LTD. All rights reserved.
           </Typography>
         </Box>
       </Paper>

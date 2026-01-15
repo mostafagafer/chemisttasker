@@ -67,5 +67,5 @@ build/
 dist/
 
 
-google-services.json
-GoogleService-Info.plist
+frontend_mobile/google-services.json
+frontend_mobile/GoogleService-Info.plist

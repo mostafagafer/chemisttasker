@@ -221,6 +221,18 @@ export default function Login() {
           Register
         </Link>
       </Typography>
+
+      <Typography variant="caption" mt={2} display="block" textAlign="center" color="text.secondary">
+        By using ChemistTasker, you agree to the{" "}
+        <Link component={RouterLink} to="/terms-of-service" color="#00a99d">
+          Terms of Service
+        </Link>{" "}
+        and{" "}
+        <Link component={RouterLink} to="/privacy-policy" color="#00a99d">
+          Privacy Policy
+        </Link>
+        .
+      </Typography>
     </AuthLayout>
   );
 }

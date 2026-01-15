@@ -14,6 +14,7 @@ import OTPVerify from './pages/OTPVerify';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import PasswordResetRequestPage from './pages/PasswordResetRequestPage';
 import TermsOfServicePage from './pages/TermsOfServicePage';
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import NotFoundPage from './pages/NotFoundPage';
 import MobileOTPVerify from './pages/MobileOTPVerify';
 
@@ -105,6 +106,7 @@ const router = createBrowserRouter([
       { path: 'register', element: <Register /> },
       { path: 'password-reset', element: <PasswordResetRequestPage /> },
       { path: '/terms-of-service', element: <TermsOfServicePage /> },
+      { path: '/privacy-policy', element: <PrivacyPolicyPage /> },
 
 
       { path: 'shifts/public-board', element: <PublicJobBoardPage /> },

@@ -114,7 +114,7 @@ function LandingPage() {
 
       <Box component="footer" sx={{ bgcolor: '#e9ecef', py: 4, textAlign: 'center' }}>
         <Typography variant="body2" color="text.secondary">
-          &copy; {new Date().getFullYear()} ChemistTasker Pty Ltd. All rights reserved.
+          &copy; {new Date().getFullYear()} CHEMISTTASKER PTY LTD. All rights reserved.
         </Typography>
       </Box>
     </ThemeProvider>

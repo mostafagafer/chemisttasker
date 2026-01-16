@@ -81,7 +81,7 @@ export default function NewInvoiceScreen() {
         if (mode !== 'internal') return;
 
         setLoadingShifts(true);
-        getMyHistoryShifts()
+        getMyHistoryShifts({ payment_preference: 'ABN' })
             .then((res: any) => {
                 const arr = Array.isArray(res?.results) ? res.results : Array.isArray(res) ? res : [];
                 setShifts(arr);

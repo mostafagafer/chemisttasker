@@ -1,6 +1,6 @@
 import React from 'react';
-import InvoicesPlaceholder from '../../roles/shared/invoices/InvoicesPlaceholder';
+import InvoiceList from '@/roles/shared/invoices/InvoiceList';
 
 export default function PharmacistInvoicesScreen() {
-  return <InvoicesPlaceholder />;
+  return <InvoiceList basePath="/pharmacist/invoice" />;
 }

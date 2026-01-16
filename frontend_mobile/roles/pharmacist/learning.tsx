@@ -21,14 +21,14 @@ export default function PharmacistLearningScreen() {
             <Text variant="bodyMedium" style={styles.description}>
               Access exclusive courses and learning materials to advance your pharmacy career.
             </Text>
-            <Button
+            {/* <Button
               mode="contained"
               buttonColor="#6366F1"
               style={styles.button}
               onPress={() => { }}
             >
               Notify Me
-            </Button>
+            </Button> */}
           </Card.Content>
         </Card>
       </View>

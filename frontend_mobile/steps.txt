@@ -97,7 +97,7 @@ Example:
 EXPO_PUBLIC_API_URL=http://192.168.1.2:8000/api
 
 5️⃣ Set Metro Packager to Use LAN IP
-set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.4
+set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.5
 
 6️⃣ Start Expo
 npx expo start --dev-client --lan --clear
@@ -200,6 +200,9 @@ cd ..\frontend_mobile
 rmdir /s /q node_modules
 rmdir /s /q .expo
 del /f /q package-lock.json
+del /f /q *.tgz
+copy /Y shared-core\chemisttasker-shared-core-1.0.0.tgz frontend_mobile\chemisttasker-shared-core-1.0.0.tgz
+
 npm install
 
 cd ..\frontend_web

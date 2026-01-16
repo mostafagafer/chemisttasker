@@ -12,7 +12,7 @@ const tabTitles: Record<string, string> = {
   'shifts/index': 'Shifts',
   chat: 'Chat',
   hub: 'Hub',
-  invoices: 'Invoices',
+  invoice: 'Invoices',
 };
 
 const sidebarItems = [
@@ -20,7 +20,7 @@ const sidebarItems = [
   { label: 'Shifts', icon: 'calendar-range', route: '/otherstaff/shifts' },
   { label: 'Chat', icon: 'message', route: '/otherstaff/chat' },
   { label: 'Hub', icon: 'view-grid', route: '/otherstaff/hub' },
-  { label: 'Invoices', icon: 'file-document-multiple', route: '/otherstaff/invoices' },
+  { label: 'Invoices', icon: 'file-document-multiple', route: '/otherstaff/invoice' },
 ];
 
 function OtherStaffSidebar({
@@ -297,7 +297,7 @@ export default function OtherStaffTabs() {
           }}
         />
         <Tabs.Screen
-          name="invoices"
+          name="invoice"
           options={{
             title: 'Invoices',
             tabBarIcon: ({ color, size }) => (
@@ -315,7 +315,7 @@ export default function OtherStaffTabs() {
         <Tabs.Screen name="profile" options={{ href: null }} />
         <Tabs.Screen name="messages/[id]" options={{ href: null }} />
         <Tabs.Screen name="shifts/[id]" options={{ href: null }} />
-        <Tabs.Screen name="invoice" options={{ href: null }} />
+        <Tabs.Screen name="invoices" options={{ href: null }} />
         <Tabs.Screen name="invoice/new" options={{ href: null }} />
         <Tabs.Screen name="invoice/[id]" options={{ href: null }} />
       </Tabs>

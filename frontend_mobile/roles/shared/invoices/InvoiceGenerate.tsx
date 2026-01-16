@@ -12,6 +12,7 @@ import {
   Chip,
   HelperText,
   IconButton,
+  Menu,
   SegmentedButtons,
   Snackbar,
   Switch,
@@ -42,6 +43,10 @@ type Shift = {
 
 type LineItem = {
   id?: string | number;
+  shiftSlotId?: number;
+  date?: string;
+  start_time?: string;
+  end_time?: string;
   description: string;
   category_code: string;
   unit: string;
@@ -49,21 +54,25 @@ type LineItem = {
   unit_price: number;
   discount: number;
   total?: number;
+  gst_applicable?: boolean;
+  super_applicable?: boolean;
   locked?: boolean;
 };
 
 const CATEGORY_CHOICES = [
   { code: 'ProfessionalServices', label: 'Professional services' },
+  { code: 'Superannuation', label: 'Superannuation' },
   { code: 'Transportation', label: 'Transportation' },
   { code: 'Accommodation', label: 'Accommodation' },
   { code: 'Miscellaneous', label: 'Miscellaneous' },
 ];
+const UNIT_CHOICES = ['Hours', 'Lump Sum'];
 
 const defaultLineItem = (): LineItem => ({
   id: String(Date.now()),
   description: '',
   category_code: 'ProfessionalServices',
-  unit: 'Hours',
+  unit: 'Lump Sum',
   quantity: 1,
   unit_price: 0,
   discount: 0,
@@ -90,6 +99,8 @@ export default function InvoiceGenerate({ basePath }: Props) {
   const [selectedShiftId, setSelectedShiftId] = useState<number | null>(null);
   const [loadingShifts, setLoadingShifts] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [categoryMenuFor, setCategoryMenuFor] = useState<string | number | null>(null);
+  const [unitMenuFor, setUnitMenuFor] = useState<string | number | null>(null);
 
   // Core fields
   const [invoiceDate, setInvoiceDate] = useState(today);
@@ -153,7 +164,7 @@ export default function InvoiceGenerate({ basePath }: Props) {
     if (mode !== 'internal') return;
     setLoadingShifts(true);
     try {
-      const res = await getMyHistoryShifts();
+      const res = await getMyHistoryShifts({ payment_preference: 'ABN' });
       const arr = Array.isArray(res?.results) ? res.results : Array.isArray(res) ? res : [];
       setShifts(arr);
     } catch (err: any) {
@@ -189,13 +200,17 @@ export default function InvoiceGenerate({ basePath }: Props) {
 
         const mapped = items.map((li: any, idx: number) => ({
           id: li.id || `${shiftId}-${idx}`,
+          shiftSlotId: li.shiftSlotId,
+          date: li.date || '',
+          start_time: li.start_time || '',
+          end_time: li.end_time || '',
           description: li.description || li.category || 'Shift line item',
           category_code: li.category_code || li.category || 'ProfessionalServices',
           unit: li.unit || 'Hours',
           quantity: Number(li.quantity ?? 1),
           unit_price: Number(li.unit_price ?? 0),
           discount: Number(li.discount ?? 0),
-          locked: true,
+          locked: li.category_code === 'Superannuation' || li.category === 'Superannuation',
         }));
         setLineItems(mapped);
 
@@ -236,6 +251,32 @@ export default function InvoiceGenerate({ basePath }: Props) {
     return { ...li, total: Math.round(total * 100) / 100 };
   }, []);
 
+  const calcHours = (date?: string, start?: string, end?: string) => {
+    if (!date || !start || !end) return 0;
+    const startValue = new Date(`${date}T${start}`);
+    const endValue = new Date(`${date}T${end}`);
+    if (Number.isNaN(startValue.getTime()) || Number.isNaN(endValue.getTime())) return 0;
+    const diffMs = endValue.getTime() - startValue.getTime();
+    return diffMs > 0 ? Math.round((diffMs / 3600000) * 100) / 100 : 0;
+  };
+
+  const updateRow = (lineId: string | number, field: keyof LineItem, value: any) => {
+    setLineItems(items => {
+      const next = items.map(li => {
+        if (li.id !== lineId) return li;
+        const updated = { ...li, [field]: value };
+        if (field === 'start_time' || field === 'end_time' || field === 'date') {
+          updated.quantity = calcHours(updated.date, updated.start_time, updated.end_time);
+        }
+        if (field === 'category_code' && ['Transportation', 'Accommodation'].includes(value)) {
+          updated.quantity = 1;
+        }
+        return recalcLine(updated);
+      });
+      return next;
+    });
+  };
+
   const withSuperAndGst = useCallback(
     (items: LineItem[]): LineItem[] => {
       const mapped = items.map(recalcLine).map(li => ({
@@ -261,6 +302,8 @@ export default function InvoiceGenerate({ basePath }: Props) {
             unit_price: superAmt,
             discount: 0,
             total: superAmt,
+            gst_applicable: false,
+            super_applicable: false,
             locked: true,
           });
         }
@@ -290,12 +333,6 @@ export default function InvoiceGenerate({ basePath }: Props) {
     };
   }, [displayLineItems, gstRegistered]);
 
-  const updateItem = (id: string | number, changes: Partial<LineItem>) => {
-    setLineItems(items =>
-      items.map(li => (li.id === id ? { ...li, ...changes, total: recalcLine({ ...li, ...changes }).total } : li)),
-    );
-  };
-
   const addItem = () => setLineItems(items => [...items, defaultLineItem()]);
   const removeItem = (id: string | number) =>
     setLineItems(items => items.filter(li => li.id !== id));
@@ -324,17 +361,27 @@ export default function InvoiceGenerate({ basePath }: Props) {
     if (!validate()) return;
     setSubmitting(true);
     try {
-      const itemsForSubmit = withSuperAndGst(lineItems).map(li => ({
-        description: li.description,
-        category_code: li.category_code,
-        unit: li.unit,
-        quantity: Number(li.quantity || 0),
-        unit_price: Number(li.unit_price || 0),
-        discount: Number(li.discount || 0),
-        total: Number(li.total || 0),
-        gst_applicable: li.gst_applicable !== false,
-        super_applicable: li.super_applicable !== false,
-      }));
+      const itemsForSubmit = withSuperAndGst(lineItems).map(li => {
+        const baseDescription = li.description?.trim();
+        const canDescribe =
+          li.category_code === 'ProfessionalServices' && li.date && li.start_time && li.end_time;
+        const startLabel = li.start_time ? li.start_time.slice(0, 5) : '';
+        const endLabel = li.end_time ? li.end_time.slice(0, 5) : '';
+        const description = baseDescription || (canDescribe
+          ? `${li.date} ${startLabel}-${endLabel}`
+          : '');
+        return {
+          description,
+          category_code: li.category_code,
+          unit: li.unit,
+          quantity: Number(li.quantity || 0),
+          unit_price: Number(li.unit_price || 0),
+          discount: Number(li.discount || 0),
+          total: Number(li.total || 0),
+          gst_applicable: li.gst_applicable !== false,
+          super_applicable: li.super_applicable !== false,
+        };
+      });
 
       const fd = new FormData();
       fd.append('issuer_first_name', issuerFirstName);
@@ -616,72 +663,156 @@ export default function InvoiceGenerate({ basePath }: Props) {
               </Text>
               <IconButton icon="plus" onPress={addItem} />
             </View>
-            {displayLineItems.map(li => (
-              <View key={li.id} style={styles.lineItem}>
-                <View style={styles.lineHeaderRow}>
-                  <Chip compact>{li.category_code}</Chip>
-                  {!li.locked && (
-                    <IconButton icon="delete" size={18} onPress={() => removeItem(li.id!)} />
-                  )}
+            <ScrollView horizontal showsHorizontalScrollIndicator style={styles.tableScroll}>
+              <View style={styles.table}>
+                <View style={[styles.tableRow, styles.tableHeader]}>
+                  <Text style={[styles.cell, styles.cellCategory]}>Category</Text>
+                  <Text style={[styles.cell, styles.cellDate]}>Date</Text>
+                  <Text style={[styles.cell, styles.cellTime]}>Start</Text>
+                  <Text style={[styles.cell, styles.cellTime]}>End</Text>
+                  <Text style={[styles.cell, styles.cellHours]}>Hours</Text>
+                  <Text style={[styles.cell, styles.cellUnit]}>Unit</Text>
+                  <Text style={[styles.cell, styles.cellPrice]}>Price</Text>
+                  <Text style={[styles.cell, styles.cellDiscount]}>Discount</Text>
+                  <Text style={[styles.cell, styles.cellAmount]}>Amount</Text>
+                  <View style={[styles.cell, styles.cellAction]} />
                 </View>
-                <TextInput
-                  label="Description"
-                  value={li.description}
-                  onChangeText={text => updateItem(li.id!, { description: text })}
-                  mode="outlined"
-                  style={styles.input}
-                  disabled={li.locked}
-                />
-                <TextInput
-                  label="Category"
-                  value={li.category_code}
-                  onChangeText={text => updateItem(li.id!, { category_code: text })}
-                  mode="outlined"
-                  style={styles.input}
-                  disabled={li.locked}
-                />
-                <View style={styles.rowInputs}>
-                  <TextInput
-                    label="Quantity"
-                    value={String(li.quantity)}
-                    onChangeText={text => updateItem(li.id!, { quantity: Number(text) || 0 })}
-                    keyboardType="numeric"
-                    mode="outlined"
-                    style={styles.halfInput}
-                    disabled={li.locked}
-                  />
-                  <TextInput
-                    label="Unit price"
-                    value={String(li.unit_price)}
-                    onChangeText={text => updateItem(li.id!, { unit_price: Number(text) || 0 })}
-                    keyboardType="numeric"
-                    mode="outlined"
-                    style={styles.halfInput}
-                    disabled={li.locked}
-                  />
-                </View>
-                <View style={styles.rowInputs}>
-                  <TextInput
-                    label="Discount (%)"
-                    value={String(li.discount)}
-                    onChangeText={text => updateItem(li.id!, { discount: Number(text) || 0 })}
-                    keyboardType="numeric"
-                    mode="outlined"
-                    style={styles.halfInput}
-                    disabled={li.locked}
-                  />
-                  <TextInput
-                    label="Total"
-                    value={String(li.total ?? 0)}
-                    editable={false}
-                    mode="outlined"
-                    style={styles.halfInput}
-                  />
-                </View>
+                {displayLineItems.map(li => {
+                  const isProfessional = li.category_code === 'ProfessionalServices';
+                  const disablePrice = Boolean(li.shiftSlotId) || li.category_code === 'Superannuation';
+                  const disableRow = li.category_code === 'Superannuation';
+                  const hoursLabel = isProfessional
+                    ? li.quantity.toFixed(2)
+                    : ['Transportation', 'Accommodation'].includes(li.category_code)
+                    ? '1.00'
+                    : '';
+
+                  return (
+                    <View key={li.id} style={styles.tableRow}>
+                      <View style={[styles.cell, styles.cellCategory]}>
+                        <Menu
+                          visible={categoryMenuFor === li.id}
+                          onDismiss={() => setCategoryMenuFor(null)}
+                          anchor={
+                            <Button
+                              mode="outlined"
+                              onPress={() => setCategoryMenuFor(li.id!)}
+                              disabled={disableRow}
+                              style={styles.selectButton}
+                            >
+                              {CATEGORY_CHOICES.find(c => c.code === li.category_code)?.label || 'Select'}
+                            </Button>
+                          }
+                        >
+                          {CATEGORY_CHOICES.map(choice => (
+                            <Menu.Item
+                              key={choice.code}
+                              onPress={() => {
+                                setCategoryMenuFor(null);
+                                updateRow(li.id!, 'category_code', choice.code);
+                              }}
+                              title={choice.label}
+                            />
+                          ))}
+                        </Menu>
+                      </View>
+
+                      {isProfessional ? (
+                        <>
+                          <TextInput
+                            value={li.date || ''}
+                            onChangeText={text => updateRow(li.id!, 'date', text)}
+                            mode="outlined"
+                            style={[styles.cell, styles.cellDate]}
+                            placeholder="YYYY-MM-DD"
+                            dense
+                          />
+                          <TextInput
+                            value={li.start_time?.slice(0, 5) || ''}
+                            onChangeText={text => updateRow(li.id!, 'start_time', text ? `${text}:00` : '')}
+                            mode="outlined"
+                            style={[styles.cell, styles.cellTime]}
+                            placeholder="HH:MM"
+                            dense
+                          />
+                          <TextInput
+                            value={li.end_time?.slice(0, 5) || ''}
+                            onChangeText={text => updateRow(li.id!, 'end_time', text ? `${text}:00` : '')}
+                            mode="outlined"
+                            style={[styles.cell, styles.cellTime]}
+                            placeholder="HH:MM"
+                            dense
+                          />
+                          <Text style={[styles.cell, styles.cellHours]}>{hoursLabel}</Text>
+                        </>
+                      ) : (
+                        <>
+                          <View style={[styles.cell, styles.cellDate]} />
+                          <View style={[styles.cell, styles.cellTime]} />
+                          <View style={[styles.cell, styles.cellTime]} />
+                          <Text style={[styles.cell, styles.cellHours]}>{hoursLabel}</Text>
+                        </>
+                      )}
+
+                      <View style={[styles.cell, styles.cellUnit]}>
+                        <Menu
+                          visible={unitMenuFor === li.id}
+                          onDismiss={() => setUnitMenuFor(null)}
+                          anchor={
+                            <Button
+                              mode="outlined"
+                              onPress={() => setUnitMenuFor(li.id!)}
+                              disabled={disableRow}
+                              style={styles.selectButton}
+                            >
+                              {li.unit || 'Unit'}
+                            </Button>
+                          }
+                        >
+                          {UNIT_CHOICES.map(unit => (
+                            <Menu.Item
+                              key={unit}
+                              onPress={() => {
+                                setUnitMenuFor(null);
+                                updateRow(li.id!, 'unit', unit);
+                              }}
+                              title={unit}
+                            />
+                          ))}
+                        </Menu>
+                      </View>
+
+                      <TextInput
+                        value={String(li.unit_price)}
+                        onChangeText={text => updateRow(li.id!, 'unit_price', Number(text) || 0)}
+                        mode="outlined"
+                        style={[styles.cell, styles.cellPrice]}
+                        keyboardType="numeric"
+                        dense
+                        disabled={disablePrice}
+                      />
+                      <TextInput
+                        value={String(li.discount)}
+                        onChangeText={text => updateRow(li.id!, 'discount', Number(text) || 0)}
+                        mode="outlined"
+                        style={[styles.cell, styles.cellDiscount]}
+                        keyboardType="numeric"
+                        dense
+                        disabled={disableRow}
+                      />
+                      <Text style={[styles.cell, styles.cellAmount]}>
+                        {li.total?.toFixed(2) ?? '0.00'}
+                      </Text>
+                      <View style={[styles.cell, styles.cellAction]}>
+                        <IconButton icon="delete" size={18} onPress={() => removeItem(li.id!)} />
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
-            ))}
+            </ScrollView>
             <HelperText type="info" visible>
-              Preview items are locked; add manual rows for adjustments. Super is auto-inserted when needed.
+              Line items follow the web table. Super is auto-inserted when needed.
             </HelperText>
           </Card.Content>
         </Card>
@@ -758,6 +889,27 @@ const styles = StyleSheet.create({
   },
   rowInputs: { flexDirection: 'row', gap: 10, marginTop: 8 },
   halfInput: { flex: 1 },
+  tableScroll: { marginTop: 6 },
+  table: { minWidth: 920 },
+  tableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  tableHeader: { backgroundColor: '#F3F4F6' },
+  cell: { paddingHorizontal: 6, paddingVertical: 4 },
+  cellCategory: { width: 180 },
+  cellDate: { width: 120 },
+  cellTime: { width: 90 },
+  cellHours: { width: 70, textAlign: 'center' },
+  cellUnit: { width: 90 },
+  cellPrice: { width: 110 },
+  cellDiscount: { width: 100 },
+  cellAmount: { width: 110, textAlign: 'right' },
+  cellAction: { width: 44 },
+  selectButton: { alignSelf: 'flex-start' },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
   subdued: { color: '#6B7280' },
 });

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, date, time
 from decimal import Decimal
 from pathlib import Path
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from client_profile.models import PharmacistOnboarding, OtherStaffOnboarding, Pharmacy, Shift, ShiftSlotAssignment, InvoiceLineItem, Invoice, Membership
 
 # Load static JSON data
@@ -299,6 +300,11 @@ def generate_invoice_from_shifts(
     external = billing_data.get('external', False)
     if isinstance(external, str):
         external = external.lower() in ['true', '1', 'yes']
+
+    # Enforce ABN-only for internal invoices.
+    if not external and shift_ids:
+        if Shift.objects.filter(pk__in=shift_ids).exclude(payment_preference__iexact='ABN').exists():
+            raise ValidationError("Internal invoices are only allowed for ABN shifts.")
 
     invoice = Invoice.objects.create(
         user=user,

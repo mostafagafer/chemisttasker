@@ -559,8 +559,9 @@ export function getHistoryShifts() {
 export function getMyConfirmedShifts() {
     return fetchApi('/client-profile/my-confirmed-shifts/');
 }
-export function getMyHistoryShifts() {
-    return fetchApi('/client-profile/my-history-shifts/');
+export function getMyHistoryShifts(params) {
+    const query = buildQuery(params);
+    return fetchApi(`/client-profile/my-history-shifts/${query}`);
 }
 export function getShiftInterests(params) {
     const query = buildQuery(params);
@@ -1119,7 +1120,8 @@ export function deleteInvoice(id) {
     return fetchApi(`/client-profile/invoices/${id}/`, { method: 'DELETE' });
 }
 export function generateInvoice(data) {
-    return fetchApi('/client-profile/invoices/generate/', { method: 'POST', body: JSON.stringify(data) });
+    const body = data instanceof FormData ? data : JSON.stringify(data);
+    return fetchApi('/client-profile/invoices/generate/', { method: 'POST', body });
 }
 export function previewInvoice(id) {
     return fetchApi(`/client-profile/invoices/preview/${id}/`);

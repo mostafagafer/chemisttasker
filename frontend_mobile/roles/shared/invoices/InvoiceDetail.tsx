@@ -62,6 +62,7 @@ type Invoice = {
   custom_bill_to_name?: string;
   custom_bill_to_address?: string;
   status?: string;
+  reference?: string;
   total_amount?: number | string;
   subtotal?: number;
   gst_amount?: number;

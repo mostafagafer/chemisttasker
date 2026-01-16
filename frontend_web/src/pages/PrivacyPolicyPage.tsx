@@ -266,7 +266,7 @@ export default function PrivacyPolicyPage() {
           <Typography paragraph>
             For privacy questions or requests, contact us at:
             <br />
-            <a href="mailto:info@chemisttasker.com">info@chemisttasker.com</a>
+            <a href="mailto:info@chemisttasker.com">info@chemisttasker.com.au</a>
           </Typography>
         </Box>
 

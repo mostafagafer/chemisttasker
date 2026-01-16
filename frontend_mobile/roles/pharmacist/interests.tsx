@@ -21,14 +21,14 @@ export default function PharmacistInterestsScreen() {
             <Text variant="bodyMedium" style={styles.description}>
               We are working on a new way for you to explore and manage your professional interests. Stay tuned!
             </Text>
-            <Button
+            {/* <Button
               mode="contained"
               buttonColor="#6366F1"
               style={styles.button}
               onPress={() => { }}
             >
               Notify Me
-            </Button>
+            </Button> */}
           </Card.Content>
         </Card>
       </View>

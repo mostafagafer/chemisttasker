@@ -5778,6 +5778,9 @@ class MyHistoryShiftsViewSet(BaseShiftViewSet):
         qs = super().get_queryset().filter(
             slot_assignments__user=user
         )
+        payment_pref = self.request.query_params.get('payment_preference')
+        if payment_pref:
+            qs = qs.filter(payment_preference__iexact=payment_pref)
         # .filter(
         #     # only slots fully in the past
         #     Q(slots__date__lt=today) |
@@ -6302,6 +6305,18 @@ class GenerateInvoiceView(APIView):
         else:
             shift_ids = []
 
+        # Enforce ABN-only for internal invoices.
+        external = data.get('external', False)
+        if isinstance(external, str):
+            external = external.lower() in ['true', '1', 'yes']
+        if not external and shift_ids:
+            non_abn = Shift.objects.filter(pk__in=shift_ids).exclude(payment_preference__iexact='ABN')
+            if non_abn.exists():
+                return Response(
+                    {'error': 'Internal invoices are only allowed for ABN shifts.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
         invoice = generate_invoice_from_shifts(
             user=request.user,
             pharmacy_id=data.get('pharmacy'),
@@ -6321,6 +6336,9 @@ def preview_invoice_lines(request, shift_id):
         shift = Shift.objects.get(id=shift_id)
     except Shift.DoesNotExist:
         return Response({"error": "Shift not found"}, status=404)
+
+    if (shift.payment_preference or '').upper() != 'ABN':
+        return Response({"error": "Internal invoices are only allowed for ABN shifts."}, status=400)
 
     line_items = generate_preview_invoice_lines(shift, request.user)
     return Response(line_items)

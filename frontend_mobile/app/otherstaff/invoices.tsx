@@ -1,5 +1,5 @@
-import InvoicesPlaceholder from '@/roles/shared/invoices/InvoicesPlaceholder';
+import InvoiceList from '@/roles/shared/invoices/InvoiceList';
 
 export default function OtherStaffInvoicesScreen() {
-  return <InvoicesPlaceholder />;
+  return <InvoiceList basePath="/otherstaff/invoice" />;
 }

@@ -192,7 +192,7 @@ export default function GroupManageModal({ room, visible, onDismiss, onUpdated, 
             <Text style={styles.section}>Members</Text>
             <FlatList
               data={members}
-              keyExtractor={(item) => item.id?.toString() ?? Math.random().toString()}
+              keyExtractor={(item, index) => String(item.id ?? item.email ?? index)}
               renderItem={({ item }) => (
                 <TouchableOpacity style={styles.row} onPress={() => toggleSelectRemoval(item)}>
                   <Checkbox status={selectedRemovals[item.id ?? -1] ? 'checked' : 'unchecked'} />
@@ -221,7 +221,7 @@ export default function GroupManageModal({ room, visible, onDismiss, onUpdated, 
         />
         <FlatList
           data={results}
-          keyExtractor={(item) => item.id?.toString() ?? Math.random().toString()}
+          keyExtractor={(item, index) => String(item.id ?? item.email ?? index)}
           renderItem={({ item }) => (
             <TouchableOpacity style={styles.row} onPress={() => toggleSelectAdd(item)}>
               <Checkbox status={selectedAdds[item.id ?? -1] ? 'checked' : 'unchecked'} />

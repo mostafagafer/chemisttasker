@@ -211,6 +211,7 @@ export default function OwnerLayout() {
           name="dashboard"
           options={{
             title: 'Home',
+            tabBarAccessibilityLabel: 'Home tab',
             tabBarIcon: ({ color, size }) => (
               <IconButton icon="home" iconColor={color} size={size} />
             ),
@@ -220,6 +221,7 @@ export default function OwnerLayout() {
           name="shifts/index"
           options={{
             title: 'Shifts',
+            tabBarAccessibilityLabel: 'Shifts tab',
             tabBarIcon: ({ color, size }) => (
               <IconButton icon="calendar" iconColor={color} size={size} />
             ),
@@ -229,6 +231,7 @@ export default function OwnerLayout() {
           name="post-shift"
           options={{
             title: 'Post',
+            tabBarAccessibilityLabel: 'Post shift tab',
             tabBarIcon: ({ color }) => (
               <IconButton
                 icon="plus-circle"
@@ -247,6 +250,7 @@ export default function OwnerLayout() {
           name="hub"
           options={{
             title: 'Hub',
+            tabBarAccessibilityLabel: 'Hub tab',
             tabBarIcon: ({ color, size }) => (
               <IconButton icon="account-group" iconColor={color} size={size} />
             ),
@@ -256,6 +260,7 @@ export default function OwnerLayout() {
           name="chat"
           options={{
             title: 'Chat',
+            tabBarAccessibilityLabel: 'Chat tab',
             tabBarIcon: ({ color, size }) => (
               <IconButton icon="message" iconColor={color} size={size} />
             ),

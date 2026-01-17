@@ -8,6 +8,7 @@ import crashlytics from '@react-native-firebase/crashlytics';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { WorkspaceProvider } from '../context/WorkspaceContext';
 import { theme } from '../constants/theme';
+import OfflineBanner from '../components/OfflineBanner';
 import '../config/api'; // Configure shared-core on app load
 
 const hideNav = async () => {
@@ -98,8 +99,9 @@ export default function RootLayout() {
           <PaperProvider theme={theme}>
             <AuthProvider>
               <WorkspaceProvider>
-                <AuthGate />
-                <Stack
+              <AuthGate />
+              <OfflineBanner />
+              <Stack
                   screenOptions={{
                     headerShown: false,
                     gestureEnabled: true,

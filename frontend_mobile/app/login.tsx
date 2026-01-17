@@ -1,17 +1,9 @@
 import React, { useState } from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  Image,
-} from 'react-native';
+import { View, StyleSheet, Image } from 'react-native';
 import { Text, TextInput, Button, Surface } from 'react-native-paper';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../context/AuthContext';
+import AuthLayout from '../components/AuthLayout';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -57,135 +49,97 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <LinearGradient colors={['#f7f9fb', '#eef1f7']} style={styles.gradient} />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
-      >
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
+    <AuthLayout title="Welcome back" showTitle={false}>
+      <View style={styles.logoRow}>
+        <Image
+          source={require('../assets/images/chemisttasker-logo.png')}
+          style={styles.logoImage}
+          resizeMode="contain"
+        />
+        <View style={styles.titleBlock}>
+          <Text variant="bodySmall" style={styles.subtitle}>
+            Pharmacy workforce, organized.
+          </Text>
+        </View>
+      </View>
+
+      <Text variant="headlineMedium" style={styles.formTitle}>
+        Welcome back
+      </Text>
+      <Text variant="bodyMedium" style={styles.formSubtitle}>
+        Sign in to access your hub.
+      </Text>
+
+      {error ? (
+        <Surface style={styles.errorContainer} elevation={1}>
+          <Text style={styles.errorText}>{error}</Text>
+        </Surface>
+      ) : null}
+
+      <View style={styles.form}>
+        <TextInput
+          label="Work email"
+          value={email}
+          onChangeText={setEmail}
+          mode="outlined"
+          style={styles.input}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoComplete="email"
+        />
+
+        <TextInput
+          label="Password"
+          value={password}
+          onChangeText={setPassword}
+          mode="outlined"
+          style={styles.input}
+          secureTextEntry={!showPassword}
+          right={
+            <TextInput.Icon
+              icon={showPassword ? 'eye-off' : 'eye'}
+              onPress={() => setShowPassword(!showPassword)}
+            />
+          }
+        />
+
+        <Button
+          mode="text"
+          onPress={() => router.push('/forgot-password')}
+          style={styles.forgotButton}
+          labelStyle={styles.linkLabel}
         >
-          <Surface style={styles.card} elevation={2}>
-            <View style={styles.logoRow}>
-              <Image
-                source={require('../assets/images/chemisttasker-logo.png')}
-                style={styles.logoImage}
-                resizeMode="contain"
-              />
-              <View style={styles.titleBlock}>
-                <Text variant="bodySmall" style={styles.subtitle}>
-                  Pharmacy workforce, organized.
-                </Text>
-              </View>
-            </View>
+          Forgot password?
+        </Button>
 
-            <Text variant="headlineMedium" style={styles.formTitle}>
-              Welcome back
-            </Text>
-            <Text variant="bodyMedium" style={styles.formSubtitle}>
-              Sign in to access your hub.
-            </Text>
+        <Button
+          mode="contained"
+          onPress={handleLogin}
+          loading={loading}
+          disabled={loading}
+          style={styles.button}
+          contentStyle={styles.buttonContent}
+        >
+          Sign in
+        </Button>
 
-            {error ? (
-              <Surface style={styles.errorContainer} elevation={1}>
-                <Text style={styles.errorText}>{error}</Text>
-              </Surface>
-            ) : null}
-
-            <View style={styles.form}>
-              <TextInput
-                label="Work email"
-                value={email}
-                onChangeText={setEmail}
-                mode="outlined"
-                style={styles.input}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-              />
-
-              <TextInput
-                label="Password"
-                value={password}
-                onChangeText={setPassword}
-                mode="outlined"
-                style={styles.input}
-                secureTextEntry={!showPassword}
-                right={
-                  <TextInput.Icon
-                    icon={showPassword ? 'eye-off' : 'eye'}
-                    onPress={() => setShowPassword(!showPassword)}
-                  />
-                }
-              />
-
-              <Button
-                mode="text"
-                onPress={() => {}}
-                style={styles.forgotButton}
-                labelStyle={styles.linkLabel}
-              >
-                Forgot password?
-              </Button>
-
-              <Button
-                mode="contained"
-                onPress={handleLogin}
-                loading={loading}
-                disabled={loading}
-                style={styles.button}
-                contentStyle={styles.buttonContent}
-              >
-                Sign in
-              </Button>
-
-              <View style={styles.signupRow}>
-                <Text style={styles.signupText}>Don&apos;t have an account?</Text>
-                <Button
-                  mode="text"
-                  onPress={() => router.push('/register')}
-                  labelStyle={styles.linkLabel}
-                  compact
-                >
-                  Create account
-                </Button>
-              </View>
-            </View>
-          </Surface>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        <View style={styles.signupRow}>
+          <Text style={styles.signupText}>Don&apos;t have an account?</Text>
+          <Button
+            mode="text"
+            onPress={() => router.push('/register')}
+            labelStyle={styles.linkLabel}
+            compact
+          >
+            Create account
+          </Button>
+        </View>
+      </View>
+    </AuthLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f7f9fb',
-    position: 'relative',
-  },
-  gradient: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    padding: 24,
-  },
-  card: {
-    borderRadius: 18,
-    padding: 20,
-    backgroundColor: '#ffffff',
-  },
   logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -207,14 +161,6 @@ const styles = StyleSheet.create({
   formSubtitle: {
     color: '#4b5563',
     marginBottom: 12,
-  },
-  header: {
-    marginBottom: 32,
-    backgroundColor: 'transparent',
-  },
-  title: {
-    fontWeight: 'bold',
-    marginBottom: 4,
   },
   subtitle: {
     color: '#666',

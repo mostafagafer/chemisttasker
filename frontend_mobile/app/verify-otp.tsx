@@ -2,8 +2,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { BackHandler, StyleSheet, TextInput as RNTextInput, View } from 'react-native';
 import { Text, TextInput, Button, Surface } from 'react-native-paper';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
+import AuthLayout from '../components/AuthLayout';
 
 export default function VerifyOTPScreen() {
     const router = useRouter();
@@ -115,8 +115,8 @@ export default function VerifyOTPScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.container}>
-            <View style={styles.content}>
+        <AuthLayout title="Verify Your Email" showTitle={false}>
+            <View>
                 <Surface style={styles.header} elevation={0}>
                     <Text variant="headlineMedium" style={styles.title}>
                         Verify Your Email
@@ -181,19 +181,11 @@ export default function VerifyOTPScreen() {
                     )}
                 </View>
             </View>
-        </SafeAreaView>
+        </AuthLayout>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#fff',
-    },
-    content: {
-        flex: 1,
-        padding: 24,
-    },
     header: {
         marginBottom: 32,
         backgroundColor: 'transparent',

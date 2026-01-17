@@ -2,11 +2,9 @@ import React, { useState } from 'react';
 import {
   View,
   StyleSheet,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
   TouchableOpacity,
   Image,
+  Linking,
 } from 'react-native';
 import {
   Text,
@@ -17,11 +15,10 @@ import {
   Surface,
   Divider,
 } from 'react-native-paper';
-import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
+import AuthLayout from '../components/AuthLayout';
 
 const ROLE_OPTIONS = [
   { label: 'Pharmacy Owner', value: 'OWNER', icon: 'storefront', color: '#4f46e5' },
@@ -35,17 +32,18 @@ const ROLE_OPTIONS = [
   { label: 'Explorer (Shadowing/Volunteering)', value: 'EXPLORER', icon: 'travel-explore', color: '#f97316' },
 ];
 
+const TERMS_URL = 'https://www.chemisttasker.com.au/terms-of-service';
+const PRIVACY_URL = 'https://www.chemisttasker.com.au/privacy-policy';
+
 export default function RegisterScreen() {
   const router = useRouter();
   const { register } = useAuth();
 
   const [formData, setFormData] = useState({
-    first_name: '',
-    last_name: '',
     email: '',
     password: '',
     confirm_password: '',
-    role: 'PHARMACIST',
+    role: 'OWNER',
     accepted_terms: false,
   });
 
@@ -53,10 +51,18 @@ export default function RegisterScreen() {
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
+  const openLink = async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      setError('Unable to open link');
+    }
+  };
+
   const handleRegister = async () => {
     setError('');
 
-    if (!formData.first_name || !formData.last_name || !formData.email || !formData.password) {
+    if (!formData.email || !formData.password) {
       setError('Please fill in all fields');
       return;
     }
@@ -74,8 +80,6 @@ export default function RegisterScreen() {
     setLoading(true);
     try {
       await register({
-        first_name: formData.first_name,
-        last_name: formData.last_name,
         email: formData.email,
         password: formData.password,
         role: formData.role,
@@ -90,187 +94,152 @@ export default function RegisterScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <LinearGradient colors={['#f7f9fb', '#eef1f7']} style={styles.gradient} />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
-      >
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-          <Surface style={styles.card} elevation={2}>
-            <View style={styles.logoRow}>
-              <Image
-                source={require('../assets/images/chemisttasker-logo.png')}
-                style={styles.logoImage}
-                resizeMode="contain"
-              />
-              <View>
-                <Text variant="headlineSmall" style={styles.title}>Create Account</Text>
-                <Text variant="bodySmall" style={styles.subtitle}>Join ChemistTasker today</Text>
-              </View>
-            </View>
+    <AuthLayout title="Create Account">
+      <View style={styles.logoRow}>
+        <Image
+          source={require('../assets/images/chemisttasker-logo.png')}
+          style={styles.logoImage}
+          resizeMode="contain"
+        />
+        <View>
+          <Text variant="headlineSmall" style={styles.title}>Create Account</Text>
+          <Text variant="bodySmall" style={styles.subtitle}>Join ChemistTasker today</Text>
+        </View>
+      </View>
 
-            {error ? (
-              <Surface style={styles.errorContainer} elevation={1}>
-                <Text style={styles.errorText}>{error}</Text>
-              </Surface>
-            ) : null}
+      {error ? (
+        <Surface style={styles.errorContainer} elevation={1}>
+          <Text style={styles.errorText}>{error}</Text>
+        </Surface>
+      ) : null}
 
-            <View style={styles.form}>
-              <TextInput
-                label="First Name"
-                value={formData.first_name}
-                onChangeText={(text) => setFormData({ ...formData, first_name: text })}
-                mode="outlined"
-                style={styles.input}
-                autoCapitalize="words"
-              />
+      <View style={styles.form}>
+        <TextInput
+          label="Email"
+          value={formData.email}
+          onChangeText={(text) => setFormData({ ...formData, email: text })}
+          mode="outlined"
+          style={styles.input}
+          keyboardType="email-address"
+          autoCapitalize="none"
+        />
 
-              <TextInput
-                label="Last Name"
-                value={formData.last_name}
-                onChangeText={(text) => setFormData({ ...formData, last_name: text })}
-                mode="outlined"
-                style={styles.input}
-                autoCapitalize="words"
-              />
+        <TextInput
+          label="Password"
+          value={formData.password}
+          onChangeText={(text) => setFormData({ ...formData, password: text })}
+          mode="outlined"
+          style={styles.input}
+          secureTextEntry={!showPassword}
+          right={
+            <TextInput.Icon
+              icon={showPassword ? 'eye-off' : 'eye'}
+              onPress={() => setShowPassword(!showPassword)}
+            />
+          }
+        />
 
-              <TextInput
-                label="Email"
-                value={formData.email}
-                onChangeText={(text) => setFormData({ ...formData, email: text })}
-                mode="outlined"
-                style={styles.input}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
+        <TextInput
+          label="Confirm Password"
+          value={formData.confirm_password}
+          onChangeText={(text) => setFormData({ ...formData, confirm_password: text })}
+          mode="outlined"
+          style={styles.input}
+          secureTextEntry={!showPassword}
+          right={
+            <TextInput.Icon
+              icon={showPassword ? 'eye-off' : 'eye'}
+              onPress={() => setShowPassword(!showPassword)}
+            />
+          }
+        />
 
-              <TextInput
-                label="Password"
-                value={formData.password}
-                onChangeText={(text) => setFormData({ ...formData, password: text })}
-                mode="outlined"
-                style={styles.input}
-                secureTextEntry={!showPassword}
-                right={
-                  <TextInput.Icon
-                    icon={showPassword ? 'eye-off' : 'eye'}
-                    onPress={() => setShowPassword(!showPassword)}
-                  />
-                }
-              />
+        <Divider style={styles.divider} />
 
-              <TextInput
-                label="Confirm Password"
-                value={formData.confirm_password}
-                onChangeText={(text) => setFormData({ ...formData, confirm_password: text })}
-                mode="outlined"
-                style={styles.input}
-                secureTextEntry={!showPassword}
-                right={
-                  <TextInput.Icon
-                    icon={showPassword ? 'eye-off' : 'eye'}
-                    onPress={() => setShowPassword(!showPassword)}
-                  />
-                }
-              />
-
-              <Divider style={styles.divider} />
-
-              <Text variant="titleSmall" style={styles.sectionTitle}>I am a:</Text>
-              <View style={styles.roleGrid}>
-                {ROLE_OPTIONS.map((option) => {
-                  const isSelected = formData.role === option.value;
-                  return (
-                    <TouchableOpacity
-                      key={option.value}
-                      style={[
-                        styles.roleCard,
-                        { borderColor: isSelected ? option.color : '#e5e7eb' },
-                        isSelected && { backgroundColor: '#f8fafc' },
-                      ]}
-                      activeOpacity={0.85}
-                      onPress={() => setFormData({ ...formData, role: option.value })}
-                    >
-                      <View style={styles.roleHeader}>
-                        <View style={[styles.roleIconWrap, { backgroundColor: `${option.color}1A` }]}>
-                          <MaterialIcons name={option.icon as any} size={22} color={option.color} />
-                        </View>
-                        <RadioButton
-                          value={option.value}
-                          status={isSelected ? 'checked' : 'unchecked'}
-                          onPress={() => setFormData({ ...formData, role: option.value })}
-                          color={option.color}
-                        />
-                      </View>
-                      <Text style={styles.radioLabel}>{option.label}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              <Divider style={styles.divider} />
-
-              <View style={styles.checkboxContainer}>
-                <Checkbox
-                  status={formData.accepted_terms ? 'checked' : 'unchecked'}
-                  onPress={() => setFormData({ ...formData, accepted_terms: !formData.accepted_terms })}
-                />
-                <Text style={styles.checkboxLabel}>
-                  I accept the Terms of Service and Privacy Policy
-                </Text>
-              </View>
-
-              <Button
-                mode="contained"
-                onPress={handleRegister}
-                loading={loading}
-                disabled={loading}
-                style={styles.button}
-                contentStyle={styles.buttonContent}
+        <Text variant="titleSmall" style={styles.sectionTitle}>I am a:</Text>
+        <View style={styles.roleGrid}>
+          {ROLE_OPTIONS.map((option) => {
+            const isSelected = formData.role === option.value;
+            return (
+              <TouchableOpacity
+                key={option.value}
+                style={[
+                  styles.roleCard,
+                  { borderColor: isSelected ? option.color : '#e5e7eb' },
+                  isSelected && { backgroundColor: '#f8fafc' },
+                ]}
+                activeOpacity={0.85}
+                onPress={() => setFormData({ ...formData, role: option.value })}
               >
-                Create Account
-              </Button>
+                <View style={styles.roleHeader}>
+                  <View style={[styles.roleIconWrap, { backgroundColor: `${option.color}1A` }]}>
+                    <MaterialIcons name={option.icon as any} size={22} color={option.color} />
+                  </View>
+                  <RadioButton
+                    value={option.value}
+                    status={isSelected ? 'checked' : 'unchecked'}
+                    onPress={() => setFormData({ ...formData, role: option.value })}
+                    color={option.color}
+                  />
+                </View>
+                <Text style={styles.radioLabel}>{option.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
-              <Button
-                mode="text"
-                onPress={() => router.back()}
-                style={styles.backButton}
-                labelStyle={styles.linkLabel}
-              >
-                Already have an account? Login
-              </Button>
-            </View>
-          </Surface>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        <Divider style={styles.divider} />
+
+        <View style={styles.checkboxContainer}>
+          <Checkbox
+            status={formData.accepted_terms ? 'checked' : 'unchecked'}
+            onPress={() => setFormData({ ...formData, accepted_terms: !formData.accepted_terms })}
+          />
+          <Text style={styles.checkboxLabel}>
+            I accept the{' '}
+            <Text
+              style={styles.linkText}
+              onPress={() => void openLink(TERMS_URL)}
+              accessibilityRole="link"
+            >
+              Terms of Service
+            </Text>{' '}
+            and{' '}
+            <Text
+              style={styles.linkText}
+              onPress={() => void openLink(PRIVACY_URL)}
+              accessibilityRole="link"
+            >
+              Privacy Policy
+            </Text>
+          </Text>
+        </View>
+
+        <Button
+          mode="contained"
+          onPress={handleRegister}
+          loading={loading}
+          disabled={loading}
+          style={styles.button}
+          contentStyle={styles.buttonContent}
+        >
+          Create Account
+        </Button>
+
+        <Button
+          mode="text"
+          onPress={() => router.replace('/login')}
+          style={styles.backButton}
+          labelStyle={styles.linkLabel}
+        >
+          Already have an account? Login
+        </Button>
+      </View>
+    </AuthLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f7f9fb',
-    position: 'relative',
-  },
-  gradient: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-  },
-  card: {
-    backgroundColor: '#ffffff',
-    borderRadius: 18,
-    padding: 20,
-  },
   logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -329,6 +298,10 @@ const styles = StyleSheet.create({
   checkboxLabel: {
     marginLeft: 8,
     flex: 1,
+  },
+  linkText: {
+    color: '#2563EB',
+    textDecorationLine: 'underline',
   },
   button: {
     marginTop: 16,

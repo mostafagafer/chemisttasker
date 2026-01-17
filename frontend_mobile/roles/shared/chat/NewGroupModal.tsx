@@ -121,7 +121,7 @@ export default function NewGroupModal({ visible, onDismiss, onCreated }: Props) 
         ) : (
           <FlatList
             data={results}
-            keyExtractor={(item) => item.id?.toString() ?? Math.random().toString()}
+            keyExtractor={(item, index) => String(item.id ?? (item as any).email ?? index)}
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.row} onPress={() => toggleSelect(item)}>
                 <Checkbox status={selected[item.id ?? -1] ? 'checked' : 'unchecked'} />

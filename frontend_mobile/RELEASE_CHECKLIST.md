@@ -1,4 +1,4 @@
-# Mobile Release Checklist (Expo)
+## Mobile Release Checklist (Expo)
 
 ## Preflight
 - [ ] `EXPO_PUBLIC_API_URL` points to production API.

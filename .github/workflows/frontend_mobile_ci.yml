@@ -20,18 +20,7 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: |
-            shared-core/package-lock.json
-            frontend_mobile/package-lock.json
-      - name: Build shared-core package
-        working-directory: shared-core
-        run: |
-          npm ci
-          npm run build
-          npm pack
-      - name: Copy shared-core tgz into mobile app
-        run: |
-          cp shared-core/chemisttasker-shared-core-1.0.0.tgz frontend_mobile/chemisttasker-shared-core-1.0.0.tgz
+          cache-dependency-path: frontend_mobile/package-lock.json
       - name: Install deps
         working-directory: frontend_mobile
         run: npm ci

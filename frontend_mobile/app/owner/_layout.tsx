@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Tabs, usePathname, useRouter } from 'expo-router';
 import { Avatar, IconButton, Portal, Modal, List, Divider, Button, Text } from 'react-native-paper';
@@ -84,7 +84,7 @@ export default function OwnerLayout() {
       const list = Array.isArray(res?.results) ? res.results : Array.isArray(res) ? res : [];
       const unread = list.filter((n: any) => !(n.read_at || n.readAt)).length;
       setUnreadCount(unread);
-    } catch (err) {
+    } catch {
       // ignore errors for badge
     }
   }, []);

@@ -1,6 +1,7 @@
 // utils/apiClient.ts
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureGet, secureRemoveMany, secureSet } from './secureStorage';
 
 // Prefer an env-driven base URL so the app can talk to the backend from devices/emulators.
 // Set EXPO_PUBLIC_API_URL for Expo (e.g. http://192.168.1.10:8000/api).
@@ -27,7 +28,7 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use(
     async (config) => {
         try {
-            const token = await AsyncStorage.getItem('ACCESS_KEY');
+            const token = await secureGet('ACCESS_KEY');
             if (token) {
                 config.headers.Authorization = `Bearer ${token}`;
             }
@@ -52,14 +53,14 @@ apiClient.interceptors.response.use(
             originalRequest._retry = true;
 
             try {
-                const refreshToken = await AsyncStorage.getItem('REFRESH_KEY');
+                const refreshToken = await secureGet('REFRESH_KEY');
                 if (refreshToken) {
                     const response = await axios.post(`${API_BASE_URL}/users/token/refresh/`, {
                         refresh: refreshToken,
                     });
 
                     const { access } = response.data;
-                    await AsyncStorage.setItem('ACCESS_KEY', access);
+                    await secureSet('ACCESS_KEY', access);
 
                     // Retry original request with new token
                     originalRequest.headers.Authorization = `Bearer ${access}`;
@@ -67,7 +68,8 @@ apiClient.interceptors.response.use(
                 }
             } catch (refreshError) {
                 // Refresh failed, clear tokens and redirect to login
-                await AsyncStorage.multiRemove(['ACCESS_KEY', 'REFRESH_KEY', 'user']);
+                await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
+                await AsyncStorage.removeItem('user');
                 // You can emit an event here to notify the app to navigate to login
                 return Promise.reject(refreshError);
             }

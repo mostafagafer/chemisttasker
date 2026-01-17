@@ -79,8 +79,10 @@ export default function GooglePlacesInput({
                     alert(`Google Places API Error: ${msg}`);
                 }}
                 onPress={(data, details = null) => {
-                    console.log('GooglePlaceSelected Data:', data);
-                    console.log('GooglePlaceSelected Details:', details);
+                    if (__DEV__) {
+                        console.log('GooglePlaceSelected Data:', data);
+                        console.log('GooglePlaceSelected Details:', details);
+                    }
 
                     if (!details) {
                         alert('Error: No details fetched for this place. Check API permissions.');
@@ -118,7 +120,9 @@ export default function GooglePlacesInput({
                         longitude: details.geometry?.location.lng,
                     };
 
-                    console.log('Extracted Place:', place);
+                    if (__DEV__) {
+                        console.log('Extracted Place:', place);
+                    }
                     onPlaceSelected(place);
                 }}
                 query={{

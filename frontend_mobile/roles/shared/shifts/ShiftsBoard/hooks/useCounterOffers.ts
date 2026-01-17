@@ -239,7 +239,9 @@ export const useCounterOffers = ({
                     (onboarding?.data ? onboarding.data.rate_preference || onboarding.data.ratePreference : undefined);
                 if (!ratePref && fromOnboarding) {
                     ratePref = fromOnboarding;
-                    console.log('Counter offer fetched rate preference from onboarding', fromOnboarding);
+                    if (__DEV__) {
+                        console.log('Counter offer fetched rate preference from onboarding', fromOnboarding);
+                    }
                 }
                 setCounterOfferTravelLocation(normalizeOnboardingLocation(onboarding));
             } catch (err) {
@@ -295,7 +297,9 @@ export const useCounterOffers = ({
                     const calcResults: any[] = await calculateShiftRates(payload);
                     if (Array.isArray(calcResults) && calcResults.length === slotsToUse.length) {
                         calculatorRates = calcResults.map((r) => (r?.rate ? String(r.rate) : '0'));
-                        console.log('Counter offer calculator rates', calculatorRates);
+                        if (__DEV__) {
+                            console.log('Counter offer calculator rates', calculatorRates);
+                        }
                     }
                 }
             } catch (err) {
@@ -391,7 +395,9 @@ export const useCounterOffers = ({
                 })
             ),
         };
-        console.log('[ShiftsBoard] submit counter offer payload', payload);
+        if (__DEV__) {
+            console.log('[ShiftsBoard] submit counter offer payload', payload);
+        }
 
         setCounterSubmitting(true);
         try {

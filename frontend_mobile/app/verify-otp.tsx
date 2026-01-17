@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, StyleSheet, TextInput as RNTextInput } from 'react-native';
+import { BackHandler, StyleSheet, TextInput as RNTextInput, View } from 'react-native';
 import { Text, TextInput, Button, Surface } from 'react-native-paper';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { BackHandler } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 

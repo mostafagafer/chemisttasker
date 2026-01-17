@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getRoomMessages, sendRoomMessage, markRoomAsRead } from '@chemisttasker/shared-core';
 import { useAuth } from '../../../context/AuthContext';
+import { secureGet } from '../../../utils/secureStorage';
 
 interface MessageDisplay {
   id: number;
@@ -74,15 +75,7 @@ export default function PharmacistMessageDetailScreen() {
         const base = process.env.EXPO_PUBLIC_API_URL || '';
         const httpBase = base.endsWith('/api') ? base.slice(0, -4) : base || 'http://localhost:8000';
         const wsBase = httpBase.replace(/^http/, 'ws');
-        const buildToken = async () => {
-          try {
-            const module = await import('@react-native-async-storage/async-storage');
-            return await module.default.getItem('ACCESS_KEY');
-          } catch {
-            return null;
-          }
-        };
-        const token = user?.id ? await buildToken() : null;
+        const token = user?.id ? await secureGet('ACCESS_KEY') : null;
         const ws = new WebSocket(`${wsBase}/ws/chat/rooms/${roomId}/?token=${token ?? ''}`);
         wsRef.current = ws;
         reconnectAttempts.current = 0;

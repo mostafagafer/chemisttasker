@@ -1,21 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, Text } from 'react-native-paper';
 import { getPharmacyById, fetchMembershipsByPharmacy, fetchPharmacyAdminsService, PharmacyDTO, MembershipDTO, PharmacyAdminDTO } from '@chemisttasker/shared-core';
 import PharmacyDetailView from '@/roles/shared/pharmacies/PharmacyDetailView';
 
 export default function OrganizationPharmacyDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
-
   const [pharmacy, setPharmacy] = useState<PharmacyDTO | null>(null);
   const [memberships, setMemberships] = useState<MembershipDTO[]>([]);
   const [admins, setAdmins] = useState<PharmacyAdminDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     try {
@@ -33,11 +31,11 @@ export default function OrganizationPharmacyDetailsScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
 
   useEffect(() => {
     loadData();
-  }, [id]);
+  }, [loadData]);
 
   if (loading) {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" /></View>;

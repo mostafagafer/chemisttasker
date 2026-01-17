@@ -4,6 +4,7 @@ import {
     rejectShiftCounterOfferService,
 } from '@chemisttasker/shared-core';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureGet, secureRemoveMany, secureSet } from '../../../../../utils/secureStorage';
 
 export function useCounterOffers() {
     const [counterOffersByShift, setCounterOffersByShift] = useState<Record<number, any[]>>({});
@@ -23,10 +24,10 @@ export function useCounterOffers() {
 
     const getAccessWithRefresh = useCallback(async () => {
         const baseURL = process.env.EXPO_PUBLIC_API_URL?.trim() || '';
-        const existing = await AsyncStorage.getItem('ACCESS_KEY').catch(() => null);
+        const existing = await secureGet('ACCESS_KEY').catch(() => null);
         if (existing) return existing;
 
-        const refresh = await AsyncStorage.getItem('REFRESH_KEY').catch(() => null);
+        const refresh = await secureGet('REFRESH_KEY').catch(() => null);
         if (!refresh) return null;
 
         try {
@@ -42,13 +43,14 @@ export function useCounterOffers() {
             const nextAccess = data.access;
             const nextRefresh = data.refresh ?? refresh;
             if (nextAccess) {
-                await AsyncStorage.setItem('ACCESS_KEY', nextAccess);
-                await AsyncStorage.setItem('REFRESH_KEY', nextRefresh);
+                await secureSet('ACCESS_KEY', nextAccess);
+                await secureSet('REFRESH_KEY', nextRefresh);
                 return nextAccess;
             }
         } catch (error) {
             console.error('Failed to refresh token for counter offer accept', error);
-            await AsyncStorage.multiRemove(['ACCESS_KEY', 'REFRESH_KEY', 'user']).catch(() => null);
+            await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']).catch(() => null);
+            await AsyncStorage.removeItem('user').catch(() => null);
         }
 
         return null;
@@ -78,12 +80,14 @@ export function useCounterOffers() {
                 if (token) {
                     headers.Authorization = `Bearer ${token}`;
                 }
-                console.log('[ActiveShifts] acceptShiftCounterOfferService', {
-                    shiftId: payload.shiftId,
-                    offerId: payload.offer.id,
-                    slotId: payload.slotId,
-                    resolvedSlotId,
-                });
+                if (__DEV__) {
+                    console.log('[ActiveShifts] acceptShiftCounterOfferService', {
+                        shiftId: payload.shiftId,
+                        offerId: payload.offer.id,
+                        slotId: payload.slotId,
+                        resolvedSlotId,
+                    });
+                }
                 const query = resolvedSlotId != null ? `?slot_id=${encodeURIComponent(resolvedSlotId)}` : '';
                 const response = await fetch(
                     `${baseURL}/client-profile/shifts/${payload.shiftId}/counter-offers/${payload.offer.id}/accept/${query}`,

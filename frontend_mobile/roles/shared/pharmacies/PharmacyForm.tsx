@@ -183,7 +183,9 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                 setFiles(prev => ({ ...prev, [key]: asset }));
             }
         } catch (e) {
-            console.log('File picker error', e);
+            if (__DEV__) {
+                console.log('File picker error', e);
+            }
         }
     };
 

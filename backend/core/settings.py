@@ -252,7 +252,7 @@ SIMPLE_JWT = {
     # Short‑lived access token
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     # Longer‑lived refresh token
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
     # Issue a new refresh token each time /refresh/ is called
     'ROTATE_REFRESH_TOKENS': True,
     # Blacklist old refresh tokens—prevents reuse

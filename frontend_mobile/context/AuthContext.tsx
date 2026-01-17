@@ -5,6 +5,7 @@ import { login as sharedLogin, getOnboarding } from '@chemisttasker/shared-core'
 import apiClient from '../utils/apiClient';
 import { registerForPushNotificationsAsync, registerDeviceTokenWithBackend } from '../utils/pushNotifications';
 import * as Device from 'expo-device';
+import { secureGet, secureRemoveMany, secureSet } from '../utils/secureStorage';
 
 // --- Types ---
 export interface OrgMembership {
@@ -92,12 +93,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     const loadStoredAuth = async () => {
       try {
-        const storedAccess = await AsyncStorage.getItem('ACCESS_KEY');
-        const storedRefresh = await AsyncStorage.getItem('REFRESH_KEY');
+        const storedAccess = await secureGet('ACCESS_KEY');
+        const storedRefresh = await secureGet('REFRESH_KEY');
         const storedUser = await AsyncStorage.getItem('user');
 
         if (!storedAccess || !storedRefresh || !storedUser) {
-          await AsyncStorage.multiRemove(['ACCESS_KEY', 'REFRESH_KEY', 'user']);
+          await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
+          await AsyncStorage.removeItem('user');
           setAccess(null);
           setRefresh(null);
           setUser(null);
@@ -111,13 +113,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
             applyAuthHeader(storedAccess);
           } catch {
             await AsyncStorage.removeItem('user');
+            await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
             setUser(null);
             setAccess(null);
             setRefresh(null);
           }
         }
       } catch {
-        await AsyncStorage.multiRemove(['ACCESS_KEY', 'REFRESH_KEY', 'user']);
+        await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
+        await AsyncStorage.removeItem('user');
         setAccess(null);
         setRefresh(null);
         setUser(null);
@@ -161,8 +165,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const login = async (newAccess: string, newRefresh: string, userInfo: User) => {
     setAccess(newAccess);
     setRefresh(newRefresh);
-    await AsyncStorage.setItem('ACCESS_KEY', newAccess);
-    await AsyncStorage.setItem('REFRESH_KEY', newRefresh);
+    await secureSet('ACCESS_KEY', newAccess);
+    await secureSet('REFRESH_KEY', newRefresh);
     applyAuthHeader(newAccess);
 
     const baseUser = normalizeUser(userInfo);
@@ -267,7 +271,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser(null);
     setRegisteredPush(false);
     applyAuthHeader(null);
-    await AsyncStorage.multiRemove(['ACCESS_KEY', 'REFRESH_KEY', 'user']);
+    await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
+    await AsyncStorage.removeItem('user');
   };
 
   const hasCapability = (capability: string, pharmacyId?: number | string | null) => {

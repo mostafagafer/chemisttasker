@@ -48,7 +48,9 @@ export function useLiveMessages(
           console.error('WS error', err?.message || 'WebSocket connection error.');
         };
         ws.onclose = (event) => {
-          console.log(`WS closed. Code: ${event.code}, Reason: ${event.reason}`);
+          if (__DEV__) {
+            console.log(`WS closed. Code: ${event.code}, Reason: ${event.reason}`);
+          }
           const attempt = reconnectAttempts.current + 1;
           reconnectAttempts.current = attempt;
           const delay = Math.min(30000, 1000 * 2 ** attempt);

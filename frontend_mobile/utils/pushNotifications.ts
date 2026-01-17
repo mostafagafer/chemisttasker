@@ -3,6 +3,8 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import apiClient from './apiClient';
 import { EventEmitter } from 'eventemitter3';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureRemoveMany } from './secureStorage';
 
 const inAppEmitter = new EventEmitter();
 const IN_APP_UNREAD_BUMP_EVENT = 'in-app-unread-bump';
@@ -24,10 +26,12 @@ const getProjectId = () => {
   // @ts-ignore
   const projectId = Constants?.expoConfig?.extra?.eas?.projectId || Constants?.easConfig?.projectId;
 
-  // Log both for debugging device builds (remove if too chatty).
-  console.log('expoConfig projectId:', Constants?.expoConfig?.extra?.eas?.projectId);
-  // @ts-ignore
-  console.log('easConfig projectId:', Constants?.easConfig?.projectId);
+  // Log both for debugging device builds (guarded for dev only).
+  if (__DEV__) {
+    console.log('expoConfig projectId:', Constants?.expoConfig?.extra?.eas?.projectId);
+    // @ts-ignore
+    console.log('easConfig projectId:', Constants?.easConfig?.projectId);
+  }
 
   return projectId;
 };
@@ -69,7 +73,8 @@ export async function registerDeviceTokenWithBackend(token: string, platform: 'i
     const data = resp?.data;
     // If the token is invalid/blacklisted, clear stored creds so the user can re-login with fresh tokens
     if (status === 401 && data?.code === 'token_not_valid') {
-      await AsyncStorage.multiRemove(['ACCESS_KEY', 'REFRESH_KEY', 'user']);
+      await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
+      await AsyncStorage.removeItem('user');
     }
     console.error('Failed to register device token', data || err);
   }

@@ -12,7 +12,12 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.chemisttasker.app",
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow camera access to add profile photos.",
+        "NSPhotoLibraryUsageDescription": "Allow photo library access to upload profile photos and attachments.",
+        "NSPhotoLibraryAddUsageDescription": "Allow saving images to your photo library."
+      }
     },
 
     "android": {
@@ -44,7 +49,9 @@
         }
       ],
       "expo-notifications",
-      "expo-web-browser"
+      "expo-web-browser",
+      "@react-native-firebase/app",
+      "@react-native-firebase/crashlytics"
     ],
 
     "experiments": {

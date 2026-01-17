@@ -2,7 +2,8 @@
 // Manages locum/casual workers (LOCUM, SHIFT_HERO employment types)
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { FlatList, StyleSheet, View, ScrollView } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import {
     Card,
     Text,
@@ -102,6 +103,7 @@ export default function LocumManager({
     loading = false,
     pharmacyName,
 }: LocumManagerProps) {
+    const baseInviteUrl = process.env.EXPO_PUBLIC_WEB_URL?.trim() || 'https://www.chemisttasker.com';
     const derivedLocums: Locum[] = useMemo(() => {
         return (memberships || []).map((m) => {
             const fullName =
@@ -157,6 +159,17 @@ export default function LocumManager({
     const showSkeleton = loading && memberships.length === 0;
 
     const resetInviteForm = () => setInviteRows([createInviteRow()]);
+
+    const openInviteDialog = () => {
+        resetInviteForm();
+        setInviteOpen(true);
+    };
+
+    const openLinkDialog = () => {
+        setLinkExpiry('14');
+        setLinkValue('');
+        setLinkOpen(true);
+    };
 
     const handleInviteFieldChange = (idx: number, field: keyof InviteRowState, value: string) => {
         setInviteRows((prev) => {
@@ -338,11 +351,11 @@ export default function LocumManager({
             const expires = Number(linkExpiry) || 14;
             const response = await createMembershipInviteLinkService({
                 pharmacy: pharmacyId,
-                category: 'LOCUM',
+                category: 'LOCUM_CASUAL',
                 expires_in_days: expires,
             });
             const token = response?.token ?? response?.data?.token ?? response;
-            const url = `${window.location.origin}/membership/apply/${token}`;
+            const url = `${baseInviteUrl}/membership/apply/${token}`;
             setLinkValue(url);
             setToast({ message: 'Invite link generated', severity: 'success' });
         } catch (error: any) {
@@ -358,7 +371,7 @@ export default function LocumManager({
     const handleCopyLink = async () => {
         if (!linkValue) return;
         try {
-            await navigator.clipboard.writeText(linkValue);
+            await Clipboard.setStringAsync(linkValue);
             setToast({ message: 'Link copied to clipboard', severity: 'success' });
         } catch {
             setToast({ message: 'Unable to copy link', severity: 'error' });
@@ -383,6 +396,35 @@ export default function LocumManager({
             setConfirmRemove(null);
         }
     };
+
+    const renderLocumItem = useCallback(
+        ({ item }: { item: Locum }) => (
+            <Card key={item.id} style={styles.card}>
+                <Card.Content style={styles.cardContent}>
+                    <View style={styles.chips}>
+                        <Chip style={[styles.chip, { backgroundColor: getRoleChipColor(item.role) }]}>
+                            {item.role.replace('_', ' ')}
+                        </Chip>
+                        <Chip style={styles.chip} mode="outlined">
+                            {item.workType.replace('_', ' ')}
+                        </Chip>
+                    </View>
+                    <Text style={styles.locumName}>
+                        {[item.name, item.email].filter(Boolean).join(' | ')}
+                    </Text>
+                    <IconButton
+                        icon="delete"
+                        iconColor={surfaceTokens.error}
+                        size={20}
+                        onPress={() => setConfirmRemove(item)}
+                        disabled={deleteLoadingId === item.id}
+                        style={styles.deleteButton}
+                    />
+                </Card.Content>
+            </Card>
+        ),
+        [deleteLoadingId]
+    );
 
     return (
         <View style={styles.container}>
@@ -470,57 +512,38 @@ export default function LocumManager({
             </View>
 
             <View style={styles.actionsRow}>
-                <Button mode="contained" onPress={() => setInviteOpen(true)} icon="plus">
+                <Button mode="contained" onPress={openInviteDialog} icon="plus">
                     Invite Locum
                 </Button>
-                <Button mode="outlined" onPress={() => setLinkOpen(true)} icon="link">
+                <Button mode="outlined" onPress={openLinkDialog} icon="link">
                     Generate Link
                 </Button>
             </View>
 
-            <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-                {showSkeleton ? (
-                    <View style={styles.skeletonContainer}>
-                        {[1, 2, 3].map((i) => (
-                            <Card key={i} style={styles.card}>
-                                <Card.Content>
-                                    <ActivityIndicator />
-                                </Card.Content>
-                            </Card>
-                        ))}
-                    </View>
-                ) : filteredLocums.length === 0 ? (
-                    <Text style={styles.emptyText}>
-                        No locums yet. Use "Invite Locum" to add members.
-                    </Text>
-                ) : (
-                    filteredLocums.map((item) => (
-                        <Card key={item.id} style={styles.card}>
-                            <Card.Content style={styles.cardContent}>
-                                <View style={styles.chips}>
-                                    <Chip style={[styles.chip, { backgroundColor: getRoleChipColor(item.role) }]}>
-                                        {item.role.replace('_', ' ')}
-                                    </Chip>
-                                    <Chip style={styles.chip} mode="outlined">
-                                        {item.workType.replace('_', ' ')}
-                                    </Chip>
-                                </View>
-                                <Text style={styles.locumName}>
-                                    {[item.name, item.email].filter(Boolean).join(' | ')}
-                                </Text>
-                                <IconButton
-                                    icon="delete"
-                                    iconColor={surfaceTokens.error}
-                                    size={20}
-                                    onPress={() => setConfirmRemove(item)}
-                                    disabled={deleteLoadingId === item.id}
-                                    style={styles.deleteButton}
-                                />
+            {showSkeleton ? (
+                <View style={styles.skeletonContainer}>
+                    {[1, 2, 3].map((i) => (
+                        <Card key={i} style={styles.card}>
+                            <Card.Content>
+                                <ActivityIndicator />
                             </Card.Content>
                         </Card>
-                    ))
-                )}
-            </ScrollView>
+                    ))}
+                </View>
+            ) : (
+                <FlatList
+                    data={filteredLocums}
+                    renderItem={renderLocumItem}
+                    keyExtractor={(item) => String(item.id)}
+                    style={styles.list}
+                    contentContainerStyle={styles.listContent}
+                    ListEmptyComponent={
+                        <Text style={styles.emptyText}>
+                            No locums yet. Use "Invite Locum" to add members.
+                        </Text>
+                    }
+                />
+            )}
 
             <Portal>
                 <Modal

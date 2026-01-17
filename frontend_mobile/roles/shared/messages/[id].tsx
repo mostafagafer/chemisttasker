@@ -22,16 +22,43 @@ import { triggerUnreadBump } from '@/utils/pushNotifications';
 import { setActiveRoomId } from '../chat/activeRoomState';
 
 type MessageDisplay = ChatMessage & { is_me: boolean };
-const dedupeById = (list: MessageDisplay[]) => {
-    const seen = new Set<string | number>();
-    const result: MessageDisplay[] = [];
-    for (const item of list) {
-        const key = item.id ?? `${item.created_at}-${item.body}`;
-        if (seen.has(key as any)) continue;
-        seen.add(key as any);
-        result.push(item);
+const messageKey = (item: MessageDisplay) => item.id ?? `${item.created_at}-${item.body}`;
+const messageTime = (item: MessageDisplay) => {
+    const time = item.created_at ? new Date(item.created_at).getTime() : 0;
+    return Number.isFinite(time) ? time : 0;
+};
+
+const upsertSortedMessage = (list: MessageDisplay[], incoming: MessageDisplay) => {
+    const key = messageKey(incoming);
+    const existingIndex = list.findIndex((msg) => messageKey(msg) === key);
+    if (existingIndex >= 0) {
+        const next = [...list];
+        next[existingIndex] = { ...next[existingIndex], ...incoming };
+        return next;
     }
-    return result;
+
+    const next = [...list];
+    const incomingTime = messageTime(incoming);
+    if (next.length === 0 || incomingTime >= messageTime(next[next.length - 1])) {
+        next.push(incoming);
+        return next;
+    }
+
+    const insertAt = next.findIndex((msg) => messageTime(msg) > incomingTime);
+    if (insertAt === -1) {
+        next.push(incoming);
+    } else {
+        next.splice(insertAt, 0, incoming);
+    }
+    return next;
+};
+
+const updateMessageById = (list: MessageDisplay[], messageId: number, updater: (msg: MessageDisplay) => MessageDisplay) => {
+    const index = list.findIndex((msg) => msg.id === messageId);
+    if (index === -1) return list;
+    const next = [...list];
+    next[index] = updater(next[index]);
+    return next;
 };
 
 export default function SharedMessageDetailScreen() {
@@ -97,8 +124,12 @@ export default function SharedMessageDetailScreen() {
                     is_me: user?.id != null ? senderUserId === user.id : false,
                 };
             });
-            const sorted = dedupeById(mapped).sort(
-                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+            const unique = new Map<string | number, MessageDisplay>();
+            for (const msg of mapped) {
+                unique.set(messageKey(msg), msg);
+            }
+            const sorted = Array.from(unique.values()).sort(
+                (a, b) => messageTime(a) - messageTime(b)
             );
             setMessages(sorted);
             shouldScrollRef.current = true;
@@ -171,34 +202,28 @@ export default function SharedMessageDetailScreen() {
                 is_pinned: msg.is_pinned,
                 is_me: user?.id != null ? senderUserId === user.id : false,
             };
-            setMessages((prev) =>
-                dedupeById([...prev, mapped]).sort(
-                    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-                )
-            );
+            setMessages((prev) => upsertSortedMessage(prev, mapped));
             shouldScrollRef.current = true;
         } else if (payload.type === 'message.updated') {
             const msg = payload.message || payload;
-            setMessages((prev) =>
-                dedupeById(
-                    prev.map((m) =>
-                        m.id === msg.id
-                            ? {
-                                ...m,
-                                body: msg.body ?? m.body,
-                                is_edited: true,
-                            }
-                            : m
-                    )
-                ).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-            );
+            if (msg?.id) {
+                setMessages((prev) =>
+                    updateMessageById(prev, msg.id, (m) => ({
+                        ...m,
+                        body: msg.body ?? m.body,
+                        is_edited: true,
+                    }))
+                );
+            }
         } else if (payload.type === 'message.deleted') {
             setMessages((prev) => prev.filter((m) => m.id !== payload.message_id));
         } else if (payload.type === 'reaction.updated') {
             const messageId = payload.message_id;
-            setMessages((prev) =>
-                dedupeById(prev.map((m) => (m.id === messageId ? { ...m, reactions: payload.reactions ?? [] } : m)))
-            );
+            if (messageId) {
+                setMessages((prev) =>
+                    updateMessageById(prev, messageId, (m) => ({ ...m, reactions: payload.reactions ?? [] }))
+                );
+            }
         } else if (payload.type === 'typing') {
             const who = payload.user_name || payload.username || payload.user || '';
             if (!who) return;
@@ -246,11 +271,7 @@ export default function SharedMessageDetailScreen() {
                 reactions: sentMessage.reactions ?? [],
                 is_me: true,
             };
-            setMessages((prev) =>
-                dedupeById([...prev, newMsg]).sort(
-                    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-                )
-            );
+            setMessages((prev) => upsertSortedMessage(prev, newMsg));
             shouldScrollRef.current = true;
             setNewMessage('');
         } catch (error) {
@@ -291,11 +312,7 @@ export default function SharedMessageDetailScreen() {
                 reactions: sent.reactions ?? [],
                 is_me: true,
             };
-            setMessages((prev) =>
-                dedupeById([...prev, mapped]).sort(
-                    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-                )
-            );
+            setMessages((prev) => upsertSortedMessage(prev, mapped));
             shouldScrollRef.current = true;
             setNewMessage(''); // This was already correct, just ensuring it's not changed.
         } catch (err: any) {
@@ -523,7 +540,12 @@ const pinnedMessage = useMemo(() => {
                 },
                 headerBackTitle: 'Messages',
                 headerRight: () => (
-                    <IconButton icon={roomPinned ? 'pin' : 'pin-outline'} onPress={onPinRoom} />
+                    <IconButton
+                        icon={roomPinned ? 'pin' : 'pin-outline'}
+                        onPress={onPinRoom}
+                        accessibilityLabel={roomPinned ? 'Unpin conversation' : 'Pin conversation'}
+                        accessibilityRole="button"
+                    />
                 ),
             }} />
 
@@ -545,7 +567,13 @@ const pinnedMessage = useMemo(() => {
                 >
                     <Text style={styles.pinnedTitle}>Pinned</Text>
                     <Text style={styles.pinnedBody} numberOfLines={2}>{pinnedMessage!.body || 'Pinned message'}</Text>
-                    <IconButton icon="pin-off" size={18} onPress={() => onPinMessage(pinnedMessage!.id as number)} />
+                    <IconButton
+                        icon="pin-off"
+                        size={18}
+                        onPress={() => onPinMessage(pinnedMessage!.id as number)}
+                        accessibilityLabel="Unpin message"
+                        accessibilityRole="button"
+                    />
                 </Surface>
             ) : null}
 

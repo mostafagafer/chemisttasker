@@ -51,7 +51,7 @@ export default function OrganizationPharmaciesScreen() {
       await deletePharmacy(id);
       setSnackbar('Pharmacy deleted');
       loadPharmacies();
-    } catch (e) {
+    } catch {
       setSnackbar('Failed to delete pharmacy');
     }
   };

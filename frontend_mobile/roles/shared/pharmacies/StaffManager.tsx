@@ -3,7 +3,8 @@
 // Exact web parity with all hooks and API calls
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { FlatList, StyleSheet, View, ScrollView } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import {
     Card,
     Text,
@@ -115,6 +116,7 @@ export default function StaffManager({
     category
 }: StaffManagerProps) {
     const { user } = useAuth();
+    const baseInviteUrl = process.env.EXPO_PUBLIC_WEB_URL?.trim() || 'https://www.chemisttasker.com';
 
     // Derive staff from memberships
     const derivedStaff: Staff[] = useMemo(() => {
@@ -321,6 +323,12 @@ export default function StaffManager({
             return next.length ? next : [createInviteRow()];
         });
 
+    const openLinkDialog = () => {
+        setLinkExpiry('14');
+        setLinkValue('');
+        setLinkOpen(true);
+    };
+
     const handleSendInvites = async () => {
         let rows = inviteRows.map((row) => ({
             ...row,
@@ -443,7 +451,7 @@ export default function StaffManager({
                 expires_in_days: expires,
             });
             const token = response?.token ?? response?.data?.token ?? response;
-            const url = `${window.location.origin}/membership/apply/${token}`;
+            const url = `${baseInviteUrl}/membership/apply/${token}`;
             setLinkValue(url);
             setToast({ message: 'Invite link generated', severity: 'success' });
         } catch (error: any) {
@@ -456,7 +464,7 @@ export default function StaffManager({
     const handleCopyLink = async () => {
         if (!linkValue) return;
         try {
-            await navigator.clipboard.writeText(linkValue);
+            await Clipboard.setStringAsync(linkValue);
             setToast({ message: 'Link copied to clipboard', severity: 'success' });
         } catch {
             setToast({ message: 'Unable to copy link', severity: 'error' });
@@ -479,6 +487,42 @@ export default function StaffManager({
             setConfirmRemove(null);
         }
     };
+
+    const renderStaffItem = useCallback(
+        ({ item }: { item: Staff }) => (
+            <Card key={item.id} style={styles.card}>
+                <Card.Content style={styles.cardContent}>
+                    <View style={styles.cardHeader}>
+                        <View style={styles.chips}>
+                            <Chip style={[styles.chip, { backgroundColor: getRoleChipColor(item.role) }]}>
+                                {item.role.replace('_', ' ')}
+                            </Chip>
+                            <Chip style={styles.chip} mode="outlined">
+                                {item.workType.replace('_', ' ')}
+                            </Chip>
+                        </View>
+                        <View style={styles.staffInfo}>
+                            <Text style={styles.staffName}>{item.name}</Text>
+                            {(item.jobTitle || item.email) && (
+                                <Text style={styles.staffDetails}>
+                                    {[item.jobTitle, item.email].filter(Boolean).join(' | ')}
+                                </Text>
+                            )}
+                        </View>
+                    </View>
+                    <IconButton
+                        icon="delete"
+                        iconColor={surfaceTokens.error}
+                        size={20}
+                        onPress={() => setConfirmRemove(item)}
+                        disabled={deleteLoadingId === item.id}
+                        style={styles.deleteButton}
+                    />
+                </Card.Content>
+            </Card>
+        ),
+        [deleteLoadingId]
+    );
 
     return (
         <View style={styles.container}>
@@ -540,60 +584,33 @@ export default function StaffManager({
                 <Button mode="contained" onPress={() => setInviteOpen(true)} icon="plus">
                     Invite Staff
                 </Button>
-                <Button mode="outlined" onPress={() => setLinkOpen(true)} icon="link">
+                <Button mode="outlined" onPress={openLinkDialog} icon="link">
                     Generate Link
                 </Button>
             </View>
 
-            {/* Staff List */}
-            <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-                {showSkeleton ? (
-                    <View style={styles.skeletonContainer}>
-                        {[1, 2, 3].map((i) => (
-                            <Card key={i} style={styles.card}>
-                                <Card.Content>
-                                    <ActivityIndicator />
-                                </Card.Content>
-                            </Card>
-                        ))}
-                    </View>
-                ) : data.length === 0 ? (
-                    <Text style={styles.emptyText}>No staff yet. Use "Invite Staff" to add members.</Text>
-                ) : (
-                    data.map((item) => (
-                        <Card key={item.id} style={styles.card}>
-                            <Card.Content style={styles.cardContent}>
-                                <View style={styles.cardHeader}>
-                                    <View style={styles.chips}>
-                                        <Chip style={[styles.chip, { backgroundColor: getRoleChipColor(item.role) }]}>
-                                            {item.role.replace('_', ' ')}
-                                        </Chip>
-                                        <Chip style={styles.chip} mode="outlined">
-                                            {item.workType.replace('_', ' ')}
-                                        </Chip>
-                                    </View>
-                                    <View style={styles.staffInfo}>
-                                        <Text style={styles.staffName}>{item.name}</Text>
-                                        {(item.jobTitle || item.email) && (
-                                            <Text style={styles.staffDetails}>
-                                                {[item.jobTitle, item.email].filter(Boolean).join(' • ')}
-                                            </Text>
-                                        )}
-                                    </View>
-                                </View>
-                                <IconButton
-                                    icon="delete"
-                                    iconColor={surfaceTokens.error}
-                                    size={20}
-                                    onPress={() => setConfirmRemove(item)}
-                                    disabled={deleteLoadingId === item.id}
-                                    style={styles.deleteButton}
-                                />
+            {showSkeleton ? (
+                <View style={styles.skeletonContainer}>
+                    {[1, 2, 3].map((i) => (
+                        <Card key={i} style={styles.card}>
+                            <Card.Content>
+                                <ActivityIndicator />
                             </Card.Content>
                         </Card>
-                    ))
-                )}
-            </ScrollView>
+                    ))}
+                </View>
+            ) : (
+                <FlatList
+                    data={data}
+                    renderItem={renderStaffItem}
+                    keyExtractor={(item) => String(item.id)}
+                    style={styles.list}
+                    contentContainerStyle={styles.listContent}
+                    ListEmptyComponent={
+                        <Text style={styles.emptyText}>No staff yet. Use "Invite Staff" to add members.</Text>
+                    }
+                />
+            )}
 
             {/* Invite Modal - Simplified for mobile */}
             <Portal>
@@ -837,3 +854,4 @@ const styles = StyleSheet.create({
     divider: { marginVertical: 8 },
     modalActions: { flexDirection: 'row', gap: 8, marginTop: 16, justifyContent: 'flex-end' },
 });
+

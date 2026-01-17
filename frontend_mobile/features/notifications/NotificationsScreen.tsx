@@ -43,10 +43,10 @@ export default function NotificationsScreen() {
           : [];
       setNotifications(list);
       if (markAllRead) {
-        const unreadIds = list.filter((n) => !n.read_at).map((n) => n.id);
+        const unreadIds = list.filter((n: Notification) => !n.read_at).map((n: Notification) => n.id);
         if (unreadIds.length) {
           setNotifications((prev) =>
-            prev.map((n) => (unreadIds.includes(n.id) ? { ...n, read_at: new Date().toISOString() } : n))
+            prev.map((n: Notification) => (unreadIds.includes(n.id) ? { ...n, read_at: new Date().toISOString() } : n))
           );
           void markNotificationsAsRead(unreadIds);
         }
@@ -95,7 +95,13 @@ export default function NotificationsScreen() {
     >
       <View style={styles.iconContainer}>
         <Surface style={styles.iconSurface} elevation={0}>
-          <IconButton icon={getIconForType(item.type)} size={24} iconColor="#6366F1" />
+          <IconButton
+            icon={getIconForType(item.type)}
+            size={24}
+            iconColor="#6366F1"
+            accessibilityLabel={`Notification type ${item.type}`}
+            accessibilityRole="button"
+          />
         </Surface>
         {!item.read_at && <Badge size={8} style={styles.unreadDot} />}
       </View>
@@ -115,7 +121,14 @@ export default function NotificationsScreen() {
       </View>
 
       {!item.read_at && (
-        <IconButton icon="check" size={20} onPress={() => markAsRead(item.id)} iconColor="#6B7280" />
+        <IconButton
+          icon="check"
+          size={20}
+          onPress={() => markAsRead(item.id)}
+          iconColor="#6B7280"
+          accessibilityLabel="Mark notification as read"
+          accessibilityRole="button"
+        />
       )}
     </Surface>
   );
@@ -123,13 +136,18 @@ export default function NotificationsScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <IconButton icon="arrow-left" onPress={() => router.back()} />
+        <IconButton
+          icon="arrow-left"
+          onPress={() => router.back()}
+          accessibilityLabel="Go back"
+          accessibilityRole="button"
+        />
         <Text variant="headlineSmall" style={styles.headerTitle}>
           Notifications
         </Text>
-        {notifications.filter((n) => !n.read_at).length > 0 && (
+        {notifications.filter((n: Notification) => !n.read_at).length > 0 && (
           <Badge style={styles.headerBadge}>
-            {`${notifications.filter((n) => !n.read_at).length} new`}
+            {`${notifications.filter((n: Notification) => !n.read_at).length} new`}
           </Badge>
         )}
       </View>

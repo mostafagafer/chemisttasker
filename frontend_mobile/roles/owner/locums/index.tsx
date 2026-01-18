@@ -169,7 +169,7 @@ export default function ManageLocumsScreen() {
 
     if (loading) {
         return (
-            <SafeAreaView style={styles.container}>
+            <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
                 <View style={styles.center}>
                     <ActivityIndicator size="large" color="#6366F1" />
                     <Text style={styles.muted}>Loading locums...</Text>
@@ -179,7 +179,7 @@ export default function ManageLocumsScreen() {
     }
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
             <View style={styles.header}>
                 <Text variant="headlineSmall" style={styles.title}>Manage Locums</Text>
                 <Text variant="bodyMedium" style={styles.subtitle}>Locums, favourites, and applicants</Text>

@@ -199,9 +199,6 @@ export default function PharmacistTabs() {
             backgroundColor: '#FFFFFF',
             borderTopWidth: 1,
             borderTopColor: '#E5E7EB',
-            height: 65,
-            paddingBottom: 8,
-            paddingTop: 8,
           },
           tabBarLabelStyle: {
             fontSize: 11,

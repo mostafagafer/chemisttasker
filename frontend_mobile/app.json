@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "chemisttasker",
+    "name": "ChemistTasker",
     "slug": "chemisttasker",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/Chemisttasker-icon-zoomedout.png",
+    "icon": "./assets/images/ChatGPT Image Jan 18, 2026, 08_14_43 PM.png",
     "scheme": "frontendmobile",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -51,10 +51,10 @@
     "android": {
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/Chemisttasker-icon-zoomedout.png",
+        "foregroundImage": "./assets/images/ChatGPT Image Jan 18, 2026, 08_14_43 PM.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
+      "edgeToEdgeEnabled": false,
       "package": "com.chemisttasker.app",
       "versionCode": 1
     },
@@ -68,7 +68,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/Chemisttasker-icon-1024.png",
+          "image": "./assets/images/ChatGPT Image Jan 18, 2026, 08_14_43 PM.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"

@@ -136,7 +136,7 @@ export default function ExplorerProfileScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
         <View style={styles.header}>
           {profilePhoto ? (

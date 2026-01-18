@@ -5,7 +5,7 @@ import { Text } from 'react-native-paper';
 
 export default function InvoicesPlaceholder() {
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.center}>
         <Text variant="titleMedium">Invoices</Text>
         <Text variant="bodyMedium" style={styles.sub}>

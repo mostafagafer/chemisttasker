@@ -54,7 +54,7 @@ export default function AuthLayout({ title, children, showTitle = true }: AuthLa
   const swayY = swayAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 14] });
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <LinearGradient colors={['#f7f9fb', '#eef1f7']} style={StyleSheet.absoluteFillObject} />
       <Animated.View
         pointerEvents="none"

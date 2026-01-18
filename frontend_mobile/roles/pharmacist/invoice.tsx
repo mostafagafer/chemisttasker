@@ -73,7 +73,7 @@ export default function PharmacistInvoiceScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text variant="headlineMedium" style={styles.headerTitle}>Invoices</Text>

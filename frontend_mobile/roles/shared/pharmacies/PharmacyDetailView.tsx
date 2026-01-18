@@ -46,7 +46,7 @@ export default function PharmacyDetailView({
     );
 
     return (
-        <SafeAreaView style={styles.container} edges={['bottom']}>
+        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
             {/* Quick Actions */}
             <View style={styles.quickActions}>
                 <Card style={styles.actionCard}>

@@ -529,7 +529,7 @@ const pinnedMessage = useMemo(() => {
     };
 
     return (
-        <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
             <View style={styles.container}>
             <Stack.Screen options={{
                 headerShown: true,

@@ -126,7 +126,7 @@ export default function ManageStaffScreen() {
 
     if (loading) {
         return (
-            <SafeAreaView style={styles.container}>
+            <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
                 <View style={styles.center}>
                     <ActivityIndicator size="large" color="#6366F1" />
                     <Text style={styles.muted}>Loading staff...</Text>
@@ -136,7 +136,7 @@ export default function ManageStaffScreen() {
     }
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
             <View style={styles.header}>
                 <Text variant="headlineSmall" style={styles.title}>Manage Staff</Text>
                 <Text variant="bodyMedium" style={styles.subtitle}>Rostered employees and admins</Text>

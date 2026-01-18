@@ -64,7 +64,7 @@ export default function ShiftBoardTabsPage() {
     );
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
             {/* Hero Header */}
             <Animated.View style={[styles.heroWrapper, { height: heroHeight }]}>
                 <Card style={styles.heroCard} mode="elevated">

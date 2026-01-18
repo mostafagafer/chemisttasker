@@ -214,7 +214,7 @@ export default function InvoiceList({ basePath }: Props) {
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text variant="headlineMedium" style={styles.headerTitle}>

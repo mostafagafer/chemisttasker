@@ -103,7 +103,7 @@ export default function PharmacistAvailabilityScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text variant="headlineMedium" style={styles.headerTitle}>Availability</Text>
         <Text variant="bodyMedium" style={styles.headerSubtitle}>Manage your working hours</Text>

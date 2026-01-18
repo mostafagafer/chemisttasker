@@ -1013,7 +1013,7 @@ export default function PostShiftScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
             <ScrollView contentContainerStyle={styles.content} style={{ flex: 1 }}>
                 <Text variant="headlineMedium" style={styles.title}>
                     {editingId ? 'Edit Shift' : 'Create a New Shift'}

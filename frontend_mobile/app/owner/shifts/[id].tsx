@@ -1,2 +1,2 @@
-export { default } from '@/roles/owner/shifts/[id]';
+export { default } from '../../../roles/owner/shifts/[id]';
 

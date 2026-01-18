@@ -24,7 +24,19 @@ export default function ExplorerTabs() {
   }, [router, user?.role]);
 
   return (
-    <Tabs>
+    <Tabs
+      screenOptions={{
+        tabBarStyle: {
+          backgroundColor: '#FFFFFF',
+          borderTopWidth: 1,
+          borderTopColor: '#E5E7EB',
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+        },
+      }}
+    >
       <Tabs.Screen
         name="profile"
         options={{ title: 'Profile', tabBarAccessibilityLabel: 'Profile tab' }}

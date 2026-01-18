@@ -184,7 +184,7 @@ export default function PharmacistMessageDetailScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <Stack.Screen options={{
           headerShown: true,

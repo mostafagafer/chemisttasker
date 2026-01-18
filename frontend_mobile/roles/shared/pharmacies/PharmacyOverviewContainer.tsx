@@ -233,7 +233,7 @@ export default function PharmacyOverviewContainer() {
     };
 
     return (
-        <SafeAreaView style={styles.container} edges={['top']}>
+        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
             {/* Header */}
             <Appbar.Header elevated>
                 {view !== 'list' && (

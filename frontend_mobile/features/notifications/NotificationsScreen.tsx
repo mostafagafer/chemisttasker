@@ -1,23 +1,27 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
+import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
 import { Text, Surface, IconButton, Badge, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared-core';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
+import { useAuth } from '@/context/AuthContext';
+import { resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
 
 type Notification = {
   id: number;
   title: string;
   body: string;
-  created_at: string;
-  read_at?: string | null;
+  createdAt: string;
+  readAt?: string | null;
   type: string;
-  related_id?: number;
+  actionUrl?: string | null;
+  payload?: Record<string, any>;
 };
 
 export default function NotificationsScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -33,6 +37,17 @@ export default function NotificationsScreen() {
     }, [])
   );
 
+  const normalizeNotification = (raw: any): Notification => ({
+    id: raw.id,
+    title: raw.title,
+    body: raw.body,
+    createdAt: raw.created_at ?? raw.createdAt ?? '',
+    readAt: raw.read_at ?? raw.readAt ?? null,
+    type: raw.type || 'system',
+    actionUrl: raw.action_url ?? raw.actionUrl ?? null,
+    payload: raw.payload ?? {},
+  });
+
   const fetchNotifications = async (markAllRead = false) => {
     try {
       const response = await getNotifications();
@@ -41,12 +56,13 @@ export default function NotificationsScreen() {
         : Array.isArray(response)
           ? (response as any)
           : [];
-      setNotifications(list);
+      const normalized = list.map(normalizeNotification);
+      setNotifications(normalized);
       if (markAllRead) {
-        const unreadIds = list.filter((n: Notification) => !n.read_at).map((n: Notification) => n.id);
+        const unreadIds = normalized.filter((n: Notification) => !n.readAt).map((n: Notification) => n.id);
         if (unreadIds.length) {
           setNotifications((prev) =>
-            prev.map((n: Notification) => (unreadIds.includes(n.id) ? { ...n, read_at: new Date().toISOString() } : n))
+            prev.map((n: Notification) => (unreadIds.includes(n.id) ? { ...n, readAt: new Date().toISOString() } : n))
           );
           void markNotificationsAsRead(unreadIds);
         }
@@ -67,7 +83,7 @@ export default function NotificationsScreen() {
   const markAsRead = async (id: number) => {
     try {
       setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, read_at: new Date().toISOString() } : n))
+        prev.map((n) => (n.id === id ? { ...n, readAt: new Date().toISOString() } : n))
       );
       await markNotificationsAsRead([id]);
     } catch (error) {
@@ -88,11 +104,26 @@ export default function NotificationsScreen() {
     }
   };
 
+  const handleNotificationPress = (item: Notification) => {
+    if (!item.readAt) {
+      void markAsRead(item.id);
+    }
+    const route = resolveShiftNotificationRoute({
+      actionUrl: item.actionUrl,
+      payload: item.payload,
+      userRole: user?.role ?? null,
+    });
+    if (route) {
+      router.push(route as any);
+    }
+  };
+
   const renderItem = ({ item }: { item: Notification }) => (
-    <Surface
-      style={[styles.notificationItem, !item.read_at && styles.unreadItem]}
-      elevation={1}
-    >
+    <TouchableOpacity onPress={() => handleNotificationPress(item)} activeOpacity={0.85}>
+      <Surface
+        style={[styles.notificationItem, !item.readAt && styles.unreadItem]}
+        elevation={1}
+      >
       <View style={styles.iconContainer}>
         <Surface style={styles.iconSurface} elevation={0}>
           <IconButton
@@ -103,7 +134,7 @@ export default function NotificationsScreen() {
             accessibilityRole="button"
           />
         </Surface>
-        {!item.read_at && <Badge size={8} style={styles.unreadDot} />}
+        {!item.readAt && <Badge size={8} style={styles.unreadDot} />}
       </View>
 
       <View style={styles.contentContainer}>
@@ -112,7 +143,7 @@ export default function NotificationsScreen() {
             {item.title}
           </Text>
           <Text variant="bodySmall" style={styles.time}>
-            {item.created_at ? new Date(item.created_at).toLocaleDateString() : ''}
+            {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ''}
           </Text>
         </View>
         <Text variant="bodyMedium" style={styles.message} numberOfLines={2}>
@@ -120,7 +151,7 @@ export default function NotificationsScreen() {
         </Text>
       </View>
 
-      {!item.read_at && (
+      {!item.readAt && (
         <IconButton
           icon="check"
           size={20}
@@ -130,7 +161,8 @@ export default function NotificationsScreen() {
           accessibilityRole="button"
         />
       )}
-    </Surface>
+      </Surface>
+    </TouchableOpacity>
   );
 
   return (
@@ -145,9 +177,9 @@ export default function NotificationsScreen() {
         <Text variant="headlineSmall" style={styles.headerTitle}>
           Notifications
         </Text>
-        {notifications.filter((n: Notification) => !n.read_at).length > 0 && (
+        {notifications.filter((n: Notification) => !n.readAt).length > 0 && (
           <Badge style={styles.headerBadge}>
-            {`${notifications.filter((n: Notification) => !n.read_at).length} new`}
+            {`${notifications.filter((n: Notification) => !n.readAt).length} new`}
           </Badge>
         )}
       </View>

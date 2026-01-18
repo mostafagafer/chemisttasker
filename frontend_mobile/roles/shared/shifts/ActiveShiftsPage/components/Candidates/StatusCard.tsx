@@ -154,10 +154,12 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'flex-start',
+        gap: customTheme.spacing.sm,
         marginBottom: customTheme.spacing.sm,
     },
     memberInfo: {
         flex: 1,
+        flexShrink: 1,
     },
     memberName: {
         fontSize: 14,
@@ -173,9 +175,11 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         gap: customTheme.spacing.xs,
         flexWrap: 'wrap',
+        alignItems: 'flex-start',
     },
     reviewButton: {
         marginTop: customTheme.spacing.sm,
+        alignSelf: 'flex-start',
     },
     emptyText: {
         textAlign: 'center',

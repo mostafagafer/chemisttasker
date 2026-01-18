@@ -3,7 +3,7 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { Text, Button, IconButton, Snackbar, ActivityIndicator, Card, Divider } from 'react-native-paper';
+import { Text, Button, IconButton, Snackbar, ActivityIndicator, Card, Divider, Chip } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
@@ -40,7 +40,7 @@ import {
 } from './utils/shiftHelpers';
 import { findInterestForOffer } from './utils/candidateHelpers';
 import { mapOfferSlotsWithShift } from './utils/offerHelpers';
-import { getCardBorderColor } from './utils/displayHelpers';
+import { getCardBorderColor, getLevelLabel } from './utils/displayHelpers';
 
 // Types
 import { ReviewOfferDialogState, DeleteConfirmDialogState } from './types';
@@ -115,6 +115,10 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
         return offerSlots
             .map((s: any) => s.slot_id ?? s.slotId ?? s.slot?.id ?? null)
             .filter((id: any) => id != null);
+    }, []);
+
+    const resolveSlotId = useCallback((slot: any): number | null => {
+        return slot?.id ?? slot?.slotId ?? slot?.slot_id ?? null;
     }, []);
 
     const handleRevealInterest = useCallback(async (shift: Shift, interest: ShiftInterest) => {
@@ -459,7 +463,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                     const currentTabData = tabData[tabKey] || { loading: false };
                     const selectedSlotId = isSingleUserShift
                         ? null
-                        : selectedSlotByShift[shift.id] ?? shift.slots?.[0]?.id ?? null;
+                        : selectedSlotByShift[shift.id] ?? resolveSlotId(shift.slots?.[0]) ?? null;
                     const offers = counterOffersByShift[shift.id];
                     const counterOffersLoaded = Object.prototype.hasOwnProperty.call(counterOffersByShift, shift.id);
                     const counterOffersLoading = counterOffersLoadingByShift[shift.id] ?? false;
@@ -470,6 +474,11 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                     const cardBorderColor = getCardBorderColor((shift as any).visibility ?? 'PLATFORM');
                     const summaryText = getShiftSummary(shift);
                     const location = getLocationText(shift);
+                    const roleNeeded = (shift as any).roleNeeded ?? (shift as any).role_needed ?? null;
+                    const employmentType = (shift as any).employmentType ?? (shift as any).employment_type ?? null;
+                    const isUrgent = Boolean((shift as any).isUrgent ?? (shift as any).is_urgent);
+                    const description = (shift as any).description ?? null;
+                    const hasBadges = Boolean(roleNeeded || employmentType || isUrgent);
 
                     return (
                         <Card
@@ -480,6 +489,8 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                 <Card.Title
                                     title={(shift as any).pharmacyDetail?.name ?? 'Unnamed Pharmacy'}
                                     subtitle={summaryText}
+                                    titleStyle={styles.cardTitle}
+                                    subtitleStyle={styles.cardSubtitle}
                                     right={() => (
                                         <IconButton icon={isExpanded ? 'chevron-up' : 'chevron-down'} size={20} />
                                     )}
@@ -487,6 +498,29 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                             </TouchableOpacity>
 
                             <Card.Content>
+                                {hasBadges ? (
+                                    <View style={styles.badgeRow}>
+                                        {roleNeeded && (
+                                            <Chip
+                                                style={[styles.primaryBadge, { backgroundColor: cardBorderColor }]}
+                                                textStyle={styles.primaryBadgeText}
+                                            >
+                                                {roleNeeded}
+                                            </Chip>
+                                        )}
+                                        {employmentType && (
+                                            <Chip mode="outlined" style={styles.outlineBadge}>
+                                                {employmentType}
+                                            </Chip>
+                                        )}
+                                        {isUrgent && (
+                                            <Chip style={styles.urgentBadge} textStyle={styles.urgentBadgeText}>
+                                                Urgent
+                                            </Chip>
+                                        )}
+                                    </View>
+                                ) : null}
+
                                 <View style={styles.metaRow}>
                                     <Text style={styles.location} numberOfLines={1}>
                                         {location}
@@ -497,17 +531,20 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                             size={20}
                                             onPress={() => handleShare(shift)}
                                             disabled={sharingShiftId === shift.id}
+                                            style={styles.actionButton}
                                         />
                                         <IconButton
                                             icon="pencil"
                                             size={20}
                                             onPress={() => handleEditShift(shift)}
+                                            style={styles.actionButton}
                                         />
                                         <IconButton
                                             icon="delete"
                                             size={20}
                                             onPress={() => setDeleteConfirmDialog({ open: true, shiftId: shift.id })}
                                             disabled={actionLoading[`delete_${shift.id}`]}
+                                            style={styles.actionButton}
                                         />
                                     </View>
                                 </View>
@@ -515,6 +552,12 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                 {isExpanded && (
                                     <>
                                         <Divider style={styles.divider} />
+
+                                        {description ? (
+                                            <View style={styles.descriptionBox}>
+                                                <Text style={styles.descriptionText}>{description}</Text>
+                                            </View>
+                                        ) : null}
 
                                         <EscalationStepper
                                             shift={shift}
@@ -535,6 +578,14 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                         />
 
                                         <Divider style={styles.divider} />
+
+                                        <View style={styles.sectionHeader}>
+                                            <Divider style={styles.sectionDivider} />
+                                            <Chip mode="outlined" style={styles.sectionChip}>
+                                                Candidates for {getLevelLabel(selectedLevel)}
+                                            </Chip>
+                                            <Divider style={styles.sectionDivider} />
+                                        </View>
 
                                         {currentTabData.loading ? (
                                             <ActivityIndicator style={{ padding: 20 }} />
@@ -646,6 +697,16 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: customTheme.colors.text,
     },
+    cardTitle: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: customTheme.colors.text,
+    },
+    cardSubtitle: {
+        fontSize: 13,
+        color: customTheme.colors.textMuted,
+        marginTop: 2,
+    },
     loadingContainer: {
         flex: 1,
         justifyContent: 'center',
@@ -671,6 +732,29 @@ const styles = StyleSheet.create({
         borderLeftWidth: 4,
         borderLeftColor: customTheme.colors.border,
     },
+    badgeRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: customTheme.spacing.xs,
+        marginBottom: customTheme.spacing.sm,
+    },
+    primaryBadge: {
+        borderWidth: 0,
+    },
+    primaryBadgeText: {
+        color: '#fff',
+        fontWeight: '600',
+    },
+    outlineBadge: {
+        borderColor: customTheme.colors.border,
+    },
+    urgentBadge: {
+        backgroundColor: customTheme.colors.errorLight,
+    },
+    urgentBadgeText: {
+        color: customTheme.colors.error,
+        fontWeight: '600',
+    },
     metaRow: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -685,9 +769,39 @@ const styles = StyleSheet.create({
     headerActions: {
         flexDirection: 'row',
         alignItems: 'center',
+        gap: customTheme.spacing.xs,
+    },
+    actionButton: {
+        margin: 0,
     },
     divider: {
         marginVertical: customTheme.spacing.md,
+    },
+    descriptionBox: {
+        backgroundColor: '#F9FAFB',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: customTheme.colors.border,
+        padding: customTheme.spacing.md,
+        marginBottom: customTheme.spacing.md,
+    },
+    descriptionText: {
+        color: customTheme.colors.text,
+        fontSize: 13,
+        lineHeight: 18,
+    },
+    sectionHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: customTheme.spacing.sm,
+        marginBottom: customTheme.spacing.sm,
+    },
+    sectionDivider: {
+        flex: 1,
+    },
+    sectionChip: {
+        backgroundColor: '#fff',
+        borderColor: customTheme.colors.border,
     },
 });
 

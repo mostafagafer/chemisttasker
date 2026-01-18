@@ -2,7 +2,7 @@
 // Integrates Staff Manager, Locum Manager, and Pharmacy Admins
 
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { Card, Text, Button, SegmentedButtons } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type MembershipDTO, type PharmacyAdminDTO, type PharmacyDTO } from '@chemisttasker/shared-core';
@@ -91,7 +91,7 @@ export default function PharmacyDetailView({
             </View>
 
             {/* Content */}
-            <ScrollView style={styles.content}>
+            <View style={styles.content}>
                 {activeTab === 'staff' && (
                     <StaffManager
                         pharmacyId={pharmacy.id}
@@ -121,7 +121,7 @@ export default function PharmacyDetailView({
                         pharmacyName={pharmacy.name}
                     />
                 )}
-            </ScrollView>
+            </View>
         </SafeAreaView>
     );
 }

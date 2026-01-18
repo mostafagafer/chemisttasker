@@ -494,10 +494,13 @@ export default function StaffManager({
                 <Card.Content style={styles.cardContent}>
                     <View style={styles.cardHeader}>
                         <View style={styles.chips}>
-                            <Chip style={[styles.chip, { backgroundColor: getRoleChipColor(item.role) }]}>
+                            <Chip
+                                style={[styles.chip, { backgroundColor: getRoleChipColor(item.role) }]}
+                                textStyle={styles.chipText}
+                            >
                                 {item.role.replace('_', ' ')}
                             </Chip>
-                            <Chip style={styles.chip} mode="outlined">
+                            <Chip style={styles.chip} mode="outlined" textStyle={styles.chipText}>
                                 {item.workType.replace('_', ' ')}
                             </Chip>
                         </View>
@@ -710,14 +713,20 @@ export default function StaffManager({
                             </View>
                         ))}
                         <Button onPress={addInviteRow}>Add Another</Button>
-                        <View style={styles.modalActions}>
-                            <Button mode="outlined" onPress={() => setInviteOpen(false)}>
-                                Cancel
-                            </Button>
-                            <Button mode="contained" onPress={handleSendInvites} loading={inviteSubmitting} disabled={inviteSubmitting}>
-                                {inviteSubmitting ? 'Sending...' : 'Send Invitations'}
-                            </Button>
-                        </View>
+                    <View style={styles.modalActions}>
+                        <Button mode="outlined" onPress={() => setInviteOpen(false)} style={styles.modalActionButton}>
+                            Cancel
+                        </Button>
+                        <Button
+                            mode="contained"
+                            onPress={handleSendInvites}
+                            loading={inviteSubmitting}
+                            disabled={inviteSubmitting}
+                            style={styles.modalActionButton}
+                        >
+                            {inviteSubmitting ? 'Sending...' : 'Send Invitations'}
+                        </Button>
+                    </View>
                     </ScrollView>
                 </Modal>
 
@@ -746,13 +755,19 @@ export default function StaffManager({
                         />
                     )}
                     <View style={styles.modalActions}>
-                        <Button mode="outlined" onPress={() => setLinkOpen(false)}>
+                        <Button mode="outlined" onPress={() => setLinkOpen(false)} style={styles.modalActionButton}>
                             Close
                         </Button>
-                        <Button mode="contained" onPress={handleGenerateLink} loading={linkSubmitting} disabled={linkSubmitting}>
+                        <Button
+                            mode="contained"
+                            onPress={handleGenerateLink}
+                            loading={linkSubmitting}
+                            disabled={linkSubmitting}
+                            style={styles.modalActionButton}
+                        >
                             {linkSubmitting ? 'Generating...' : 'Generate'}
                         </Button>
-                        <Button mode="contained" onPress={handleCopyLink} disabled={!linkValue}>
+                        <Button mode="contained" onPress={handleCopyLink} disabled={!linkValue} style={styles.modalActionButton}>
                             Copy & Close
                         </Button>
                     </View>
@@ -771,7 +786,12 @@ export default function StaffManager({
                             : "This action can't be undone."}
                     </Text>
                     <View style={styles.modalActions}>
-                        <Button mode="outlined" onPress={() => setConfirmRemove(null)} disabled={!!deleteLoadingId}>
+                        <Button
+                            mode="outlined"
+                            onPress={() => setConfirmRemove(null)}
+                            disabled={!!deleteLoadingId}
+                            style={styles.modalActionButton}
+                        >
                             Cancel
                         </Button>
                         <Button
@@ -780,6 +800,7 @@ export default function StaffManager({
                             onPress={() => confirmRemove && handleRemoveMembership(confirmRemove.id)}
                             loading={deleteLoadingId === confirmRemove?.id}
                             disabled={!!deleteLoadingId}
+                            style={styles.modalActionButton}
                         >
                             {deleteLoadingId === confirmRemove?.id ? 'Removing...' : 'Delete'}
                         </Button>
@@ -810,7 +831,7 @@ const styles = StyleSheet.create({
     card: { marginBottom: 12, backgroundColor: surfaceTokens.bg },
     cardContent: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         paddingVertical: 12,
         paddingHorizontal: 8,
     },
@@ -822,9 +843,17 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         gap: 8,
         marginBottom: 8,
+        flexWrap: 'wrap',
     },
     chip: {
-        height: 24,
+        minHeight: 28,
+        paddingHorizontal: 6,
+        justifyContent: 'center',
+    },
+    chipText: {
+        fontSize: 11,
+        lineHeight: 14,
+        fontWeight: '600',
     },
     staffInfo: {
         justifyContent: 'center',
@@ -852,6 +881,16 @@ const styles = StyleSheet.create({
     helperText: { fontSize: 12, color: surfaceTokens.textMuted, marginBottom: 4 },
     errorText: { fontSize: 12, color: surfaceTokens.error, marginBottom: 4 },
     divider: { marginVertical: 8 },
-    modalActions: { flexDirection: 'row', gap: 8, marginTop: 16, justifyContent: 'flex-end' },
+    modalActions: {
+        flexDirection: 'row',
+        gap: 8,
+        marginTop: 16,
+        flexWrap: 'wrap',
+        justifyContent: 'flex-start',
+    },
+    modalActionButton: {
+        flexGrow: 1,
+        minWidth: 120,
+    },
 });
 

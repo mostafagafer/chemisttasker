@@ -171,6 +171,7 @@ export default function PublicLevelView({
                                             onPress={() => onReveal(shift, interest)}
                                             disabled={isRevealing}
                                             loading={isRevealing}
+                                            style={styles.interestButton}
                                         >
                                             {interest.revealed ? 'Review' : 'Reveal'}
                                         </Button>
@@ -225,11 +226,16 @@ const styles = StyleSheet.create({
     interestRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center',
+        alignItems: 'flex-start',
+        gap: customTheme.spacing.sm,
     },
     interestName: {
         fontSize: 14,
         color: customTheme.colors.text,
         flex: 1,
+        flexShrink: 1,
+    },
+    interestButton: {
+        alignSelf: 'flex-start',
     },
 });

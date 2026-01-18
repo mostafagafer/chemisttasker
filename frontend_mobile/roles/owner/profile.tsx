@@ -4,7 +4,7 @@ import { Text, Avatar, List, Button, Surface, Divider, Switch, IconButton, Card,
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
-import { getOnboarding, deleteAccount } from '@chemisttasker/shared-core';
+import { getOnboarding, deleteAccount, updateOnboardingForm } from '@chemisttasker/shared-core';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -20,15 +20,17 @@ interface UserProfile {
 
 export default function OwnerProfileScreen() {
   const router = useRouter();
-  const { logout } = useAuth();
+  const { logout, refreshUser } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteText, setDeleteText] = useState('');
   const [deleting, setDeleting] = useState(false);
   const webBaseUrl = 'https://www.chemisttasker.com.au';
+  const imageMediaTypes = (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
   const menuItems = [
     {
       title: 'Personal Information',
@@ -86,6 +88,33 @@ export default function OwnerProfileScreen() {
     }
   };
 
+  const uploadProfilePhoto = async (asset: ImagePicker.ImagePickerAsset) => {
+    if (!asset?.uri) return;
+    const filename = asset.fileName || `profile-photo-${Date.now()}.jpg`;
+    const type = asset.mimeType || 'image/jpeg';
+    const formData = new FormData();
+    formData.append('profile_photo', {
+      uri: asset.uri,
+      name: filename,
+      type,
+    } as any);
+
+    setUploading(true);
+    try {
+      const updated: any = await updateOnboardingForm('owner', formData);
+      const newUrl = updated?.profile_photo_url || updated?.profile_photo || null;
+      if (newUrl) {
+        setProfilePhoto(newUrl);
+      }
+      await refreshUser();
+      await fetchProfile();
+    } catch (err: any) {
+      Alert.alert('Upload failed', err?.message || 'Failed to upload profile photo.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const pickImage = async () => {
     Alert.alert('Update Profile Photo', 'Choose an option', [
       {
@@ -97,13 +126,14 @@ export default function OwnerProfileScreen() {
             return;
           }
           const result = await ImagePicker.launchCameraAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: imageMediaTypes,
             allowsEditing: true,
             aspect: [1, 1],
             quality: 0.8,
           });
           if (!result.canceled && result.assets[0]) {
             setProfilePhoto(result.assets[0].uri);
+            await uploadProfilePhoto(result.assets[0]);
           }
         },
       },
@@ -116,13 +146,14 @@ export default function OwnerProfileScreen() {
             return;
           }
           const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: imageMediaTypes,
             allowsEditing: true,
             aspect: [1, 1],
             quality: 0.8,
           });
           if (!result.canceled && result.assets[0]) {
             setProfilePhoto(result.assets[0].uri);
+            await uploadProfilePhoto(result.assets[0]);
           }
         },
       },

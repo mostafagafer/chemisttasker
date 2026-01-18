@@ -223,10 +223,10 @@ export default function PharmacyAdmins({
                                     />
                                 </View>
                                 <View style={styles.chips}>
-                                    <Chip style={styles.chip} mode="outlined">
+                                    <Chip style={styles.chip} mode="outlined" textStyle={styles.chipText}>
                                         {admin.staff_role || 'N/A'}
                                     </Chip>
-                                    <Chip style={[styles.chip, styles.levelChip]}>
+                                    <Chip style={[styles.chip, styles.levelChip]} textStyle={styles.chipText}>
                                         {admin.admin_level || 'N/A'}
                                     </Chip>
                                 </View>
@@ -335,7 +335,7 @@ export default function PharmacyAdmins({
                         />
 
                         <View style={styles.modalActions}>
-                            <Button mode="outlined" onPress={() => setInviteOpen(false)}>
+                            <Button mode="outlined" onPress={() => setInviteOpen(false)} style={styles.modalActionButton}>
                                 Cancel
                             </Button>
                             <Button
@@ -343,6 +343,7 @@ export default function PharmacyAdmins({
                                 onPress={handleInviteAdmin}
                                 loading={submitting}
                                 disabled={submitting}
+                                style={styles.modalActionButton}
                             >
                                 {submitting ? 'Inviting...' : 'Invite Admin'}
                             </Button>
@@ -362,7 +363,12 @@ export default function PharmacyAdmins({
                             : "This action can't be undone."}
                     </Text>
                     <View style={styles.modalActions}>
-                        <Button mode="outlined" onPress={() => setConfirmRemove(null)} disabled={!!loadingId}>
+                        <Button
+                            mode="outlined"
+                            onPress={() => setConfirmRemove(null)}
+                            disabled={!!loadingId}
+                            style={styles.modalActionButton}
+                        >
                             Cancel
                         </Button>
                         <Button
@@ -371,6 +377,7 @@ export default function PharmacyAdmins({
                             onPress={() => confirmRemove && handleRemoveAdmin(confirmRemove.id)}
                             loading={loadingId === confirmRemove?.id}
                             disabled={!!loadingId}
+                            style={styles.modalActionButton}
                         >
                             {loadingId === confirmRemove?.id ? 'Removing...' : 'Delete'}
                         </Button>
@@ -408,7 +415,8 @@ const styles = StyleSheet.create({
     adminName: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
     adminEmail: { fontSize: 14, color: surfaceTokens.textMuted, marginBottom: 8 },
     chips: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-    chip: { height: 28 },
+    chip: { minHeight: 28, paddingHorizontal: 6, justifyContent: 'center' },
+    chipText: { fontSize: 11, lineHeight: 14, fontWeight: '600' },
     levelChip: { backgroundColor: surfaceTokens.primary },
     jobTitle: { fontSize: 14, marginBottom: 4 },
     capabilities: { fontSize: 12, color: surfaceTokens.textMuted },
@@ -429,6 +437,11 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         gap: 8,
         marginTop: 16,
-        justifyContent: 'flex-end',
+        flexWrap: 'wrap',
+        justifyContent: 'flex-start',
+    },
+    modalActionButton: {
+        flexGrow: 1,
+        minWidth: 120,
     },
 });

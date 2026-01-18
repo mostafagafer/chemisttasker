@@ -125,6 +125,7 @@ export default function HubScreen() {
   const [profileMenuVisible, setProfileMenuVisible] = useState(false);
   const defaultPharmacyCover = 'https://placehold.co/1200x400/4F46E5/FFFFFF?text=Pharmacy+Hub';
   const defaultOrgCover = 'https://placehold.co/1200x400/0EA5E9/FFFFFF?text=Organization+Hub';
+  const imageMediaTypes = (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
 
   const pickDefaultSelection = useCallback((data: any): { pharmacyId: number | null; orgId: number | null; selection: ViewSelection } | null => {
     const pharmacies = data?.pharmacies || [];
@@ -282,7 +283,7 @@ export default function HubScreen() {
 
   const pickCoverImage = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: imageMediaTypes,
       allowsEditing: true,
       aspect: [3, 1],
       quality: 0.9,

@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared-core';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
+import { resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
 
 const tabTitles: Record<string, string> = {
   dashboard: 'Home',
@@ -108,6 +109,21 @@ export default function OtherStaffTabs() {
     });
     return () => sub.remove();
   }, [loadUnread]);
+
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data: any = response?.notification?.request?.content?.data || {};
+      const route = resolveShiftNotificationRoute({
+        actionUrl: data.action_url ?? data.actionUrl ?? null,
+        payload: data,
+        userRole: user?.role ?? null,
+      });
+      if (route) {
+        router.push(route as any);
+      }
+    });
+    return () => sub.remove();
+  }, [router, user?.role]);
 
   const openNotifications = useCallback(async () => {
     try {

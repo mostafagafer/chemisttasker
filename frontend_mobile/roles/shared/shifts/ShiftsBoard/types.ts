@@ -6,6 +6,7 @@ import {
     ShiftCounterOfferPayload,
     ShiftCounterOfferSlotPayload,
 } from '@chemisttasker/shared-core';
+import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 
 export type ShiftSlot = NonNullable<Shift['slots']>[number];
 
@@ -88,6 +89,7 @@ export type ShiftsBoardProps = {
     onActiveTabChange?: (tab: 'browse' | 'saved' | 'interested' | 'rejected') => void;
     roleOptionsOverride?: string[];
     slotFilterMode?: SlotFilterMode;
+    onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 };
 
 export type SortKey = 'shiftDate' | 'postedDate' | 'rate' | 'distance';

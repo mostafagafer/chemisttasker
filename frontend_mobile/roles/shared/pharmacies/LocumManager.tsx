@@ -401,17 +401,22 @@ export default function LocumManager({
         ({ item }: { item: Locum }) => (
             <Card key={item.id} style={styles.card}>
                 <Card.Content style={styles.cardContent}>
-                    <View style={styles.chips}>
-                        <Chip style={[styles.chip, { backgroundColor: getRoleChipColor(item.role) }]}>
-                            {item.role.replace('_', ' ')}
-                        </Chip>
-                        <Chip style={styles.chip} mode="outlined">
-                            {item.workType.replace('_', ' ')}
-                        </Chip>
+                    <View style={styles.cardHeader}>
+                        <View style={styles.chips}>
+                            <Chip
+                                style={[styles.chip, { backgroundColor: getRoleChipColor(item.role) }]}
+                                textStyle={styles.chipText}
+                            >
+                                {item.role.replace('_', ' ')}
+                            </Chip>
+                            <Chip style={styles.chip} mode="outlined" textStyle={styles.chipText}>
+                                {item.workType.replace('_', ' ')}
+                            </Chip>
+                        </View>
+                        <Text style={styles.locumName}>
+                            {[item.name, item.email].filter(Boolean).join(' | ')}
+                        </Text>
                     </View>
-                    <Text style={styles.locumName}>
-                        {[item.name, item.email].filter(Boolean).join(' | ')}
-                    </Text>
                     <IconButton
                         icon="delete"
                         iconColor={surfaceTokens.error}
@@ -636,7 +641,7 @@ export default function LocumManager({
                         ))}
                         <Button onPress={addInviteRow}>Add Another</Button>
                         <View style={styles.modalActions}>
-                            <Button mode="outlined" onPress={() => setInviteOpen(false)}>
+                            <Button mode="outlined" onPress={() => setInviteOpen(false)} style={styles.modalActionButton}>
                                 Cancel
                             </Button>
                             <Button
@@ -644,6 +649,7 @@ export default function LocumManager({
                                 onPress={handleSendInvites}
                                 loading={inviteSubmitting}
                                 disabled={inviteSubmitting}
+                                style={styles.modalActionButton}
                             >
                                 {inviteSubmitting ? 'Sending...' : 'Send Invitations'}
                             </Button>
@@ -675,7 +681,7 @@ export default function LocumManager({
                         />
                     )}
                     <View style={styles.modalActions}>
-                        <Button mode="outlined" onPress={() => setLinkOpen(false)}>
+                        <Button mode="outlined" onPress={() => setLinkOpen(false)} style={styles.modalActionButton}>
                             Close
                         </Button>
                         <Button
@@ -683,10 +689,11 @@ export default function LocumManager({
                             onPress={handleGenerateLink}
                             loading={linkSubmitting}
                             disabled={linkSubmitting}
+                            style={styles.modalActionButton}
                         >
                             {linkSubmitting ? 'Generating...' : 'Generate'}
                         </Button>
-                        <Button mode="contained" onPress={handleCopyLink} disabled={!linkValue}>
+                        <Button mode="contained" onPress={handleCopyLink} disabled={!linkValue} style={styles.modalActionButton}>
                             Copy & Close
                         </Button>
                     </View>
@@ -704,7 +711,12 @@ export default function LocumManager({
                             : "This action can't be undone."}
                     </Text>
                     <View style={styles.modalActions}>
-                        <Button mode="outlined" onPress={() => setConfirmRemove(null)} disabled={!!deleteLoadingId}>
+                        <Button
+                            mode="outlined"
+                            onPress={() => setConfirmRemove(null)}
+                            disabled={!!deleteLoadingId}
+                            style={styles.modalActionButton}
+                        >
                             Cancel
                         </Button>
                         <Button
@@ -713,6 +725,7 @@ export default function LocumManager({
                             onPress={() => confirmRemove && handleRemoveMembership(confirmRemove.id)}
                             loading={deleteLoadingId === confirmRemove?.id}
                             disabled={!!deleteLoadingId}
+                            style={styles.modalActionButton}
                         >
                             {deleteLoadingId === confirmRemove?.id ? 'Removing...' : 'Delete'}
                         </Button>
@@ -740,11 +753,13 @@ const styles = StyleSheet.create({
     listContent: { paddingBottom: 16 },
     skeletonContainer: { gap: 12 },
     card: { marginBottom: 12, backgroundColor: surfaceTokens.bg },
-    cardContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    chips: { flexDirection: 'row', gap: 4 },
-    chip: { height: 28 },
-    locumName: { flex: 1, fontSize: 14 },
-    deleteButton: { margin: 0 },
+    cardContent: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+    cardHeader: { flex: 1 },
+    chips: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 6 },
+    chip: { minHeight: 28, paddingHorizontal: 6, justifyContent: 'center' },
+    chipText: { fontSize: 11, lineHeight: 14, fontWeight: '600' },
+    locumName: { flex: 1, fontSize: 14, color: surfaceTokens.text },
+    deleteButton: { margin: 0, marginLeft: 6 },
     emptyText: { textAlign: 'center', padding: 32, color: surfaceTokens.textMuted },
     modal: {
         backgroundColor: surfaceTokens.bg,
@@ -764,6 +779,11 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         gap: 8,
         marginTop: 16,
-        justifyContent: 'flex-end',
+        flexWrap: 'wrap',
+        justifyContent: 'flex-start',
+    },
+    modalActionButton: {
+        flexGrow: 1,
+        minWidth: 120,
     },
 });

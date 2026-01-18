@@ -49,6 +49,7 @@ export default function CounterOfferList({
                                 mode={isRevealLabel ? 'contained' : 'outlined'}
                                 compact
                                 onPress={() => onOpenOffer && onOpenOffer(offer)}
+                                style={styles.offerButton}
                             >
                                 {label}
                             </Button>
@@ -75,12 +76,17 @@ const styles = StyleSheet.create({
     offerRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center',
+        alignItems: 'flex-start',
+        gap: customTheme.spacing.sm,
     },
     offerTitle: {
         fontSize: 14,
         color: customTheme.colors.text,
         flex: 1,
+        flexShrink: 1,
+    },
+    offerButton: {
+        alignSelf: 'flex-start',
     },
     emptyText: {
         textAlign: 'center',

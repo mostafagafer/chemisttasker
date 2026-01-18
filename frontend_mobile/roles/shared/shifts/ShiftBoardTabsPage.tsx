@@ -1,8 +1,8 @@
 // ShiftBoardTabsPage - Mobile wrapper with tabs
 // Simple wrapper that doesn't fetch data, just provides tab UI
 
-import React, { useState, useMemo } from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useMemo, useRef, useState } from 'react';
+import { Animated, StyleSheet, View } from 'react-native';
 import { Text, SegmentedButtons, Card } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -23,6 +23,8 @@ const TABS = [
 export default function ShiftBoardTabsPage() {
     const { workspace } = useWorkspace();
     const [activeTab, setActiveTab] = useState<ShiftBoardTab>('browse');
+    const scrollY = useRef(new Animated.Value(0)).current;
+    const AnimatedText = useMemo(() => Animated.createAnimatedComponent(Text), []);
 
     const subtitle = useMemo(() => {
         switch (activeTab) {
@@ -41,23 +43,44 @@ export default function ShiftBoardTabsPage() {
 
     // Use the appropriate view based on workspace
     const ShiftsView = workspace === 'internal' ? CommunityShiftsView : PublicShiftsView;
+    const heroHeight = scrollY.interpolate({
+        inputRange: [0, 140],
+        outputRange: [150, 70],
+        extrapolate: 'clamp',
+    });
+    const subtitleOpacity = scrollY.interpolate({
+        inputRange: [0, 80],
+        outputRange: [1, 0],
+        extrapolate: 'clamp',
+    });
+    const labelOpacity = scrollY.interpolate({
+        inputRange: [0, 120],
+        outputRange: [1, 0.5],
+        extrapolate: 'clamp',
+    });
+    const handleScroll = Animated.event(
+        [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+        { useNativeDriver: false }
+    );
 
     return (
         <SafeAreaView style={styles.container}>
             {/* Hero Header */}
-            <Card style={styles.heroCard} mode="elevated">
-                <Card.Content>
-                    <Text variant="labelSmall" style={styles.heroLabel}>
-                        SHIFT BOARD
-                    </Text>
-                    <Text variant="headlineMedium" style={styles.heroTitle}>
-                        Discover shifts at a glance
-                    </Text>
-                    <Text variant="bodyMedium" style={styles.heroSubtitle}>
-                        {subtitle}
-                    </Text>
-                </Card.Content>
-            </Card>
+            <Animated.View style={[styles.heroWrapper, { height: heroHeight }]}>
+                <Card style={styles.heroCard} mode="elevated">
+                    <Card.Content>
+                        <AnimatedText variant="labelSmall" style={[styles.heroLabel, { opacity: labelOpacity }]}>
+                            SHIFT BOARD
+                        </AnimatedText>
+                        <Text variant="headlineMedium" style={styles.heroTitle}>
+                            Discover shifts at a glance
+                        </Text>
+                        <AnimatedText variant="bodyMedium" style={[styles.heroSubtitle, { opacity: subtitleOpacity }]}>
+                            {subtitle}
+                        </AnimatedText>
+                    </Card.Content>
+                </Card>
+            </Animated.View>
 
             {/* Tabs */}
             <View style={styles.tabsContainer}>
@@ -84,6 +107,8 @@ export default function ShiftBoardTabsPage() {
                     activeTabOverride={activeTab}
                     onActiveTabChange={(tab) => setActiveTab(tab as ShiftBoardTab)}
                     hideTabs
+                    hideHero
+                    onScroll={handleScroll}
                 />
             </View>
         </SafeAreaView>
@@ -99,6 +124,9 @@ const styles = StyleSheet.create({
         margin: 16,
         marginBottom: 8,
         backgroundColor: '#6366F1',
+    },
+    heroWrapper: {
+        overflow: 'hidden',
     },
     heroLabel: {
         color: 'rgba(255, 255, 255, 0.7)',

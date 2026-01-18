@@ -1,8 +1,8 @@
 // CommunityShiftsView - Mobile implementation using ShiftsBoard
 // Mirrors web logic for filters, pagination, and rejections
 
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Card, Snackbar, SegmentedButtons, Text } from 'react-native-paper';
 import {
     Shift,
@@ -28,6 +28,8 @@ type CommunityShiftsViewProps = {
     activeTabOverride?: 'browse' | 'saved' | 'interested' | 'rejected';
     onActiveTabChange?: (tab: 'browse' | 'saved' | 'interested' | 'rejected') => void;
     hideTabs?: boolean;
+    hideHero?: boolean;
+    onScroll?: (event: any) => void;
 };
 
 const DEFAULT_FILTERS: FilterConfig = {
@@ -50,7 +52,11 @@ export default function CommunityShiftsView({
     activeTabOverride,
     onActiveTabChange,
     hideTabs,
+    hideHero,
+    onScroll,
 }: CommunityShiftsViewProps = {}) {
+    const scrollY = useRef(new Animated.Value(0)).current;
+    const AnimatedText = useMemo(() => Animated.createAnimatedComponent(Text), []);
     const { user } = useAuth();
     const { workspace } = useWorkspace();
     const userId = user?.id;
@@ -293,6 +299,33 @@ export default function CommunityShiftsView({
     const slotFilterMode =
         boardTab === 'interested' ? 'interested' : boardTab === 'rejected' ? 'rejected' : 'all';
     const boardTabForBoard = boardTab === 'saved' ? 'saved' : 'browse';
+    const heroHeight = scrollY.interpolate({
+        inputRange: [0, 140],
+        outputRange: [140, 52],
+        extrapolate: 'clamp',
+    });
+    const subtitleOpacity = scrollY.interpolate({
+        inputRange: [0, 80],
+        outputRange: [1, 0],
+        extrapolate: 'clamp',
+    });
+    const handleScroll = Animated.event(
+        [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+        {
+            useNativeDriver: false,
+            listener: onScroll,
+        }
+    );
+
+    useEffect(() => {
+        if (loading) {
+            Animated.timing(scrollY, {
+                toValue: 140,
+                duration: 250,
+                useNativeDriver: false,
+            }).start();
+        }
+    }, [loading, scrollY]);
 
     if (!userId) return null;
     if (!isWorkspaceReady) {
@@ -306,19 +339,23 @@ export default function CommunityShiftsView({
 
     return (
         <View style={styles.container}>
-            <Card style={styles.heroCard} mode="elevated">
-                <Card.Content>
-                    <Text variant="labelSmall" style={styles.heroLabel}>
-                        SHIFT BOARD
-                    </Text>
-                    <Text variant="headlineMedium" style={styles.heroTitle}>
-                        Discover shifts at a glance
-                    </Text>
-                    <Text variant="bodyMedium" style={styles.heroSubtitle}>
-                        Browse open shifts, review your saved list, and track interested or rejected opportunities.
-                    </Text>
-                </Card.Content>
-            </Card>
+            {!hideHero && (
+                <Animated.View style={[styles.heroWrapper, { height: heroHeight }]}>
+                    <Card style={styles.heroCard} mode="elevated">
+                        <Card.Content>
+                            <Text variant="labelSmall" style={styles.heroLabel}>
+                                SHIFT BOARD
+                            </Text>
+                            <Text variant="headlineMedium" style={styles.heroTitle}>
+                                Discover shifts at a glance
+                            </Text>
+                            <AnimatedText variant="bodyMedium" style={[styles.heroSubtitle, { opacity: subtitleOpacity }]}>
+                                Browse open shifts, review your saved list, and track interested or rejected opportunities.
+                            </AnimatedText>
+                        </Card.Content>
+                    </Card>
+                </Animated.View>
+            )}
 
             {!hideTabs && (
                 <View style={styles.tabsContainer}>
@@ -362,6 +399,7 @@ export default function CommunityShiftsView({
                 onActiveTabChange={(tab) => handleBoardTabChange(tab as any)}
                 onRefresh={() => loadShifts(filters, page)}
                 slotFilterMode={slotFilterMode}
+                onScroll={handleScroll}
             />
             <Snackbar
                 visible={!!error}
@@ -379,23 +417,31 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     heroCard: {
+        flex: 1,
+        backgroundColor: '#4F46E5',
+        borderRadius: 16,
+        overflow: 'hidden',
+    },
+    heroWrapper: {
         margin: 16,
         marginBottom: 8,
-        backgroundColor: '#4F46E5',
+        overflow: 'hidden',
     },
     heroLabel: {
         color: 'rgba(255, 255, 255, 0.7)',
         letterSpacing: 1.6,
         marginBottom: 4,
+        textAlign: 'left',
     },
     heroTitle: {
         color: '#FFFFFF',
         fontWeight: '800',
         marginBottom: 8,
+        textAlign: 'left',
     },
     heroSubtitle: {
         color: 'rgba(255, 255, 255, 0.9)',
-        maxWidth: 560,
+        textAlign: 'left',
     },
     tabsContainer: {
         paddingHorizontal: 16,

@@ -1,6 +1,28 @@
-import { Tabs } from 'expo-router';
+import React, { useEffect } from 'react';
+import { Tabs, useRouter } from 'expo-router';
+import * as Notifications from 'expo-notifications';
+import { useAuth } from '../../context/AuthContext';
+import { resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
 
 export default function ExplorerTabs() {
+  const router = useRouter();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data: any = response?.notification?.request?.content?.data || {};
+      const route = resolveShiftNotificationRoute({
+        actionUrl: data.action_url ?? data.actionUrl ?? null,
+        payload: data,
+        userRole: user?.role ?? null,
+      });
+      if (route) {
+        router.push(route as any);
+      }
+    });
+    return () => sub.remove();
+  }, [router, user?.role]);
+
   return (
     <Tabs>
       <Tabs.Screen

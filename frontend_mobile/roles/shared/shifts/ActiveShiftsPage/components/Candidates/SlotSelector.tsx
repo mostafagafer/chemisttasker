@@ -13,6 +13,17 @@ interface SlotSelectorProps {
 }
 
 export default function SlotSelector({ slots, selectedSlotId, onSelectSlot }: SlotSelectorProps) {
+    const getSlotId = (slot: any): number | null =>
+        (slot?.id ?? slot?.slotId ?? slot?.slot_id ?? null);
+
+    const normalizedSlots = slots
+        .map((slot) => ({ ...slot, _slotId: getSlotId(slot) }))
+        .filter((slot) => slot._slotId != null);
+
+    if (normalizedSlots.length === 0) {
+        return null;
+    }
+
     const formatSlotDate = (slot: any) => {
         const date = new Date(slot.date);
         return `${date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}`;
@@ -23,30 +34,35 @@ export default function SlotSelector({ slots, selectedSlotId, onSelectSlot }: Sl
     const formatLabel = (slot: any) =>
         `${formatSlotDate(slot)} (${formatTime(slot.startTime)} - ${formatTime(slot.endTime)})`;
 
-    const currentIdx = slots.findIndex((s) => s.id === selectedSlotId);
-    const prevId = slots[Math.max(0, currentIdx - 1)]?.id ?? slots[0]?.id ?? null;
+    const currentIdx = normalizedSlots.findIndex((s) => s._slotId === selectedSlotId);
+    const prevId = normalizedSlots[Math.max(0, currentIdx - 1)]?._slotId ?? normalizedSlots[0]?._slotId ?? null;
     const nextId =
-        slots[Math.min(slots.length - 1, currentIdx + 1)]?.id ?? slots[slots.length - 1]?.id ?? null;
+        normalizedSlots[Math.min(normalizedSlots.length - 1, currentIdx + 1)]?._slotId ??
+        normalizedSlots[normalizedSlots.length - 1]?._slotId ?? null;
 
     return (
         <Surface style={styles.container} elevation={0}>
             <IconButton
                 icon="chevron-left"
                 size={20}
-                onPress={() => onSelectSlot(prevId)}
-                disabled={selectedSlotId === prevId}
+                onPress={() => {
+                    if (prevId != null) onSelectSlot(prevId);
+                }}
+                disabled={prevId == null || selectedSlotId === prevId}
+                style={styles.navButton}
             />
             <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
+                style={styles.scrollView}
                 contentContainerStyle={styles.scrollContent}
             >
-                {slots.map((slot) => (
+                {normalizedSlots.map((slot) => (
                     <Button
-                        key={slot.id}
-                        mode={slot.id === selectedSlotId ? 'contained' : 'outlined'}
+                        key={slot._slotId}
+                        mode={slot._slotId === selectedSlotId ? 'contained' : 'outlined'}
                         compact
-                        onPress={() => onSelectSlot(slot.id!)}
+                        onPress={() => onSelectSlot(slot._slotId!)}
                         style={styles.slotButton}
                     >
                         {formatLabel(slot)}
@@ -56,8 +72,11 @@ export default function SlotSelector({ slots, selectedSlotId, onSelectSlot }: Sl
             <IconButton
                 icon="chevron-right"
                 size={20}
-                onPress={() => onSelectSlot(nextId)}
-                disabled={selectedSlotId === nextId}
+                onPress={() => {
+                    if (nextId != null) onSelectSlot(nextId);
+                }}
+                disabled={nextId == null || selectedSlotId === nextId}
+                style={styles.navButton}
             />
         </Surface>
     );
@@ -67,7 +86,9 @@ const styles = StyleSheet.create({
     container: {
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'space-between',
         paddingVertical: customTheme.spacing.sm,
+        paddingHorizontal: customTheme.spacing.xs,
         marginBottom: customTheme.spacing.md,
         backgroundColor: customTheme.colors.greyLight,
         borderRadius: 8,
@@ -75,8 +96,15 @@ const styles = StyleSheet.create({
     scrollContent: {
         paddingHorizontal: customTheme.spacing.xs,
         gap: customTheme.spacing.xs,
+        alignItems: 'center',
+    },
+    scrollView: {
+        flex: 1,
     },
     slotButton: {
         marginHorizontal: 2,
+    },
+    navButton: {
+        margin: 0,
     },
 });

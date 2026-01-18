@@ -15,6 +15,7 @@ export default function OwnerOnboardingStep3() {
 
     const [profilePhoto, setProfilePhoto] = useState<string | null>(data.profile_photo || null);
     const loading = false;
+    const imageMediaTypes = (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
 
     const pickImage = async () => {
         // Request permission
@@ -31,7 +32,7 @@ export default function OwnerOnboardingStep3() {
 
         // Pick image
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: imageMediaTypes,
             allowsEditing: true,
             aspect: [1, 1],
             quality: 0.8,

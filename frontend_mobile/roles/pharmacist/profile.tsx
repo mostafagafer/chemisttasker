@@ -6,10 +6,10 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
-import { deleteAccount } from '@chemisttasker/shared-core';
+import { deleteAccount, updateOnboardingForm } from '@chemisttasker/shared-core';
 
 export default function PharmacistProfileScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const router = useRouter();
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -17,6 +17,7 @@ export default function PharmacistProfileScreen() {
   const [deleteText, setDeleteText] = useState('');
   const [deleting, setDeleting] = useState(false);
   const webBaseUrl = 'https://www.chemisttasker.com.au';
+  const imageMediaTypes = (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
 
   // Seed local photo from user profile (including onboarding photo) when available
   useEffect(() => {
@@ -32,6 +33,32 @@ export default function PharmacistProfileScreen() {
 
   // Profile refresh is handled centrally in AuthContext to avoid repeated calls.
 
+  const uploadProfilePhoto = async (asset: ImagePicker.ImagePickerAsset) => {
+    if (!asset?.uri) return;
+    const filename = asset.fileName || `profile-photo-${Date.now()}.jpg`;
+    const type = asset.mimeType || 'image/jpeg';
+    const formData = new FormData();
+    formData.append('profile_photo', {
+      uri: asset.uri,
+      name: filename,
+      type,
+    } as any);
+
+    setUploading(true);
+    try {
+      const updated: any = await updateOnboardingForm('pharmacist', formData);
+      const newUrl = updated?.profile_photo_url || updated?.profile_photo || null;
+      if (newUrl) {
+        setProfilePhoto(newUrl);
+      }
+      await refreshUser();
+    } catch (err: any) {
+      Alert.alert('Upload failed', err?.message || 'Failed to upload profile photo.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const pickImage = async () => {
     Alert.alert(
       'Update Profile Photo',
@@ -46,15 +73,14 @@ export default function PharmacistProfileScreen() {
               return;
             }
             const result = await ImagePicker.launchCameraAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              mediaTypes: imageMediaTypes,
               allowsEditing: true,
               aspect: [1, 1],
               quality: 0.8,
             });
             if (!result.canceled && result.assets[0]) {
               setProfilePhoto(result.assets[0].uri);
-              // TODO: Upload to backend
-              // uploadPhoto(result.assets[0].uri);
+              await uploadProfilePhoto(result.assets[0]);
             }
           },
         },
@@ -67,15 +93,14 @@ export default function PharmacistProfileScreen() {
               return;
             }
             const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              mediaTypes: imageMediaTypes,
               allowsEditing: true,
               aspect: [1, 1],
               quality: 0.8,
             });
             if (!result.canceled && result.assets[0]) {
               setProfilePhoto(result.assets[0].uri);
-              // TODO: Upload to backend
-              // uploadPhoto(result.assets[0].uri);
+              await uploadProfilePhoto(result.assets[0]);
             }
           },
         },

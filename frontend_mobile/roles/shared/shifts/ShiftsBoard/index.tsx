@@ -73,6 +73,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     onRefresh,
     roleOptionsOverride,
     slotFilterMode: slotFilterModeProp,
+    onScroll,
 }) => {
     const slotFilterMode: SlotFilterMode = slotFilterModeProp ?? 'all';
     const { user, token } = useAuth();
@@ -517,6 +518,8 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                 style={styles.scrollView}
                 contentContainerStyle={styles.scrollContent}
                 showsVerticalScrollIndicator={false}
+                onScroll={onScroll}
+                scrollEventThrottle={16}
             >
                 <View style={styles.header}>
                     <View style={styles.headerText}>

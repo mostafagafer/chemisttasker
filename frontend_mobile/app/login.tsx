@@ -80,7 +80,7 @@ export default function LoginScreen() {
         <TextInput
           label="Work email"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(value) => setEmail(value.toLowerCase())}
           mode="outlined"
           style={styles.input}
           keyboardType="email-address"

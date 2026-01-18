@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Text, Surface, Button, ActivityIndicator } from 'react-native-paper';
 import { EscalationLevelKey, Shift } from '@chemisttasker/shared-core';
 import { customTheme, levelColors } from '../../theme';
@@ -45,7 +45,11 @@ export default function EscalationStepper({
 
     return (
         <View>
-            <View style={styles.container}>
+            <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.container}
+            >
                 {levelSequence.map((level, index) => {
                     const isActive = index === currentIndex;
                     const isSelected = level === selectedLevel;
@@ -54,7 +58,12 @@ export default function EscalationStepper({
                     const selectable = index <= currentIndex + 1 && allowedKeys.has(level);
 
                     return (
-                        <React.Fragment key={level}>
+                        <TouchableOpacity
+                            key={level}
+                            activeOpacity={0.8}
+                            disabled={!selectable}
+                            onPress={() => onSelectLevel(level)}
+                        >
                             <Surface
                                 style={[
                                     styles.step,
@@ -62,6 +71,7 @@ export default function EscalationStepper({
                                         backgroundColor: isActive || isCompleted ? color : customTheme.colors.greyLight,
                                         borderColor: isSelected ? color : customTheme.colors.border,
                                     },
+                                    !selectable && styles.stepDisabled,
                                 ]}
                                 elevation={isActive ? 2 : 0}
                             >
@@ -71,25 +81,14 @@ export default function EscalationStepper({
                                         { color: isActive || isCompleted ? '#fff' : customTheme.colors.textMuted },
                                     ]}
                                     numberOfLines={1}
-                                    onPress={() => {
-                                        if (selectable) onSelectLevel(level);
-                                    }}
                                 >
                                     {getLevelLabel(level)}
                                 </Text>
                             </Surface>
-                            {index < levelSequence.length - 1 && (
-                                <View
-                                    style={[
-                                        styles.connector,
-                                        { backgroundColor: isCompleted ? color : customTheme.colors.border },
-                                    ]}
-                                />
-                            )}
-                        </React.Fragment>
+                        </TouchableOpacity>
                     );
                 })}
-            </View>
+            </ScrollView>
 
             {escalating ? (
                 <View style={styles.escalateBox}>
@@ -113,23 +112,22 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         paddingVertical: customTheme.spacing.md,
+        gap: customTheme.spacing.sm,
     },
     step: {
         paddingHorizontal: customTheme.spacing.sm,
         paddingVertical: customTheme.spacing.xs,
         borderRadius: 16,
         borderWidth: 1,
-        minWidth: 80,
+        minWidth: 110,
         alignItems: 'center',
     },
     stepText: {
         fontSize: 11,
         fontWeight: '600',
     },
-    connector: {
-        height: 2,
-        flex: 1,
-        marginHorizontal: 4,
+    stepDisabled: {
+        opacity: 0.6,
     },
     escalateBox: {
         paddingVertical: customTheme.spacing.md,

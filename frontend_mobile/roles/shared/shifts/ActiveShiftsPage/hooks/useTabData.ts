@@ -15,6 +15,7 @@ export function useTabData(
     getTabKey: (shiftId: number, levelKey: EscalationLevelKey) => string
 ) {
     const [tabData, setTabData] = useState<Record<string, TabDataState>>({});
+    const resolveSlotId = (slot: any): number | null => slot?.id ?? slot?.slotId ?? slot?.slot_id ?? null;
 
     const loadTabDataForShift = useCallback(
         async (shift: Shift, levelKey: EscalationLevelKey) => {
@@ -26,7 +27,9 @@ export function useTabData(
                     const interests = await fetchShiftInterests({ shiftId: shift.id });
                     const interestsBySlot: Record<number, any[]> = {};
                     (shift.slots || []).forEach(slot => {
-                        interestsBySlot[slot.id] = interests.filter((i: any) => i.slotId === slot.id || i.slotId == null);
+                        const slotId = resolveSlotId(slot);
+                        if (slotId == null) return;
+                        interestsBySlot[slotId] = interests.filter((i: any) => i.slotId === slotId || i.slotId == null);
                     });
 
                     setTabData(prev => ({
@@ -42,20 +45,27 @@ export function useTabData(
 
                 const membersBySlotEntries = await Promise.all(
                     (shift.slots || []).map(async slot => {
+                        const slotId = resolveSlotId(slot);
+                        if (slotId == null) {
+                            return [Number.NaN, [] as ShiftMemberStatus[]] as const;
+                        }
                         try {
                             const members = await fetchShiftMemberStatus(shift.id, {
-                                slotId: slot.id,
+                                slotId,
                                 visibility: levelKey,
                             });
-                            return [slot.id, members] as const;
+                            return [slotId, members] as const;
                         } catch (error) {
-                            console.error(`Failed to load members for shift ${shift.id} slot ${slot.id}`, error);
-                            return [slot.id, [] as ShiftMemberStatus[]] as const;
+                            console.error(`Failed to load members for shift ${shift.id} slot ${slotId}`, error);
+                            return [slotId, [] as ShiftMemberStatus[]] as const;
                         }
                     })
                 );
 
                 const membersBySlot = membersBySlotEntries.reduce<Record<number, ShiftMemberStatus[]>>((acc, [slotId, members]) => {
+                    if (!Number.isFinite(slotId)) {
+                        return acc;
+                    }
                     acc[slotId] = members;
                     return acc;
                 }, {});

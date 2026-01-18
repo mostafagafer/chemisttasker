@@ -3,20 +3,33 @@ import { View, StyleSheet, ScrollView, ActivityIndicator, Alert } from 'react-na
 import { Text, Button, Surface, Chip, Divider, List } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getActiveShiftDetail, updateShift } from '@chemisttasker/shared-core';
+import { fetchActiveShiftDetailService, fetchWorkerShiftDetailService, updateShift } from '@chemisttasker/shared-core';
 
 interface Shift {
     id: number;
-    pharmacy_name: string;
+    pharmacy_name?: string;
+    pharmacyName?: string;
+    pharmacyDetail?: { name?: string };
     pharmacy_address?: string;
-    shift_date: string;
-    start_time: string;
-    end_time: string;
-    role: string;
-    hourly_rate: number;
+    shift_date?: string;
+    start_time?: string;
+    end_time?: string;
+    role?: string;
+    role_needed?: string;
+    roleNeeded?: string;
+    hourly_rate?: number | null;
     description?: string;
     applications_count?: number;
-    status: string;
+    status?: string;
+    slots?: Array<{
+        id: number;
+        date?: string;
+        start_time?: string;
+        end_time?: string;
+        startTime?: string;
+        endTime?: string;
+        rate?: number | string | null;
+    }>;
 }
 
 export default function ShiftDetailsScreen() {
@@ -29,7 +42,21 @@ export default function ShiftDetailsScreen() {
     const fetchShift = useCallback(async () => {
         try {
             setError('');
-            const response = await getActiveShiftDetail(id as string);
+            if (!id) {
+                setError('Missing shift id');
+                return;
+            }
+            const shiftId = Number(id);
+            if (!Number.isFinite(shiftId)) {
+                setError('Invalid shift id');
+                return;
+            }
+            let response: any = null;
+            try {
+                response = await fetchActiveShiftDetailService(shiftId);
+            } catch {
+                response = await fetchWorkerShiftDetailService(shiftId);
+            }
             setShift(response as Shift);
         } catch (err: any) {
             console.error('Error fetching shift:', err);
@@ -54,6 +81,10 @@ export default function ShiftDetailsScreen() {
                     style: 'destructive',
                     onPress: async () => {
                         try {
+                            if (!id) {
+                                Alert.alert('Error', 'Missing shift id');
+                                return;
+                            }
                             await updateShift(id as string, { status: 'CANCELLED' });
                             fetchShift();
                         } catch (err: any) {
@@ -75,7 +106,8 @@ export default function ShiftDetailsScreen() {
         }
     };
 
-    const formatDate = (dateStr: string) => {
+    const formatDate = (dateStr?: string) => {
+        if (!dateStr) return 'Date not provided';
         const date = new Date(dateStr);
         return date.toLocaleDateString('en-AU', {
             weekday: 'long',
@@ -85,9 +117,13 @@ export default function ShiftDetailsScreen() {
         });
     };
 
-    const calculateDuration = (start: string, end: string) => {
+    const calculateDuration = (start?: string, end?: string) => {
+        if (!start || !end) return 0;
         const [startHour, startMin] = start.split(':').map(Number);
         const [endHour, endMin] = end.split(':').map(Number);
+        if ([startHour, startMin, endHour, endMin].some((val) => Number.isNaN(val))) {
+            return 0;
+        }
         const durationMinutes = (endHour * 60 + endMin) - (startHour * 60 + startMin);
         return durationMinutes / 60;
     };
@@ -113,8 +149,24 @@ export default function ShiftDetailsScreen() {
         );
     }
 
-    const durationHours = calculateDuration(shift.start_time, shift.end_time);
-    const totalPay = durationHours * shift.hourly_rate;
+    const firstSlot = shift.slots?.[0];
+    const shiftDate = shift.shift_date ?? firstSlot?.date;
+    const startTime = shift.start_time ?? firstSlot?.start_time ?? firstSlot?.startTime;
+    const endTime = shift.end_time ?? firstSlot?.end_time ?? firstSlot?.endTime;
+    const hourlyRate =
+        typeof shift.hourly_rate === 'number'
+            ? shift.hourly_rate
+            : typeof firstSlot?.rate === 'number'
+                ? Number(firstSlot.rate)
+                : typeof firstSlot?.rate === 'string'
+                    ? Number(firstSlot.rate)
+                    : 0;
+    const durationHours = calculateDuration(startTime, endTime);
+    const totalPay = durationHours * hourlyRate;
+    const roleLabel = shift.role ?? shift.role_needed ?? shift.roleNeeded ?? 'Role';
+    const statusLabel = shift.status ?? 'OPEN';
+    const pharmacyLabel =
+        shift.pharmacy_name ?? shift.pharmacyName ?? shift.pharmacyDetail?.name ?? 'Pharmacy';
 
     return (
         <SafeAreaView style={styles.container}>
@@ -122,17 +174,17 @@ export default function ShiftDetailsScreen() {
                 <Surface style={styles.header} elevation={1}>
                     <View style={styles.headerTop}>
                         <Text variant="headlineMedium" style={styles.title}>
-                            {shift.role}
+                            {roleLabel}
                         </Text>
                         <Chip
-                            style={[styles.statusChip, { backgroundColor: `${getStatusColor(shift.status)}20` }]}
-                            textStyle={[styles.statusText, { color: getStatusColor(shift.status) }]}
+                            style={[styles.statusChip, { backgroundColor: `${getStatusColor(statusLabel)}20` }]}
+                            textStyle={[styles.statusText, { color: getStatusColor(statusLabel) }]}
                         >
-                            {shift.status}
+                            {statusLabel}
                         </Chip>
                     </View>
                     <Text variant="bodyLarge" style={styles.pharmacyName}>
-                        {shift.pharmacy_name}
+                        {pharmacyLabel}
                     </Text>
                 </Surface>
 
@@ -143,7 +195,7 @@ export default function ShiftDetailsScreen() {
                     <List.Section>
                         <List.Item
                             title="Date"
-                            description={formatDate(shift.shift_date)}
+                            description={formatDate(shiftDate)}
                             left={props => <List.Icon {...props} icon="calendar" />}
                         />
 
@@ -151,7 +203,11 @@ export default function ShiftDetailsScreen() {
 
                         <List.Item
                             title="Time"
-                            description={`${shift.start_time} - ${shift.end_time} (${durationHours.toFixed(1)} hours)`}
+                            description={
+                                startTime && endTime
+                                    ? `${startTime} - ${endTime} (${durationHours.toFixed(1)} hours)`
+                                    : 'Time not provided'
+                            }
                             left={props => <List.Icon {...props} icon="clock-outline" />}
                         />
 
@@ -171,7 +227,7 @@ export default function ShiftDetailsScreen() {
 
                         <List.Item
                             title="Hourly Rate"
-                            description={`$${shift.hourly_rate.toFixed(2)}/hour`}
+                            description={`$${hourlyRate.toFixed(2)}/hour`}
                             left={props => <List.Icon {...props} icon="currency-usd" />}
                             right={() => (
                                 <View style={styles.totalPayContainer}>

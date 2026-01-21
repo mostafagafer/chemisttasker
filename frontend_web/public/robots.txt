@@ -1,3 +1,3 @@
 User-agent: *
 Allow: /
-Sitemap: https://chemisttasker-gsbvg2bkcza2hrap.australiaeast-01.azurewebsites.net/sitemap.xml
+Sitemap: https://www.chemisttasker.com.au/sitemap.xml

@@ -1,0 +1,12 @@
+{
+  "routes": [
+    {
+      "route": "/sitemap.xml",
+      "rewrite": "https://chemisttasker-gsbvg2bkcza2hrap.australiaeast-01.azurewebsites.net/sitemap.xml"
+    }
+  ],
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/sitemap.xml", "/robots.txt", "/images/*", "/*.css", "/*.js", "/*.map", "/*.ico"]
+  }
+}

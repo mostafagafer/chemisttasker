@@ -55,7 +55,7 @@ export default function PublicOrganizationPage() {
       const description =
         "Explore public organization profiles and open pharmacy shifts on ChemistTasker.";
       const origin = window.location.origin;
-      const url = `${origin}/${slug ?? ""}`.replace(/\/$/, "") || `${origin}/`;
+      const url = `${origin}/organization/${slug ?? ""}`.replace(/\/$/, "") || `${origin}/`;
       const image = `${origin}/images/Chemisttasker.png`;
       setPageMeta(title, description);
       setCanonical(url);
@@ -68,7 +68,7 @@ export default function PublicOrganizationPage() {
       const description =
         "This organization profile is unavailable. Browse public shifts on ChemistTasker.";
       const origin = window.location.origin;
-      const url = `${origin}/${slug ?? ""}`.replace(/\/$/, "") || `${origin}/`;
+      const url = `${origin}/organization/${slug ?? ""}`.replace(/\/$/, "") || `${origin}/`;
       const image = `${origin}/images/Chemisttasker.png`;
       setPageMeta(title, description);
       setCanonical(url);
@@ -83,7 +83,7 @@ export default function PublicOrganizationPage() {
         : `Explore open shifts posted by ${org.name} on ChemistTasker.`;
       const title = `${org.name} | ChemistTasker`;
       const origin = window.location.origin;
-      const url = `${origin}/${org.slug}`;
+      const url = `${origin}/organization/${org.slug}`;
       const image = org.cover_image_url || `${origin}/images/Chemisttasker.png`;
       setPageMeta(title, description);
       setCanonical(url);

@@ -113,7 +113,7 @@ const router = createBrowserRouter([
 
       { path: 'shifts/public-board', element: <PublicJobBoardPage /> },
       { path: 'shifts/link', element: <SharedShiftLandingPage /> },
-      { path: ':slug', element: <PublicOrganizationPage /> },
+      { path: 'organization/:slug', element: <PublicOrganizationPage /> },
 
       { path: 'membership/apply/:token', element: <MembershipApplyPage /> },
 

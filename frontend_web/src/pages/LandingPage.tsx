@@ -14,6 +14,7 @@ const PAGE_ROUTES = {
   login: '/login',
   register: '/register',
   publicJobBoard: '/shifts/public-board',
+  pharmacyJobsAu: '/jobs/pharmacy-jobs-australia',
   privacyPolicy: '/privacy-policy',
   termsOfService: '/terms-of-service',
 };
@@ -293,6 +294,12 @@ const HeroSection: React.FC = () => {
           }}>
             <CtaButton href={PAGE_ROUTES.publicJobBoard} sx={{ px: 4, py: 1.5, fontSize: '1.08rem' }}>
               Find a Flexible Shift
+            </CtaButton>
+            <CtaButton
+              href={PAGE_ROUTES.pharmacyJobsAu}
+              sx={{ px: 4, py: 1.5, fontSize: '1.08rem', bgcolor: '#0d1a2e', '&:hover': { bgcolor: '#0b1425' } }}
+            >
+              Pharmacy Jobs in Australia
             </CtaButton>
             <CtaButton href={PAGE_ROUTES.register} sx={{
               px: 4, py: 1.5, fontSize: '1.08rem',

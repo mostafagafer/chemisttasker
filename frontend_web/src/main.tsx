@@ -23,6 +23,7 @@ import PublicJobBoardPage from './pages/PublicJobBoardPage';
 import SharedShiftLandingPage from './pages/SharedShiftLandingPage';
 import MembershipApplyPage from './pages/MembershipApplyPage';
 import PublicOrganizationPage from './pages/PublicOrganizationPage';
+import SeoJobsLandingPage from './pages/SeoJobsLandingPage';
 
 // Orgnization
 import OrganizationOverviewPage from './pages/dashboard/organization/OrganizationOverviewPage';
@@ -113,6 +114,7 @@ const router = createBrowserRouter([
 
       { path: 'shifts/public-board', element: <PublicJobBoardPage /> },
       { path: 'shifts/link', element: <SharedShiftLandingPage /> },
+      { path: 'jobs/:slug', element: <SeoJobsLandingPage /> },
       { path: 'organization/:slug', element: <PublicOrganizationPage /> },
 
       { path: 'membership/apply/:token', element: <MembershipApplyPage /> },

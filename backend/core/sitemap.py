@@ -64,6 +64,17 @@ def _build_static_urls(base_url):
         f"{base}/shifts/public-board",
         f"{base}/terms-of-service",
         f"{base}/privacy-policy",
+        f"{base}/jobs/pharmacy-jobs-australia",
+        f"{base}/jobs/pharmacist-jobs-australia",
+        f"{base}/jobs/pharmacy-assistant-jobs-australia",
+        f"{base}/jobs/pharmacy-technician-jobs-australia",
+        f"{base}/jobs/pharmacy-intern-jobs-australia",
+        f"{base}/jobs/pharmacy-student-jobs-australia",
+        f"{base}/jobs/pharmacy-jobs-sydney",
+        f"{base}/jobs/pharmacy-jobs-melbourne",
+        f"{base}/jobs/pharmacy-jobs-brisbane",
+        f"{base}/jobs/pharmacy-jobs-perth",
+        f"{base}/jobs/pharmacy-jobs-adelaide",
     ]
 
 

@@ -10,6 +10,7 @@ import {
   DialogTitle,
   Snackbar,
   Typography,
+  Link as MuiLink,
 } from '@mui/material';
 import ShiftsBoard from './dashboard/sidebar/ShiftsBoard';
 import {
@@ -229,6 +230,43 @@ export default function PublicJobBoardPage() {
   return (
     <AuthLayout title="Public Job Board" maxWidth="lg" noCard showTitle={false}>
       <Box sx={{ px: { xs: 2, lg: 3 }, py: 3, bgcolor: 'grey.50', minHeight: '100vh' }}>
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h5" sx={{ mb: 1 }}>
+            Pharmacy Jobs in Australia
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Browse roles and locations to find the right shift faster.
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+            <MuiLink component={RouterLink} to="/jobs/pharmacy-jobs-australia">
+              Pharmacy Jobs in Australia
+            </MuiLink>
+            <MuiLink component={RouterLink} to="/jobs/pharmacist-jobs-australia">
+              Pharmacist Jobs
+            </MuiLink>
+            <MuiLink component={RouterLink} to="/jobs/pharmacy-assistant-jobs-australia">
+              Pharmacy Assistant Jobs
+            </MuiLink>
+            <MuiLink component={RouterLink} to="/jobs/pharmacy-technician-jobs-australia">
+              Pharmacy Technician Jobs
+            </MuiLink>
+            <MuiLink component={RouterLink} to="/jobs/pharmacy-jobs-sydney">
+              Sydney
+            </MuiLink>
+            <MuiLink component={RouterLink} to="/jobs/pharmacy-jobs-melbourne">
+              Melbourne
+            </MuiLink>
+            <MuiLink component={RouterLink} to="/jobs/pharmacy-jobs-brisbane">
+              Brisbane
+            </MuiLink>
+            <MuiLink component={RouterLink} to="/jobs/pharmacy-jobs-perth">
+              Perth
+            </MuiLink>
+            <MuiLink component={RouterLink} to="/jobs/pharmacy-jobs-adelaide">
+              Adelaide
+            </MuiLink>
+          </Box>
+        </Box>
         {error && (
           <Typography color="error" sx={{ mb: 1 }}>
             {error}

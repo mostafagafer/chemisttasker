@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate, Link as RouterLink } from "react-router-dom";
 import axios from "axios";
 import ReCAPTCHA from "react-google-recaptcha";
@@ -20,11 +20,17 @@ import {
 import { Visibility, VisibilityOff } from "@mui/icons-material";
 import AuthLayout from "../layouts/AuthLayout"; // Import the new layout
 import { API_BASE_URL, API_ENDPOINTS } from "../constants/api";
+import { setRobotsMeta } from "../utils/seo";
 
 type Role = "OWNER" | "PHARMACIST" | "OTHER_STAFF" | "EXPLORER";
 
 export default function Register() {
   const navigate = useNavigate();
+  useEffect(() => {
+    setRobotsMeta("noindex,follow");
+    return () => setRobotsMeta();
+  }, []);
+
   // ... (all your existing useState hooks are unchanged)
   const [formData, setFormData] = useState<{
     email: string;

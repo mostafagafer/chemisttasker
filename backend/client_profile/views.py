@@ -4581,19 +4581,32 @@ class SharedShiftDetailView(APIView):
         shift = None
         token = request.query_params.get('token')
         shift_id = request.query_params.get('id')
+        base_qs = Shift.objects.annotate(
+            slot_count=Count('slots', distinct=True),
+            assigned_count=Count('slots__assignments', distinct=True),
+        )
 
         if token:
             try:
-                shift = Shift.objects.get(share_token=token)
+                shift = base_qs.get(share_token=token)
             except (Shift.DoesNotExist, ValueError):
                 raise NotFound("This share link is invalid or has expired.")
         elif shift_id:
             try:
-                shift = Shift.objects.get(pk=shift_id, visibility='PLATFORM') #
+                shift = base_qs.get(pk=shift_id, visibility='PLATFORM') #
             except Shift.DoesNotExist:
                 raise NotFound("This shift is not public or could not be found.")
         else:
             return Response({"error": "An ID or token is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        today = date.today()
+        is_slotless_ftpt = shift.employment_type in ['FULL_TIME', 'PART_TIME'] and shift.slot_count == 0
+        has_future_slots = shift.slots.filter(
+            Q(is_recurring=True, recurring_end_date__gte=today) | Q(date__gte=today)
+        ).exists()
+        has_open_slots = shift.slot_count > 0 and shift.assigned_count < shift.slot_count
+        if not (is_slotless_ftpt or (has_future_slots and has_open_slots)):
+            raise NotFound("This shift is no longer available.")
 
         serializer = SharedShiftSerializer(shift)
         return Response(serializer.data)

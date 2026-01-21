@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   TextField,
@@ -11,8 +11,14 @@ import {
 import { Visibility, VisibilityOff } from '@mui/icons-material';
 import AuthLayout from '../layouts/AuthLayout'; // Import the new layout
 import { passwordResetConfirm } from '@chemisttasker/shared-core';
+import { setRobotsMeta } from '../utils/seo';
 
 export default function ResetPasswordPage() {
+  useEffect(() => {
+    setRobotsMeta('noindex,follow');
+    return () => setRobotsMeta();
+  }, []);
+
   // --- All logic is unchanged ---
   const { uid, token } = useParams<{ uid: string; token: string }>();
   const navigate       = useNavigate();

@@ -385,7 +385,7 @@ const loadFeed = useCallback(async (currentPage: number) => {
                     const filename = att.caption || att.file.split('/').pop() || 'Download File';
                     return isImageFileName(att.file) ? (
                       <Box key={att.id} sx={{ borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
-                        <img src={att.file} alt={filename} style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'cover', display: 'block' }} />
+                        <img src={att.file} alt={filename} loading="lazy" style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'cover', display: 'block' }} />
                       </Box>
                     ) : (
                       <MUILink key={att.id} href={att.file} target="_blank" rel="noopener" underline="none" sx={{ display: 'block' }}>

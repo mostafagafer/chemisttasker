@@ -13,6 +13,7 @@ import {
 import AuthLayout from "../layouts/AuthLayout";
 import { getPublicOrganization } from "@chemisttasker/shared-core";
 import NotFoundPage from "./NotFoundPage";
+import { setCanonical, setPageMeta, setSocialMeta } from "../utils/seo";
 
 type PublicOrganization = {
   id: number;
@@ -47,6 +48,48 @@ export default function PublicOrganizationPage() {
       })
       .finally(() => setLoading(false));
   }, [slug]);
+
+  useEffect(() => {
+    if (loading) {
+      const title = "Organization | ChemistTasker";
+      const description =
+        "Explore public organization profiles and open pharmacy shifts on ChemistTasker.";
+      const origin = window.location.origin;
+      const url = `${origin}/${slug ?? ""}`.replace(/\/$/, "") || `${origin}/`;
+      const image = `${origin}/images/Chemisttasker.png`;
+      setPageMeta(title, description);
+      setCanonical(url);
+      setSocialMeta({ title, description, url, image, type: "website" });
+      return;
+    }
+
+    if (error) {
+      const title = "Organization Not Found | ChemistTasker";
+      const description =
+        "This organization profile is unavailable. Browse public shifts on ChemistTasker.";
+      const origin = window.location.origin;
+      const url = `${origin}/${slug ?? ""}`.replace(/\/$/, "") || `${origin}/`;
+      const image = `${origin}/images/Chemisttasker.png`;
+      setPageMeta(title, description);
+      setCanonical(url);
+      setSocialMeta({ title, description, url, image, type: "website" });
+      return;
+    }
+
+    if (org) {
+      const summary = org.about ? org.about.replace(/\s+/g, " ").trim() : "";
+      const description = summary
+        ? `${summary.slice(0, 260)}${summary.length > 260 ? "..." : ""}`
+        : `Explore open shifts posted by ${org.name} on ChemistTasker.`;
+      const title = `${org.name} | ChemistTasker`;
+      const origin = window.location.origin;
+      const url = `${origin}/${org.slug}`;
+      const image = org.cover_image_url || `${origin}/images/Chemisttasker.png`;
+      setPageMeta(title, description);
+      setCanonical(url);
+      setSocialMeta({ title, description, url, image, type: "organization" });
+    }
+  }, [loading, error, org, slug]);
 
   const heroImage = useMemo(() => {
     return org?.cover_image_url ?? null;

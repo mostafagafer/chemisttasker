@@ -7,6 +7,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import * as THREE from 'three';
 import YouTube from 'react-youtube';
 import logoBanner from '../assets/logo-banner.jpg';
+import { setCanonical, setPageMeta, setSocialMeta } from '../utils/seo';
 
 // --- Constants ---
 const PAGE_ROUTES = {
@@ -64,6 +65,24 @@ const FeatureCard = styled(Box)({
 
 function LandingPage() {
   const [anchorElNav, setAnchorElNav] = useState<null | HTMLElement>(null);
+
+  useEffect(() => {
+    const title = 'ChemistTasker | Pharmacy Workforce Platform';
+    const description =
+      'Manage pharmacy shifts, compliance, and staffing with ChemistTasker. Browse public shifts or sign up today.';
+    const origin = window.location.origin;
+    const image = `${origin}/images/Chemisttasker.png`;
+
+    setPageMeta(title, description);
+    setCanonical(`${origin}/`);
+    setSocialMeta({
+      title,
+      description,
+      url: `${origin}/`,
+      image,
+      type: 'website',
+    });
+  }, []);
 
   const handleOpenNavMenu = (event: React.MouseEvent<HTMLElement>) => setAnchorElNav(event.currentTarget);
   const handleCloseNavMenu = () => setAnchorElNav(null);

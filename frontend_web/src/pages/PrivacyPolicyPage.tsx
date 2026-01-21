@@ -1,6 +1,20 @@
+import { useEffect } from "react";
 import { Container, Paper, Typography, Box, Divider } from "@mui/material";
+import { setCanonical, setPageMeta, setSocialMeta } from "../utils/seo";
 
 export default function PrivacyPolicyPage() {
+  useEffect(() => {
+    const title = "Privacy Policy | ChemistTasker";
+    const description =
+      "Read how ChemistTasker collects, uses, and protects your data across the website and mobile app.";
+    const origin = window.location.origin;
+    const url = `${origin}/privacy-policy`;
+    const image = `${origin}/images/Chemisttasker.png`;
+    setPageMeta(title, description);
+    setCanonical(url);
+    setSocialMeta({ title, description, url, image, type: "website" });
+  }, []);
+
   return (
     <Container maxWidth="md" sx={{ mt: 8, mb: 8 }}>
       <Paper elevation={3} sx={{ p: { xs: 2, sm: 5 }, borderRadius: 4 }}>

@@ -1,6 +1,20 @@
+import { useEffect } from "react";
 import { Container, Paper, Typography, Box } from "@mui/material";
+import { setCanonical, setPageMeta, setSocialMeta } from "../utils/seo";
 
 export default function TermsOfServicePage() {
+  useEffect(() => {
+    const title = "Terms of Service | ChemistTasker";
+    const description =
+      "Read the ChemistTasker terms of service for using our pharmacy workforce platform.";
+    const origin = window.location.origin;
+    const url = `${origin}/terms-of-service`;
+    const image = `${origin}/images/Chemisttasker.png`;
+    setPageMeta(title, description);
+    setCanonical(url);
+    setSocialMeta({ title, description, url, image, type: "website" });
+  }, []);
+
   return (
     <Container maxWidth="md" sx={{ mt: 8, mb: 8 }}>
       <Paper elevation={3} sx={{ p: { xs: 2, sm: 5 }, borderRadius: 4 }}>

@@ -18,6 +18,7 @@ import {
   getPublicJobBoard,
 } from '@chemisttasker/shared-core';
 import AuthLayout from '../layouts/AuthLayout';
+import { setCanonical, setPageMeta, setSocialMeta } from '../utils/seo';
 
 type FilterConfig = {
   city: string[];
@@ -75,6 +76,26 @@ export default function PublicJobBoardPage() {
   const pageSize = 10;
   const [totalCount, setTotalCount] = useState<number | undefined>(undefined);
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
+
+  useEffect(() => {
+    const title = 'Public Job Board | ChemistTasker';
+    const description = 'Browse public pharmacy shifts and apply on ChemistTasker.';
+    const origin = window.location.origin;
+    const baseUrl = `${origin}/shifts/public-board`;
+    const org = searchParams.get('organization');
+    const canonicalUrl = org ? `${baseUrl}?organization=${org}` : baseUrl;
+    const image = `${origin}/images/Chemisttasker.png`;
+
+    setPageMeta(title, description);
+    setCanonical(canonicalUrl);
+    setSocialMeta({
+      title,
+      description,
+      url: canonicalUrl,
+      image,
+      type: 'website',
+    });
+  }, [searchParams]);
 
   const mapPublicShift = (raw: any): Shift => {
     const pharmacy = raw.pharmacy_detail || raw.pharmacyDetail || {};

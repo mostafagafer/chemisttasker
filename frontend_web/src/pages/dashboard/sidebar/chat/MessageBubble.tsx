@@ -157,7 +157,7 @@ export const MessageBubble: FC<Props> = ({
                 <Box sx={{ mb: msg.body ? 1 : 0, maxWidth: 320 }}>
                   {isImage(msg.attachment_url) ? (
                     <Link href={msg.attachment_url} target="_blank" rel="noopener noreferrer">
-                      <img src={msg.attachment_url} alt="attachment" style={{ maxWidth: '100%', borderRadius: '8px', display: 'block' }} />
+                      <img src={msg.attachment_url} alt="attachment" loading="lazy" style={{ maxWidth: '100%', borderRadius: '8px', display: 'block' }} />
                     </Link>
                   ) : (
                     <Link href={msg.attachment_url} target="_blank" rel="noopener noreferrer" underline="none">

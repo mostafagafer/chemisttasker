@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
 import { getViewSharedShift } from '@chemisttasker/shared-core';
 import AuthLayout from '../layouts/AuthLayout';
+import { setCanonical, setJsonLd, setPageMeta, setSocialMeta } from '../utils/seo';
 
 const formatClockTime = (value?: string | null) => {
   if (!value) return '';
@@ -53,6 +54,127 @@ const SharedShiftLandingPage: React.FC = () => {
 
   const token = searchParams.get('token');
   const id = searchParams.get('id');
+
+  useEffect(() => {
+    const defaultTitle = 'Shift Opportunity | ChemistTasker';
+    const defaultDescription = 'View shift details and apply on ChemistTasker.';
+    const origin = window.location.origin;
+    const fallbackUrl = `${origin}/shifts/link`;
+    const defaultImage = `${origin}/images/Chemisttasker.png`;
+
+    if (!shift) {
+      setPageMeta(defaultTitle, defaultDescription);
+      setCanonical(fallbackUrl);
+      setSocialMeta({
+        title: defaultTitle,
+        description: defaultDescription,
+        url: fallbackUrl,
+        image: defaultImage,
+        type: 'website',
+      });
+      setJsonLd('shared-shift');
+      return;
+    }
+
+    const role = shift.role_needed ?? shift.roleNeeded ?? 'Shift';
+    const location =
+      shift.post_anonymously ?? shift.postAnonymously
+        ? shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb
+        : shift.pharmacy_detail?.suburb ??
+          shift.pharmacyDetail?.suburb ??
+          shift.pharmacy_detail?.state ??
+          shift.pharmacyDetail?.state;
+    const title = `${role} Shift${location ? ` in ${location}` : ''} | ChemistTasker`;
+    const firstSlot = (shift.slots ?? [])[0];
+    const slotDate = firstSlot?.date ? dayjs(firstSlot.date).format('MMM D, YYYY') : '';
+    const slotTime = firstSlot
+      ? `${formatClockTime(firstSlot.start_time ?? (firstSlot as any).startTime)}-${formatClockTime(
+          firstSlot.end_time ?? (firstSlot as any).endTime
+        )}`.trim()
+      : '';
+
+    const descriptionParts = [
+      `${role} shift`,
+      location ? `in ${location}` : '',
+      slotDate ? `on ${slotDate}` : '',
+      slotTime ? `(${slotTime})` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    const rawDescription = shift.description ? `${descriptionParts}. ${shift.description}` : descriptionParts;
+    const description = rawDescription.length > 280 ? `${rawDescription.slice(0, 277)}...` : rawDescription;
+
+    const canonicalUrl = `${origin}/shifts/link?id=${shift.id}`;
+    setPageMeta(title, description);
+    setCanonical(canonicalUrl);
+    setSocialMeta({
+      title,
+      description,
+      url: canonicalUrl,
+      image: defaultImage,
+      type: 'website',
+    });
+
+    const orgName = (shift.post_anonymously ?? shift.postAnonymously)
+      ? 'ChemistTasker'
+      : shift.pharmacy_detail?.name ?? shift.pharmacyDetail?.name ?? 'ChemistTasker';
+    const legacyAddress = shift.pharmacy_detail;
+    const camelAddress = shift.pharmacyDetail;
+    const locationAddress = [
+      legacyAddress?.street_address ?? camelAddress?.streetAddress,
+      legacyAddress?.suburb ?? camelAddress?.suburb,
+      legacyAddress?.state ?? camelAddress?.state,
+      legacyAddress?.postcode ?? camelAddress?.postcode,
+    ]
+      .filter(Boolean)
+      .join(', ');
+    const slotDates = (shift.slots ?? [])
+      .map((slot) => slot.date)
+      .filter(Boolean)
+      .map((value) => dayjs(value).toISOString());
+    const validThrough = slotDates.length ? slotDates.sort().slice(-1)[0] : null;
+
+    const jsonLd: Record<string, unknown> = {
+      '@context': 'https://schema.org',
+      '@type': 'JobPosting',
+      title: `${role} Shift${location ? ` in ${location}` : ''}`,
+      description: description || defaultDescription,
+      identifier: {
+        '@type': 'PropertyValue',
+        name: 'ChemistTasker',
+        value: String(shift.id),
+      },
+      hiringOrganization: {
+        '@type': 'Organization',
+        name: orgName,
+      },
+    };
+
+    if (locationAddress) {
+      jsonLd.jobLocation = {
+        '@type': 'Place',
+        address: {
+          '@type': 'PostalAddress',
+          streetAddress: legacyAddress?.street_address ?? camelAddress?.streetAddress,
+          addressLocality: legacyAddress?.suburb ?? camelAddress?.suburb,
+          addressRegion: legacyAddress?.state ?? camelAddress?.state,
+          postalCode: legacyAddress?.postcode ?? camelAddress?.postcode,
+          addressCountry: 'AU',
+        },
+      };
+    }
+
+    if (validThrough) {
+      jsonLd.validThrough = validThrough;
+    }
+
+    setJsonLd('shared-shift', jsonLd);
+
+    return () => {
+      setJsonLd('shared-shift');
+    };
+  }, [shift]);
 
   useEffect(() => {
     // The effect will now re-run when the 'user' object changes (e.g., from null to a user object after login check)

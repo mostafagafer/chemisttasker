@@ -1,10 +1,16 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { TextField, Button, Alert, CircularProgress } from "@mui/material";
 import axios from "axios";
 import { API_BASE_URL, API_ENDPOINTS } from '../constants/api';
 import AuthLayout from "../layouts/AuthLayout"; // Import the new layout
+import { setRobotsMeta } from "../utils/seo";
 
 export default function PasswordResetRequestPage() {
+  useEffect(() => {
+    setRobotsMeta("noindex,follow");
+    return () => setRobotsMeta();
+  }, []);
+
   // --- All logic is unchanged ---
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);

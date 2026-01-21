@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import axios from 'axios';
 import {
@@ -17,12 +17,18 @@ import { API_BASE_URL, API_ENDPOINTS } from '../constants/api';
 import { ORG_ROLES } from '../constants/roles';
 import { useAuth } from '../contexts/AuthContext';
 import AuthLayout from '../layouts/AuthLayout';
+import { setRobotsMeta } from '../utils/seo';
 
 const PERSONA_KEY_PREFIX = 'ct-active-persona';
 
 export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
+
+  useEffect(() => {
+    setRobotsMeta('noindex,follow');
+    return () => setRobotsMeta();
+  }, []);
 
   // All your state and logic functions are unchanged
   const [email, setEmail]       = useState('');

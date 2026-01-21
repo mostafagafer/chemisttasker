@@ -2,7 +2,8 @@
   "routes": [
     {
       "route": "/sitemap.xml",
-      "rewrite": "https://chemisttasker-gsbvg2bkcza2hrap.australiaeast-01.azurewebsites.net/sitemap.xml"
+      "redirect": "https://chemisttasker-gsbvg2bkcza2hrap.australiaeast-01.azurewebsites.net/sitemap.xml",
+      "statusCode": 301
     }
   ],
   "navigationFallback": {

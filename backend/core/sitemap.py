@@ -4,6 +4,7 @@ from xml.sax.saxutils import escape
 from django.conf import settings
 from django.db.models import Count, F, Q
 from django.http import HttpResponse
+from django.views.decorators.cache import cache_page
 
 from client_profile.models import Shift
 
@@ -66,6 +67,7 @@ def _build_static_urls(base_url):
     ]
 
 
+@cache_page(60 * 60)
 def sitemap_web(request):
     base_url = getattr(settings, "FRONTEND_BASE_URL", "")
     urls = _build_static_urls(base_url)

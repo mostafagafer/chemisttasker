@@ -44,6 +44,9 @@ We set com.mostafarg.chemisttasker when the EAS build prompt asked for the Andro
 eas build --profile production-apk --platform android --clear-cache
 eas build:download --platform android --latest
 
+
+eas build -p android --profile production
+
 =========================
 
 

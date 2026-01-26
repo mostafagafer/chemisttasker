@@ -1,11 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate, Link as RouterLink } from 'react-router-dom';
-import { Container, Typography, Card, CardContent, Button, Skeleton, Chip, Divider, Stack } from '@mui/material';
+import {
+  Container,
+  Typography,
+  Card,
+  CardContent,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+} from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
-import { getViewSharedShift } from '@chemisttasker/shared-core';
+import { getViewSharedShift, Shift } from '@chemisttasker/shared-core';
 import AuthLayout from '../layouts/AuthLayout';
 import { setCanonical, setJsonLd, setPageMeta, setSocialMeta } from '../utils/seo';
+import ShiftsBoard from './dashboard/sidebar/ShiftsBoard';
 
 const formatClockTime = (value?: string | null) => {
   if (!value) return '';
@@ -18,30 +29,6 @@ const formatClockTime = (value?: string | null) => {
   return `${hour}:${minutes} ${suffix}`;
 };
 
-interface Shift {
-  id: number;
-  pharmacy_detail?: {
-    name: string;
-    street_address?: string;
-    suburb?: string;
-    postcode?: string;
-    state?: string;
-  };
-  pharmacyDetail?: {
-    name?: string;
-    streetAddress?: string | null;
-    suburb?: string | null;
-    postcode?: string | null;
-    state?: string | null;
-  } | null;
-  description?: string;
-  role_needed?: string;
-  roleNeeded?: string;
-  slots?: { date: string; start_time?: string; end_time?: string; startTime?: string; endTime?: string }[];
-  post_anonymously?: boolean;
-  postAnonymously?: boolean;
-}
-
 const SharedShiftLandingPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -51,9 +38,68 @@ const SharedShiftLandingPage: React.FC = () => {
   const [shift, setShift] = useState<Shift | null>(null);
   const [loading, setLoading] = useState(true); // This is for the local API call loading state
   const [error, setError] = useState('');
+  const [loginDialogOpen, setLoginDialogOpen] = useState(false);
 
   const token = searchParams.get('token');
   const id = searchParams.get('id');
+
+  const mapSharedShift = useCallback((raw: any): Shift => {
+    const pharmacy = raw.pharmacy_detail || raw.pharmacyDetail || {};
+    const slots = (raw.slots || []).map((slot: any) => ({
+      ...slot,
+      id: slot.id,
+      date: slot.date ?? slot.slot_date ?? slot.slotDate,
+      startTime: slot.start_time ?? slot.startTime ?? '',
+      endTime: slot.end_time ?? slot.endTime ?? '',
+      startHour: slot.start_hour ?? slot.startHour,
+      rate: slot.rate,
+    }));
+    return {
+      ...raw,
+      roleLabel: raw.role_label ?? raw.roleLabel ?? raw.role_needed ?? raw.roleNeeded,
+      roleNeeded: raw.role_needed ?? raw.roleNeeded,
+      employmentType: raw.employment_type ?? raw.employmentType,
+      rateType: raw.rate_type ?? raw.rateType,
+      minHourlyRate: raw.min_hourly_rate ?? raw.minHourlyRate,
+      maxHourlyRate: raw.max_hourly_rate ?? raw.maxHourlyRate,
+      minAnnualSalary: raw.min_annual_salary ?? raw.minAnnualSalary,
+      maxAnnualSalary: raw.max_annual_salary ?? raw.maxAnnualSalary,
+      fixedRate: raw.fixed_rate ?? raw.fixedRate,
+      superPercent: raw.super_percent ?? raw.superPercent,
+      paymentPreference: raw.payment_preference ?? raw.paymentPreference,
+      postAnonymously: raw.post_anonymously ?? raw.postAnonymously,
+      slots,
+      flexibleTiming: raw.flexible_timing ?? raw.flexibleTiming,
+      singleUserOnly: raw.single_user_only ?? raw.singleUserOnly,
+      workloadTags: raw.workload_tags ?? raw.workloadTags ?? [],
+      mustHave: raw.must_have ?? raw.mustHave ?? [],
+      niceToHave: raw.nice_to_have ?? raw.niceToHave ?? [],
+      hasTravel: raw.has_travel ?? raw.hasTravel ?? false,
+      hasAccommodation: raw.has_accommodation ?? raw.hasAccommodation ?? false,
+      isUrgent: raw.is_urgent ?? raw.isUrgent ?? false,
+      uiIsNegotiable: raw.ui_is_negotiable ?? raw.uiIsNegotiable,
+      uiIsFlexibleTime: raw.ui_is_flexible_time ?? raw.uiIsFlexibleTime,
+      uiAllowPartial: raw.ui_allow_partial ?? raw.uiAllowPartial,
+      uiLocationCity: raw.ui_location_city ?? raw.uiLocationCity ?? pharmacy.suburb,
+      uiLocationState: raw.ui_location_state ?? raw.uiLocationState ?? pharmacy.state,
+      uiAddressLine: raw.ui_address_line ?? raw.uiAddressLine ?? [
+        pharmacy.street_address ?? pharmacy.streetAddress,
+        pharmacy.suburb,
+        pharmacy.state,
+        pharmacy.postcode,
+      ].filter(Boolean).join(', '),
+      uiDistanceKm: raw.ui_distance_km ?? raw.uiDistanceKm,
+      uiIsUrgent: raw.ui_is_urgent ?? raw.uiIsUrgent ?? raw.is_urgent ?? raw.isUrgent,
+      pharmacyDetail: {
+        name: pharmacy.name,
+        streetAddress: pharmacy.street_address ?? pharmacy.streetAddress,
+        suburb: pharmacy.suburb,
+        state: pharmacy.state,
+        postcode: pharmacy.postcode,
+      },
+      createdAt: raw.created_at ?? raw.createdAt,
+    } as Shift;
+  }, []);
 
   useEffect(() => {
     const defaultTitle = 'Shift Opportunity | ChemistTasker';
@@ -76,21 +122,16 @@ const SharedShiftLandingPage: React.FC = () => {
       return;
     }
 
-    const role = shift.role_needed ?? shift.roleNeeded ?? 'Shift';
+    const role = shift.roleNeeded ?? shift.roleLabel ?? 'Shift';
     const location =
-      shift.post_anonymously ?? shift.postAnonymously
-        ? shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb
-        : shift.pharmacy_detail?.suburb ??
-          shift.pharmacyDetail?.suburb ??
-          shift.pharmacy_detail?.state ??
-          shift.pharmacyDetail?.state;
+      shift.postAnonymously
+        ? shift.pharmacyDetail?.suburb
+        : shift.pharmacyDetail?.suburb ?? shift.pharmacyDetail?.state;
     const title = `${role} Shift${location ? ` in ${location}` : ''} | ChemistTasker`;
     const firstSlot = (shift.slots ?? [])[0];
     const slotDate = firstSlot?.date ? dayjs(firstSlot.date).format('MMM D, YYYY') : '';
     const slotTime = firstSlot
-      ? `${formatClockTime(firstSlot.start_time ?? (firstSlot as any).startTime)}-${formatClockTime(
-          firstSlot.end_time ?? (firstSlot as any).endTime
-        )}`.trim()
+      ? `${formatClockTime(firstSlot.startTime)}-${formatClockTime(firstSlot.endTime)}`.trim()
       : '';
 
     const descriptionParts = [
@@ -116,19 +157,10 @@ const SharedShiftLandingPage: React.FC = () => {
       type: 'website',
     });
 
-    const orgName = (shift.post_anonymously ?? shift.postAnonymously)
+    const orgName = shift.postAnonymously
       ? 'ChemistTasker'
-      : shift.pharmacy_detail?.name ?? shift.pharmacyDetail?.name ?? 'ChemistTasker';
-    const legacyAddress = shift.pharmacy_detail;
-    const camelAddress = shift.pharmacyDetail;
-    const locationAddress = [
-      legacyAddress?.street_address ?? camelAddress?.streetAddress,
-      legacyAddress?.suburb ?? camelAddress?.suburb,
-      legacyAddress?.state ?? camelAddress?.state,
-      legacyAddress?.postcode ?? camelAddress?.postcode,
-    ]
-      .filter(Boolean)
-      .join(', ');
+      : shift.pharmacyDetail?.name ?? 'ChemistTasker';
+    const locationAddress = shift.uiAddressLine ?? '';
     const slotDates = (shift.slots ?? [])
       .map((slot) => slot.date)
       .filter(Boolean)
@@ -156,10 +188,10 @@ const SharedShiftLandingPage: React.FC = () => {
         '@type': 'Place',
         address: {
           '@type': 'PostalAddress',
-          streetAddress: legacyAddress?.street_address ?? camelAddress?.streetAddress,
-          addressLocality: legacyAddress?.suburb ?? camelAddress?.suburb,
-          addressRegion: legacyAddress?.state ?? camelAddress?.state,
-          postalCode: legacyAddress?.postcode ?? camelAddress?.postcode,
+          streetAddress: shift.pharmacyDetail?.streetAddress,
+          addressLocality: shift.pharmacyDetail?.suburb,
+          addressRegion: shift.pharmacyDetail?.state,
+          postalCode: shift.pharmacyDetail?.postcode,
           addressCountry: 'AU',
         },
       };
@@ -187,12 +219,13 @@ const SharedShiftLandingPage: React.FC = () => {
 
             const response: any = await getViewSharedShift(params);
             const fetchedShift = response?.data ?? response;
-            setShift(fetchedShift);
+            const mappedShift = mapSharedShift(fetchedShift);
+            setShift(mappedShift);
 
             // If user is logged in, redirect them to the internal dashboard page
-            if (user && fetchedShift) {
+            if (user && mappedShift) {
                 const rolePath = user.role.toLowerCase().replace('_', '');
-                navigate(`/dashboard/${rolePath}/shifts/${fetchedShift.id}`, { replace: true });
+                navigate(`/dashboard/${rolePath}/shifts/${mappedShift.id}`, { replace: true });
             }
         } catch (err: any) {
             setError(err.response?.data?.detail || "Could not load this shift.");
@@ -221,10 +254,20 @@ const SharedShiftLandingPage: React.FC = () => {
   const renderContent = () => {
     if (loading || user) {
       return (
-        <Stack spacing={3}>
-          <Skeleton variant="rectangular" height={220} sx={{ borderRadius: 3 }} />
-          <Skeleton variant="rectangular" height={160} sx={{ borderRadius: 3 }} />
-        </Stack>
+        <ShiftsBoard
+          title="Shift Details"
+          shifts={shift ? [shift] : []}
+          loading
+          onApplyAll={() => setLoginDialogOpen(true)}
+          onApplySlot={() => setLoginDialogOpen(true)}
+          enableSaved={false}
+          hideSaveToggle
+          readOnlyActions
+          disableLocalPersistence
+          hideCounterOffer
+          hideFiltersAndSort
+          hideTabs
+        />
       );
     }
 
@@ -246,80 +289,29 @@ const SharedShiftLandingPage: React.FC = () => {
     if (!shift) return null;
 
     return (
-      <Stack spacing={3}>
-        <Card sx={{ borderRadius: 3, boxShadow: '0 24px 60px rgba(0,0,0,0.08)' }}>
-          <CardContent>
-            <Typography variant="h4" gutterBottom>
-              {shift.post_anonymously ?? shift.postAnonymously
-                ? ((shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb)
-                    ? `Shift in ${shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb}`
-                    : 'Anonymous Shift')
-                : (shift.pharmacy_detail?.name ?? shift.pharmacyDetail?.name)}
-            </Typography>
-            {(!(shift.post_anonymously ?? shift.postAnonymously) ||
-              ((shift.post_anonymously ?? shift.postAnonymously) && (shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb))) && (
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                {shift.post_anonymously ?? shift.postAnonymously
-                  ? (shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb)
-                  : [
-                      shift.pharmacy_detail?.street_address ?? shift.pharmacyDetail?.streetAddress,
-                      shift.pharmacy_detail?.suburb ?? shift.pharmacyDetail?.suburb,
-                      shift.pharmacy_detail?.state ?? shift.pharmacyDetail?.state,
-                      shift.pharmacy_detail?.postcode ?? shift.pharmacyDetail?.postcode,
-                    ]
-                      .filter(Boolean)
-                      .join(', ')}
-              </Typography>
-            )}
-
-            <Chip label={shift.role_needed ?? shift.roleNeeded} color="primary" sx={{ my: 2 }} />
-            <Divider sx={{ mb: 2 }} />
-            <Typography variant="h6" gutterBottom>
-              Slots
-            </Typography>
-            <Stack spacing={0.75} sx={{ mb: 2 }}>
-              {(shift.slots ?? []).map((slot, index) => (
-                <Typography key={index} variant="body2">
-                  {dayjs(slot.date).format('MMM D, YYYY')} from{' '}
-                  {formatClockTime(slot.start_time ?? (slot as any).startTime)} to{' '}
-                  {formatClockTime(slot.end_time ?? (slot as any).endTime)}
-                </Typography>
-              ))}
-            </Stack>
-            {shift.description && (
-              <Typography variant="body1" color="text.primary" sx={{ whiteSpace: 'pre-wrap' }}>
-                {shift.description}
-              </Typography>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card
-          sx={{
-            borderRadius: 3,
-            boxShadow: '0 18px 40px rgba(0,0,0,0.06)',
-            background: 'linear-gradient(120deg, #00a99d 0%, #00877d 100%)',
-            color: '#fff',
-          }}
-        >
-          <CardContent>
-            <Typography variant="h5" gutterBottom fontWeight={700}>
-              Interested in this shift?
-            </Typography>
-            <Typography variant="body1" sx={{ mb: 2, opacity: 0.9 }}>
-              Login to apply or browse more public shifts on the job board.
-            </Typography>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <Button component={RouterLink} to="/login" variant="contained" color="inherit" sx={{ color: '#006f66' }}>
-                Login to Apply
-              </Button>
-              <Button component={RouterLink} to="/shifts/public-board" variant="outlined" color="inherit">
-                Explore Job Board
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
-      </Stack>
+      <ShiftsBoard
+        title="Shift Details"
+        shifts={shift ? [shift] : []}
+        loading={loading}
+        onApplyAll={() => setLoginDialogOpen(true)}
+        onApplySlot={() => setLoginDialogOpen(true)}
+        enableSaved={false}
+        hideSaveToggle
+        readOnlyActions
+        disableLocalPersistence
+        hideCounterOffer
+        hideFiltersAndSort
+        hideTabs
+        onRefresh={() => {
+          if (!token && !id) return;
+          return getViewSharedShift({ ...(token ? { token } : {}), ...(id ? { id } : {}) })
+            .then((response: any) => {
+              const fetchedShift = response?.data ?? response;
+              setShift(mapSharedShift(fetchedShift));
+            })
+            .catch(() => setError("Could not load this shift."));
+        }}
+      />
     );
   };
 
@@ -328,6 +320,23 @@ const SharedShiftLandingPage: React.FC = () => {
       <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
         {renderContent()}
       </Container>
+      <Dialog open={loginDialogOpen} onClose={() => setLoginDialogOpen(false)}>
+        <DialogTitle>Log in to apply</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary">
+            You need an account to apply or send a counter offer.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLoginDialogOpen(false)}>Cancel</Button>
+          <Button component={RouterLink} to="/register" variant="outlined">
+            Create account
+          </Button>
+          <Button component={RouterLink} to="/login" variant="contained">
+            Log in
+          </Button>
+        </DialogActions>
+      </Dialog>
     </AuthLayout>
   );
 };

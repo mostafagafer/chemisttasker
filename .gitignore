@@ -69,4 +69,5 @@ dist/
 
 frontend_mobile/google-services.json
 frontend_mobile/GoogleService-Info.plist
+.expo
 .expo/

@@ -43,7 +43,7 @@ import ReviewCounterOfferDialog from './components/ReviewCounterOfferDialog';
 import { useCounterOffers } from './hooks/useCounterOffers';
 import { useFilterSort } from './hooks/useFilterSort';
 import { useShiftPersistence } from './hooks/useShiftPersistence';
-import { getExpandedSlotsForDisplay, getShiftPharmacyId } from './utils/shift';
+import { getUpcomingSlotsForDisplay, getShiftPharmacyId } from './utils/shift';
 
 const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   title,
@@ -274,7 +274,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     if (slotFilterMode === 'all') return processedShifts;
 
     return processedShifts.filter((shift) => {
-      const slots = getExpandedSlotsForDisplay(shift.slots ?? []);
+      const slots = getUpcomingSlotsForDisplay(shift.slots ?? []);
       const counterInfo = counterOffers[shift.id];
       const counterSlotIds = new Set<number>(
         Object.keys(counterInfo?.slots ?? {})

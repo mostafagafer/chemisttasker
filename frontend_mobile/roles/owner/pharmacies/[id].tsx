@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useLayoutEffect, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { ActivityIndicator, Text } from 'react-native-paper';
 import { getPharmacyById, fetchMembershipsByPharmacy, fetchPharmacyAdminsService, PharmacyDTO, MembershipDTO, PharmacyAdminDTO } from '@chemisttasker/shared-core';
 import PharmacyDetailView from '@/roles/shared/pharmacies/PharmacyDetailView';
@@ -8,6 +8,7 @@ import PharmacyDetailView from '@/roles/shared/pharmacies/PharmacyDetailView';
 export default function PharmacyDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const navigation = useNavigation();
 
   const [pharmacy, setPharmacy] = useState<PharmacyDTO | null>(null);
   const [memberships, setMemberships] = useState<MembershipDTO[]>([]);
@@ -18,6 +19,8 @@ export default function PharmacyDetailsScreen() {
   const loadData = async () => {
     if (!id) return;
     setLoading(true);
+    setPharmacy(null);
+    setError('');
     try {
       const [pData, mData, aData] = await Promise.all([
         getPharmacyById(id),
@@ -39,6 +42,29 @@ export default function PharmacyDetailsScreen() {
     loadData();
   }, [id]);
 
+  const title = pharmacy?.name || (loading ? 'Loading..' : 'Pharmacy');
+
+  // Adjust font size based on text length
+  const headerFontSize = title.length > 30 ? 12 : title.length > 20 ? 14 : 16;
+
+  useLayoutEffect(() => {
+    const HeaderTitle = () => (
+      <View style={styles.headerTitleContainer}>
+        <Text
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          style={[styles.headerTitle, { fontSize: headerFontSize }]}
+        >
+          {title}
+        </Text>
+      </View>
+    );
+
+    navigation.setOptions({
+      headerTitle: () => <HeaderTitle />,
+    });
+  }, [navigation, title, headerFontSize]);
+
   if (loading) {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" /></View>;
   }
@@ -58,3 +84,16 @@ export default function PharmacyDetailsScreen() {
     />
   );
 }
+
+const styles = StyleSheet.create({
+  headerTitleContainer: {
+    flexShrink: 1,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+});

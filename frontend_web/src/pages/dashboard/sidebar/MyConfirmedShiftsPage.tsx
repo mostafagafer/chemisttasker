@@ -18,6 +18,7 @@ import {
   Rating,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import LocationOnIcon from '@mui/icons-material/LocationOn';
 import {
   Shift,
   ShiftRatingComment,
@@ -37,6 +38,23 @@ const gradientButtonSx = {
   background: 'linear-gradient(90deg, #8B5CF6 0%, #6D28D9 100%)',
   color: '#fff',
   '&:hover': { background: 'linear-gradient(90deg, #A78BFA 0%, #8B5CF6 100%)' },
+};
+
+const buildFullAddress = (pharmacy?: Shift['pharmacyDetail'] | null) => {
+  if (!pharmacy) return '';
+  const parts = [
+    pharmacy.streetAddress,
+    pharmacy.suburb,
+    pharmacy.state,
+    pharmacy.postcode,
+  ].filter(Boolean);
+  return parts.join(', ');
+};
+
+const openMapWindow = (address: string) => {
+  if (!address) return;
+  const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+  window.open(url, '_blank', 'noopener,noreferrer');
 };
 
 export default function MyConfirmedShiftsPage() {
@@ -195,6 +213,7 @@ export default function MyConfirmedShiftsPage() {
         }
 
         const pharmacyName = shift.pharmacyDetail?.name ?? 'Pharmacy';
+        const pharmacyAddress = buildFullAddress(shift.pharmacyDetail);
 
         return (
           <Paper key={shift.id} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
@@ -205,7 +224,18 @@ export default function MyConfirmedShiftsPage() {
                 alignItems: 'center',
               }}
             >
-              <Typography variant="h6">{pharmacyName}</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="h6">{pharmacyName}</Typography>
+                {pharmacyAddress && (
+                  <IconButton
+                    aria-label="Open pharmacy location"
+                    size="small"
+                    onClick={() => openMapWindow(pharmacyAddress)}
+                  >
+                    <LocationOnIcon fontSize="small" />
+                  </IconButton>
+                )}
+              </Box>
               <Button
                 size="small"
                 variant="contained"

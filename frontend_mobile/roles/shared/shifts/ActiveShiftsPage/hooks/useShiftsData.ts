@@ -2,7 +2,7 @@
 // Mirrors web logic for loading active shifts
 
 import { useState, useEffect, useCallback } from 'react';
-import { Shift, fetchActiveShiftDetailService, fetchActiveShifts } from '@chemisttasker/shared-core';
+import { Shift, fetchActiveShifts, fetchPosterShiftDetailService } from '@chemisttasker/shared-core';
 
 interface UseShiftsDataParams {
     selectedPharmacyId: number | null;
@@ -17,7 +17,7 @@ export function useShiftsData({ selectedPharmacyId: _selectedPharmacyId, shiftId
         setLoading(true);
         try {
             if (shiftId != null) {
-                const detail = await fetchActiveShiftDetailService(shiftId);
+                const detail = await fetchPosterShiftDetailService(shiftId);
                 setShifts(detail ? [detail] : []);
             } else {
                 const data = await fetchActiveShifts();

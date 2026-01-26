@@ -6,7 +6,7 @@ import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
+import { resolveChatNotificationRoomId, resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
 
 type Notification = {
   id: number;
@@ -107,6 +107,14 @@ export default function NotificationsScreen() {
   const handleNotificationPress = (item: Notification) => {
     if (!item.readAt) {
       void markAsRead(item.id);
+    }
+    const roomId = resolveChatNotificationRoomId({
+      actionUrl: item.actionUrl,
+      payload: item.payload,
+    });
+    if (roomId) {
+      router.push({ pathname: '/shared/messages/[id]', params: { id: String(roomId) } } as any);
+      return;
     }
     const route = resolveShiftNotificationRoute({
       actionUrl: item.actionUrl,

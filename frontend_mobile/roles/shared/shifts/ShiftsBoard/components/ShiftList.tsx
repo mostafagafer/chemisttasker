@@ -2,7 +2,7 @@
 // Complete shift cards display with exact web logic
 
 import React from 'react';
-import { View, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Linking, Platform } from 'react-native';
 import { Card, Text, Button, Chip, IconButton, Checkbox, ActivityIndicator, Icon } from 'react-native-paper';
 import { format } from 'date-fns';
 import { Shift, ShiftCounterOfferPayload } from '@chemisttasker/shared-core';
@@ -11,7 +11,7 @@ import { formatDateLong, formatDateShort, formatTime } from '../utils/date';
 import { getRateSummary, getSlotRate } from '../utils/rates';
 import {
     getEmploymentLabel,
-    getExpandedSlotsForDisplay,
+    getUpcomingSlotsForDisplay,
     getShiftAddress,
     getShiftAllowPartial,
     getShiftCity,
@@ -23,6 +23,33 @@ import {
     getShiftState,
     getShiftUrgent,
 } from '../utils/shift';
+
+const buildMapAddress = (shift: Shift) => {
+    const addressLine = getShiftAddress(shift);
+    const city = getShiftCity(shift);
+    const state = getShiftState(shift);
+    const parts = [addressLine, city, state].filter(Boolean);
+    if (parts.length > 0) return parts.join(', ');
+    const pharmacy = shift.pharmacyDetail as any;
+    const fallbackParts = [
+        pharmacy?.streetAddress,
+        pharmacy?.suburb,
+        pharmacy?.state,
+        pharmacy?.postcode,
+    ].filter(Boolean);
+    return fallbackParts.join(', ');
+};
+
+const openMap = (address: string) => {
+    if (!address) return;
+    const query = encodeURIComponent(address);
+    const url = Platform.select({
+        ios: `maps:0,0?q=${query}`,
+        android: `geo:0,0?q=${query}`,
+        default: `https://www.google.com/maps/search/?api=1&query=${query}`,
+    });
+    Linking.openURL(url!).catch(() => {});
+};
 
 type ShiftListProps = {
     loading?: boolean;
@@ -125,7 +152,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
         <View style={styles.container}>
             {processedShifts.map((shift) => {
                 const rawSlots = shift.slots ?? [];
-                const allSlots = getExpandedSlotsForDisplay(rawSlots as ShiftSlot[]);
+                const allSlots = getUpcomingSlotsForDisplay(rawSlots as ShiftSlot[]);
                 const mode = slotFilterMode ?? 'all';
                 const isShiftApplied = appliedShiftIds.has(shift.id);
                 const isShiftRejected = rejectedShiftIds.has(shift.id);
@@ -137,6 +164,10 @@ const ShiftList: React.FC<ShiftListProps> = ({
                 );
                 const hasShiftLevelCounter = Boolean(counterInfo) && counterSlotIds.size === 0;
                 const hasShiftLevelInterest = isShiftApplied || hasShiftLevelCounter;
+                const hasSlotActions = allSlots.some((slot) => {
+                    if (slot.id == null) return false;
+                    return appliedSlotIds.has(slot.id) || rejectedSlotIds.has(slot.id) || counterSlotIds.has(slot.id);
+                });
 
                 let slots = allSlots;
                 if (mode === 'interested') {
@@ -201,12 +232,15 @@ const ShiftList: React.FC<ShiftListProps> = ({
                 const isApplied = isShiftApplied || allSlotsApplied;
                 const hasRejectedSlots = allSlots.some((slot) => rejectedSlotIds.has(slot.id));
                 const slotRejected = (slotId: number) => rejectedSlotIds.has(slotId) || isRejectedShift;
+                const shiftActionsDisabled = isShiftApplied || isRejectedShift || hasShiftLevelCounter || hasSlotActions;
                 const allowPartial = getShiftAllowPartial(shift);
                 const urgent = getShiftUrgent(shift);
                 const rateSummary = getRateSummary(shift);
                 const rejectAllowed = rejectActionGuard ? rejectActionGuard(shift) : true;
                 const pharmacyId = getShiftPharmacyId(shift);
                 const ratingSummary = pharmacyId != null ? pharmacyRatings[pharmacyId] : undefined;
+                const isAnonymous = Boolean((shift as any).post_anonymously ?? shift.postAnonymously);
+                const mapAddress = isAnonymous ? '' : buildMapAddress(shift);
 
                 return (
                     <Card
@@ -284,7 +318,15 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                     </View>
                                 )}
                                 <View style={styles.detailRow}>
-                                    <Icon source="map-marker" size={16} color="#6B7280" />
+                                    {mapAddress ? (
+                                        <IconButton
+                                            icon="map-marker"
+                                            size={16}
+                                            onPress={() => openMap(mapAddress)}
+                                        />
+                                    ) : (
+                                        <Icon source="map-marker" size={16} color="#6B7280" />
+                                    )}
                                     <Text variant="bodyMedium">{getShiftCity(shift)} ({getShiftState(shift)})</Text>
                                 </View>
                             </View>
@@ -311,7 +353,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                 <View style={styles.actions}>
                                     <Button
                                         mode="contained"
-                                        disabled={isApplied || isRejectedShift || (!shift.singleUserOnly && hasRejectedSlots)}
+                                        disabled={shiftActionsDisabled || (!shift.singleUserOnly && hasRejectedSlots)}
                                         onPress={() => handleApplyAll(shift)}
                                         style={styles.applyButton}
                                     >
@@ -323,6 +365,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                             onPress={() => openCounterOffer(shift)}
                                             icon="chat-outline"
                                             style={styles.counterButton}
+                                            disabled={shiftActionsDisabled}
                                         >
                                             Counter Offer
                                         </Button>
@@ -331,7 +374,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                         <Button
                                             mode="outlined"
                                             onPress={() => handleRejectShift(shift)}
-                                            disabled={isRejectedShift}
+                                            disabled={shiftActionsDisabled}
                                             style={styles.rejectButton}
                                         >
                                             {isRejectedShift ? 'Rejected' : 'Reject Shift'}
@@ -341,7 +384,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                         <Button
                                             mode="outlined"
                                             onPress={() => handleRejectShift(shift)}
-                                            disabled={isRejectedShift}
+                                            disabled={shiftActionsDisabled}
                                             style={styles.rejectButton}
                                         >
                                             {isRejectedShift ? 'Rejected' : 'Reject Shift'}

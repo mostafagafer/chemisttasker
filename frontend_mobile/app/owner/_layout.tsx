@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared-core';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
-import { resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
+import { resolveChatNotificationRoomId, resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
 
 const tabTitles: Record<string, string> = {
   dashboard: 'Home',
@@ -110,6 +110,14 @@ export default function OwnerLayout() {
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data: any = response?.notification?.request?.content?.data || {};
+      const roomId = resolveChatNotificationRoomId({
+        actionUrl: data.action_url ?? data.actionUrl ?? null,
+        payload: data,
+      });
+      if (roomId) {
+        router.push({ pathname: '/shared/messages/[id]', params: { id: String(roomId) } } as any);
+        return;
+      }
       const route = resolveShiftNotificationRoute({
         actionUrl: data.action_url ?? data.actionUrl ?? null,
         payload: data,
@@ -138,10 +146,14 @@ export default function OwnerLayout() {
     }
   }, [router]);
 
-  const { isDashboard, backTarget } = useMemo(() => {
+  const { isDashboard, backTarget, isPharmacyDetail } = useMemo(() => {
     if (!pathname) return { isTabRoot: true, backTarget: null };
     const segments = pathname.split('/').filter(Boolean);
     const isDash = segments[0] === 'owner' && (segments[1] ?? 'dashboard') === 'dashboard';
+    const isPharmacy =
+      segments[0] === 'owner' &&
+      segments[1] === 'pharmacies' &&
+      segments.length >= 3;
 
     // Build parent path for nested routes: /owner/pharmacies/123/staff -> /owner/pharmacies/123
     let parent: string | null = null;
@@ -149,7 +161,7 @@ export default function OwnerLayout() {
       parent = `/${segments.slice(0, -1).join('/')}`;
     }
 
-    return { isDashboard: isDash, backTarget: parent };
+    return { isDashboard: isDash, backTarget: parent, isPharmacyDetail: isPharmacy };
   }, [pathname]);
 
   return (
@@ -187,7 +199,9 @@ export default function OwnerLayout() {
                   <IconButton
                     icon="arrow-left"
                     onPress={() => {
-                      if (canGoBack) {
+                      if (isPharmacyDetail) {
+                        router.push('/owner/pharmacies');
+                      } else if (canGoBack) {
                         router.back();
                       } else if (backTarget) {
                         router.push(backTarget as any);

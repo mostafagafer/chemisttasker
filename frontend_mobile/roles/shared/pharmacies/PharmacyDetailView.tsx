@@ -48,24 +48,6 @@ export default function PharmacyDetailView({
     return (
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
             {/* Quick Actions */}
-            <View style={styles.quickActions}>
-                <Card style={styles.actionCard}>
-                    <Card.Content>
-                        <Text style={styles.actionTitle}>Quick Actions</Text>
-                        <View style={styles.actionButtons}>
-                            <Button mode="outlined" onPress={() => setActiveTab('staff')} compact>
-                                Manage Staff
-                            </Button>
-                            <Button mode="outlined" onPress={() => setActiveTab('locums')} compact>
-                                Manage Locums
-                            </Button>
-                            <Button mode="outlined" onPress={() => setActiveTab('admins')} compact>
-                                Manage Admins
-                            </Button>
-                        </View>
-                    </Card.Content>
-                </Card>
-            </View>
 
             {/* Tab Selector */}
             <View style={styles.tabContainer}>

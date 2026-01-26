@@ -15,10 +15,19 @@ import {
     fetchConfirmedShifts,
     viewAssignedShiftProfileService,
     type Shift,
+    type ShiftAssignment,
     type ShiftUser,
 } from '@chemisttasker/shared-core';
 
 const PRIMARY = '#7C3AED';
+
+type AssignmentLike = ShiftAssignment | { slot_id?: number; user_id?: number };
+
+const getAssignmentSlotId = (assignment: AssignmentLike): number | null =>
+    'slotId' in assignment ? assignment.slotId ?? null : assignment.slot_id ?? null;
+
+const getAssignmentUserId = (assignment: AssignmentLike): number | null =>
+    'userId' in assignment ? assignment.userId ?? null : assignment.user_id ?? null;
 
 export default function ConfirmedShiftsView() {
     const { user } = useAuth();
@@ -140,7 +149,8 @@ export default function ConfirmedShiftsView() {
     );
 
     const renderShiftCard = (shift: Shift) => {
-        const assignments = (shift as any).slotAssignments ?? (shift as any).slot_assignments ?? [];
+        const assignments =
+            ((shift as any).slotAssignments ?? (shift as any).slot_assignments ?? []) as AssignmentLike[];
         const slots = shift.slots ?? [];
         const pharmacyName =
             (shift as any).pharmacyName ??
@@ -165,11 +175,17 @@ export default function ConfirmedShiftsView() {
                                         {slot.date} {slot.startTime}-{slot.endTime}
                                     </Text>
                                 ))}
-                                {assignments.length > 0 && assignments[0].userId != null && (
+                                {assignments.length > 0 && getAssignmentUserId(assignments[0]) != null && (
                                     <View style={{ alignItems: 'flex-end', marginTop: 4 }}>
                                         <Button
                                             mode="contained"
-                                            onPress={() => openProfile(shift.id, null, assignments[0].userId)}
+                                            onPress={() =>
+                                                openProfile(
+                                                    shift.id,
+                                                    null,
+                                                    getAssignmentUserId(assignments[0]) as number
+                                                )
+                                            }
                                             style={styles.primaryBtn}
                                             labelStyle={styles.primaryBtnText}
                                         >
@@ -180,8 +196,9 @@ export default function ConfirmedShiftsView() {
                             </>
                         ) : (
                             slots.map((slot, idx) => {
-                                const assign = assignments.find((a: any) => a.slotId === slot.id || a.slot_id === slot.id);
-                                if (!assign) return null;
+                                const assign = assignments.find((a) => getAssignmentSlotId(a) === slot.id);
+                                const assignedUserId = assign ? getAssignmentUserId(assign) : null;
+                                if (assignedUserId == null) return null;
                                 return (
                                     <View key={`${slot.id ?? idx}`} style={styles.slotRow}>
                                         <Text style={styles.slotText}>
@@ -189,7 +206,7 @@ export default function ConfirmedShiftsView() {
                                         </Text>
                                         <Button
                                             mode="contained"
-                                            onPress={() => openProfile(shift.id, slot.id ?? null, assign.userId ?? assign.user_id)}
+                                            onPress={() => openProfile(shift.id, slot.id ?? null, assignedUserId)}
                                             style={styles.primaryBtn}
                                             labelStyle={styles.primaryBtnText}
                                         >

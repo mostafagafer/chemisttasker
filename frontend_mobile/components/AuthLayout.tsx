@@ -57,8 +57,10 @@ export default function AuthLayout({ title, children, showTitle = true }: AuthLa
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <LinearGradient colors={['#f7f9fb', '#eef1f7']} style={StyleSheet.absoluteFillObject} />
       <Animated.View
-        pointerEvents="none"
-        style={[styles.network, { transform: [{ rotate: spin }, { translateY: swayY }] }]}
+        style={[
+          styles.network,
+          { transform: [{ rotate: spin }, { translateY: swayY }], pointerEvents: 'none' },
+        ]}
       >
         <View style={[styles.node, styles.nodeOne]} />
         <View style={[styles.node, styles.nodeTwo]} />

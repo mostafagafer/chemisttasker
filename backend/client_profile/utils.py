@@ -38,7 +38,7 @@ def build_shift_email_context(shift, user=None, extra=None, role=None, shift_typ
             shift_link = f"{settings.FRONTEND_BASE_URL}/dashboard/{frontend_role}/shifts/{shift.id}"
 
     else:
-        shift_link = f"{settings.FRONTEND_BASE_URL}/dashboard/owner/shifts/active/{shift.id}"
+        shift_link = f"{settings.FRONTEND_BASE_URL}/dashboard/owner/shifts/{shift.id}"
 
 
     ctx = {

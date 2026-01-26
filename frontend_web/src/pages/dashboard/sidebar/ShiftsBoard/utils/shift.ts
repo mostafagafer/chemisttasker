@@ -105,6 +105,30 @@ export const getExpandedSlotsForDisplay = (slots: ShiftSlot[]) => {
   return expandRecurringSlotsForDisplay(slots);
 };
 
+const getSlotStartDateTime = (slot: ShiftSlot) => {
+  const raw: any = slot;
+  const date = raw?.date ?? raw?.slot_date ?? raw?.slotDate;
+  const timeRaw = raw?.startTime ?? raw?.start_time ?? raw?.startHour ?? raw?.start_hour;
+  if (!date || timeRaw == null) return null;
+  const time =
+    typeof timeRaw === 'number'
+      ? `${String(timeRaw).padStart(2, '0')}:00`
+      : String(timeRaw).slice(0, 5);
+  const dt = dayjs(`${date} ${time}`, 'YYYY-MM-DD HH:mm');
+  return dt.isValid() ? dt : null;
+};
+
+export const getUpcomingSlotsForDisplay = (slots: ShiftSlot[]) => {
+  const expanded = getExpandedSlotsForDisplay(slots);
+  if (!expanded.length) return expanded;
+  const now = dayjs();
+  return expanded.filter((slot) => {
+    const start = getSlotStartDateTime(slot);
+    if (!start) return true;
+    return start.isSame(now) || start.isAfter(now);
+  });
+};
+
 // Render offers as returned by API (one entry per slot/slot_date with proposed times/rate).
 export const expandOfferSlotsForDisplay = (offerSlots: any[], shiftSlots: ShiftSlot[]): any[] => {
   if (!Array.isArray(offerSlots) || offerSlots.length === 0) return [];

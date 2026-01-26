@@ -17,6 +17,7 @@ import {
   Skeleton,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import LocationOnIcon from '@mui/icons-material/LocationOn';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import {
@@ -38,6 +39,23 @@ const gradientButtonSx = {
   background: 'linear-gradient(90deg, #8B5CF6 0%, #6D28D9 100%)',
   color: '#fff',
   '&:hover': { background: 'linear-gradient(90deg, #A78BFA 0%, #8B5CF6 100%)' },
+};
+
+const buildFullAddress = (pharmacy?: Shift['pharmacyDetail'] | null) => {
+  if (!pharmacy) return '';
+  const parts = [
+    pharmacy.streetAddress,
+    pharmacy.suburb,
+    pharmacy.state,
+    pharmacy.postcode,
+  ].filter(Boolean);
+  return parts.join(', ');
+};
+
+const openMapWindow = (address: string) => {
+  if (!address) return;
+  const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+  window.open(url, '_blank', 'noopener,noreferrer');
 };
 
 export default function MyHistoryShiftsPage() {
@@ -205,11 +223,23 @@ export default function MyHistoryShiftsPage() {
 
       {displayed.map(shift => {
         const slots = shift.slots ?? [];
+        const pharmacyAddress = buildFullAddress(shift.pharmacyDetail);
 
         return (
         <Paper key={shift.id} sx={{ p: 2, mb: 2, ...curvedPaperSx }}>
           <Box display="flex" alignItems="center" justifyContent="space-between">
-            <Typography variant="h6">{shift.pharmacyDetail?.name ?? 'Unknown Pharmacy'}</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="h6">{shift.pharmacyDetail?.name ?? 'Unknown Pharmacy'}</Typography>
+              {pharmacyAddress && (
+                <IconButton
+                  aria-label="Open pharmacy location"
+                  size="small"
+                  onClick={() => openMapWindow(pharmacyAddress)}
+                >
+                  <LocationOnIcon fontSize="small" />
+                </IconButton>
+              )}
+            </Box>
 
             {shift.pharmacyDetail?.id && pharmacySummaries[shift.pharmacyDetail.id] && (
               <Box display="flex" alignItems="center" gap={1}>

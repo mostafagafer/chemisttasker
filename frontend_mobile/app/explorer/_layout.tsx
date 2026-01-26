@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Tabs, useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { useAuth } from '../../context/AuthContext';
-import { resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
+import { resolveChatNotificationRoomId, resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
 
 export default function ExplorerTabs() {
   const router = useRouter();
@@ -11,6 +11,14 @@ export default function ExplorerTabs() {
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data: any = response?.notification?.request?.content?.data || {};
+      const roomId = resolveChatNotificationRoomId({
+        actionUrl: data.action_url ?? data.actionUrl ?? null,
+        payload: data,
+      });
+      if (roomId) {
+        router.push({ pathname: '/shared/messages/[id]', params: { id: String(roomId) } } as any);
+        return;
+      }
       const route = resolveShiftNotificationRoute({
         actionUrl: data.action_url ?? data.actionUrl ?? null,
         payload: data,

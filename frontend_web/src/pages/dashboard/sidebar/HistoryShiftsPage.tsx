@@ -23,12 +23,21 @@ import CloseIcon from '@mui/icons-material/Close';
 import { useAuth } from '../../../contexts/AuthContext';
 import {
   Shift,
+  ShiftAssignment,
   ShiftUser,
   fetchHistoryShifts,
   viewAssignedShiftProfileService,
   fetchMyRatingForTargetService,
   createRatingService,
 } from '@chemisttasker/shared-core';
+
+type AssignmentLike = ShiftAssignment | { slot_id?: number; user_id?: number };
+
+const getAssignmentSlotId = (assignment: AssignmentLike): number | null =>
+  'slotId' in assignment ? assignment.slotId ?? null : assignment.slot_id ?? null;
+
+const getAssignmentUserId = (assignment: AssignmentLike): number | null =>
+  'userId' in assignment ? assignment.userId ?? null : assignment.user_id ?? null;
 
 const curvedPaperSx = {
   borderRadius: 3,
@@ -170,7 +179,8 @@ const openRateWorker = async (workerUserId: number) => {
 
       {displayedShifts.map((shift: Shift) => {
         const slots = shift.slots ?? [];
-        const slotAssignments = shift.slotAssignments ?? [];
+        const slotAssignments =
+          (shift.slotAssignments ?? (shift as any).slot_assignments ?? []) as AssignmentLike[];
         return (
         <Paper key={shift.id} sx={{ p:2, mb:2, ...curvedPaperSx }}>
           <Typography variant="h6">{shift.pharmacyDetail?.name ?? 'Unknown Pharmacy'}</Typography>
@@ -179,7 +189,8 @@ const openRateWorker = async (workerUserId: number) => {
             {/* Per-slot details */}
             {slots.map(slot => {
               // find who was assigned
-              const assign = slotAssignments.find(a => a.slotId === slot.id);
+              const assign = slotAssignments.find(a => getAssignmentSlotId(a) === slot.id);
+              const assignedUserId = assign ? getAssignmentUserId(assign) : null;
               return (
                 <Box
                   key={slot.id}
@@ -201,12 +212,12 @@ const openRateWorker = async (workerUserId: number) => {
                     /> */}
                   </Box>
 
-                {assign && (
+                {assignedUserId != null && (
                   <Box display="flex" gap={1}>
                     <Button
                       size="small"
                       variant="outlined"
-                      onClick={() => openProfile(shift.id, slot.id, assign.userId)}
+                      onClick={() => openProfile(shift.id, slot.id, assignedUserId)}
                     >
                       View Assigned
                     </Button>
@@ -214,7 +225,7 @@ const openRateWorker = async (workerUserId: number) => {
                       size="small"
                       variant="contained"
                       color="secondary"
-                      onClick={() => openRateWorker(assign.userId)}
+                      onClick={() => openRateWorker(assignedUserId)}
                       sx={gradientButtonSx}
                     >
                       Rate Chemist

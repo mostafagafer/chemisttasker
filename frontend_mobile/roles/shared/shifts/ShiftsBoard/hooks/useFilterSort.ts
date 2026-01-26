@@ -7,7 +7,7 @@ import { Shift } from '@chemisttasker/shared-core';
 import { FilterConfig, RatePreference, SortKey, ShiftSlot } from '../types';
 import { getStartHour, getSlotRate } from '../utils/rates';
 import {
-    getExpandedSlotsForDisplay,
+    getUpcomingSlotsForDisplay,
     getFirstSlot,
     getShiftAddress,
     getShiftCity,
@@ -263,15 +263,21 @@ export const useFilterSort = ({
     const processedShifts = useMemo(() => {
         const applySort = (list: Shift[]) => sortShifts(list);
 
-        if (useServerFiltering) {
-            let serverResult = shifts;
-            if (savedFeatureEnabled && activeTab === 'saved') {
-                serverResult = serverResult.filter((shift) => savedShiftIds.has(shift.id));
-            }
-            // Apply local min-rate filter even with server filtering to catch pharmacist-provided zeros.
-            if (filterConfig.minRate > 0) {
-                serverResult = serverResult.filter((shift) => {
-                    const slots = getExpandedSlotsForDisplay(shift.slots ?? []);
+    if (useServerFiltering) {
+        let serverResult = shifts;
+        if (savedFeatureEnabled && activeTab === 'saved') {
+            serverResult = serverResult.filter((shift) => savedShiftIds.has(shift.id));
+        }
+        serverResult = serverResult.filter((shift) => {
+            const rawSlots = shift.slots ?? [];
+            if (rawSlots.length === 0) return true;
+            const slots = getUpcomingSlotsForDisplay(rawSlots);
+            return slots.length > 0;
+        });
+        // Apply local min-rate filter even with server filtering to catch pharmacist-provided zeros.
+        if (filterConfig.minRate > 0) {
+            serverResult = serverResult.filter((shift) => {
+                const slots = getUpcomingSlotsForDisplay(shift.slots ?? []);
                     const maxRate = Math.max(
                         ...(slots || [])
                             .map((slot) => getSlotRate(slot, shift, pharmacistRatePref))
@@ -288,9 +294,10 @@ export const useFilterSort = ({
             result = result.filter((shift) => savedShiftIds.has(shift.id));
         }
 
-        result = result.filter((shift) => {
-            const slots = getExpandedSlotsForDisplay(shift.slots ?? []);
-            const hasOverlap = (predicate: (slot: ShiftSlot) => boolean) => slots.some(predicate);
+    result = result.filter((shift) => {
+        const slots = getUpcomingSlotsForDisplay(shift.slots ?? []);
+        const hasOverlap = (predicate: (slot: ShiftSlot) => boolean) => slots.some(predicate);
+        if ((shift.slots ?? []).length > 0 && slots.length === 0) return false;
 
             if (filterConfig.onlyUrgent && !getShiftUrgent(shift)) return false;
             if (filterConfig.negotiableOnly && !getShiftNegotiable(shift)) return false;

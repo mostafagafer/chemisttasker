@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared-core';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
-import { resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
+import { resolveChatNotificationRoomId, resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
 
 const tabTitles: Record<string, string> = {
   dashboard: 'Home',
@@ -115,6 +115,14 @@ export default function PharmacistTabs() {
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data: any = response?.notification?.request?.content?.data || {};
+      const roomId = resolveChatNotificationRoomId({
+        actionUrl: data.action_url ?? data.actionUrl ?? null,
+        payload: data,
+      });
+      if (roomId) {
+        router.push({ pathname: '/shared/messages/[id]', params: { id: String(roomId) } } as any);
+        return;
+      }
       const route = resolveShiftNotificationRoute({
         actionUrl: data.action_url ?? data.actionUrl ?? null,
         payload: data,

@@ -26,7 +26,7 @@ import { normalizeCounterOffers } from '../utils/counterOffers';
 import { formatDateLong } from '../utils/date';
 import { buildCounterOfferMessage, normalizeOnboardingLocation } from '../utils/location';
 import { getSlotRate } from '../utils/rates';
-import { getExpandedSlotsForDisplay, getShiftNegotiable } from '../utils/shift';
+import { getUpcomingSlotsForDisplay, getShiftNegotiable } from '../utils/shift';
 
 type UseCounterOffersParams = {
   shifts: Shift[];
@@ -247,7 +247,7 @@ export const useCounterOffers = ({
       }
     }
     const baseSlots = shift.slots ?? [];
-    const normalizedSlots = getExpandedSlotsForDisplay(baseSlots as ShiftSlot[]);
+    const normalizedSlots = getUpcomingSlotsForDisplay(baseSlots as ShiftSlot[]);
     const slotIds = selectedSlots && selectedSlots.size > 0 ? selectedSlots : null;
     const slotsToUse = slotIds ? normalizedSlots.filter((slot) => slotIds.has(slot.id)) : normalizedSlots;
 

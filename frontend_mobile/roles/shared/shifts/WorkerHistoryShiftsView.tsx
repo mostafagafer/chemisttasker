@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, ScrollView, StyleSheet } from 'react-native';
+import { View, ScrollView, StyleSheet, Linking, Platform } from 'react-native';
 import {
     ActivityIndicator,
     Button,
@@ -24,6 +24,17 @@ import {
     type Shift,
     type ShiftRatingSummary,
 } from '@chemisttasker/shared-core';
+
+const buildFullAddress = (pharmacy?: Shift['pharmacyDetail'] | null) => {
+    if (!pharmacy) return '';
+    const parts = [
+        pharmacy.streetAddress,
+        pharmacy.suburb,
+        pharmacy.state,
+        pharmacy.postcode,
+    ].filter(Boolean);
+    return parts.join(', ');
+};
 
 type Props = {
     invoiceRoute?: string;
@@ -131,6 +142,16 @@ export default function WorkerHistoryShiftsView({ invoiceRoute }: Props) {
         }
     };
 
+    const openMap = (address: string) => {
+        const query = encodeURIComponent(address);
+        const url = Platform.select({
+            ios: `maps:0,0?q=${query}`,
+            android: `geo:0,0?q=${query}`,
+            default: `https://www.google.com/maps/search/?api=1&query=${query}`,
+        });
+        Linking.openURL(url!).catch(() => setSnackbar('Could not open map'));
+    };
+
     if (loading) {
         return (
             <View style={styles.centered}>
@@ -153,14 +174,23 @@ export default function WorkerHistoryShiftsView({ invoiceRoute }: Props) {
                 {shifts.map((shift) => {
                     const slots = shift.slots ?? [];
                     const pharmId = shift.pharmacyDetail?.id;
+                    const pharmacyAddress = buildFullAddress(shift.pharmacyDetail);
                     const summary = pharmId ? pharmacySummaries[pharmId] : null;
 
                     return (
                         <Card key={shift.id} style={styles.card} mode="outlined">
                             <Card.Content>
                                 <View style={styles.headerRow}>
-                                    <View style={{ flex: 1 }}>
+                                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                                         <Title>{shift.pharmacyDetail?.name ?? 'Unknown Pharmacy'}</Title>
+                                        {pharmacyAddress ? (
+                                            <IconButton
+                                                icon="map-marker"
+                                                size={18}
+                                                onPress={() => openMap(pharmacyAddress)}
+                                                style={{ marginLeft: 4 }}
+                                            />
+                                        ) : null}
                                         {summary && (
                                             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                                 <IconButton icon="star" iconColor="#F59E0B" size={14} style={{ margin: 0 }} />

@@ -20,12 +20,21 @@ import debounce from 'lodash.debounce';
 import { useFocusEffect } from '@react-navigation/native';
 import { triggerUnreadBump } from '@/utils/pushNotifications';
 import { setActiveRoomId } from '../chat/activeRoomState';
+import { displayNameFromUser } from '../chat/displayName';
 
 type MessageDisplay = ChatMessage & { is_me: boolean };
 const messageKey = (item: MessageDisplay) => item.id ?? `${item.created_at}-${item.body}`;
 const messageTime = (item: MessageDisplay) => {
     const time = item.created_at ? new Date(item.created_at).getTime() : 0;
     return Number.isFinite(time) ? time : 0;
+};
+const senderIdOf = (item: MessageDisplay) => {
+    const sender: any = item.sender;
+    return sender?.user_details?.id ?? sender?.user?.id ?? sender?.id ?? sender ?? null;
+};
+const senderNameOf = (item: MessageDisplay) => {
+    const sender: any = item.sender;
+    return displayNameFromUser(sender?.user_details || sender?.user || sender);
 };
 
 const upsertSortedMessage = (list: MessageDisplay[], incoming: MessageDisplay) => {
@@ -458,12 +467,17 @@ const pinnedMessage = useMemo(() => {
         );
     };
 
-    const renderMessage = ({ item }: { item: MessageDisplay }) => {
+    const renderMessage = ({ item, index }: { item: MessageDisplay; index: number }) => {
         const isMe = item.is_me;
+        const prev = index > 0 ? messages[index - 1] : null;
+        const isSameSender = prev ? senderIdOf(prev) === senderIdOf(item) : false;
+        const showSenderName = !isMe && !isSameSender;
+        const senderName = showSenderName ? senderNameOf(item) : '';
         return (
             <View style={[
                 styles.messageContainer,
-                isMe ? styles.myMessageContainer : styles.theirMessageContainer
+                isMe ? styles.myMessageContainer : styles.theirMessageContainer,
+                isSameSender ? styles.groupedMessage : null,
             ]}>
                 <TouchableOpacity
                     activeOpacity={0.9}
@@ -478,6 +492,9 @@ const pinnedMessage = useMemo(() => {
                         elevation={1}
                     >
                         <View style={styles.bubbleHeader}>
+                            {showSenderName ? (
+                                <Text style={styles.senderName}>{senderName}</Text>
+                            ) : null}
                             <Text style={[
                                 styles.messageText,
                                 isMe ? styles.myMessageText : styles.theirMessageText
@@ -664,6 +681,9 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         marginBottom: 12,
     },
+    groupedMessage: {
+        marginTop: -6,
+    },
     myMessageContainer: {
         justifyContent: 'flex-end',
     },
@@ -678,8 +698,14 @@ const styles = StyleSheet.create({
         paddingVertical: 12,
     },
     bubbleHeader: {
-        flexDirection: 'row',
+        flexDirection: 'column',
         alignItems: 'flex-start',
+    },
+    senderName: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#374151',
+        marginBottom: 4,
     },
     menuButton: {
         margin: 0,

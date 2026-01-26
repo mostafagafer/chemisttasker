@@ -36,7 +36,7 @@ import { formatDateLong, formatDateShort, formatTime } from '../utils/date';
 import { getRateSummary, getSlotRate } from '../utils/rates';
 import {
   getEmploymentLabel,
-  getExpandedSlotsForDisplay,
+  getUpcomingSlotsForDisplay,
   getShiftAddress,
   getShiftAllowPartial,
   getShiftCity,
@@ -48,6 +48,28 @@ import {
   getShiftState,
   getShiftUrgent,
 } from '../utils/shift';
+
+const buildMapAddress = (shift: Shift) => {
+  const addressLine = getShiftAddress(shift);
+  const city = getShiftCity(shift);
+  const state = getShiftState(shift);
+  const parts = [addressLine, city, state].filter(Boolean);
+  if (parts.length > 0) return parts.join(', ');
+  const pharmacy = shift.pharmacyDetail;
+  const fallbackParts = [
+    pharmacy?.streetAddress,
+    pharmacy?.suburb,
+    pharmacy?.state,
+    pharmacy?.postcode,
+  ].filter(Boolean);
+  return fallbackParts.join(', ');
+};
+
+const openMapWindow = (address: string) => {
+  if (!address) return;
+  const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+  window.open(url, '_blank', 'noopener,noreferrer');
+};
 
 type ShiftListProps = {
   loading?: boolean;
@@ -139,7 +161,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
 
     {processedShifts.map((shift) => {
       const rawSlots = shift.slots ?? [];
-      const allSlots = getExpandedSlotsForDisplay(rawSlots as ShiftSlot[]);
+      const allSlots = getUpcomingSlotsForDisplay(rawSlots as ShiftSlot[]);
       const mode = slotFilterMode ?? 'all';
       const isShiftApplied = appliedShiftIds.has(shift.id);
       const isShiftRejected = rejectedShiftIds.has(shift.id);
@@ -151,6 +173,10 @@ const ShiftList: React.FC<ShiftListProps> = ({
       );
       const hasShiftLevelCounter = Boolean(counterInfo) && counterSlotIds.size === 0;
       const hasShiftLevelInterest = isShiftApplied || hasShiftLevelCounter;
+      const hasSlotActions = allSlots.some((slot) => {
+        if (slot.id == null) return false;
+        return appliedSlotIds.has(slot.id) || rejectedSlotIds.has(slot.id) || counterSlotIds.has(slot.id);
+      });
       let slots = allSlots;
       if (mode === 'interested') {
         if (allSlots.length > 0) {
@@ -223,12 +249,15 @@ const ShiftList: React.FC<ShiftListProps> = ({
       const isApplied = isShiftApplied || allSlotsApplied;
       const hasRejectedSlots = allSlots.some((slot) => rejectedSlotIds.has(slot.id));
       const slotRejected = (slotId: number) => rejectedSlotIds.has(slotId) || isRejectedShift;
+      const shiftActionsDisabled = isShiftApplied || isRejectedShift || hasShiftLevelCounter || hasSlotActions;
       const allowPartial = getShiftAllowPartial(shift);
       const urgent = getShiftUrgent(shift);
       const rateSummary = getRateSummary(shift);
       const rejectAllowed = rejectActionGuard ? rejectActionGuard(shift) : true;
       const pharmacyId = getShiftPharmacyId(shift);
       const ratingSummary = pharmacyId != null ? pharmacyRatings[pharmacyId] : undefined;
+      const isAnonymous = Boolean((shift as any).post_anonymously ?? shift.postAnonymously);
+      const mapAddress = isAnonymous ? '' : buildMapAddress(shift);
 
       return (
         <Paper
@@ -340,7 +369,17 @@ const ShiftList: React.FC<ShiftListProps> = ({
                     </Stack>
                   )}
                   <Stack direction="row" spacing={1} alignItems="center">
-                    <PlaceIcon fontSize="small" color="action" />
+                    {mapAddress ? (
+                      <IconButton
+                        size="small"
+                        onClick={() => openMapWindow(mapAddress)}
+                        sx={{ ml: -0.5 }}
+                      >
+                        <PlaceIcon fontSize="small" color="action" />
+                      </IconButton>
+                    ) : (
+                      <PlaceIcon fontSize="small" color="action" />
+                    )}
                     <Typography variant="body2">{getShiftCity(shift)} ({getShiftState(shift)})</Typography>
                   </Stack>
                 </Stack>
@@ -378,7 +417,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                   <Stack spacing={1} sx={{ mt: 1 }}>
                     <Button
                       variant="contained"
-                      disabled={isApplied || isRejectedShift || (!shift.singleUserOnly && hasRejectedSlots)}
+                      disabled={shiftActionsDisabled || (!shift.singleUserOnly && hasRejectedSlots)}
                       onClick={() => handleApplyAll(shift)}
                     >
                       {isApplied ? 'Applied' : 'Apply Now'}
@@ -388,6 +427,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                         variant="outlined"
                         onClick={() => openCounterOffer(shift)}
                         startIcon={<ChatBubbleOutlineIcon fontSize="small" />}
+                        disabled={shiftActionsDisabled}
                       >
                         Counter Offer
                       </Button>
@@ -397,7 +437,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                         variant="outlined"
                         color="error"
                         onClick={() => handleRejectShift(shift)}
-                        disabled={isRejectedShift}
+                        disabled={shiftActionsDisabled}
                       >
                         {isRejectedShift ? 'Rejected' : 'Reject Shift'}
                       </Button>
@@ -407,7 +447,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                         variant="outlined"
                         color="error"
                         onClick={() => handleRejectShift(shift)}
-                        disabled={isRejectedShift}
+                        disabled={shiftActionsDisabled}
                       >
                         {isRejectedShift ? 'Rejected' : 'Reject Shift'}
                       </Button>

@@ -21,10 +21,19 @@ import CloseIcon from '@mui/icons-material/Close';
 import { useAuth } from '../../../contexts/AuthContext';
 import {
   Shift,
+  ShiftAssignment,
   ShiftUser,
   fetchConfirmedShifts,
   viewAssignedShiftProfileService,
 } from '@chemisttasker/shared-core';
+
+type AssignmentLike = ShiftAssignment | { slot_id?: number; user_id?: number };
+
+const getAssignmentSlotId = (assignment: AssignmentLike): number | null =>
+  'slotId' in assignment ? assignment.slotId ?? null : assignment.slot_id ?? null;
+
+const getAssignmentUserId = (assignment: AssignmentLike): number | null =>
+  'userId' in assignment ? assignment.userId ?? null : assignment.user_id ?? null;
 
 const curvedPaperSx = {
   borderRadius: 3,
@@ -153,11 +162,12 @@ export default function ConfirmedShiftsPage() {
       <>
         {displayedShifts.map(shift => {
           // Support both camelCase and snake_case from the API
-          const assignments = shift.slotAssignments ?? (shift as any).slot_assignments ?? [];
+          const assignments =
+            (shift.slotAssignments ?? (shift as any).slot_assignments ?? []) as AssignmentLike[];
           const assignedSlotIds = new Set(
             assignments
-              .map((entry: any) => entry.slotId ?? entry.slot_id ?? null)
-              .filter((id: any) => id != null)
+              .map(entry => getAssignmentSlotId(entry))
+              .filter((id): id is number => id != null)
           );
           const assignedSlots = (shift.slots ?? []).filter((slot: any) => assignedSlotIds.has(slot.id));
           return (
@@ -177,14 +187,18 @@ export default function ConfirmedShiftsPage() {
                         No assigned slots yet.
                       </Typography>
                     )}
-                    {assignments.length > 0 && assignments[0].userId != null && (
+                    {assignments.length > 0 && getAssignmentUserId(assignments[0]) != null && (
                       <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                         <Button
                           size="small"
                           variant="contained"
                           sx={gradientButtonSx}
                           onClick={() =>
-                            openProfile(shift.id, null, assignments[0].userId)
+                            openProfile(
+                              shift.id,
+                              null,
+                              getAssignmentUserId(assignments[0]) as number
+                            )
                           }
                         >
                           View Assigned
@@ -194,8 +208,9 @@ export default function ConfirmedShiftsPage() {
                   </>
                 ) : (
                   assignedSlots.length > 0 ? assignedSlots.map(slot => {
-                    const assign = assignments.find(entry => entry.slotId === slot.id);
-                    return assign ? (
+                    const assign = assignments.find(entry => getAssignmentSlotId(entry) === slot.id);
+                    const assignedUserId = assign ? getAssignmentUserId(assign) : null;
+                    return assignedUserId != null ? (
                       <Box
                         key={slot.id}
                         sx={{
@@ -212,7 +227,7 @@ export default function ConfirmedShiftsPage() {
                           variant="contained"
                           sx={gradientButtonSx}
                           onClick={() =>
-                            openProfile(shift.id, slot.id, assign.userId)
+                            openProfile(shift.id, slot.id, assignedUserId)
                           }
                         >
                           View Assigned

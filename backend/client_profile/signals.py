@@ -8,13 +8,27 @@ from client_profile.models import Message
 from django.utils.text import slugify
 import logging
 from client_profile.serializers import MessageSerializer
-from client_profile.notifications import broadcast_message_badge
+from client_profile.notifications import broadcast_message_badge, notify_users
 
-from .models import Membership, Conversation, Participant
+from .models import Membership, Conversation, Participant, Notification
 
 log = logging.getLogger("client_profile.signals")
 
 ROOM_GROUP_FMT = "room.{room_id}"
+CHAT_ROUTE_BY_ROLE = {
+    "OWNER": "/dashboard/owner/chat",
+    "PHARMACIST": "/dashboard/pharmacist/chat",
+    "OTHER_STAFF": "/dashboard/otherstaff/chat",
+    "ORG_STAFF": "/dashboard/organization/chat",
+    "ORG_ADMIN": "/dashboard/organization/chat",
+    "ORG_OWNER": "/dashboard/organization/chat",
+    "EXPLORER": "/dashboard/explorer/chat",
+}
+
+def _chat_action_url_for_user(user, conversation_id: int) -> str:
+    role = (getattr(user, "role", "") or "").upper()
+    base = CHAT_ROUTE_BY_ROLE.get(role, "/dashboard/owner/chat")
+    return f"{base}?conversationId={conversation_id}"
 
 def _user_initials(user):
     try:
@@ -64,7 +78,21 @@ def broadcast_new_message(sender, instance, created, **kwargs):
                     "message": payload,          # keep nested "message" as before
                 },
             )
-            sender_user_id = getattr(msg.sender, "user_id", None)
+            sender_user = getattr(msg.sender, "user", None)
+            sender_user_id = getattr(sender_user, "id", None)
+            sender_name = (sender_user.get_full_name() or sender_user.email) if sender_user else ""
+            body_preview = (msg.body or "").strip()
+            if not body_preview:
+                body_preview = "Sent an attachment." if msg.attachment else "New message."
+            conversation_title = ""
+            conversation = getattr(msg, "conversation", None)
+            if conversation:
+                if getattr(conversation, "pharmacy", None) and getattr(conversation.pharmacy, "name", ""):
+                    conversation_title = conversation.pharmacy.name
+                elif getattr(conversation, "title", ""):
+                    conversation_title = conversation.title
+
+            recipient_user_ids = set()
             for participant in Participant.objects.select_related("membership__user", "conversation").filter(conversation_id=msg.conversation_id):
                 # Skip notifying the sender (membership or user) so they don't get self-badges
                 if participant.membership_id == msg.sender_id:
@@ -72,6 +100,37 @@ def broadcast_new_message(sender, instance, created, **kwargs):
                 if sender_user_id and getattr(participant.membership, "user_id", None) == sender_user_id:
                     continue
                 broadcast_message_badge(participant, sender_user_id=sender_user_id)
+                participant_user = getattr(participant.membership, "user", None)
+                if participant_user and participant_user.is_active:
+                    recipient_user_ids.add(participant_user.id)
+
+            if recipient_user_ids:
+                action_url = None
+                if recipient_user_ids:
+                    # Use any recipient user to resolve the correct chat route; all recipients share role-based routes.
+                    sample_user = None
+                    for participant in Participant.objects.select_related("membership__user").filter(conversation_id=msg.conversation_id):
+                        participant_user = getattr(participant.membership, "user", None)
+                        if participant_user and participant_user.id in recipient_user_ids:
+                            sample_user = participant_user
+                            break
+                    if sample_user:
+                        action_url = _chat_action_url_for_user(sample_user, msg.conversation_id)
+                notify_users(
+                    recipient_user_ids,
+                    title=sender_name or "New message",
+                    body=(body_preview or "New message.")[:200],
+                    notification_type=Notification.Type.MESSAGE,
+                    action_url=action_url,
+                    payload={
+                        "conversation_id": msg.conversation_id,
+                        "roomId": msg.conversation_id,
+                        "message_id": msg.id,
+                        "sender_user_id": sender_user_id,
+                        "sender_name": sender_name,
+                        "conversation_title": conversation_title,
+                    },
+                )
         except Exception:
             log.exception("Error while broadcasting message.created")
 

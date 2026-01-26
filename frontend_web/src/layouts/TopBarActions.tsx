@@ -996,22 +996,33 @@ export default function TopBarActions() {
 
   const handleNotificationNavigate = React.useCallback(
     (item: NotificationItem) => {
-      if (!item.actionUrl) {
+      const payload: any = item.payload ?? {};
+      const conversationId =
+        payload.conversation_id ??
+        payload.conversationId ??
+        payload.roomId ??
+        payload.room_id ??
+        payload.chat_room_id ??
+        null;
+      if (conversationId) {
+        navigate(`${chatRoute}?conversationId=${conversationId}`);
+      } else if (item.actionUrl) {
+        try {
+          const target = new URL(item.actionUrl, window.location.origin);
+          if (target.origin === window.location.origin) {
+            navigate(`${target.pathname}${target.search}${target.hash}`);
+          } else {
+            window.location.href = target.toString();
+          }
+        } catch {
+          const normalized = item.actionUrl.startsWith('/')
+            ? item.actionUrl
+            : `/${item.actionUrl}`;
+          navigate(normalized);
+        }
+      } else {
         handleCloseNotifications();
         return;
-      }
-      try {
-        const target = new URL(item.actionUrl, window.location.origin);
-        if (target.origin === window.location.origin) {
-          navigate(`${target.pathname}${target.search}${target.hash}`);
-        } else {
-          window.location.href = target.toString();
-        }
-      } catch {
-        const normalized = item.actionUrl.startsWith('/')
-          ? item.actionUrl
-          : `/${item.actionUrl}`;
-        navigate(normalized);
       }
       const nowIso = new Date().toISOString();
       setNotifications((prev) =>
@@ -1027,7 +1038,7 @@ export default function TopBarActions() {
       );
       handleCloseNotifications();
     },
-    [handleCloseNotifications, navigate]
+    [chatRoute, handleCloseNotifications, navigate]
   );
   const handleMessageNavigate = React.useCallback(
     (summary: MessageSummary) => {

@@ -2,10 +2,11 @@
 // Orchestrates pharmacy list, detail views, and form modals
 // Identical to web's OwnerOverviewContainer.tsx with exact same hooks and API calls
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { View as RNView, StyleSheet } from 'react-native';
 import { Appbar, FAB, Snackbar, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation, usePathname } from 'expo-router';
 import {
     fetchPharmaciesService,
     fetchMembershipsByPharmacy,
@@ -24,6 +25,9 @@ import { surfaceTokens } from './types';
 type ViewType = 'list' | 'form-create' | 'form-edit' | 'detail';
 
 export default function PharmacyOverviewContainer() {
+    const navigation = useNavigation();
+    const pathname = usePathname();
+    const isOwner = pathname?.startsWith('/owner') ?? false;
     const { user } = useAuth();
 
     // State
@@ -176,6 +180,22 @@ export default function PharmacyOverviewContainer() {
         }
     };
 
+    useLayoutEffect(() => {
+        if (!isOwner) return;
+        const headerTitle =
+            view === 'form-create' ? 'Add Pharmacy' :
+                view === 'form-edit' ? 'Edit Pharmacy' :
+                    view === 'detail' ? (selectedPharmacy?.name || 'Pharmacy') :
+                        'Pharmacies';
+        navigation.setOptions({
+            headerTitle: () => (
+                <Text numberOfLines={1} ellipsizeMode="tail" style={styles.headerTitle}>
+                    {headerTitle}
+                </Text>
+            ),
+        });
+    }, [isOwner, navigation, selectedPharmacy?.name, view]);
+
     // Render current view
     const renderContent = () => {
         switch (view) {
@@ -235,19 +255,21 @@ export default function PharmacyOverviewContainer() {
     return (
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
             {/* Header */}
-            <Appbar.Header elevated>
-                {view !== 'list' && (
-                    <Appbar.BackAction onPress={handleBack} />
-                )}
-                <Appbar.Content
-                    title={
-                        view === 'form-create' ? 'Add Pharmacy' :
-                            view === 'form-edit' ? 'Edit Pharmacy' :
-                                view === 'detail' ? selectedPharmacy?.name || 'Pharmacy' :
-                                    'My Pharmacies'
-                    }
-                />
-            </Appbar.Header>
+            {!isOwner && (
+                <Appbar.Header elevated>
+                    {view !== 'list' && (
+                        <Appbar.BackAction onPress={handleBack} />
+                    )}
+                    <Appbar.Content
+                        title={
+                            view === 'form-create' ? 'Add Pharmacy' :
+                                view === 'form-edit' ? 'Edit Pharmacy' :
+                                    view === 'detail' ? selectedPharmacy?.name || 'Pharmacy' :
+                                        'My Pharmacies'
+                        }
+                    />
+                </Appbar.Header>
+            )}
 
             {/* Content */}
             {renderContent()}
@@ -293,5 +315,9 @@ const styles = StyleSheet.create({
         right: 16,
         bottom: 16,
         backgroundColor: surfaceTokens.primary,
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '600',
     },
 });

@@ -520,9 +520,32 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
         .finally(() => {
           searchParams.delete('startDmWithUser');
           setSearchParams(searchParams);
-        });
+      });
     }
   }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    const raw =
+      searchParams.get('conversationId') ||
+      searchParams.get('conversation_id') ||
+      searchParams.get('roomId');
+    if (!raw) return;
+    const roomId = Number(raw);
+    if (!Number.isFinite(roomId)) {
+      searchParams.delete('conversationId');
+      searchParams.delete('conversation_id');
+      searchParams.delete('roomId');
+      setSearchParams(searchParams);
+      return;
+    }
+    if (rooms.some((room) => room.id === roomId) || !isLoading) {
+      setActiveRoomId(roomId);
+      searchParams.delete('conversationId');
+      searchParams.delete('conversation_id');
+      searchParams.delete('roomId');
+      setSearchParams(searchParams);
+    }
+  }, [rooms, isLoading, searchParams, setSearchParams]);
 
   const handleSendText = async (body: string) => {
     const targetRoom = activeRoomId ? rooms.find(r => r.id === activeRoomId) : null;

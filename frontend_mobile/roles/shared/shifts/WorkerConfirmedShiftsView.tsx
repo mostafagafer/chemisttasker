@@ -26,6 +26,17 @@ import {
     type ShiftRatingComment,
 } from '@chemisttasker/shared-core';
 
+const buildFullAddress = (pharmacy?: Shift['pharmacyDetail'] | null) => {
+    if (!pharmacy) return '';
+    const parts = [
+        pharmacy.streetAddress,
+        pharmacy.suburb,
+        pharmacy.state,
+        pharmacy.postcode,
+    ].filter(Boolean);
+    return parts.join(', ');
+};
+
 export default function WorkerConfirmedShiftsView() {
     const theme = useTheme();
     const [shifts, setShifts] = useState<Shift[]>([]);
@@ -124,6 +135,7 @@ export default function WorkerConfirmedShiftsView() {
                     const workloadTags = shift.workloadTags ?? [];
                     const slots = shift.slots ?? [];
                     const pharmacyName = shift.pharmacyDetail?.name ?? 'Pharmacy';
+                    const pharmacyAddress = buildFullAddress(shift.pharmacyDetail);
 
                     let rateLabel = '';
                     if (isPharmacist) {
@@ -139,8 +151,16 @@ export default function WorkerConfirmedShiftsView() {
                         <Card key={shift.id} style={styles.card} mode="outlined">
                             <Card.Content>
                                 <View style={styles.headerRow}>
-                                    <View style={{ flex: 1 }}>
+                                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                                         <Title>{pharmacyName}</Title>
+                                        {pharmacyAddress ? (
+                                            <IconButton
+                                                icon="map-marker"
+                                                size={18}
+                                                onPress={() => openMap(pharmacyAddress)}
+                                                style={{ marginLeft: 4 }}
+                                            />
+                                        ) : null}
                                         <Paragraph style={{ color: theme.colors.secondary }}>{shift.roleNeeded}</Paragraph>
                                     </View>
                                     <Button

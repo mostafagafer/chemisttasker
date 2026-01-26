@@ -153,6 +153,14 @@ export const MessageBubble: FC<Props> = ({
             </Box>
           ) : (
             <Box className={`bubble ${isMe ? 'me' : ''}`}>
+              {!isMe && !isSameSenderAsPrevious && fullName && (
+                <Typography
+                  variant="caption"
+                  sx={{ display: 'block', fontWeight: 700, mb: 0.5, color: 'text.secondary' }}
+                >
+                  {fullName}
+                </Typography>
+              )}
               {msg.attachment_url && (
                 <Box sx={{ mb: msg.body ? 1 : 0, maxWidth: 320 }}>
                   {isImage(msg.attachment_url) ? (
@@ -285,7 +293,6 @@ export const MessageBubble: FC<Props> = ({
         )}
 
         <Box className="msg-meta">
-          {!isMe && !isSameSenderAsPrevious && fullName ? `${fullName}  •  ` : ''}
           {dayjs.utc(msg.created_at).local().format('DD/MM/YYYY HH:mm')} {/* Australian format */}
           {msg.is_edited && (
             <Tooltip title={`Original: ${msg.original_body}`}>

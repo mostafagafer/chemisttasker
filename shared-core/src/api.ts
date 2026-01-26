@@ -600,7 +600,7 @@ export function deleteActiveShift(id) {
 }
 export function getActiveShiftMemberStatus(id, params) {
     const query = buildQuery(params);
-    return fetchApi(`/client-profile/shifts/active/${id}/member_status/${query}`);
+    return fetchApi(`/client-profile/shifts/${id}/member_status/${query}`);
 }
 export function getConfirmedShiftDetail(id) {
     return fetchApi(`/client-profile/shifts/confirmed/${id}/`);
@@ -788,6 +788,10 @@ export async function fetchMyHistoryShifts() {
     return asList(data).map(mapShift);
 }
 export async function fetchWorkerShiftDetailService(shiftId) {
+    const data = await getWorkerShiftDetail(shiftId);
+    return mapShift(data);
+}
+export async function fetchPosterShiftDetailService(shiftId) {
     const data = await getWorkerShiftDetail(shiftId);
     return mapShift(data);
 }

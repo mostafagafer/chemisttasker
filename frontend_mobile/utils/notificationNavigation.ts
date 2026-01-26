@@ -58,6 +58,40 @@ const parseShiftIdFromPayload = (payload?: NotificationPayload | null) => {
   return Number(parsed);
 };
 
+const parseConversationIdFromPayload = (payload?: NotificationPayload | null) => {
+  if (!payload) return null;
+  const raw =
+    payload.conversation_id ??
+    payload.conversationId ??
+    payload.roomId ??
+    payload.room_id ??
+    payload.chat_room_id ??
+    null;
+  const parsed = typeof raw === 'string' ? Number(raw) : raw;
+  if (!Number.isFinite(parsed)) return null;
+  return Number(parsed);
+};
+
+const parseConversationIdFromActionUrl = (actionUrl?: string | null) => {
+  if (!actionUrl) return null;
+  try {
+    const url = new URL(actionUrl, 'http://localhost');
+    const raw = url.searchParams.get('conversationId') || url.searchParams.get('conversation_id');
+    const parsed = raw ? Number(raw) : null;
+    if (!Number.isFinite(parsed)) return null;
+    return Number(parsed);
+  } catch {
+    return null;
+  }
+};
+
+export const resolveChatNotificationRoomId = ({
+  actionUrl,
+  payload,
+}: ResolveRouteInput): number | null => {
+  return parseConversationIdFromPayload(payload) ?? parseConversationIdFromActionUrl(actionUrl);
+};
+
 export const resolveShiftNotificationRoute = ({
   actionUrl,
   payload,

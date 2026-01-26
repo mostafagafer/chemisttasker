@@ -3,7 +3,7 @@
     "name": "ChemistTasker",
     "slug": "chemisttasker",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/ChatGPT Image Jan 18, 2026, 08_14_43 PM.png",
     "scheme": "frontendmobile",
     "userInterfaceStyle": "automatic",

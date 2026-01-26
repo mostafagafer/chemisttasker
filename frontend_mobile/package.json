@@ -24,7 +24,7 @@
     "axios": "^1.6.7",
     "date-fns": "^4.1.0",
     "eventemitter3": "^5.0.1",
-    "expo": "~54.0.32",
+    "expo": "^54.0.32",
     "expo-blur": "~15.0.8",
     "expo-clipboard": "~8.0.8",
     "expo-constants": "~18.0.13",

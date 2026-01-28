@@ -139,6 +139,7 @@ export default function ExplorerInterestsPage() {
   const [isExplorer, setIsExplorer] = useState(false);
   const [explorerProfile, setExplorerProfile] = useState<ExplorerOnboardingProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [onboardingError, setOnboardingError] = useState<string | null>(null);
 
   const [posts, setPosts] = useState<ExplorerPost[]>([]);
   const [totalPosts, setTotalPosts] = useState(0);
@@ -162,20 +163,27 @@ export default function ExplorerInterestsPage() {
   const showSnackbar = (message: string) => setSnackbar({ open: true, message });
 
 const fetchExplorerProfile = useCallback(async () => {
-  if (!user) return;
+  if (!user) {
+    setIsExplorer(false);
+    setExplorerProfile(null);
+    setLoadingProfile(false);
+    return;
+  }
   setLoadingProfile(true);
+  setOnboardingError(null);
+  setIsExplorer(user.role === 'EXPLORER');
   try {
-      const res: any = await getOnboarding('explorer');
-      if (res && res.id) {
-          setIsExplorer(true);
-          setExplorerProfile(res as ExplorerOnboardingProfile);
-      } else {
-          setIsExplorer(false);
-      }
+    const res: any = await getOnboarding('explorer');
+    if (res && res.id) {
+      setExplorerProfile(res as ExplorerOnboardingProfile);
+    } else {
+      setExplorerProfile(null);
+    }
   } catch {
-      setIsExplorer(false);
+    setOnboardingError('Failed to load explorer onboarding profile.');
+    setExplorerProfile(null);
   } finally {
-      setLoadingProfile(false);
+    setLoadingProfile(false);
   }
 }, [user]);
 
@@ -234,6 +242,10 @@ const loadFeed = useCallback(async (currentPage: number) => {
   const openNewPostComposer = () => {
     if (!isExplorer) {
       showSnackbar('You must be an explorer to post.');
+      return;
+    }
+    if (!explorerProfile) {
+      showSnackbar('Please complete your Explorer profile before posting.');
       return;
     }
     setComposerState({ open: true, isEditing: false, postToEdit: null, headline: '', body: '', files: [], submitting: false });
@@ -337,6 +349,11 @@ const loadFeed = useCallback(async (currentPage: number) => {
       <Typography variant="h4" gutterBottom>Explorer Interests</Typography>
 
       {error && <Typography color="error" sx={{ my: 2 }}>{error}</Typography>}
+      {onboardingError && (
+        <Typography color="error" sx={{ my: 1 }}>
+          {onboardingError}
+        </Typography>
+      )}
 
       {!loadingFeed && posts.length === 0 && (
         <Typography sx={{ mt: 4, textAlign: 'center' }}>No posts yet. Be the first to share your interest!</Typography>

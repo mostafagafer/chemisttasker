@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
 import { getActiveShifts, getOnboarding } from '@chemisttasker/shared-core';
+import getShiftPharmacyName from '@/roles/shared/shifts/utils/getShiftPharmacyName';
 
 const { width } = Dimensions.get('window');
 
@@ -49,7 +50,7 @@ export default function OwnerDashboard() {
   }, []);
 
   const formatShiftDate = useCallback((dateStr?: string) => {
-    if (!dateStr) return 'No date';
+    if (!dateStr) return '';
     try {
       const date = new Date(dateStr);
       return date.toLocaleString('en-GB', {
@@ -80,7 +81,7 @@ export default function OwnerDashboard() {
 
       const normalizedShifts: ShiftSummary[] = shiftList.map((s) => ({
         id: s.id,
-        pharmacy_name: s.pharmacy_name || s.pharmacy?.name || 'Pharmacy',
+        pharmacy_name: getShiftPharmacyName(s),
         date: s.date || s.start_time || s.start || '',
         status: s.status,
         role: s.role_needed || s.role || 'Staff',
@@ -114,6 +115,7 @@ export default function OwnerDashboard() {
       { title: 'Post Shift', icon: 'plus-circle', route: '/owner/post-shift', gradient: ['#6366F1', '#8B5CF6'] as const },
       { title: 'Pharmacies', icon: 'store', route: '/owner/pharmacies', gradient: ['#EC4899', '#F43F5E'] as const },
       { title: 'Roster', icon: 'calendar-month', route: '/owner/shifts', gradient: ['#06B6D4', '#0EA5E9'] as const },
+      { title: 'Calendar', icon: 'calendar', route: '/owner/calendar', gradient: ['#22C55E', '#16A34A'] as const },
       { title: 'Staff', icon: 'account-group', route: '/owner/staff', gradient: ['#10B981', '#14B8A6'] as const },
       { title: 'Locums', icon: 'account-heart', route: '/owner/locums', gradient: ['#F59E0B', '#F97316'] as const },
       { title: 'Messages', icon: 'message-text', route: '/owner/chat', gradient: ['#8B5CF6', '#A78BFA'] as const },
@@ -266,12 +268,13 @@ export default function OwnerDashboard() {
                     <View style={styles.shiftIconContainer}>
                       <IconButton icon="calendar-clock" size={20} iconColor="#6366F1" />
                     </View>
-                    <View>
-                      <Text variant="labelMedium" style={styles.shiftPharmacyName}>
+                    <View style={styles.shiftTextColumn}>
+                      <Text variant="labelMedium" style={styles.shiftPharmacyName} numberOfLines={1} ellipsizeMode="tail">
                         {shift.pharmacy_name}
                       </Text>
-                      <Text variant="bodySmall" style={styles.shiftRole}>
-                        {shift.role || 'Staff'} · {formatShiftDate(shift.date)}
+                      <Text variant="bodySmall" style={styles.shiftRole} numberOfLines={1} ellipsizeMode="tail">
+                        {shift.role || 'Staff'}
+                        {formatShiftDate(shift.date) ? ` · ${formatShiftDate(shift.date)}` : ''}
                       </Text>
                     </View>
                   </View>
@@ -283,6 +286,7 @@ export default function OwnerDashboard() {
                     textStyle={{
                       color: shift.status?.toUpperCase() === 'CONFIRMED' ? '#059669' : '#D97706',
                       fontSize: 11,
+                      lineHeight: 14,
                     }}
                     compact
                   >
@@ -471,9 +475,16 @@ const styles = StyleSheet.create({
   shiftPreviewContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },
   shiftPreviewLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
   shiftIconContainer: { width: 40, height: 40, borderRadius: 10, backgroundColor: '#EEF2FF', justifyContent: 'center', alignItems: 'center' },
+  shiftTextColumn: { flex: 1, minWidth: 0 },
   shiftPharmacyName: { color: '#111827', fontWeight: '600' },
   shiftRole: { color: '#6B7280', fontSize: 12, marginTop: 2 },
-  shiftStatusChip: { height: 26 },
+  shiftStatusChip: {
+    height: 26,
+    alignSelf: 'center',
+    marginLeft: 8,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+  },
   bottomSection: {
     marginHorizontal: 20,
     marginBottom: 24,

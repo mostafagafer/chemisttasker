@@ -2422,6 +2422,7 @@ class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
     class Meta:
         model = ExplorerOnboarding
         fields = [
+            "id",
             # ---------- BASIC ----------
             'username','first_name','last_name','phone_number','profile_photo','profile_photo_url',
             'role_type',
@@ -2447,6 +2448,7 @@ class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
             'tab','submitted_for_verification',
         ]
         extra_kwargs = {
+            "id": {"read_only": True},
             # user names optional
             'username': {'required': False, 'allow_blank': True},
             'first_name': {'required': False, 'allow_blank': True},

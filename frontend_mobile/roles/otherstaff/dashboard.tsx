@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getOtherStaffDashboard } from '@chemisttasker/shared-core';
+import getShiftPharmacyName from '@/roles/shared/shifts/utils/getShiftPharmacyName';
 
 const { width } = Dimensions.get('window');
 
@@ -156,6 +157,14 @@ export default function OtherStaffOverviewScreen() {
       color: '#EC4899',
       gradient: ['#EC4899', '#F43F5E'] as const,
       route: '/otherstaff/availability',
+    },
+    {
+      title: 'Calendar',
+      description: 'View schedule',
+      icon: 'calendar',
+      color: '#22C55E',
+      gradient: ['#22C55E', '#16A34A'] as const,
+      route: '/otherstaff/calendar',
     },
     {
       title: 'Invoices',
@@ -320,7 +329,7 @@ export default function OtherStaffOverviewScreen() {
                     </View>
                     <View>
                       <Text variant="labelMedium" style={styles.shiftPharmacyName}>
-                        {shift.pharmacy_name || shift.pharmacyName || 'Pharmacy Shift'}
+                        {getShiftPharmacyName(shift)}
                       </Text>
                       <Text variant="bodySmall" style={styles.shiftRole}>
                         {formatShiftDate(shift.date || shift.startDatetime || shift.start_datetime)}

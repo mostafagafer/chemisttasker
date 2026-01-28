@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared-core';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
-import { resolveChatNotificationRoomId, resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
+import { resolveCalendarNotificationRoute, resolveChatNotificationRoomId, resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
 
 const tabTitles: Record<string, string> = {
   dashboard: 'Home',
@@ -15,6 +15,7 @@ const tabTitles: Record<string, string> = {
   'pharmacies/index': 'Pharmacies',
   hub: 'Hub',
   notifications: 'Notifications',
+  calendar: 'Calendar',
 };
 
 const sidebarItems = [
@@ -23,6 +24,7 @@ const sidebarItems = [
   { label: 'Staff', icon: 'account-group', route: '/owner/staff' },
   { label: 'Locums', icon: 'account-heart', route: '/owner/locums' },
   { label: 'Shifts', icon: 'calendar-month', route: '/owner/shifts' },
+  { label: 'Calendar', icon: 'calendar', route: '/owner/calendar' },
   { label: 'Messages', icon: 'message', route: '/owner/chat' },
   { label: 'Profile', icon: 'account-circle', route: '/owner/profile' },
 ];
@@ -116,6 +118,15 @@ export default function OwnerLayout() {
       });
       if (roomId) {
         router.push({ pathname: '/shared/messages/[id]', params: { id: String(roomId) } } as any);
+        return;
+      }
+      const calendarRoute = resolveCalendarNotificationRoute({
+        actionUrl: data.action_url ?? data.actionUrl ?? null,
+        payload: data,
+        userRole: user?.role ?? null,
+      });
+      if (calendarRoute) {
+        router.push(calendarRoute as any);
         return;
       }
       const route = resolveShiftNotificationRoute({
@@ -323,6 +334,7 @@ export default function OwnerLayout() {
             href: null,
           }}
         />
+        <Tabs.Screen name="calendar" options={{ href: null }} />
         <Tabs.Screen name="onboarding" options={{ href: null }} />
       </Tabs>
     </>

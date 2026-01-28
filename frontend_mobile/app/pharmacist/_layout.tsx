@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared-core';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
-import { resolveChatNotificationRoomId, resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
+import { resolveCalendarNotificationRoute, resolveChatNotificationRoomId, resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
 
 const tabTitles: Record<string, string> = {
   dashboard: 'Home',
@@ -14,11 +14,13 @@ const tabTitles: Record<string, string> = {
   chat: 'Chat',
   hub: 'Hub',
   invoice: 'Invoices',
+  calendar: 'Calendar',
 };
 
 const sidebarItems = [
   { label: 'Home', icon: 'home', route: '/pharmacist/dashboard' },
   { label: 'Shifts', icon: 'calendar-range', route: '/pharmacist/shifts' },
+  { label: 'Calendar', icon: 'calendar', route: '/pharmacist/calendar' },
   { label: 'Chat', icon: 'message', route: '/pharmacist/chat' },
   { label: 'Hub', icon: 'view-grid', route: '/pharmacist/hub' },
   { label: 'Invoices', icon: 'file-document-multiple', route: '/pharmacist/invoice' },
@@ -121,6 +123,15 @@ export default function PharmacistTabs() {
       });
       if (roomId) {
         router.push({ pathname: '/shared/messages/[id]', params: { id: String(roomId) } } as any);
+        return;
+      }
+      const calendarRoute = resolveCalendarNotificationRoute({
+        actionUrl: data.action_url ?? data.actionUrl ?? null,
+        payload: data,
+        userRole: user?.role ?? null,
+      });
+      if (calendarRoute) {
+        router.push(calendarRoute as any);
         return;
       }
       const route = resolveShiftNotificationRoute({
@@ -348,6 +359,7 @@ export default function PharmacistTabs() {
         <Tabs.Screen name="invoices" options={{ href: null }} />
         <Tabs.Screen name="invoice/new" options={{ href: null }} />
         <Tabs.Screen name="invoice/[id]" options={{ href: null }} />
+        <Tabs.Screen name="calendar" options={{ href: null }} />
       </Tabs>
     </>
   );

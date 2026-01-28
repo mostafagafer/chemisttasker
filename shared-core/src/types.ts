@@ -445,6 +445,75 @@ export interface PaginatedResponse<T> {
     results: T[];
 }
 
+// ============ EXPLORER / TALENT POSTS ============
+
+export interface ExplorerPostAttachmentApi {
+    id: number;
+    kind: "IMAGE" | "VIDEO" | "FILE";
+    file: string;
+    caption: string | null;
+    created_at: string;
+}
+
+export interface ExplorerPostApi {
+    id: number;
+    explorer_profile?: number | null;
+    author_user_id?: number | null;
+    headline: string;
+    body: string;
+    role_category?: "EXPLORER" | "PHARMACIST" | "OTHER_STAFF" | null;
+    role_title?: string | null;
+    work_type?: "FULL_TIME" | "PART_TIME" | "CASUAL" | null;
+    coverage_radius_km?: number | null;
+    open_to_travel?: boolean;
+    availability_mode?: "FULL_TIME_NOTICE" | "PART_TIME_DAYS" | "CASUAL_CALENDAR" | null;
+    availability_summary?: string | null;
+    availability_days?: string[] | number[] | null;
+    availability_notice?: string | null;
+    location_suburb?: string | null;
+    location_state?: string | null;
+    location_postcode?: string | null;
+    skills?: string[] | null;
+    software?: string[] | null;
+    reference_code?: string | null;
+    is_anonymous?: boolean;
+    view_count: number;
+    like_count: number;
+    reply_count?: number;
+    created_at: string;
+    updated_at: string;
+    attachments?: ExplorerPostAttachmentApi[];
+    explorer_name?: string | null;
+    explorer_user_id?: number | null;
+    explorer_role_type?: string | null;
+    is_liked_by_me?: boolean;
+}
+
+export type ExplorerPostAttachment = CamelCasedPropertiesDeep<ExplorerPostAttachmentApi>;
+export type ExplorerPost = CamelCasedPropertiesDeep<ExplorerPostApi>;
+
+export interface ExplorerPostPayload {
+    explorer_profile?: number | null;
+    headline?: string | null;
+    body?: string | null;
+    role_category?: "EXPLORER" | "PHARMACIST" | "OTHER_STAFF" | null;
+    role_title?: string | null;
+    work_type?: "FULL_TIME" | "PART_TIME" | "CASUAL" | null;
+    coverage_radius_km?: number | null;
+    open_to_travel?: boolean;
+    availability_mode?: "FULL_TIME_NOTICE" | "PART_TIME_DAYS" | "CASUAL_CALENDAR" | null;
+    availability_summary?: string | null;
+    availability_days?: string[] | number[] | null;
+    availability_notice?: string | null;
+    location_suburb?: string | null;
+    location_state?: string | null;
+    location_postcode?: string | null;
+    skills?: string[] | null;
+    software?: string[] | null;
+    reference_code?: string | null;
+    is_anonymous?: boolean;
+}
+
 // ============ OTHER DOMAIN TYPES ============
 
 export interface Pharmacy {

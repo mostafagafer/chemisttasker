@@ -71,7 +71,7 @@ import PostShiftPage from './pages/dashboard/sidebar/PostShiftPage';
 import PublicShiftsPage from './pages/dashboard/sidebar/PublicShiftsPage';
 import CommunityShiftsPage from './pages/dashboard/sidebar/CommunityShiftsPage';
 import SetAvailabilityPage from './pages/dashboard/sidebar/SetAvailabilityPage';
-import ExplorerInterestsPage from './pages/dashboard/sidebar/ExplorerInterestsPage';
+import TalentBoard from './pages/dashboard/sidebar/TalentBoard';
 import LearningMaterialsPage from './pages/dashboard/sidebar/LearningMaterialsPage';
 import LogoutPage from './pages/dashboard/sidebar/LogoutPage';
 import ActiveShiftsPage from './pages/dashboard/sidebar/ActiveShiftsPage';
@@ -162,7 +162,7 @@ const router = createBrowserRouter([
 
             ],
           },
-          { path: 'interests', element: <ExplorerInterestsPage /> },
+          { path: 'interests', element: <TalentBoard /> },
           { path: 'learning', element: <LearningMaterialsPage /> },
           { path: 'chat', element: <ChatPage /> },
           { path: 'pharmacy-hub', element: <Navigate to="/dashboard/pharmacy-hub" replace /> },
@@ -285,7 +285,7 @@ const router = createBrowserRouter([
               { path: ':id', element: <PosterShiftDetailPage /> },
             ],
           },
-          { path: 'interests', element: <ExplorerInterestsPage /> },
+          { path: 'interests', element: <TalentBoard /> },
           { path: 'learning', element: <LearningMaterialsPage /> },
           { path: 'chat', element: <ChatPage /> },
           { path: 'pharmacy-hub', element: <Navigate to="/dashboard/pharmacy-hub" replace /> },
@@ -333,7 +333,7 @@ const router = createBrowserRouter([
             ],
           },
 
-          { path: 'interests', element: <ExplorerInterestsPage /> },
+          { path: 'interests', element: <TalentBoard /> },
           { path: 'learning', element: <LearningMaterialsPage /> },
           { path: 'chat', element: <ChatPage /> },
           { path: 'pharmacy-hub', element: <Navigate to="/dashboard/pharmacy-hub" replace /> },
@@ -376,7 +376,7 @@ const router = createBrowserRouter([
               { path: ':id', element: <InvoiceDetailPage /> },
             ],
           },
-          { path: 'interests', element: <ExplorerInterestsPage /> },
+          { path: 'interests', element: <TalentBoard /> },
           { path: 'learning', element: <LearningMaterialsPage /> },
           { path: 'chat', element: <ChatPage /> },
           { path: 'pharmacy-hub', element: <Navigate to="/dashboard/pharmacy-hub" replace /> },
@@ -406,7 +406,7 @@ const router = createBrowserRouter([
               { path: 'community', element: <CommunityShiftsPage /> },
             ],
           },
-          { path: 'interests', element: <ExplorerInterestsPage /> },
+          { path: 'interests', element: <TalentBoard /> },
           { path: 'chat', element: <ChatPage /> },
           { path: 'learning', element: <LearningMaterialsPage /> },
           { path: 'calendar', element: <PharmacyCalendarPage /> },

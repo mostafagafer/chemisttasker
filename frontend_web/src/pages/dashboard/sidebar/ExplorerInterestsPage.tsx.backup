@@ -1,7 +1,6 @@
 // src/pages/dashboard/sidebar/ExplorerInterestsPage.tsx
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
-  Container,
   Typography,
   Card,
   CardHeader,
@@ -29,6 +28,12 @@ import {
   ListItemIcon,
   ListItemText,
   Divider,
+  Paper,
+  Drawer,
+  InputAdornment,
+  useMediaQuery,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
 import {
   FavoriteBorder as FavoriteBorderIcon,
@@ -42,6 +47,8 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Chat as ChatIcon,
+  Tune as TuneIcon,
+  Search as SearchIcon,
 } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
 import dayjs from 'dayjs';
@@ -84,6 +91,10 @@ interface ExplorerPost {
   is_liked_by_me: boolean;
   explorer_user_id: number;
   explorer_role_type: 'STUDENT' | 'JUNIOR' | 'CAREER_SWITCHER' | null;
+  reference_code?: string | null;
+  is_anonymous?: boolean | null;
+  work_type?: 'FULL_TIME' | 'PART_TIME' | 'CASUAL' | 'VOLUNTEERING' | 'PLACEMENT' | null;
+  location_state?: string | null;
 }
 
 interface ExplorerOnboardingProfile {
@@ -159,6 +170,15 @@ export default function ExplorerInterestsPage() {
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean, post: ExplorerPost | null }>({ open: false, post: null });
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
   const [page, setPage] = useState(1);
+  const isMobile = useMediaQuery('(max-width: 1024px)');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  const [filterConfig, setFilterConfig] = useState({
+    search: '',
+    roleTypes: [] as string[],
+    states: [] as string[],
+    engagementTypes: [] as string[],
+  });
 
   const showSnackbar = (message: string) => setSnackbar({ open: true, message });
 
@@ -215,6 +235,58 @@ const loadFeed = useCallback(async (currentPage: number) => {
   }, [page, loadFeed]);
 
   const pageCount = useMemo(() => Math.ceil(totalPosts / ITEMS_PER_PAGE), [totalPosts]);
+  const roleTypeOptions = useMemo(() => {
+    const unique = new Set<string>();
+    posts.forEach((post) => {
+      if (post.explorer_role_type) {
+        unique.add(post.explorer_role_type);
+      }
+    });
+    return Array.from(unique);
+  }, [posts]);
+  const stateOptions = useMemo(() => {
+    const unique = new Set<string>();
+    posts.forEach((post) => {
+      if (post.location_state) {
+        unique.add(post.location_state);
+      }
+    });
+    return Array.from(unique);
+  }, [posts]);
+  const engagementOptions = useMemo(() => {
+    const unique = new Set<string>();
+    posts.forEach((post) => {
+      if (post.work_type) {
+        unique.add(post.work_type);
+      }
+    });
+    return Array.from(unique);
+  }, [posts]);
+  const filteredPosts = useMemo(() => {
+    const search = filterConfig.search.trim().toLowerCase();
+    return posts.filter((post) => {
+      if (search) {
+        const haystack = `${post.headline} ${post.body ?? ''}`.toLowerCase();
+        if (!haystack.includes(search)) return false;
+      }
+      if (filterConfig.roleTypes.length > 0) {
+        if (!post.explorer_role_type || !filterConfig.roleTypes.includes(post.explorer_role_type)) {
+          return false;
+        }
+      }
+      if (filterConfig.states.length > 0) {
+        if (!post.location_state || !filterConfig.states.includes(post.location_state)) {
+          return false;
+        }
+      }
+      if (filterConfig.engagementTypes.length > 0) {
+        if (!post.work_type || !filterConfig.engagementTypes.includes(post.work_type)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [posts, filterConfig]);
 
   const toggleLike = async (post: ExplorerPost) => {
     const wasLiked = post.is_liked_by_me;
@@ -332,21 +404,187 @@ const loadFeed = useCallback(async (currentPage: number) => {
     if (!role) return 'Explorer';
     return role.charAt(0) + role.slice(1).toLowerCase().replace('_', ' ');
   };
+  const getEngagementLabel = (value: string) =>
+    value.replace('_', ' ').toLowerCase().replace(/(^|\s)\S/g, (t) => t.toUpperCase());
+  const getAnonymousTitle = (post: ExplorerPost) => {
+    const roleLabel = getRoleLabel(post.explorer_role_type);
+    if (post.reference_code) {
+      return `${roleLabel} • Ref-${post.reference_code}`;
+    }
+    return roleLabel;
+  };
 
   if (loadingProfile || loadingFeed) {
     return (
-      <Container sx={{ py: 4 }}>
+      <Box sx={{ px: { xs: 2, lg: 3 }, py: 2, width: '100%' }}>
         <Typography variant="h4" gutterBottom>Explorer Interests</Typography>
         {[...Array(3)].map((_, i) => (
           <Card key={i} sx={{ mb: 3 }}><CardContent><Skeleton variant="text" width="50%" height={40} /><Skeleton variant="text" width="80%" height={20} sx={{ mb: 2 }} /><Skeleton variant="rectangular" width="100%" height={120} /></CardContent></Card>
         ))}
-      </Container>
+      </Box>
     );
   }
 
+  const sidebarContent = (
+    <Box sx={{ px: 2.5, py: 2 }}>
+      <TextField
+        fullWidth
+        size="small"
+        placeholder="Search headline or bio..."
+        value={filterConfig.search}
+        onChange={(event) => setFilterConfig((prev) => ({ ...prev, search: event.target.value }))}
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <SearchIcon fontSize="small" />
+            </InputAdornment>
+          ),
+        }}
+        sx={{ mb: 2 }}
+      />
+
+      <Box sx={{ borderBottom: '1px solid', borderColor: 'grey.100', pb: 2.5, mb: 2.5 }}>
+        <Typography
+          sx={{
+            textTransform: 'uppercase',
+            color: 'text.secondary',
+            fontWeight: 700,
+            fontSize: 12,
+            letterSpacing: 1,
+            mb: 1.5,
+          }}
+        >
+          Role Type
+        </Typography>
+        <Stack spacing={1}>
+          {roleTypeOptions.length === 0 && (
+            <Typography variant="body2" color="text.secondary">No roles yet</Typography>
+          )}
+          {roleTypeOptions.map((role) => (
+            <FormControlLabel
+              key={role}
+              control={
+                <Checkbox
+                  checked={filterConfig.roleTypes.includes(role)}
+                  onChange={() =>
+                    setFilterConfig((prev) => ({
+                      ...prev,
+                      roleTypes: prev.roleTypes.includes(role)
+                        ? prev.roleTypes.filter((item) => item !== role)
+                        : [...prev.roleTypes, role],
+                    }))
+                  }
+                />
+              }
+              label={getRoleLabel(role as ExplorerPost['explorer_role_type'])}
+            />
+          ))}
+        </Stack>
+      </Box>
+
+      <Box sx={{ borderBottom: '1px solid', borderColor: 'grey.100', pb: 2.5, mb: 2.5 }}>
+        <Typography
+          sx={{
+            textTransform: 'uppercase',
+            color: 'text.secondary',
+            fontWeight: 700,
+            fontSize: 12,
+            letterSpacing: 1,
+            mb: 1.5,
+          }}
+        >
+          Engagement Type
+        </Typography>
+        <Stack spacing={1}>
+          {engagementOptions.length === 0 && (
+            <Typography variant="body2" color="text.secondary">No engagement types yet</Typography>
+          )}
+          {engagementOptions.map((value) => (
+            <FormControlLabel
+              key={value}
+              control={
+                <Checkbox
+                  checked={filterConfig.engagementTypes.includes(value)}
+                  onChange={() =>
+                    setFilterConfig((prev) => ({
+                      ...prev,
+                      engagementTypes: prev.engagementTypes.includes(value)
+                        ? prev.engagementTypes.filter((item) => item !== value)
+                        : [...prev.engagementTypes, value],
+                    }))
+                  }
+                />
+              }
+              label={getEngagementLabel(value)}
+            />
+          ))}
+        </Stack>
+      </Box>
+
+      <Box sx={{ borderBottom: '1px solid', borderColor: 'grey.100', pb: 2.5, mb: 2.5 }}>
+        <Typography
+          sx={{
+            textTransform: 'uppercase',
+            color: 'text.secondary',
+            fontWeight: 700,
+            fontSize: 12,
+            letterSpacing: 1,
+            mb: 1.5,
+          }}
+        >
+          Location (State)
+        </Typography>
+        <Stack spacing={1}>
+          {stateOptions.length === 0 && (
+            <Typography variant="body2" color="text.secondary">No states yet</Typography>
+          )}
+          {stateOptions.map((value) => (
+            <FormControlLabel
+              key={value}
+              control={
+                <Checkbox
+                  checked={filterConfig.states.includes(value)}
+                  onChange={() =>
+                    setFilterConfig((prev) => ({
+                      ...prev,
+                      states: prev.states.includes(value)
+                        ? prev.states.filter((item) => item !== value)
+                        : [...prev.states, value],
+                    }))
+                  }
+                />
+              }
+              label={value}
+            />
+          ))}
+        </Stack>
+      </Box>
+
+      <Button
+        variant="outlined"
+        fullWidth
+        onClick={() => setFilterConfig({ search: '', roleTypes: [], states: [], engagementTypes: [] })}
+      >
+        Clear Filters
+      </Button>
+    </Box>
+  );
+
   return (
-    <Container sx={{ py: 4 }}>
-      <Typography variant="h4" gutterBottom>Explorer Interests</Typography>
+    <Box sx={{ px: { xs: 2, lg: 3 }, py: 2, width: '100%' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', mb: 2 }}>
+        <Box>
+          <Typography variant="h4" gutterBottom>Explorer Interests</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Showing {filteredPosts.length} posts
+          </Typography>
+        </Box>
+        {isMobile && (
+          <IconButton onClick={() => setIsSidebarOpen(true)}>
+            <TuneIcon />
+          </IconButton>
+        )}
+      </Box>
 
       {error && <Typography color="error" sx={{ my: 2 }}>{error}</Typography>}
       {onboardingError && (
@@ -355,92 +593,109 @@ const loadFeed = useCallback(async (currentPage: number) => {
         </Typography>
       )}
 
-      {!loadingFeed && posts.length === 0 && (
+      {!loadingFeed && filteredPosts.length === 0 && (
         <Typography sx={{ mt: 4, textAlign: 'center' }}>No posts yet. Be the first to share your interest!</Typography>
       )}
 
-      <Stack spacing={3}>
-        {posts.map(post => (
-          <Card key={post.id} sx={{ '&:hover': { boxShadow: 6 } }}>
-            <CardHeader
-              avatar={<Avatar>{post.explorer_name?.[0]?.toUpperCase() ?? 'E'}</Avatar>}
-              action={
-                user?.id === post.explorer_user_id ? (
-                  <PostMenu onEdit={() => openEditComposer(post)} onDelete={() => openDeleteDialog(post)} />
-                ) : (
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    startIcon={<ChatIcon />}
-                    onClick={(e) => { e.stopPropagation(); handleChatWithExplorer(post.explorer_user_id); }}
-                  >
-                    Message
-                  </Button>
-                )
-              }
-              titleTypographyProps={{ fontWeight: 'bold' }}
-              title={post.explorer_name}
-              subheader={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                  <Chip label={getRoleLabel(post.explorer_role_type)} size="small" />
-                  <Typography variant="body2" color="text.secondary">
-                    • {formatDistanceToNow(dayjs.utc(post.created_at).local().toDate(), { addSuffix: true })}
-                  </Typography>
-                </Box>
-              }
-            />
-            <CardContent sx={{ pt: 0 }}>
-              <Typography variant="h6" sx={{ mb: 1, fontWeight: 500 }}>
-                {post.headline}
-              </Typography>
-              
-              {post.body && <Typography sx={{ whiteSpace: 'pre-wrap', mb: 2 }}>{post.body}</Typography>}
+      <Box sx={{ display: 'flex', gap: 3 }}>
+        {!isMobile && (
+          <Paper variant="outlined" sx={{ width: 320, flexShrink: 0, borderRadius: 3, borderColor: 'grey.200' }}>
+            {sidebarContent}
+          </Paper>
+        )}
 
-              {post.attachments?.length > 0 && (
-                <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
-                  {post.attachments.map(att => {
-                    const filename = att.caption || att.file.split('/').pop() || 'Download File';
-                    return isImageFileName(att.file) ? (
-                      <Box key={att.id} sx={{ borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
-                        <img src={att.file} alt={filename} loading="lazy" style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'cover', display: 'block' }} />
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Stack spacing={3}>
+            {filteredPosts.map(post => {
+              const isAnonymous = post.is_anonymous !== false;
+              const title = isAnonymous ? getAnonymousTitle(post) : post.explorer_name;
+              const avatarLabel = isAnonymous
+                ? getRoleLabel(post.explorer_role_type)[0]?.toUpperCase() ?? 'E'
+                : post.explorer_name?.[0]?.toUpperCase() ?? 'E';
+              return (
+                <Card key={post.id} sx={{ '&:hover': { boxShadow: 6 } }}>
+                  <CardHeader
+                    avatar={<Avatar>{avatarLabel}</Avatar>}
+                    action={
+                      user?.id === post.explorer_user_id ? (
+                        <PostMenu onEdit={() => openEditComposer(post)} onDelete={() => openDeleteDialog(post)} />
+                      ) : (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<ChatIcon />}
+                          onClick={(e) => { e.stopPropagation(); handleChatWithExplorer(post.explorer_user_id); }}
+                        >
+                          Message
+                        </Button>
+                      )
+                    }
+                    titleTypographyProps={{ fontWeight: 'bold' }}
+                    title={title}
+                    subheader={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                        <Chip label={getRoleLabel(post.explorer_role_type)} size="small" />
+                        <Typography variant="body2" color="text.secondary">
+                          - {formatDistanceToNow(dayjs.utc(post.created_at).local().toDate(), { addSuffix: true })}
+                        </Typography>
                       </Box>
-                    ) : (
-                      <MUILink key={att.id} href={att.file} target="_blank" rel="noopener" underline="none" sx={{ display: 'block' }}>
-                        <Box sx={{
-                          p: 2,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 1.5,
-                          bgcolor: 'grey.100',
-                          borderRadius: 2,
-                          border: '1px solid',
-                          borderColor: 'divider',
-                          transition: 'background-color 0.2s',
-                          '&:hover': { bgcolor: 'grey.200' }
-                        }}>
-                          <InsertDriveFileIcon color="action" />
-                          <Typography variant="body2" sx={{ fontWeight: 500, wordBreak: 'break-all' }}>
-                            {filename}
-                          </Typography>
-                        </Box>
-                      </MUILink>
-                    );
-                  })}
-                </Box>
-              )}
-            </CardContent>
-            <Divider />
-            <CardActions disableSpacing>
-              <Tooltip title={post.is_liked_by_me ? 'Unlike' : 'Like'}>
-                <IconButton aria-label="like" onClick={(e) => { e.stopPropagation(); toggleLike(post); }}>
-                  {post.is_liked_by_me ? <FavoriteIcon color="error" /> : <FavoriteBorderIcon />}
-                </IconButton>
-              </Tooltip>
-              <Typography variant="body2" color="text.secondary">{post.like_count}</Typography>
-            </CardActions>
-          </Card>
-        ))}
-      </Stack>
+                    }
+                  />
+                  <CardContent sx={{ pt: 0 }}>
+                    <Typography variant="h6" sx={{ mb: 1, fontWeight: 500 }}>
+                      {post.headline}
+                    </Typography>
+                    
+                    {post.body && <Typography sx={{ whiteSpace: 'pre-wrap', mb: 2 }}>{post.body}</Typography>}
+
+                    {post.attachments?.length > 0 && (
+                      <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
+                        {post.attachments.map(att => {
+                          const filename = att.caption || att.file.split('/').pop() || 'Download File';
+                          return isImageFileName(att.file) ? (
+                            <Box key={att.id} sx={{ borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
+                              <img src={att.file} alt={filename} loading="lazy" style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'cover', display: 'block' }} />
+                            </Box>
+                          ) : (
+                            <MUILink key={att.id} href={att.file} target="_blank" rel="noopener" underline="none" sx={{ display: 'block' }}>
+                              <Box sx={{
+                                p: 2,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1.5,
+                                bgcolor: 'grey.100',
+                                borderRadius: 2,
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                transition: 'background-color 0.2s',
+                                '&:hover': { bgcolor: 'grey.200' }
+                              }}>
+                                <InsertDriveFileIcon color="action" />
+                                <Typography variant="body2" sx={{ fontWeight: 500, wordBreak: 'break-all' }}>
+                                  {filename}
+                                </Typography>
+                              </Box>
+                            </MUILink>
+                          );
+                        })}
+                      </Box>
+                    )}
+                  </CardContent>
+                  <Divider />
+                  <CardActions disableSpacing>
+                    <Tooltip title={post.is_liked_by_me ? 'Unlike' : 'Like'}>
+                      <IconButton aria-label="like" onClick={(e) => { e.stopPropagation(); toggleLike(post); }}>
+                        {post.is_liked_by_me ? <FavoriteIcon color="error" /> : <FavoriteBorderIcon />}
+                      </IconButton>
+                    </Tooltip>
+                    <Typography variant="body2" color="text.secondary">{post.like_count}</Typography>
+                  </CardActions>
+                </Card>
+              );
+            })}
+          </Stack>
+        </Box>
+      </Box>
 
       {pageCount > 1 && (
         <Box display="flex" justifyContent="center" mt={4}>
@@ -453,6 +708,12 @@ const loadFeed = useCallback(async (currentPage: number) => {
           <AddIcon />
         </Fab>
       )}
+
+      <Drawer anchor="left" open={isSidebarOpen} onClose={() => setIsSidebarOpen(false)}>
+        <Box sx={{ width: 300 }}>
+          {sidebarContent}
+        </Box>
+      </Drawer>
 
       <Dialog open={composerState.open} onClose={closeComposer} fullWidth maxWidth="sm">
         <DialogTitle>{composerState.isEditing ? 'Edit Post' : 'New Post'}</DialogTitle>
@@ -493,6 +754,6 @@ const loadFeed = useCallback(async (currentPage: number) => {
       </Dialog>
 
       <Snackbar open={snackbar.open} autoHideDuration={3500} onClose={() => setSnackbar(prev => ({ ...prev, open: false }))} message={snackbar.message} action={<IconButton size="small" color="inherit" onClick={() => setSnackbar(prev => ({ ...prev, open: false }))}><CloseIcon fontSize="small" /></IconButton>} />
-    </Container>
+    </Box>
   );
 }

@@ -16,6 +16,7 @@ from django.utils import timezone
 from django_q.tasks import async_task
 import logging
 import math
+import uuid
 logger = logging.getLogger(__name__)
 User = get_user_model()
 from django_q.models import Schedule
@@ -4801,11 +4802,11 @@ class ExplorerPostAttachmentSerializer(serializers.ModelSerializer):
 
 
 class ExplorerPostReadSerializer(serializers.ModelSerializer):
-    explorer_name = serializers.CharField(source='explorer_profile.user.get_full_name', read_only=True)
-    # --- ADD THESE TWO FIELDS ---
-    explorer_user_id = serializers.IntegerField(source='explorer_profile.user.id', read_only=True)
-    explorer_role_type = serializers.CharField(source='explorer_profile.role_type', read_only=True)
-    
+    explorer_name = serializers.SerializerMethodField()
+    explorer_user_id = serializers.SerializerMethodField()
+    explorer_role_type = serializers.SerializerMethodField()
+    author_user_id = serializers.IntegerField(source="author_user.id", read_only=True)
+
     attachments = ExplorerPostAttachmentSerializer(many=True, read_only=True)
     is_liked_by_me = serializers.SerializerMethodField()
 
@@ -4814,8 +4815,25 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "explorer_profile",
+            "author_user_id",
             "headline",
             "body",
+            "role_category",
+            "role_title",
+            "work_type",
+            "coverage_radius_km",
+            "open_to_travel",
+            "availability_mode",
+            "availability_summary",
+            "availability_days",
+            "availability_notice",
+            "location_suburb",
+            "location_state",
+            "location_postcode",
+            "skills",
+            "software",
+            "reference_code",
+            "is_anonymous",
             "view_count",
             "like_count",
             "reply_count",
@@ -4831,8 +4849,17 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
         read_only_fields = fields  # read serializer only
 
     def get_explorer_name(self, obj):
-        u = getattr(obj.explorer_profile, "user", None)
-        return u.get_full_name() if u else ""
+        user = obj.author_user or getattr(obj.explorer_profile, "user", None)
+        return user.get_full_name() if user else ""
+
+    def get_explorer_user_id(self, obj):
+        user = obj.author_user or getattr(obj.explorer_profile, "user", None)
+        return user.id if user else None
+
+    def get_explorer_role_type(self, obj):
+        if obj.explorer_profile:
+            return getattr(obj.explorer_profile, "role_type", None)
+        return obj.role_title or obj.role_category
 
     def get_is_liked_by_me(self, obj):
         req = self.context.get("request")
@@ -4850,7 +4877,29 @@ class ExplorerPostWriteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExplorerPost
-        fields = ["id", "explorer_profile", "headline", "body", "attachments"]
+        fields = [
+            "id",
+            "explorer_profile",
+            "headline",
+            "body",
+            "role_category",
+            "role_title",
+            "work_type",
+            "coverage_radius_km",
+            "open_to_travel",
+            "availability_mode",
+            "availability_summary",
+            "availability_days",
+            "availability_notice",
+            "location_suburb",
+            "location_state",
+            "location_postcode",
+            "skills",
+            "software",
+            "reference_code",
+            "is_anonymous",
+            "attachments",
+        ]
 
     def validate(self, attrs):
         """
@@ -4866,16 +4915,52 @@ class ExplorerPostWriteSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         atts = validated_data.pop("attachments", [])
+        request = self.context.get("request")
+        if request and request.user and request.user.is_authenticated:
+            validated_data.setdefault("author_user", request.user)
+            if not validated_data.get("explorer_profile") and getattr(request.user, "is_explorer", lambda: False)():
+                try:
+                    validated_data["explorer_profile"] = ExplorerOnboarding.objects.get(user=request.user)
+                except ExplorerOnboarding.DoesNotExist:
+                    pass
+        if not validated_data.get("reference_code"):
+            validated_data["reference_code"] = uuid.uuid4().hex[:8].upper()
         post = ExplorerPost.objects.create(**validated_data)
         for a in atts:
             ExplorerPostAttachment.objects.create(post=post, **a)
         return post
 
     def update(self, instance, validated_data):
-        # editing text only; attachments are handled by the attachments endpoint
-        instance.headline = validated_data.get("headline", instance.headline)
-        instance.body = validated_data.get("body", instance.body)
-        instance.save(update_fields=["headline", "body", "updated_at"])
+        # editing post fields only; attachments are handled by the attachments endpoint
+        updatable_fields = [
+            "headline",
+            "body",
+            "role_category",
+            "role_title",
+            "work_type",
+            "coverage_radius_km",
+            "open_to_travel",
+            "availability_mode",
+            "availability_summary",
+            "availability_days",
+            "availability_notice",
+            "location_suburb",
+            "location_state",
+            "location_postcode",
+            "skills",
+            "software",
+            "reference_code",
+            "is_anonymous",
+            "explorer_profile",
+        ]
+        changed = []
+        for field in updatable_fields:
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
+                changed.append(field)
+        if changed:
+            changed.append("updated_at")
+            instance.save(update_fields=list(set(changed)))
         return instance
 
 # Availability

@@ -6190,14 +6190,15 @@ class RatingViewSet(viewsets.GenericViewSet):
 # -----------------------------------------------------------------------------
 class IsPostOwner(permissions.BasePermission):
     """
-    Object-level check: user must own the post's explorer_profile.
+    Object-level check: user must own the post (author_user or explorer_profile).
     """
 
     def has_object_permission(self, request, view, obj):
-        return (
-            request.user.is_authenticated
-            and getattr(obj.explorer_profile, "user_id", None) == request.user.id
-        )
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if getattr(obj, "author_user_id", None) == request.user.id:
+            return True
+        return getattr(obj.explorer_profile, "user_id", None) == request.user.id
 
 
 class ExplorerPostViewSet(viewsets.ModelViewSet):
@@ -6207,7 +6208,7 @@ class ExplorerPostViewSet(viewsets.ModelViewSet):
     """
     queryset = (
         ExplorerPost.objects
-        .select_related("explorer_profile__user")
+        .select_related("explorer_profile__user", "author_user")
         .prefetch_related("attachments")
         .order_by("-created_at")
     )
@@ -6233,7 +6234,7 @@ class ExplorerPostViewSet(viewsets.ModelViewSet):
         if self.action in read_actions:
             return [permissions.IsAuthenticated()]
         if self.action in owner_write_actions:
-            return [permissions.IsAuthenticated(), IsExplorer()]
+            return [permissions.IsAuthenticated()]
         if self.action in react_actions:
             return [permissions.IsAuthenticated()]
         return [permissions.IsAuthenticated()]
@@ -6241,13 +6242,15 @@ class ExplorerPostViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """
-        Enforce that the creating user owns the explorer_profile.
+        Enforce that the creating user owns the explorer_profile (if provided)
+        and stamp author_user.
         """
+        if not (self.request.user.is_explorer() or self.request.user.is_pharmacist() or self.request.user.is_otherstaff()):
+            raise permissions.PermissionDenied("Only Explorer, Pharmacist, or Other Staff can create posts.")
         explorer_profile = serializer.validated_data.get("explorer_profile")
-        if not explorer_profile or explorer_profile.user_id != self.request.user.id:
-            # Hard fail if mismatch
+        if explorer_profile is not None and explorer_profile.user_id != self.request.user.id:
             raise permissions.PermissionDenied("You can only post from your own explorer profile.")
-        serializer.save()
+        serializer.save(author_user=self.request.user)
 
     def perform_update(self, serializer):
         # Only owner can update (object-level)
@@ -6335,7 +6338,7 @@ class ExplorerPostViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="like")
     def like(self, request, pk=None):
         """
-        Like a post; available to any authenticated Explorer.
+        Like a post; available to any authenticated user.
         """
         post = self.get_object()
         created = False
@@ -6349,7 +6352,7 @@ class ExplorerPostViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="unlike")
     def unlike(self, request, pk=None):
         """
-        Unlike a post; available to any authenticated Explorer.
+        Unlike a post; available to any authenticated user.
         """
         post = self.get_object()
         with transaction.atomic():

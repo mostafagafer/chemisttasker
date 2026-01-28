@@ -1228,7 +1228,8 @@ export function getExplorerPostAttachments(id) {
     return fetchApi(`/client-profile/explorer-posts/${id}/attachments/`);
 }
 export function createExplorerPost(data) {
-    return fetchApi('/client-profile/explorer-posts/', { method: 'POST', body: data });
+    const body = data instanceof FormData ? data : JSON.stringify(data);
+    return fetchApi('/client-profile/explorer-posts/', { method: 'POST', body });
 }
 // ============ EXPLORER ONBOARDING ============
 export function getExplorerOnboardingProfile() {
@@ -1247,7 +1248,8 @@ export function createExplorerOnboardingProfile(data) {
     });
 }
 export function updateExplorerPost(id, data) {
-    return fetchApi(`/client-profile/explorer-posts/${id}/`, { method: 'PATCH', body: JSON.stringify(data) });
+    const body = data instanceof FormData ? data : JSON.stringify(data);
+    return fetchApi(`/client-profile/explorer-posts/${id}/`, { method: 'PATCH', body });
 }
 export function deleteExplorerPost(id) {
     return fetchApi(`/client-profile/explorer-posts/${id}/`, { method: 'DELETE' });

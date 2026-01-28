@@ -1933,13 +1933,57 @@ def explorer_post_upload_path(instance, filename):
     return f"explorer_posts/{instance.post_id}/{filename}"
 
 class ExplorerPost(models.Model):
+    ROLE_CATEGORY_CHOICES = [
+        ("EXPLORER", "Explorer"),
+        ("PHARMACIST", "Pharmacist"),
+        ("OTHER_STAFF", "Other Staff"),
+    ]
+    WORK_TYPE_CHOICES = [
+        ("FULL_TIME", "Full Time"),
+        ("PART_TIME", "Part Time"),
+        ("CASUAL", "Casual"),
+    ]
+    AVAILABILITY_MODE_CHOICES = [
+        ("FULL_TIME_NOTICE", "Full Time Notice"),
+        ("PART_TIME_DAYS", "Part Time Days"),
+        ("CASUAL_CALENDAR", "Casual/Locum Calendar"),
+    ]
+
     explorer_profile = models.ForeignKey(
         'ExplorerOnboarding',
         on_delete=models.CASCADE,
-        related_name='posts'
+        related_name='posts',
+        null=True,
+        blank=True,
+    )
+    author_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="talent_posts",
+        null=True,
+        blank=True,
     )
     headline    = models.CharField(max_length=255)
     body        = models.TextField(blank=True)
+
+    # Talent board fields (used across Explorer/Pharmacist/Other Staff)
+    role_category = models.CharField(max_length=20, choices=ROLE_CATEGORY_CHOICES, blank=True, null=True)
+    role_title = models.CharField(max_length=120, blank=True, null=True)
+    work_type = models.CharField(max_length=20, choices=WORK_TYPE_CHOICES, blank=True, null=True)
+    coverage_radius_km = models.PositiveSmallIntegerField(blank=True, null=True)
+    open_to_travel = models.BooleanField(default=False)
+    availability_mode = models.CharField(max_length=30, choices=AVAILABILITY_MODE_CHOICES, blank=True, null=True)
+    availability_summary = models.CharField(max_length=255, blank=True, null=True)
+    availability_days = models.JSONField(default=list, blank=True)
+    availability_notice = models.CharField(max_length=50, blank=True, null=True)
+    location_suburb = models.CharField(max_length=100, blank=True, null=True)
+    location_state = models.CharField(max_length=50, blank=True, null=True)
+    location_postcode = models.CharField(max_length=10, blank=True, null=True)
+    skills = models.JSONField(default=list, blank=True)
+    software = models.JSONField(default=list, blank=True)
+    reference_code = models.CharField(max_length=20, unique=True, blank=True, null=True)
+    is_anonymous = models.BooleanField(default=True)
+
     # Denormalized counters (kept in sync in views)
     view_count  = models.PositiveIntegerField(default=0)
     like_count  = models.PositiveIntegerField(default=0)
@@ -1954,7 +1998,11 @@ class ExplorerPost(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.headline} - {self.explorer_profile.user.get_full_name()}"
+        if self.author_user:
+            return f"{self.headline} - {self.author_user.get_full_name()}"
+        if self.explorer_profile and getattr(self.explorer_profile, "user", None):
+            return f"{self.headline} - {self.explorer_profile.user.get_full_name()}"
+        return self.headline
 
 class ExplorerPostAttachment(models.Model):
     """

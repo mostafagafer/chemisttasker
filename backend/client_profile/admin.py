@@ -54,7 +54,7 @@ class PharmacistOnboardingAdmin(admin.ModelAdmin):
     ]
     fields = [
         'user',
-        'government_id', 'ahpra_number', 'phone_number', 'short_bio', 'resume',
+        'government_id', 'ahpra_number', 'short_bio', 'resume',
         'skills',  'payment_preference',
         'abn', 'gst_registered', 'super_fund_name', 'super_usi', 'super_member_number',
         # Referee 1
@@ -95,7 +95,7 @@ class OtherStaffOnboardingAdmin(admin.ModelAdmin):
         'user__username', 'user__email', 'user__first_name', 'user__last_name', 'role_type'
     ]
     fields = [
-        'user', 'government_id', 'role_type', 'phone_number', 'skills', 'years_experience',
+        'user', 'government_id', 'role_type', 'skills', 'years_experience',
         'payment_preference', 'classification_level', 'student_year', 'intern_half',
         'ahpra_proof', 'hours_proof', 'certificate', 'university_id',
         'cpr_certificate', 's8_certificate',
@@ -124,7 +124,7 @@ class ExplorerOnboardingAdmin(admin.ModelAdmin):
         'user__username', 'user__email', 'user__first_name', 'user__last_name', 'role_type'
     ]
     fields = [
-        'user', 'government_id', 'role_type', 'phone_number', 'interests',
+        'user', 'government_id', 'role_type', 'interests',
         # Referee 1
         'referee1_name', 'referee1_relation', 'referee1_email', 'referee1_confirmed',
         # Referee 2

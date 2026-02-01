@@ -1,24 +1,40 @@
-import React from 'react';
+import React from "react";
 import {
   Box,
   Button,
   Checkbox,
+  Collapse,
   FormControlLabel,
+  IconButton,
   InputAdornment,
   Stack,
   TextField,
   Typography,
-} from '@mui/material';
-import { Search as SearchIcon } from '@mui/icons-material';
-import { TalentFilterConfig, EngagementType } from '../types';
-import { ENGAGEMENT_LABELS } from '../constants';
+} from "@mui/material";
+import {
+  Search as SearchIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  FlightTakeoff as FlightTakeoffIcon,
+  School as SchoolIcon,
+} from "@mui/icons-material";
+
+export type TalentFilterState = {
+  search: string;
+  roles: string[];
+  workTypes: string[];
+  states: string[];
+  skills: string[];
+  willingToTravel: boolean;
+  placementSeeker: boolean;
+};
 
 const FilterSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <Box sx={{ borderBottom: '1px solid', borderColor: 'grey.100', pb: 2.5, mb: 2.5 }}>
+  <Box sx={{ borderBottom: "1px solid", borderColor: "grey.100", pb: 2.5, mb: 2.5 }}>
     <Typography
       sx={{
-        textTransform: 'uppercase',
-        color: 'text.secondary',
+        textTransform: "uppercase",
+        color: "text.secondary",
         fontWeight: 700,
         fontSize: 12,
         letterSpacing: 1,
@@ -34,21 +50,33 @@ const FilterSection: React.FC<{ title: string; children: React.ReactNode }> = ({
 const toggleList = (list: string[], value: string) =>
   list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
 
-const toggleListTyped = (list: EngagementType[], value: EngagementType) =>
-  list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
-
-const FiltersSidebar: React.FC<{
-  filters: TalentFilterConfig;
-  onChange: (next: TalentFilterConfig) => void;
+export default function FiltersSidebar({
+  filters,
+  onChange,
+  roleOptions,
+  stateOptions,
+  workTypeOptions,
+  roleSkillOptions,
+  softwareOptions,
+  expandedRoleSkills,
+  onToggleRoleSkillExpand,
+}: {
+  filters: TalentFilterState;
+  onChange: (next: TalentFilterState) => void;
   roleOptions: string[];
   stateOptions: string[];
-}> = ({ filters, onChange, roleOptions, stateOptions }) => {
+  workTypeOptions: string[];
+  roleSkillOptions: Record<string, string[]>;
+  softwareOptions: string[];
+  expandedRoleSkills: Record<string, boolean>;
+  onToggleRoleSkillExpand: (role: string) => void;
+}) {
   return (
     <Box sx={{ px: 2.5, py: 2 }}>
       <TextField
         fullWidth
         size="small"
-        placeholder="Search role or pitch..."
+        placeholder="Role, City, Ref #..."
         value={filters.search}
         onChange={(event) => onChange({ ...filters, search: event.target.value })}
         InputProps={{
@@ -61,54 +89,169 @@ const FiltersSidebar: React.FC<{
         sx={{ mb: 2 }}
       />
 
-      <FilterSection title="Role Type">
+      <Stack spacing={1.5} sx={{ mb: 2 }}>
+        <Box
+          sx={{
+            border: 1,
+            borderColor: filters.willingToTravel ? "primary.200" : "grey.200",
+            bgcolor: filters.willingToTravel ? "primary.50" : "transparent",
+            borderRadius: 2,
+            p: 1.5,
+          }}
+        >
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={filters.willingToTravel}
+                onChange={() => onChange({ ...filters, willingToTravel: !filters.willingToTravel })}
+              />
+            }
+            label={
+              <Stack direction="row" spacing={1} alignItems="center">
+                <FlightTakeoffIcon fontSize="small" />
+                <Box>
+                  <Typography variant="body2" fontWeight={700}>
+                    Open to Travel
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Candidates willing to relocate
+                  </Typography>
+                </Box>
+              </Stack>
+            }
+          />
+        </Box>
+
+        <Box
+          sx={{
+            border: 1,
+            borderColor: filters.placementSeeker ? "success.200" : "grey.200",
+            bgcolor: filters.placementSeeker ? "success.50" : "transparent",
+            borderRadius: 2,
+            p: 1.5,
+          }}
+        >
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={filters.placementSeeker}
+                onChange={() => onChange({ ...filters, placementSeeker: !filters.placementSeeker })}
+              />
+            }
+            label={
+              <Stack direction="row" spacing={1} alignItems="center">
+                <SchoolIcon fontSize="small" />
+                <Box>
+                  <Typography variant="body2" fontWeight={700}>
+                    Students & Interns
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Searching for placements
+                  </Typography>
+                </Box>
+              </Stack>
+            }
+          />
+        </Box>
+      </Stack>
+
+      <FilterSection title="Role Type & Skills">
         <Stack spacing={1}>
-          {roleOptions.map((role) => (
+          {roleOptions.map((role) => {
+            const hasSkills = (roleSkillOptions[role] || []).length > 0;
+            const expanded = expandedRoleSkills[role] ?? false;
+            return (
+              <Box key={role}>
+                <Stack direction="row" alignItems="center" justifyContent="space-between">
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={filters.roles.includes(role)}
+                        onChange={() => onChange({ ...filters, roles: toggleList(filters.roles, role) })}
+                      />
+                    }
+                    label={<Typography variant="body2" fontWeight={600}>{role}</Typography>}
+                  />
+                  {hasSkills && (
+                    <IconButton size="small" onClick={() => onToggleRoleSkillExpand(role)}>
+                      {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                    </IconButton>
+                  )}
+                </Stack>
+                {hasSkills && (
+                  <Collapse in={expanded} timeout="auto" unmountOnExit>
+                    <Stack spacing={0.5} sx={{ pl: 4, pt: 0.5 }}>
+                      {roleSkillOptions[role].map((skill) => (
+                        <FormControlLabel
+                          key={skill}
+                          control={
+                            <Checkbox
+                              size="small"
+                              checked={filters.skills.includes(skill)}
+                              onChange={() => onChange({ ...filters, skills: toggleList(filters.skills, skill) })}
+                            />
+                          }
+                          label={<Typography variant="caption">{skill}</Typography>}
+                        />
+                      ))}
+                    </Stack>
+                  </Collapse>
+                )}
+              </Box>
+            );
+          })}
+        </Stack>
+      </FilterSection>
+
+      <FilterSection title="Software Proficiency">
+        <Stack spacing={0.5}>
+          {softwareOptions.map((skill) => (
             <FormControlLabel
-              key={role}
+              key={skill}
               control={
                 <Checkbox
-                  checked={filters.roles.includes(role)}
-                  onChange={() => onChange({ ...filters, roles: toggleList(filters.roles, role) })}
+                  size="small"
+                  checked={filters.skills.includes(skill)}
+                  onChange={() => onChange({ ...filters, skills: toggleList(filters.skills, skill) })}
                 />
               }
-              label={role}
+              label={<Typography variant="body2">{skill}</Typography>}
             />
           ))}
         </Stack>
       </FilterSection>
 
       <FilterSection title="Engagement Type">
-        <Stack spacing={1}>
-          {(Object.keys(ENGAGEMENT_LABELS) as EngagementType[]).map((value) => (
+        <Stack spacing={0.5}>
+          {workTypeOptions.map((type) => (
             <FormControlLabel
-              key={value}
+              key={type}
               control={
                 <Checkbox
-                  checked={filters.engagementTypes.includes(value)}
-                  onChange={() =>
-                    onChange({ ...filters, engagementTypes: toggleListTyped(filters.engagementTypes, value) })
-                  }
+                  size="small"
+                  checked={filters.workTypes.includes(type)}
+                  onChange={() => onChange({ ...filters, workTypes: toggleList(filters.workTypes, type) })}
                 />
               }
-              label={ENGAGEMENT_LABELS[value]}
+              label={<Typography variant="body2">{type}</Typography>}
             />
           ))}
         </Stack>
       </FilterSection>
 
       <FilterSection title="Location (State)">
-        <Stack spacing={1}>
+        <Stack spacing={0.5}>
           {stateOptions.map((state) => (
             <FormControlLabel
               key={state}
               control={
                 <Checkbox
+                  size="small"
                   checked={filters.states.includes(state)}
                   onChange={() => onChange({ ...filters, states: toggleList(filters.states, state) })}
                 />
               }
-              label={state}
+              label={<Typography variant="body2">{state}</Typography>}
             />
           ))}
         </Stack>
@@ -117,12 +260,20 @@ const FiltersSidebar: React.FC<{
       <Button
         variant="outlined"
         fullWidth
-        onClick={() => onChange({ search: '', roles: [], states: [], engagementTypes: [] })}
+        onClick={() =>
+          onChange({
+            search: "",
+            roles: [],
+            workTypes: [],
+            states: [],
+            skills: [],
+            willingToTravel: false,
+            placementSeeker: false,
+          })
+        }
       >
         Clear Filters
       </Button>
     </Box>
   );
-};
-
-export default FiltersSidebar;
+}

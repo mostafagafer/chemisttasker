@@ -5,7 +5,7 @@ from .serializers import *
 from .serializers import required_user_role_for_membership
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated, SAFE_METHODS
+from rest_framework.permissions import IsAuthenticated, SAFE_METHODS, AllowAny
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.exceptions import NotFound, APIException, PermissionDenied, ValidationError, NotAuthenticated
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -6224,6 +6224,7 @@ class ExplorerPostViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         # Read-only endpoints → any authenticated user
         read_actions = ["list", "retrieve", "feed", "by_profile", "add_view"]
+        public_read_actions = ["public_feed"]
 
         # Owner-required writes → must be Explorer (ownership checked later)
         owner_write_actions = ["create", "update", "partial_update", "destroy", "attachments"]
@@ -6231,6 +6232,8 @@ class ExplorerPostViewSet(viewsets.ModelViewSet):
         # Reactions → any authenticated user (no Explorer requirement)
         react_actions = ["like", "unlike"]
 
+        if self.action in public_read_actions:
+            return [AllowAny()]
         if self.action in read_actions:
             return [permissions.IsAuthenticated()]
         if self.action in owner_write_actions:
@@ -6272,6 +6275,18 @@ class ExplorerPostViewSet(viewsets.ModelViewSet):
     def feed(self, request):
         """
         Newest-first feed. (Extend with follow-graph later if needed.)
+        """
+        qs = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(qs)
+        ser = ExplorerPostReadSerializer(page or qs, many=True, context={"request": request})
+        if page is not None:
+            return self.get_paginated_response(ser.data)
+        return Response(ser.data)
+
+    @action(detail=False, methods=["get"], url_path="public-feed", permission_classes=[AllowAny])
+    def public_feed(self, request):
+        """
+        Public feed for non-authenticated users.
         """
         qs = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(qs)
@@ -6333,6 +6348,20 @@ class ExplorerPostViewSet(viewsets.ModelViewSet):
                 created.append(ser.instance)
 
         return Response(ExplorerPostAttachmentSerializer(created, many=True).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["delete"], url_path=r"attachments/(?P<attachment_id>[^/.]+)")
+    def delete_attachment(self, request, pk=None, attachment_id=None):
+        """
+        Delete a single attachment by id (owner only).
+        """
+        post = self.get_object()
+        self.check_object_permissions_for_write(post)
+
+        attachment = post.attachments.filter(id=attachment_id).first()
+        if not attachment:
+            return Response({"detail": "Attachment not found."}, status=status.HTTP_404_NOT_FOUND)
+        attachment.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     # --------- Reactions (like/unlike) (owner NOT required, but must be Explorer) ---------
     @action(detail=True, methods=["post"], url_path="like")

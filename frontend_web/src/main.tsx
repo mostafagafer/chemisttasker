@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { Outlet, Navigate } from 'react-router-dom';
 import { WorkspaceProvider } from './contexts/WorkspaceContext'; // Add this import
 import { initSharedCoreApi } from './config/api';
+import './index.css';
 
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 
@@ -20,6 +21,7 @@ import MobileOTPVerify from './pages/MobileOTPVerify';
 import AccountDeletionPage from './pages/AccountDeletionPage';
 
 import PublicJobBoardPage from './pages/PublicJobBoardPage';
+import PublicTalentBoardPage from './pages/PublicTalentBoardPage';
 import SharedShiftLandingPage from './pages/SharedShiftLandingPage';
 import MembershipApplyPage from './pages/MembershipApplyPage';
 import PublicOrganizationPage from './pages/PublicOrganizationPage';
@@ -112,6 +114,7 @@ const router = createBrowserRouter([
 
 
       { path: 'shifts/public-board', element: <PublicJobBoardPage /> },
+      { path: 'talent/public-board', element: <PublicTalentBoardPage /> },
       { path: 'shifts/link', element: <SharedShiftLandingPage /> },
       { path: 'organization/:slug', element: <PublicOrganizationPage /> },
 

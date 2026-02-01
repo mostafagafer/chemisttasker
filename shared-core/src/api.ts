@@ -21,6 +21,10 @@ async function fetchApi(endpoint, options = {}) {
     if ('skipAuth' in options) {
         delete options.skipAuth;
     }
+    const body = options.body;
+    if (body && !(body instanceof FormData) && typeof body !== 'string') {
+        options.body = JSON.stringify(body);
+    }
     const token = includeAuth ? await getToken() : null;
     const headers = {};
     if (options.headers) {
@@ -309,7 +313,8 @@ export function getOnboarding(role) {
 }
 export function updateOnboarding(role, data) {
     const safeRole = role === 'other_staff' ? 'otherstaff' : role;
-    return fetchApi(`/client-profile/${safeRole}/onboarding/me/`, { method: 'PATCH', body: data });
+    const body = data instanceof FormData || typeof data === 'string' ? data : JSON.stringify(data);
+    return fetchApi(`/client-profile/${safeRole}/onboarding/me/`, { method: 'PATCH', body });
 }
 export function createOnboarding(role, data) {
     const safeRole = role === 'other_staff' ? 'otherstaff' : role;
@@ -1211,6 +1216,10 @@ export function getExplorerPostDetail(id) {
 export function getExplorerPostFeed(params) {
     const query = buildQuery(params);
     return fetchApi(`/client-profile/explorer-posts/feed/${query}`);
+}
+export function getPublicTalentFeed(params) {
+    const query = buildQuery(params);
+    return fetchApi(`/client-profile/explorer-posts/public-feed/${query}`, { skipAuth: true });
 }
 export function getExplorerPostsByProfile(profileId) {
     return fetchApi(`/client-profile/explorer-posts/by-profile/${profileId}/`);

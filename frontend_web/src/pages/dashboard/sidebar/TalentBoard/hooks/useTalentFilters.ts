@@ -1,50 +1,71 @@
-import { useMemo } from 'react';
-import { ExplorerPost } from '@chemisttasker/shared-core';
-import { TalentFilterConfig } from '../types';
+import { useMemo } from "react";
+import { Candidate } from "../types";
+import { TalentFilterState } from "../components/FiltersSidebar";
 
-const getRoleLabel = (post: ExplorerPost) =>
-  post.roleTitle || post.explorerRoleType || post.roleCategory || 'Explorer';
-
-const getStateLabel = (post: ExplorerPost) =>
-  post.locationState || '';
-
-const getEngagement = (post: ExplorerPost) => post.workType || '';
-
-export const useTalentFilters = (posts: ExplorerPost[], filters: TalentFilterConfig) => {
+export const useTalentFilters = (candidates: Candidate[], filters: TalentFilterState) => {
   const roleOptions = useMemo(() => {
     const unique = new Set<string>();
-    posts.forEach((post) => {
-      const role = getRoleLabel(post);
-      if (role) unique.add(role);
+    candidates.forEach((c) => {
+      if (c.role) unique.add(c.role);
     });
     return Array.from(unique).sort();
-  }, [posts]);
+  }, [candidates]);
 
   const stateOptions = useMemo(() => {
     const unique = new Set<string>();
-    posts.forEach((post) => {
-      const state = getStateLabel(post);
-      if (state) unique.add(state);
+    candidates.forEach((c) => {
+      if (c.state) unique.add(c.state);
     });
     return Array.from(unique).sort();
-  }, [posts]);
+  }, [candidates]);
+
+  const roleSkillOptions = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    candidates.forEach((c) => {
+      if (!map[c.role]) map[c.role] = [];
+      const roleSkills = (c.skills ?? []).filter((skill: string) => !c.software.includes(skill));
+      map[c.role].push(...roleSkills);
+    });
+    Object.keys(map).forEach((role) => {
+      map[role] = Array.from(new Set(map[role])).sort();
+    });
+    return map;
+  }, [candidates]);
+
+  const softwareOptions = useMemo(() => {
+    const unique = new Set<string>();
+    candidates.forEach((c) => c.software.forEach((s: string) => unique.add(s)));
+    return Array.from(unique).sort();
+  }, [candidates]);
 
   const filtered = useMemo(() => {
     const search = filters.search.trim().toLowerCase();
-    return posts.filter((post) => {
-      const role = getRoleLabel(post);
-      const state = getStateLabel(post);
-      const engagement = getEngagement(post);
+    return candidates.filter((c) => {
       if (search) {
-        const haystack = `${role} ${post.headline ?? ''} ${post.body ?? ''}`.toLowerCase();
+        const haystack = `${c.role} ${c.pitch} ${c.city} ${c.refId}`.toLowerCase();
         if (!haystack.includes(search)) return false;
       }
-      if (filters.roles.length > 0 && !filters.roles.includes(role)) return false;
-      if (filters.states.length > 0 && !filters.states.includes(state)) return false;
-      if (filters.engagementTypes.length > 0 && !filters.engagementTypes.includes(engagement as any)) return false;
+      if (filters.roles.length > 0 && !filters.roles.includes(c.role)) return false;
+      if (filters.workTypes.length > 0) {
+        const hasMatch = c.workTypes.some((type: string) => filters.workTypes.includes(type));
+        if (!hasMatch) return false;
+      }
+      if (filters.states.length > 0 && !filters.states.includes(c.state)) return false;
+      if (filters.skills.length > 0) {
+        const hasAllSkills = filters.skills.every((skill: string) => c.skills.includes(skill));
+        if (!hasAllSkills) return false;
+      }
+      if (filters.willingToTravel && !c.willingToTravel) return false;
+      if (filters.placementSeeker && !c.isInternshipSeeker) return false;
       return true;
     });
-  }, [posts, filters]);
+  }, [candidates, filters]);
 
-  return { filtered, roleOptions, stateOptions };
+  return {
+    filtered,
+    roleOptions,
+    stateOptions,
+    roleSkillOptions,
+    softwareOptions,
+  };
 };

@@ -479,7 +479,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             'username','first_name','last_name','phone_number','date_of_birth','profile_photo','profile_photo_url',
             'profile_photo','profile_photo_url',
             'ahpra_number',
-            'street_address','suburb','state','postcode','google_place_id','latitude','longitude',
+            'street_address','suburb','state','postcode','google_place_id','latitude','longitude','open_to_travel','coverage_radius_km',
             'ahpra_verified','ahpra_registration_status','ahpra_registration_type','ahpra_expiry_date',
             'ahpra_verification_note',
 
@@ -544,6 +544,14 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             'google_place_id': {'required': False, 'allow_blank': True, 'allow_null': True},
             'latitude':        {'required': False, 'allow_null': True},
             'longitude':       {'required': False, 'allow_null': True},
+            'open_to_travel':  {'required': False},
+            'coverage_radius_km': {'required': False, 'allow_null': True},
+            'open_to_travel':  {'required': False},
+            'coverage_radius_km': {'required': False, 'allow_null': True},
+            'coverage_radius_km': {'required': False, 'allow_null': True},
+            'coverage_radius_km': {'required': False, 'allow_null': True},
+            'open_to_travel':  {'required': False},
+            'open_to_travel':  {'required': False},
             'profile_photo': {'required': False, 'allow_null': True},
             'profile_photo_url': {'read_only': True},
             'profile_photo': {'required': False, 'allow_null': True},
@@ -816,6 +824,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         direct_fields = [
         'ahpra_number',
         'street_address', 'suburb', 'state', 'postcode', 'google_place_id',
+        'open_to_travel', 'coverage_radius_km',
         'date_of_birth',
         ]
 
@@ -1514,7 +1523,7 @@ class OtherStaffOnboardingV2Serializer(serializers.ModelSerializer):
         fields = [
             # ---------- BASIC ----------
             'username','first_name','last_name','phone_number','date_of_birth',
-            'street_address','suburb','state','postcode','google_place_id','latitude','longitude',
+            'street_address','suburb','state','postcode','google_place_id','latitude','longitude','open_to_travel','coverage_radius_km',
 
             # ---------- IDENTITY ----------
             'government_id','identity_secondary_file','government_id_type','identity_meta',
@@ -1831,7 +1840,7 @@ class OtherStaffOnboardingV2Serializer(serializers.ModelSerializer):
 
         # regular writes for basic fields (address + dob)
         direct_fields = [
-            'street_address','suburb','state','postcode','google_place_id','date_of_birth',
+            'street_address','suburb','state','postcode','google_place_id','open_to_travel','coverage_radius_km','date_of_birth',
             'role_type','classification_level','student_year','intern_half',  # allow role data in Basic if FE sends them early
         ]
         for f in direct_fields:
@@ -2427,7 +2436,7 @@ class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
             # ---------- BASIC ----------
             'username','first_name','last_name','phone_number','profile_photo','profile_photo_url',
             'role_type',
-            'street_address','suburb','state','postcode','google_place_id','latitude','longitude',
+            'street_address','suburb','state','postcode','google_place_id','latitude','longitude','open_to_travel','coverage_radius_km',
 
             # ---------- IDENTITY ----------
             'government_id','identity_secondary_file','government_id_type','identity_meta',
@@ -2625,7 +2634,7 @@ class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
         # role + address
         direct_fields = [
             'role_type',
-            'street_address','suburb','state','postcode','google_place_id',
+            'street_address','suburb','state','postcode','google_place_id','open_to_travel','coverage_radius_km',
         ]
         for f in direct_fields:
             if f in vdata:
@@ -4806,6 +4815,8 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
     explorer_user_id = serializers.SerializerMethodField()
     explorer_role_type = serializers.SerializerMethodField()
     author_user_id = serializers.IntegerField(source="author_user.id", read_only=True)
+    skills = serializers.SerializerMethodField()
+    software = serializers.SerializerMethodField()
 
     attachments = ExplorerPostAttachmentSerializer(many=True, read_only=True)
     is_liked_by_me = serializers.SerializerMethodField()
@@ -4820,7 +4831,7 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
             "body",
             "role_category",
             "role_title",
-            "work_type",
+            "work_types",
             "coverage_radius_km",
             "open_to_travel",
             "availability_mode",
@@ -4861,6 +4872,28 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
             return getattr(obj.explorer_profile, "role_type", None)
         return obj.role_title or obj.role_category
 
+    def _get_onboarding_skills(self, obj):
+        user = obj.author_user or getattr(obj.explorer_profile, "user", None)
+        if not user:
+            return []
+        try:
+            if obj.role_category == "PHARMACIST":
+                po = PharmacistOnboarding.objects.filter(user=user).first()
+                return list(po.skills or []) if po else []
+            if obj.role_category == "OTHER_STAFF":
+                so = OtherStaffOnboarding.objects.filter(user=user).first()
+                return list(so.skills or []) if so else []
+            eo = ExplorerOnboarding.objects.filter(user=user).first()
+            return list(eo.interests or []) if eo else []
+        except Exception:
+            return []
+
+    def get_skills(self, obj):
+        return list(obj.skills or []) if obj.skills else self._get_onboarding_skills(obj)
+
+    def get_software(self, obj):
+        return list(obj.software or []) if obj.software else []
+
     def get_is_liked_by_me(self, obj):
         req = self.context.get("request")
         if not req or not req.user or not req.user.is_authenticated:
@@ -4884,7 +4917,7 @@ class ExplorerPostWriteSerializer(serializers.ModelSerializer):
             "body",
             "role_category",
             "role_title",
-            "work_type",
+            "work_types",
             "coverage_radius_km",
             "open_to_travel",
             "availability_mode",
@@ -4906,6 +4939,26 @@ class ExplorerPostWriteSerializer(serializers.ModelSerializer):
         Ensure the creator owns the explorer_profile.
         (We re-check in perform_create too, but this gives nice 400s earlier.)
         """
+        # Normalize JSON fields coming from multipart/form-data
+        work_types = attrs.get("work_types")
+        if isinstance(work_types, str):
+            try:
+                attrs["work_types"] = json.loads(work_types)
+            except Exception:
+                raise serializers.ValidationError({"work_types": "Invalid JSON list."})
+        skills = attrs.get("skills")
+        if isinstance(skills, str):
+            try:
+                attrs["skills"] = json.loads(skills)
+            except Exception:
+                raise serializers.ValidationError({"skills": "Invalid JSON list."})
+        software = attrs.get("software")
+        if isinstance(software, str):
+            try:
+                attrs["software"] = json.loads(software)
+            except Exception:
+                raise serializers.ValidationError({"software": "Invalid JSON list."})
+
         request = self.context.get("request")
         profile = attrs.get("explorer_profile")
         if request and request.user.is_authenticated and profile:
@@ -4937,7 +4990,7 @@ class ExplorerPostWriteSerializer(serializers.ModelSerializer):
             "body",
             "role_category",
             "role_title",
-            "work_type",
+            "work_types",
             "coverage_radius_km",
             "open_to_travel",
             "availability_mode",

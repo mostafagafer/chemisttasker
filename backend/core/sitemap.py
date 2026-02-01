@@ -62,6 +62,7 @@ def _build_static_urls(base_url):
     return [
         f"{base}/",
         f"{base}/shifts/public-board",
+        f"{base}/talent/public-board",
         f"{base}/terms-of-service",
         f"{base}/privacy-policy",
     ]

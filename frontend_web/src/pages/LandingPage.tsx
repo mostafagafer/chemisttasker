@@ -14,6 +14,7 @@ const PAGE_ROUTES = {
   login: '/login',
   register: '/register',
   publicJobBoard: '/shifts/public-board',
+  publicTalentBoard: '/talent/public-board',
   privacyPolicy: '/privacy-policy',
   termsOfService: '/terms-of-service',
 };
@@ -294,11 +295,11 @@ const HeroSection: React.FC = () => {
             <CtaButton href={PAGE_ROUTES.publicJobBoard} sx={{ px: 4, py: 1.5, fontSize: '1.08rem' }}>
               Find a Flexible Shift
             </CtaButton>
-            <CtaButton href={PAGE_ROUTES.register} sx={{
+            <CtaButton href={PAGE_ROUTES.publicTalentBoard} sx={{
               px: 4, py: 1.5, fontSize: '1.08rem',
               bgcolor: '#c724b1', color: 'white', '&:hover': { bgcolor: '#a0178a' }
             }}>
-              Sign Up for Early Access
+              Find Talent
             </CtaButton>
           </Box>
         </Box>
@@ -567,8 +568,8 @@ const FinalCTASection: React.FC = () => (
         <Typography color="text.primary" sx={{ mb: 4, maxWidth: '40rem', mx: 'auto' }}>
           Be the first to access ChemistTasker—one login, every service, every shift, every invoice. Sign up and see how easy pharmacy life can be.
         </Typography>
-        <CtaButton href={PAGE_ROUTES.register} sx={{ px: 5, py: 2, fontSize: '1.25rem' }}>
-          Sign Up for Early Access
+        <CtaButton href={PAGE_ROUTES.publicTalentBoard} sx={{ px: 5, py: 2, fontSize: '1.25rem' }}>
+          Find Talent
         </CtaButton>
       </Box>
     </Container>

@@ -54,7 +54,6 @@ body {
 
 @import "https://unpkg.com/@googlemaps/extension-placeautocomplete@1.0.0-beta.3/dist/place_autocomplete.css";
 
-/* Tailwind CSS configurations
 @tailwind base;
 @tailwind components;
-@tailwind utilities; */
+@tailwind utilities;

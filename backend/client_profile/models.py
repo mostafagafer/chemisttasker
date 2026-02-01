@@ -205,6 +205,8 @@ class PharmacistOnboarding(models.Model):
     google_place_id  = models.CharField(max_length=255, blank=True, null=True)
     latitude         = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
     longitude        = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+    open_to_travel   = models.BooleanField(default=False)
+    coverage_radius_km = models.PositiveSmallIntegerField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.user.get_full_name()} - Onboarding"
@@ -267,6 +269,8 @@ class OtherStaffOnboarding(models.Model):
     google_place_id = models.CharField(max_length=255, blank=True, null=True)
     latitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+    open_to_travel = models.BooleanField(default=False)
+    coverage_radius_km = models.PositiveSmallIntegerField(blank=True, null=True)
 
     # --- Experience / Skills ---
     skills = models.JSONField(default=list, blank=True)
@@ -419,6 +423,8 @@ class ExplorerOnboarding(models.Model):
     google_place_id  = models.CharField(max_length=255, blank=True, null=True)
     latitude         = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
     longitude        = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+    open_to_travel   = models.BooleanField(default=False)
+    coverage_radius_km = models.PositiveSmallIntegerField(blank=True, null=True)
 
     profile_photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)
 
@@ -1969,7 +1975,7 @@ class ExplorerPost(models.Model):
     # Talent board fields (used across Explorer/Pharmacist/Other Staff)
     role_category = models.CharField(max_length=20, choices=ROLE_CATEGORY_CHOICES, blank=True, null=True)
     role_title = models.CharField(max_length=120, blank=True, null=True)
-    work_type = models.CharField(max_length=20, choices=WORK_TYPE_CHOICES, blank=True, null=True)
+    work_types = models.JSONField(default=list, blank=True)  # multi-select support
     coverage_radius_km = models.PositiveSmallIntegerField(blank=True, null=True)
     open_to_travel = models.BooleanField(default=False)
     availability_mode = models.CharField(max_length=30, choices=AVAILABILITY_MODE_CHOICES, blank=True, null=True)

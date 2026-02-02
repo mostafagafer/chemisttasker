@@ -46,30 +46,8 @@ const formatWorkType = (workType?: string | null) => {
 
 const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
-const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
 const allWorkTypes = Object.values(ENGAGEMENT_LABELS);
 
-const formatAvailabilityDays = (days?: Array<string | number> | null) => {
-  if (!Array.isArray(days) || days.length === 0) return "";
-  const labels = days
-    .map((day) => {
-      if (typeof day === "number" && day >= 0 && day <= 6) {
-        return dayNames[day];
-      }
-      if (typeof day === "string") {
-        const normalized = day.trim();
-        if (isIsoDate(normalized)) return normalized;
-        const upper = normalized.toUpperCase();
-        const idx = dayNames.findIndex((name) => name.toUpperCase() === upper.slice(0, 3));
-        if (idx >= 0) return dayNames[idx];
-        return titleCase(normalized);
-      }
-      return null;
-    })
-    .filter(Boolean) as string[];
-  return labels.join(", ");
-};
 
 type SkillItem = {
   code: string;
@@ -130,7 +108,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
   const loading = externalLoading ?? feed.loading;
   const error = externalError ?? feed.error;
   const reload = feed.reload;
-  const { user, token } = useAuth();
+  const { user, token, isAdminUser } = useAuth();
   const navigate = useNavigate();
 
   const [filters, setFilters] = useState<TalentFilterState>({
@@ -182,25 +160,36 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
         Array.isArray((post as any).workTypes) && (post as any).workTypes.length
           ? (post as any).workTypes.map((w: string) => formatWorkType(w))
           : [];
-      const workTypeLabel = workTypes[0] || "";
       const city = post.locationSuburb || post.locationState || "";
       const state = post.locationState || "";
       const coverageRadius = post.coverageRadiusKm ? `+${post.coverageRadiusKm}km` : "Local";
       const willingToTravel = Boolean(post.openToTravel);
       const pitchText = post.body || (post as any).shortBio || "";
       const availabilityMode = post.availabilityMode || null;
-      const availabilityDaysText = formatAvailabilityDays(post.availabilityDays as Array<string | number> | null);
-      const availabilityText =
-        post.availabilitySummary ||
-        post.availabilityNotice ||
-        availabilityDaysText ||
-        (workTypeLabel === "Full Time" ? "Available Now" : "Flexible");
 
-      const availableDates = Array.isArray(post.availabilityDays)
-        ? (post.availabilityDays.filter((item: unknown) => typeof item === "string" && isIsoDate(item)) as string[])
-        : [];
+      const availabilityRaw = Array.isArray(post.availabilityDays) ? post.availabilityDays : [];
+      const availableSlots = availabilityRaw
+        .map((entry: any) => {
+          if (typeof entry === "string") {
+            return { date: entry, startTime: null, endTime: null, isAllDay: false };
+          }
+          if (entry && typeof entry === "object") {
+            return {
+              date: String(entry.date || ""),
+              startTime: entry.start_time || entry.startTime || entry.start || null,
+              endTime: entry.end_time || entry.endTime || entry.end || null,
+              isAllDay: Boolean(entry.is_all_day ?? entry.isAllDay),
+            };
+          }
+          return null;
+        })
+        .filter(
+          (entry: any): entry is { date: string; startTime?: string | null; endTime?: string | null; isAllDay?: boolean } =>
+            Boolean(entry && isIsoDate(entry.date))
+        ) as Array<{ date: string; startTime?: string | null; endTime?: string | null; isAllDay?: boolean }>;
+      const availableDates = availableSlots.map((slot: any) => slot.date);
 
-      const showCalendar = availabilityMode === "CASUAL_CALENDAR" && availableDates.length > 0;
+      const showCalendar = availableDates.length > 0;
 
       const rawSkills = Array.from(new Set([...(post.software ?? []), ...(post.skills ?? [])])).filter(Boolean) as string[];
       const clinicalServices: string[] = [];
@@ -268,10 +257,11 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
         dispenseSoftware,
         expandedScope,
         experience: null,
-        availabilityText: availabilityText || "Flexible",
+        availabilityText: "",
         availabilityMode,
         showCalendar,
         availableDates,
+        availableSlots,
         isInternshipSeeker:
           roleLabel.includes("Student") ||
           roleLabel.includes("Intern") ||
@@ -397,6 +387,27 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
     [publicMode, onRequireLogin, chatRoute, navigate]
   );
 
+  const canRequestBooking = useMemo(() => {
+    if (!user) return false;
+    const roleKey = (user.role || "").toUpperCase();
+    if (
+      [
+        "OWNER",
+        "PHARMACY_ADMIN",
+        "PHARMACY_OWNER",
+        "ORG_ADMIN",
+        "ORG_OWNER",
+        "ORG_STAFF",
+        "CHIEF_ADMIN",
+        "REGION_ADMIN",
+        "ORGANIZATION",
+      ].includes(roleKey)
+    ) {
+      return true;
+    }
+    return Boolean(isAdminUser);
+  }, [user, isAdminUser]);
+
   const handleViewCalendar = useCallback(
     (candidate: Candidate) => {
       if (publicMode) {
@@ -407,6 +418,12 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
     },
     [publicMode, onRequireLogin]
   );
+
+  const handleRequestBooking = useCallback((candidate: Candidate) => {
+    // Placeholder for future booking flow
+    if (!canRequestBooking) return;
+    setSelectedCalendarCandidate(candidate);
+  }, [canRequestBooking]);
 
   const handleToggleLike = useCallback(
     async (candidate: Candidate) => {
@@ -460,6 +477,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
     longitude: null as number | null,
     googlePlaceId: "",
     files: [] as File[],
+    availabilitySlots: [] as any[],
   });
 
 
@@ -486,6 +504,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
       longitude: null,
       googlePlaceId: "",
       files: [],
+      availabilitySlots: [],
     });
     setExplorerProfileId(null);
     setExistingPostId(null);
@@ -577,6 +596,18 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           openToTravel: mine.openToTravel != null ? Boolean(mine.openToTravel) : prev.openToTravel,
           coverageRadiusKm:
             mine.coverageRadiusKm != null ? Number(mine.coverageRadiusKm) : prev.coverageRadiusKm,
+          availabilitySlots: Array.isArray(mine.availabilityDays) ? mine.availabilityDays.map((entry: any) => {
+            if (typeof entry === 'string') {
+              return { date: entry, startTime: '09:00', endTime: '17:00', isAllDay: false, notes: '' };
+            }
+            return {
+              date: String(entry?.date || ''),
+              startTime: entry?.start_time || entry?.startTime || '09:00',
+              endTime: entry?.end_time || entry?.endTime || '17:00',
+              isAllDay: Boolean(entry?.is_all_day ?? entry?.isAllDay),
+              notes: entry?.notes || '',
+            };
+          }) : prev.availabilitySlots,
         }));
         if (Array.isArray(mine.attachments)) {
           setExistingAttachments(mine.attachments);
@@ -630,6 +661,17 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
     setPitchSaving(true);
     setPitchError(null);
     try {
+      const availabilityDays = (pitchForm.availabilitySlots || [])
+        .filter((entry: any) => entry && entry.date)
+        .map((entry: any) => ({
+          date: String(entry.date),
+          start_time: entry.startTime || entry.start_time || null,
+          end_time: entry.endTime || entry.end_time || null,
+          is_all_day: Boolean(entry.isAllDay ?? entry.is_all_day),
+          startTime: entry.startTime || entry.start_time || null,
+          endTime: entry.endTime || entry.end_time || null,
+          isAllDay: Boolean(entry.isAllDay ?? entry.is_all_day),
+        }));
       if (isExplorer) {
         if (!pitchForm.headline.trim() && !pitchForm.body.trim()) {
           setPitchError("Please add a headline or some text.");
@@ -647,6 +689,8 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           location_postcode: pitchForm.postcode || undefined,
           open_to_travel: pitchForm.openToTravel,
           coverage_radius_km: pitchForm.coverageRadiusKm,
+          availability_days: availabilityDays,
+          availability_mode: availabilityDays.length > 0 ? "CASUAL_CALENDAR" : null,
         };
         if (explorerProfileId) payload.explorer_profile = explorerProfileId;
         const created: any = existingPostId
@@ -672,6 +716,8 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           open_to_travel: pitchForm.openToTravel,
           coverage_radius_km: pitchForm.coverageRadiusKm,
           is_anonymous: true,
+          availability_days: availabilityDays,
+          availability_mode: availabilityDays.length > 0 ? "CASUAL_CALENDAR" : null,
         };
         const created: any = existingPostId
           ? await updateExplorerPost(existingPostId, payload)
@@ -699,11 +745,14 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
 
 
   return (
-    <Box sx={{ width: "100%", bgcolor: "#f7f8fa", color: "text.primary" }}>
+    <Box sx={{ width: "100%", bgcolor: "background.default", color: "text.primary" }}>
       {selectedCalendarCandidate && (
         <AvailabilitySidebar
           candidate={selectedCalendarCandidate}
           onClose={() => setSelectedCalendarCandidate(null)}
+          canRequestBooking={canRequestBooking}
+          onRequestBooking={handleRequestBooking}
+          currentUserId={user?.id ?? null}
         />
       )}
 
@@ -722,7 +771,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           spacing={2}
         >
           <Box>
-            <Typography variant="h5" fontWeight={700} color="#0b1736">
+            <Typography variant="h5" fontWeight={700} color="text.primary">
               Find Talent
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -768,6 +817,8 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
               position: "sticky",
               top: 96,
               borderRadius: 3,
+              bgcolor: "background.paper",
+              borderColor: "divider",
             }}
           >
             <FiltersSidebar
@@ -811,13 +862,14 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
             <Stack spacing={2} sx={{ pb: 3 }}>
               {pagedCandidates.length > 0 ? (
                 pagedCandidates.map((candidate) => (
-                  <TalentCardV2
-                    key={candidate.id}
-                    candidate={candidate}
-                    onContact={handleContact}
-                    onViewCalendar={handleViewCalendar}
-                    onToggleLike={handleToggleLike}
-                  />
+                <TalentCardV2
+                  key={candidate.id}
+                  candidate={candidate}
+                  onContact={handleContact}
+                  onViewCalendar={handleViewCalendar}
+                  onToggleLike={handleToggleLike}
+                  canViewCalendar={canRequestBooking}
+                />
                 ))
               ) : (
                 !loading && (

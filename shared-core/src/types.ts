@@ -1133,6 +1133,7 @@ export interface UserAvailabilityApi {
     is_recurring: boolean;
     recurring_days: number[];
     recurring_end_date?: string | null;
+    notify_new_shifts?: boolean;
     notes?: string | null;
 }
 
@@ -1146,6 +1147,7 @@ export interface UserAvailabilityPayload {
     is_recurring: boolean;
     recurring_days: number[];
     recurring_end_date?: string | null;
+    notify_new_shifts?: boolean;
     notes?: string | null;
 }
 

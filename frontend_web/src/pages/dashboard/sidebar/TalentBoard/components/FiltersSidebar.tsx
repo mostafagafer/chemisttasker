@@ -11,6 +11,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import {
   Search as SearchIcon,
   ExpandMore as ExpandMoreIcon,
@@ -30,7 +31,7 @@ export type TalentFilterState = {
 };
 
 const FilterSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <Box sx={{ borderBottom: "1px solid", borderColor: "grey.100", pb: 2.5, mb: 2.5 }}>
+  <Box sx={{ borderBottom: "1px solid", borderColor: "divider", pb: 2.5, mb: 2.5 }}>
     <Typography
       sx={{
         textTransform: "uppercase",
@@ -72,7 +73,7 @@ export default function FiltersSidebar({
   onToggleRoleSkillExpand: (role: string) => void;
 }) {
   return (
-    <Box sx={{ px: 2.5, py: 2 }}>
+    <Box sx={{ px: 2.5, py: 2, bgcolor: "background.paper" }}>
       <TextField
         fullWidth
         size="small"
@@ -91,13 +92,13 @@ export default function FiltersSidebar({
 
       <Stack spacing={1.5} sx={{ mb: 2 }}>
         <Box
-          sx={{
+          sx={(theme) => ({
             border: 1,
-            borderColor: filters.willingToTravel ? "primary.200" : "grey.200",
-            bgcolor: filters.willingToTravel ? "primary.50" : "transparent",
+            borderColor: filters.willingToTravel ? theme.palette.primary.main : theme.palette.divider,
+            bgcolor: filters.willingToTravel ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.08) : "transparent",
             borderRadius: 2,
             p: 1.5,
-          }}
+          })}
         >
           <FormControlLabel
             control={
@@ -123,13 +124,13 @@ export default function FiltersSidebar({
         </Box>
 
         <Box
-          sx={{
+          sx={(theme) => ({
             border: 1,
-            borderColor: filters.placementSeeker ? "success.200" : "grey.200",
-            bgcolor: filters.placementSeeker ? "success.50" : "transparent",
+            borderColor: filters.placementSeeker ? theme.palette.success.main : theme.palette.divider,
+            bgcolor: filters.placementSeeker ? alpha(theme.palette.success.main, theme.palette.mode === "dark" ? 0.18 : 0.08) : "transparent",
             borderRadius: 2,
             p: 1.5,
-          }}
+          })}
         >
           <FormControlLabel
             control={

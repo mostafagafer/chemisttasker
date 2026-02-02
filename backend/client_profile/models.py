@@ -2097,6 +2097,10 @@ class UserAvailability(models.Model):
     is_recurring = models.BooleanField(default=False)
     recurring_days = models.JSONField(default=list, blank=True)  # list of ints [0=Sun..6=Sat]
     recurring_end_date = models.DateField(null=True, blank=True)
+    notify_new_shifts = models.BooleanField(
+        default=False,
+        help_text="Notify this user when a public shift matches this availability."
+    )
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

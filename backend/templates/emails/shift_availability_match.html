@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Shift Match Found</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
+        .btn {
+            display: inline-block;
+            background: #23b59c;
+            color: #fff;
+            padding: 12px 28px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.05rem;
+            margin: 16px 0;
+            box-shadow: 0 1px 3px #e0e0e0;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #199982; }
+        .meta { margin: 12px 0; font-size: 0.95rem; color: #5f5f5f; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Shift match found!</h2>
+        <p>
+            Great news, a <b>{{ role_label }}</b> shift at <b>{{ pharmacy_name }}</b> matches your availability.
+            {% if employment_type_label %}({{ employment_type_label }}){% endif %}
+        </p>
+        {% if location_line %}
+        <p class="meta">
+            <strong>Location:</strong> {{ location_line }}
+        </p>
+        {% endif %}
+        {% if rate_summary %}
+        <p class="meta">
+            <strong>Rate:</strong> {{ rate_summary }}
+        </p>
+        {% endif %}
+        {% if slots_display %}
+        <p class="meta"><strong>Schedule</strong></p>
+        <ul style="font-size: 15px; padding-left: 18px; margin: 0 0 12px 0;">
+            {% for slot_line in slots_display %}
+            <li>{{ slot_line }}</li>
+            {% endfor %}
+            {% if slots_extra_count %}
+            <li>and {{ slots_extra_count }} more</li>
+            {% endif %}
+        </ul>
+        {% elif slot_summary %}
+        <p class="meta">
+            Next shift: {{ slot_summary }}
+        </p>
+        {% endif %}
+        <a class="btn" href="{{ shift_link }}">View Shift</a>
+        <p>
+            This one lines up with your preferences, jump in early if you want it!
+        </p>
+        <p>
+            If you have any questions, just reply to this email.
+        </p>
+        <p>Thanks,<br>The ChemistTasker Team</p>
+    </div>
+</body>
+</html>

@@ -31,6 +31,12 @@ export type Candidate = {
   availabilityMode: string | null;
   showCalendar: boolean;
   availableDates: string[];
+  availableSlots?: Array<{
+    date: string;
+    startTime?: string | null;
+    endTime?: string | null;
+    isAllDay?: boolean;
+  }>;
   isInternshipSeeker: boolean;
   ratingAverage: number;
   ratingCount: number;

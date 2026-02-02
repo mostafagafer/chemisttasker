@@ -6,7 +6,7 @@ import CorporateFareIcon from '@mui/icons-material/CorporateFare'
 import PostAddIcon from '@mui/icons-material/PostAdd'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import EventAvailableIcon from '@mui/icons-material/EventAvailable'
-import FavoriteIcon from '@mui/icons-material/Favorite'
+import PersonSearchIcon from '@mui/icons-material/PersonSearch'
 import SchoolIcon from '@mui/icons-material/School'
 import LogoutIcon from '@mui/icons-material/Logout'
 import ManageAccountsSharpIcon from '@mui/icons-material/ManageAccountsSharp'
@@ -77,7 +77,7 @@ export function getOrganizationNav(hasUnreadMessages: boolean): Navigation {
     },
     { kind: 'divider' as const },
     { kind: 'header' as const, title: 'Learning & Explorer Hub' },
-    { segment: 'dashboard/organization/interests', title: 'Talent Hub', icon: <FavoriteIcon /> },
+    { segment: 'dashboard/organization/interests', title: 'Talent Hub', icon: <PersonSearchIcon /> },
     { segment: 'dashboard/organization/learning', title: 'Learning Materials', icon: <SchoolIcon /> },
     { kind: 'divider' as const },
     { segment: 'dashboard/organization/logout', title: 'Logout', icon: <LogoutIcon /> },
@@ -134,7 +134,7 @@ export function getOwnerNav(progressPercent: number, hasUnreadMessages: boolean)
     },
     { kind: "divider" as const },
     { kind: "header" as const, title: "Learning & Explorer Hub" },
-    { segment: "dashboard/owner/interests", title: "Talent Hub", icon: <FavoriteIcon /> },
+    { segment: "dashboard/owner/interests", title: "Talent Hub", icon: <PersonSearchIcon /> },
     { segment: "dashboard/owner/learning", title: "Learning Materials", icon: <SchoolIcon /> },
     { kind: "divider" as const },
     { segment: "dashboard/owner/logout", title: "Logout", icon: <LogoutIcon /> },
@@ -325,7 +325,7 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
     // -- Divider & Learning Section --
     { kind: 'divider' as const },
     { kind: 'header' as const, title: 'Learning & Explorer Hub' },
-    { segment: 'dashboard/otherstaff/interests', title: 'Talent Hub', icon: <FavoriteIcon /> },
+    { segment: 'dashboard/otherstaff/interests', title: 'Talent Hub', icon: <PersonSearchIcon /> },
     { segment: 'dashboard/otherstaff/learning', title: 'Learning Materials', icon: <SchoolIcon /> },
 
     // -- Divider & Logout --
@@ -387,7 +387,7 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
     { segment: 'dashboard/pharmacist/invoice', title: 'Manage Invoices', icon: <ReceiptIcon /> },
     { kind: 'divider' as const },
     { kind: 'header' as const, title: 'Learning & Explorer Hub' },
-    { segment: 'dashboard/pharmacist/interests', title: 'Talent Hub', icon: <FavoriteIcon /> },
+    { segment: 'dashboard/pharmacist/interests', title: 'Talent Hub', icon: <PersonSearchIcon /> },
     { segment: 'dashboard/pharmacist/learning', title: 'Learning Materials', icon: <SchoolIcon /> },
     { kind: 'divider' as const },
     { segment: 'dashboard/pharmacist/logout', title: 'Logout', icon: <LogoutIcon /> },
@@ -423,7 +423,7 @@ export function getExplorerNav(progress_percent: number, hasUnreadMessages: bool
     { kind: 'divider' as const },
     { kind: 'header' as const, title: 'Learning & Explorer Hub' },
     { segment: 'dashboard/explorer/calendar', title: 'Calendar', icon: <CalendarMonthIcon /> },
-    { segment: 'dashboard/explorer/interests', title: 'Talent Hub', icon: <FavoriteIcon /> },
+    { segment: 'dashboard/explorer/interests', title: 'Talent Hub', icon: <PersonSearchIcon /> },
     { segment: 'dashboard/explorer/learning', title: 'Learning Materials', icon: <SchoolIcon /> },
     { kind: 'divider' as const },
     { segment: 'dashboard/explorer/logout', title: 'Logout', icon: <LogoutIcon /> },

@@ -1,0 +1,20 @@
+Shift match found!
+
+Great news � a {{ role_label }} shift at {{ pharmacy_name }} matches your availability.
+{% if employment_type_label %}({{ employment_type_label }}){% endif %}
+
+{% if location_line %}Location: {{ location_line }}
+{% endif %}{% if rate_summary %}Rate: {{ rate_summary }}
+{% endif %}
+{% if slots_display %}Schedule:
+{% for slot_line in slots_display %}- {{ slot_line }}
+{% endfor %}{% if slots_extra_count %}- and {{ slots_extra_count }} more
+{% endif %}{% elif slot_summary %}Next shift: {{ slot_summary }}
+{% endif %}
+
+View shift: {{ shift_link }}
+
+This one lines up with your preferences � jump in early if you want it!
+
+Thanks,
+The ChemistTasker Team

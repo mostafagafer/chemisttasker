@@ -21,6 +21,10 @@ import {
   Select,
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
+import { DateCalendar, LocalizationProvider } from '@mui/x-date-pickers';
+import { PickersDay } from '@mui/x-date-pickers/PickersDay';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import dayjs, { Dayjs } from 'dayjs';
 import {
   UserAvailability,
   UserAvailabilityPayload,
@@ -33,7 +37,11 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { API_BASE_URL } from '../../../constants/api';
 import { GoogleMap, Marker, Circle, Autocomplete, useJsApiLoader } from '@react-google-maps/api';
 
-const createEmptyEntry = (): Omit<UserAvailability, 'id'> => ({
+type AvailabilityEntry = UserAvailability & { notifyNewShifts?: boolean };
+type AvailabilityDraft = Omit<AvailabilityEntry, 'id'>;
+type AvailabilityPayload = UserAvailabilityPayload & { notify_new_shifts?: boolean };
+
+const createEmptyEntry = (): AvailabilityDraft => ({
   date: '',
   startTime: '09:00',
   endTime: '17:00',
@@ -41,13 +49,16 @@ const createEmptyEntry = (): Omit<UserAvailability, 'id'> => ({
   isRecurring: false,
   recurringDays: [],
   recurringEndDate: '',
+  notifyNewShifts: false,
   notes: '',
 });
 
 export default function SetAvailabilityPage() {
   const { user, token } = useAuth();
-  const [availabilityEntries, setAvailabilityEntries] = useState<UserAvailability[]>([]);
-  const [currentEntry, setCurrentEntry] = useState<Omit<UserAvailability, 'id'>>(createEmptyEntry());
+  const [availabilityEntries, setAvailabilityEntries] = useState<AvailabilityEntry[]>([]);
+  const [currentEntry, setCurrentEntry] = useState<AvailabilityDraft>(createEmptyEntry());
+  const [notifyNewShifts, setNotifyNewShifts] = useState(false);
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingLocation, setSavingLocation] = useState(false);
   const [locationForm, setLocationForm] = useState({
@@ -77,6 +88,30 @@ export default function SetAvailabilityPage() {
     { value: 5, label: 'Fri' },
     { value: 6, label: 'Sat' },
   ];
+  const markedDates = useMemo(() => {
+    const dates = new Set<string>();
+    selectedDates.forEach((d) => dates.add(d));
+    const maxOccurrences = 180;
+    availabilityEntries.forEach((entry) => {
+      if (!entry.date) return;
+      dates.add(entry.date);
+      if (!entry.isRecurring || !entry.recurringEndDate) return;
+      const days = Array.isArray(entry.recurringDays) ? entry.recurringDays : [];
+      if (!days.length) return;
+      let cursor = dayjs(entry.date);
+      const end = dayjs(entry.recurringEndDate);
+      let count = 0;
+      while (cursor.isSame(end, 'day') || cursor.isBefore(end, 'day')) {
+        if (days.includes(cursor.day())) {
+          dates.add(cursor.format('YYYY-MM-DD'));
+          count += 1;
+          if (count >= maxOccurrences) break;
+        }
+        cursor = cursor.add(1, 'day');
+      }
+    });
+    return dates;
+  }, [availabilityEntries, selectedDates]);
   const radiusOptions = [5, 10, 20, 30, 40, 50, 75, 100, 150, 200, 250, 300, 500, 1000];
   const mapCenter = useMemo(() => {
     if (locationForm.latitude != null && locationForm.longitude != null) {
@@ -95,7 +130,7 @@ export default function SetAvailabilityPage() {
     const fetchAvailability = async () => {
       try {
         const entries = await fetchUserAvailabilityService();
-        setAvailabilityEntries(entries);
+        setAvailabilityEntries(entries as AvailabilityEntry[]);
       } catch {
         showSnackbar('Failed to load availability', 'error');
       }
@@ -205,7 +240,11 @@ export default function SetAvailabilityPage() {
     new Date(`2025-01-01T${end}`) > new Date(`2025-01-01T${start}`);
 
   const handleAddEntry = async () => {
-    if (!currentEntry.date) return showSnackbar('Please select a date', 'error');
+    const datesToAdd = currentEntry.isRecurring
+      ? [currentEntry.date].filter(Boolean)
+      : (selectedDates.length > 0 ? selectedDates : [currentEntry.date].filter(Boolean));
+
+    if (!datesToAdd.length) return showSnackbar('Please select a date', 'error');
     if (!currentEntry.startTime || !currentEntry.endTime)
       return showSnackbar('Please set start and end times', 'error');
     if (!validateTimeRange(currentEntry.startTime, currentEntry.endTime))
@@ -221,19 +260,22 @@ export default function SetAvailabilityPage() {
 
     setLoading(true);
     try {
-      const payload: UserAvailabilityPayload = {
-        date: currentEntry.date,
+      const payloads: AvailabilityPayload[] = datesToAdd.map((date) => ({
+        date,
         start_time: currentEntry.startTime,
         end_time: currentEntry.endTime,
         is_all_day: currentEntry.isAllDay,
         is_recurring: currentEntry.isRecurring,
         recurring_days: currentEntry.isRecurring ? currentEntry.recurringDays : [],
         recurring_end_date: currentEntry.isRecurring ? currentEntry.recurringEndDate || null : null,
+        notify_new_shifts: notifyNewShifts,
         notes: currentEntry.notes,
-      };
-      const createdEntry = await createUserAvailabilityService(payload);
-      setAvailabilityEntries(prev => [...prev, createdEntry]);
+      }));
+
+      const createdEntries = await Promise.all(payloads.map(createUserAvailabilityService));
+      setAvailabilityEntries(prev => [...prev, ...(createdEntries as AvailabilityEntry[])]);
       setCurrentEntry(createEmptyEntry());
+      setSelectedDates([]);
       showSnackbar('Time slot added', 'success');
     } catch {
       showSnackbar('Failed to save slot', 'error');
@@ -356,14 +398,80 @@ export default function SetAvailabilityPage() {
         <Typography variant="h6" gutterBottom>
           Add dates
         </Typography>
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={notifyNewShifts}
+              onChange={(e) => setNotifyNewShifts(e.target.checked)}
+            />
+          }
+          label="Notify me when new public shifts match my availability"
+          sx={{ mb: 1 }}
+        />
         <Box component="form" noValidate autoComplete="off" sx={{ display: 'grid', gap: 2 }}>
-          <TextField
-            label="Date"
-            type="date"
-            value={currentEntry.date}
-            onChange={e => setCurrentEntry({ ...currentEntry, date: e.target.value })}
-            InputLabelProps={{ shrink: true }}
-          />
+          <LocalizationProvider dateAdapter={AdapterDayjs}>
+            <Box
+              sx={{
+                border: '1px solid',
+                borderColor: 'grey.200',
+                borderRadius: 2,
+                p: 1,
+                display: 'flex',
+                justifyContent: 'center',
+                overflow: 'hidden',
+              }}
+            >
+              <DateCalendar
+                value={currentEntry.isRecurring && currentEntry.date ? dayjs(currentEntry.date) : null}
+                onChange={(value) => {
+                  const formatted = value ? value.format('YYYY-MM-DD') : '';
+                  if (!formatted) return;
+                  if (currentEntry.isRecurring) {
+                    setCurrentEntry((prev) => ({ ...prev, date: formatted }));
+                    return;
+                  }
+                  setSelectedDates((prev) => {
+                    if (prev.includes(formatted)) {
+                      return prev.filter((d) => d !== formatted);
+                    }
+                    return [...prev, formatted];
+                  });
+                }}
+                slots={{
+                  day: (dayProps: any) => {
+                    const dateValue = dayProps.day as Dayjs;
+                    const formatted = dateValue.format('YYYY-MM-DD');
+                    const isSelected = markedDates.has(formatted);
+                    return (
+                      <PickersDay
+                        {...dayProps}
+                        selected={isSelected}
+                        sx={isSelected ? {
+                          bgcolor: 'primary.main',
+                          color: 'primary.contrastText',
+                          '&:hover, &:focus': { bgcolor: 'primary.dark' },
+                        } : undefined}
+                      />
+                    );
+                  },
+                }}
+                sx={{
+                  width: '100%',
+                  maxWidth: '100%',
+                  '& .MuiPickersCalendarHeader-root': { px: 2 },
+                  '& .MuiDayCalendar-header, & .MuiDayCalendar-weekContainer': { justifyContent: 'space-between' },
+                  '& .MuiPickersDay-root': { width: 44, height: 44 },
+                  '& .MuiDayCalendar-weekContainer': { gap: 0 },
+                  '& .MuiDayCalendar-header': { gap: 0 },
+                }}
+              />
+            </Box>
+          </LocalizationProvider>
+          {!currentEntry.isRecurring && selectedDates.length > 0 && (
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+              Selected: {selectedDates.join(', ')}
+            </Typography>
+          )}
           <FormControlLabel
             control={
               <Checkbox
@@ -482,6 +590,11 @@ export default function SetAvailabilityPage() {
                 <Typography variant="caption">
                   Repeats on {e.recurringDays.map(d => weekDays[d].label).join(', ')} until{' '}
                   {e.recurringEndDate}
+                </Typography>
+              )}
+              {e.notifyNewShifts && (
+                <Typography variant="caption" sx={{ display: 'block', color: 'success.main' }}>
+                  Notifications on for matching public shifts
                 </Typography>
               )}
               {e.notes && <Typography variant="body2">{e.notes}</Typography>}

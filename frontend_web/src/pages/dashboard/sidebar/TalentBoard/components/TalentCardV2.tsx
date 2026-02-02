@@ -8,6 +8,7 @@ import {
   Typography,
   Button,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import {
   LocationOnOutlined as LocationOnOutlinedIcon,
   FlightTakeoffOutlined as FlightTakeoffOutlinedIcon,
@@ -16,12 +17,12 @@ import {
   FavoriteRounded as FavoriteRoundedIcon,
   MailOutline as MailOutlineIcon,
   CalendarTodayOutlined as CalendarTodayOutlinedIcon,
-  AccessTimeOutlined as AccessTimeOutlinedIcon,
   WorkOutline as WorkOutlineIcon,
   SchoolOutlined as SchoolOutlinedIcon,
   LocalPharmacyOutlined as LocalPharmacyOutlinedIcon,
   PersonOutline as PersonOutlineIcon,
 } from "@mui/icons-material";
+import dayjs from "dayjs";
 import { Candidate } from "../types";
 
 export default function TalentCard({
@@ -29,11 +30,13 @@ export default function TalentCard({
   onContact,
   onViewCalendar,
   onToggleLike,
+  canViewCalendar,
 }: {
   candidate: Candidate;
   onContact: (candidate: Candidate) => void;
   onViewCalendar: (candidate: Candidate) => void;
   onToggleLike: (candidate: Candidate) => void;
+  canViewCalendar?: boolean;
 }) {
   let roleColor: "primary" | "success" | "warning" = "primary";
   let RoleIcon = WorkOutlineIcon;
@@ -49,15 +52,35 @@ export default function TalentCard({
     RoleIcon = PersonOutlineIcon;
   }
 
-  const getAvailabilityLabel = () => {
-    if (candidate.workTypes.includes("Full Time")) return "Status";
-    if (candidate.workTypes.includes("Part Time")) return "Days";
-    return "Avail";
-  };
+  const availableDateLabels = (candidate.availableDates || [])
+    .map((date) => dayjs(date).format("D MMM"))
+    .filter(Boolean);
+  const visibleDateLabels = availableDateLabels.slice(0, 3);
+  const remainingDates = Math.max(availableDateLabels.length - visibleDateLabels.length, 0);
+  const showCalendarButton = (candidate.availableDates || []).length > 0;
 
   return (
-    <Card variant="outlined" sx={{ borderRadius: 3, overflow: "hidden", position: "relative" }}>
-      <Box sx={{ px: 2.5, py: 1.5, bgcolor: "grey.50", borderBottom: 1, borderColor: "grey.100" }}>
+    <Card
+      variant="outlined"
+      sx={{
+        borderRadius: 3,
+        overflow: "hidden",
+        position: "relative",
+        bgcolor: "background.paper",
+        borderColor: "divider",
+      }}
+    >
+      <Box
+        sx={(theme) => ({
+          px: 2.5,
+          py: 1.5,
+          bgcolor: theme.palette.mode === "dark"
+            ? alpha(theme.palette.common.white, 0.04)
+            : theme.palette.action.hover,
+          borderBottom: 1,
+          borderColor: "divider",
+        })}
+      >
         <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
           <Stack direction="row" alignItems="center" spacing={1}>
             <LocationOnOutlinedIcon fontSize="small" />
@@ -69,7 +92,7 @@ export default function TalentCard({
               icon={<FlightTakeoffOutlinedIcon fontSize="inherit" />}
               label={candidate.willingToTravel ? "Open to Travel" : candidate.coverageRadius}
               variant="outlined"
-              sx={{ borderColor: "grey.300", color: "text.secondary" }}
+              sx={{ borderColor: "divider", color: "text.secondary" }}
             />
           </Stack>
           <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "monospace" }}>
@@ -82,17 +105,17 @@ export default function TalentCard({
         <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ xs: "flex-start", md: "center" }}>
           <Stack alignItems="center" spacing={1} sx={{ minWidth: 80 }}>
             <Box
-              sx={{
+              sx={(theme) => ({
                 width: 56,
                 height: 56,
                 borderRadius: "50%",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                bgcolor: `${roleColor}.50`,
-                border: 2,
-                borderColor: `${roleColor}.100`,
-              }}
+                bgcolor: alpha(theme.palette[roleColor].main, theme.palette.mode === "dark" ? 0.2 : 0.12),
+                border: 1,
+                borderColor: alpha(theme.palette[roleColor].main, 0.35),
+              })}
             >
               <RoleIcon color={roleColor} />
             </Box>
@@ -121,30 +144,47 @@ export default function TalentCard({
               </Box>
               <Chip
                 size="small"
-                label={`Engagement: ${candidate.workTypes.length ? candidate.workTypes.join(", ") : "�"}`}
+                label={`Engagement: ${candidate.workTypes.length ? candidate.workTypes.join(", ") : "-"}`}
                 variant="outlined"
-                sx={{ alignSelf: { xs: "flex-start", sm: "center" } }}
+                sx={{ alignSelf: { xs: "flex-start", sm: "center" }, borderColor: "divider" }}
               />
             </Stack>
 
-            <Box sx={{ mt: 2, p: 1.5, bgcolor: "grey.50", borderRadius: 2, border: 1, borderColor: "grey.100" }}>
+            <Box
+              sx={(theme) => ({
+                mt: 2,
+                p: 1.5,
+                bgcolor: theme.palette.mode === "dark"
+                  ? alpha(theme.palette.common.white, 0.04)
+                  : theme.palette.action.hover,
+                borderRadius: 2,
+                border: 1,
+                borderColor: "divider",
+              })}
+            >
               <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
                 <Stack direction="row" spacing={1} alignItems="center">
-                  {candidate.workTypes.includes("Full Time") ? (
-                    <CalendarTodayOutlinedIcon fontSize="small" color="action" />
-                  ) : (
-                    <AccessTimeOutlinedIcon fontSize="small" color="action" />
-                  )}
+                  <CalendarTodayOutlinedIcon fontSize="small" color="action" />
                   <Typography variant="body2">
-                    {getAvailabilityLabel()}: <strong>{candidate.availabilityText}</strong>
+                    Availability
                   </Typography>
                 </Stack>
-                {candidate.showCalendar && (
-                  <Button size="small" onClick={() => onViewCalendar(candidate)}>
+                {showCalendarButton ? (
+                  <Button size="small" onClick={() => onViewCalendar(candidate)} disabled={canViewCalendar === false}>
                     View Calendar
                   </Button>
+                ) : (
+                  <Typography variant="caption" color="text.secondary">
+                    No dates shared yet
+                  </Typography>
                 )}
               </Stack>
+              {visibleDateLabels.length > 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+                  Dates: {visibleDateLabels.join(", ")}
+                  {remainingDates > 0 ? ` +${remainingDates}` : ""}
+                </Typography>
+              )}
             </Box>
           </Box>
 

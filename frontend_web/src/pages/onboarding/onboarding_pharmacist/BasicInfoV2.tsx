@@ -44,6 +44,7 @@ type ApiData = {
   gov_id_verified?: boolean | null;
   ahpra_verification_note?: string | null;
   gov_id_verification_note?: string | null;
+  ahpra_years_since_first_registration?: number | null;
 };
 
 const GOOGLE_LIBRARIES = ['places'] as Array<'places'>;
@@ -419,6 +420,16 @@ export default function BasicInfoV2() {
           onChange={e => setField('ahpra_number', e.target.value)}
           InputProps={{ startAdornment: <InputAdornment position="start">PHA000</InputAdornment> }}
           sx={{ flex: '1 1 320px', minWidth: 240, maxWidth: 420 }}
+        />
+        <TextField
+          label="Years Since First Registration"
+          value={
+            data.ahpra_years_since_first_registration != null
+              ? String(data.ahpra_years_since_first_registration)
+              : ''
+          }
+          disabled
+          sx={{ flex: '0 1 220px', minWidth: 200, maxWidth: 260 }}
         />
         <VerifiedChip ok={data.ahpra_verified} label="AHPRA" />
         {typeof data.ahpra_verified === 'boolean' && (

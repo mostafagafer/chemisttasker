@@ -23,7 +23,7 @@ export const useTalentFilters = (candidates: Candidate[], filters: TalentFilterS
     const map: Record<string, string[]> = {};
     candidates.forEach((c) => {
       if (!map[c.role]) map[c.role] = [];
-      const roleSkills = (c.skills ?? []).filter((skill: string) => !c.software.includes(skill));
+      const roleSkills = [...(c.clinicalServices ?? []), ...(c.expandedScope ?? []), ...(c.skills ?? [])];
       map[c.role].push(...roleSkills);
     });
     Object.keys(map).forEach((role) => {
@@ -34,7 +34,7 @@ export const useTalentFilters = (candidates: Candidate[], filters: TalentFilterS
 
   const softwareOptions = useMemo(() => {
     const unique = new Set<string>();
-    candidates.forEach((c) => c.software.forEach((s: string) => unique.add(s)));
+    candidates.forEach((c) => c.dispenseSoftware.forEach((s: string) => unique.add(s)));
     return Array.from(unique).sort();
   }, [candidates]);
 
@@ -52,7 +52,10 @@ export const useTalentFilters = (candidates: Candidate[], filters: TalentFilterS
       }
       if (filters.states.length > 0 && !filters.states.includes(c.state)) return false;
       if (filters.skills.length > 0) {
-        const hasAllSkills = filters.skills.every((skill: string) => c.skills.includes(skill));
+        const allSkills = Array.from(
+          new Set([...(c.skills ?? []), ...(c.dispenseSoftware ?? [])])
+        );
+        const hasAllSkills = filters.skills.every((skill: string) => allSkills.includes(skill));
         if (!hasAllSkills) return false;
       }
       if (filters.willingToTravel && !c.willingToTravel) return false;

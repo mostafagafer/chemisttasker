@@ -6210,6 +6210,17 @@ class ExplorerPostViewSet(viewsets.ModelViewSet):
         ExplorerPost.objects
         .select_related("explorer_profile__user", "author_user")
         .prefetch_related("attachments")
+        .annotate(
+            rating_average=Avg(
+                "author_user__ratings_received_as_worker__stars",
+                filter=Q(author_user__ratings_received_as_worker__direction=Rating.Direction.OWNER_TO_WORKER),
+            ),
+            rating_count=Count(
+                "author_user__ratings_received_as_worker",
+                filter=Q(author_user__ratings_received_as_worker__direction=Rating.Direction.OWNER_TO_WORKER),
+                distinct=True,
+            ),
+        )
         .order_by("-created_at")
     )
     parser_classes = (MultiPartParser, FormParser, JSONParser)

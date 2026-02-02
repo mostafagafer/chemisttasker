@@ -23,6 +23,7 @@ const mapPost = (post: any): ExplorerPost => ({
   isAnonymous: post.is_anonymous ?? post.isAnonymous ?? null,
   explorerRoleType: post.explorer_role_type ?? post.explorerRoleType ?? null,
   explorerUserId: post.explorer_user_id ?? post.explorerUserId ?? null,
+  explorerProfileId: post.explorer_profile ?? post.explorerProfile ?? null,
 });
 
 export const useTalentFeed = (options?: { enabled?: boolean }) => {

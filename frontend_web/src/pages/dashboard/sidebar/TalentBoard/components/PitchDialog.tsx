@@ -142,6 +142,23 @@ export default function PitchDialog(props: {
               {pitchError}
             </Box>
           )}
+          <Box
+            sx={{
+              bgcolor: "#fff1f2",
+              border: "1px solid",
+              borderColor: "#f87171",
+              color: "#b91c1c",
+              px: 2.5,
+              py: 2,
+              borderRadius: 3,
+              fontSize: 13,
+              fontWeight: 700,
+              textAlign: "center",
+            }}
+          >
+
+            Please don't add any contact details or information that identifies you.
+          </Box>
           <TextField
             label="Headline"
             fullWidth

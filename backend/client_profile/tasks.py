@@ -589,8 +589,9 @@ def run_all_verifications(model_name, object_pk, is_create=False):
 
     # --- 1. Trigger all automated verification tasks (ABN, AHPRA, Files) ---
     if model_name_lower == 'pharmacistonboarding':
-        if obj.ahpra_number:
-            async_task('client_profile.tasks.verify_ahpra_task', model_name, object_pk, obj.ahpra_number, user.first_name, user.last_name, user.email, q_options={'timeout': 300})
+        # NOTE: AHPRA verification is handled manually to avoid automated scraping.
+        # if obj.ahpra_number:
+        #     async_task('client_profile.tasks.verify_ahpra_task', model_name, object_pk, obj.ahpra_number, user.first_name, user.last_name, user.email, q_options={'timeout': 300})
         if obj.payment_preference == "ABN" and obj.abn:
             async_task('client_profile.tasks.verify_abn_task', model_name, object_pk, obj.abn, user.first_name, user.last_name, user.email, note_field='abn_verification_note')
         if obj.government_id:
@@ -601,8 +602,10 @@ def run_all_verifications(model_name, object_pk, is_create=False):
             async_task('client_profile.tasks.verify_filefield_task', model_name, object_pk, 'gst_file', user.first_name, user.last_name, user.email, 'gst_file_verified', note_field='gst_file_verification_note')
 
     elif model_name_lower == 'owneronboarding':
-        if obj.role == "PHARMACIST" and obj.ahpra_number:
-            async_task('client_profile.tasks.verify_ahpra_task', model_name, object_pk, obj.ahpra_number, user.first_name, user.last_name, user.email, q_options={'timeout': 300})
+        # NOTE: AHPRA verification is handled manually to avoid automated scraping.
+        # if obj.role == "PHARMACIST" and obj.ahpra_number:
+        #     async_task('client_profile.tasks.verify_ahpra_task', model_name, object_pk, obj.ahpra_number, user.first_name, user.last_name, user.email, q_options={'timeout': 300})
+        pass
 
     elif model_name_lower == 'otherstaffonboarding':
         if obj.government_id:

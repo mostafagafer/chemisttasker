@@ -26,6 +26,7 @@ import {
   updateExplorerPost,
 } from "@chemisttasker/shared-core";
 import { API_BASE_URL } from "../../../../constants/api";
+import skillsCatalog from "../../../../../../shared-core/skills_catalog.json";
 
 const titleCase = (value: string) =>
   value
@@ -70,6 +71,44 @@ const formatAvailabilityDays = (days?: Array<string | number> | null) => {
   return labels.join(", ");
 };
 
+type SkillItem = {
+  code: string;
+  label: string;
+  description?: string;
+  requires_certificate?: boolean;
+};
+
+type RoleCatalog = {
+  clinical_services: SkillItem[];
+  dispense_software: SkillItem[];
+  expanded_scope: SkillItem[];
+};
+
+type SkillsCatalog = {
+  pharmacist: RoleCatalog;
+  otherstaff: RoleCatalog;
+};
+
+const catalog = skillsCatalog as SkillsCatalog;
+
+const buildSkillMaps = () => {
+  const codeToLabel = new Map<string, string>();
+  const codeToCategory = new Map<string, "clinical_services" | "dispense_software" | "expanded_scope">();
+  (["pharmacist", "otherstaff"] as const).forEach((roleKey) => {
+    const role = catalog[roleKey];
+    if (!role) return;
+    (["clinical_services", "dispense_software", "expanded_scope"] as const).forEach((category) => {
+      role[category]?.forEach((item) => {
+        if (!item?.code) return;
+        if (!codeToLabel.has(item.code)) codeToLabel.set(item.code, item.label || item.code);
+        if (!codeToCategory.has(item.code)) codeToCategory.set(item.code, category);
+      });
+    });
+  });
+  return { codeToLabel, codeToCategory };
+};
+
+const { codeToLabel, codeToCategory } = buildSkillMaps();
 
 type TalentBoardProps = {
   publicMode?: boolean;
@@ -131,7 +170,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           setRatingSummary((prev) => ({ ...prev, [id]: { average, count } }));
         })
         .catch(() => {
-          setRatingSummary((prev) => ({ ...prev, [id]: { average: 0, count: 0 } }));
+          // Leave unset so we can fall back to any rating data already in the post payload.
         });
     });
   }, [posts, token]);
@@ -163,7 +202,20 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
 
       const showCalendar = availabilityMode === "CASUAL_CALENDAR" && availableDates.length > 0;
 
-      const skills = Array.from(new Set([...(post.software ?? []), ...(post.skills ?? [])])).filter(Boolean) as string[];
+      const rawSkills = Array.from(new Set([...(post.software ?? []), ...(post.skills ?? [])])).filter(Boolean) as string[];
+      const clinicalServices: string[] = [];
+      const dispenseSoftware: string[] = [];
+      const expandedScope: string[] = [];
+      const otherSkills: string[] = [];
+      rawSkills.forEach((code) => {
+        const label = codeToLabel.get(code) ?? code;
+        const category = codeToCategory.get(code);
+        if (category === "clinical_services") clinicalServices.push(label);
+        else if (category === "dispense_software") dispenseSoftware.push(label);
+        else if (category === "expanded_scope") expandedScope.push(label);
+        else otherSkills.push(label);
+      });
+      const skills = Array.from(new Set([...clinicalServices, ...expandedScope, ...otherSkills])).filter(Boolean) as string[];
       const attachments = Array.isArray(post.attachments)
         ? post.attachments.map((att: any) => ({
             id: att.id,
@@ -173,9 +225,26 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           }))
         : [];
 
+      const ratingFromPostAverageRaw =
+        (post as any).ratingAverage ??
+        (post as any).rating_average ??
+        (post as any).rating?.average ??
+        null;
+      const ratingFromPostCountRaw =
+        (post as any).ratingCount ??
+        (post as any).rating_count ??
+        (post as any).rating?.count ??
+        null;
+      const ratingFromPostAverage = Number.isFinite(Number(ratingFromPostAverageRaw))
+        ? Number(ratingFromPostAverageRaw)
+        : null;
+      const ratingFromPostCount = Number.isFinite(Number(ratingFromPostCountRaw))
+        ? Number(ratingFromPostCountRaw)
+        : null;
+
       const rating = post.authorUserId != null ? ratingSummary[post.authorUserId] : undefined;
-      const ratingAverage = rating?.average ?? 0;
-      const ratingCount = rating?.count ?? 0;
+      const ratingAverage = rating?.average ?? ratingFromPostAverage ?? 0;
+      const ratingCount = rating?.count ?? ratingFromPostCount ?? 0;
 
       return {
         id: post.id,
@@ -194,7 +263,10 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
         willingToTravel,
         pitch: pitchText,
         skills,
-        software: post.software ?? [],
+        software: dispenseSoftware,
+        clinicalServices,
+        dispenseSoftware,
+        expandedScope,
         experience: null,
         availabilityText: availabilityText || "Flexible",
         availabilityMode,
@@ -211,6 +283,12 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
         attachments,
         authorUserId: post.authorUserId ?? null,
         explorerUserId: post.explorerUserId ?? null,
+        isExplorer:
+          (post.roleCategory || "").toUpperCase() === "EXPLORER" ||
+          post.explorerProfileId != null,
+        rawRoleCategory: post.roleCategory ?? null,
+        explorerRoleType: post.explorerRoleType ?? null,
+        explorerProfileId: post.explorerProfileId ?? null,
       };
     });
   }, [posts, ratingSummary]);
@@ -420,6 +498,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
     if (!user) return;
     setPitchError(null);
     resetPitchForm();
+    let onboardingSkills: string[] = [];
     try {
       if (isExplorer) {
         const onboarding: any = await getOnboarding("explorer");
@@ -447,6 +526,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
       } else if (isPharmacist) {
         const onboarding: any = await getOnboarding("pharmacist");
         setRoleTitle("Pharmacist");
+        onboardingSkills = Array.isArray(onboarding?.skills) ? onboarding.skills : [];
         setPitchForm((prev) => ({
           ...prev,
           body: onboarding?.short_bio || "",
@@ -467,6 +547,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           .toLowerCase()
           .replace(/(^|\s)\S/g, (t: string) => t.toUpperCase());
         setRoleTitle(title);
+        onboardingSkills = Array.isArray(onboarding?.skills) ? onboarding.skills : [];
         setPitchForm((prev) => ({
           ...prev,
           body: onboarding?.short_bio || "",
@@ -501,9 +582,11 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           setExistingAttachments(mine.attachments);
         }
       }
-        if (mine && Array.isArray(mine.skills)) {
-          setPitchSkills(mine.skills);
-        }
+      if (mine && Array.isArray(mine.skills) && mine.skills.length > 0) {
+        setPitchSkills(mine.skills);
+      } else if (onboardingSkills.length > 0) {
+        setPitchSkills(onboardingSkills);
+      }
     } catch (err: any) {
       setPitchError(err?.message || "Failed to load your profile.");
     }

@@ -23,8 +23,38 @@ from django_q.models import Schedule
 from client_profile.tasks import schedule_referee_reminder
 import os
 import json
+from pathlib import Path
 from django.utils.text import slugify
 from django.core.files.storage import default_storage
+
+
+# --- Skills catalog (shared-core/skills_catalog.json) ---
+_SKILLS_CATALOG_CACHE = None
+
+
+def _load_skills_catalog():
+    global _SKILLS_CATALOG_CACHE
+    if _SKILLS_CATALOG_CACHE is not None:
+        return _SKILLS_CATALOG_CACHE
+    base_dir = Path(__file__).resolve().parents[2]
+    catalog_path = base_dir / "shared-core" / "skills_catalog.json"
+    try:
+        with open(catalog_path, "r", encoding="utf-8") as f:
+            _SKILLS_CATALOG_CACHE = json.load(f)
+    except Exception:
+        _SKILLS_CATALOG_CACHE = {}
+    return _SKILLS_CATALOG_CACHE
+
+
+def _required_cert_skill_codes(role_key: str) -> set[str]:
+    catalog = _load_skills_catalog()
+    role = (catalog or {}).get(role_key, {})
+    required = set()
+    for group_key in ("clinical_services", "dispense_software", "expanded_scope"):
+        for item in role.get(group_key, []) or []:
+            if item.get("requires_certificate"):
+                required.add(item.get("code"))
+    return {c for c in required if c}
 
 
 # === Onboardings ===
@@ -188,61 +218,61 @@ def _get_user_short_bio(user):
     return getattr(user, "short_bio", None)
 
 
-class SyncUserMixin:
-    USER_FIELDS = ['username', 'first_name', 'last_name']
-    @staticmethod
-    def sync_user_fields(user_data_from_pop, user_instance):
-        updated_fields = []
-        for attr in SyncUserMixin.USER_FIELDS:
-            if attr in user_data_from_pop and getattr(user_instance, attr) != user_data_from_pop[attr]:
-                setattr(user_instance, attr, user_data_from_pop[attr])
-                updated_fields.append(attr)
-        if updated_fields:
-            user_instance.save(update_fields=updated_fields)
+# class SyncUserMixin:
+#     USER_FIELDS = ['username', 'first_name', 'last_name']
+#     @staticmethod
+#     def sync_user_fields(user_data_from_pop, user_instance):
+#         updated_fields = []
+#         for attr in SyncUserMixin.USER_FIELDS:
+#             if attr in user_data_from_pop and getattr(user_instance, attr) != user_data_from_pop[attr]:
+#                 setattr(user_instance, attr, user_data_from_pop[attr])
+#                 updated_fields.append(attr)
+#         if updated_fields:
+#             user_instance.save(update_fields=updated_fields)
 
 
 # === OnboardingVerificationMixin ===
-class OnboardingVerificationMixin:
-    """
-    Triggers individual verification tasks and one initial evaluation task.
-    """
-    def _trigger_verification_tasks(self, instance, is_create=False):
-        # Reset automated verification fields
-        verification_fields_to_reset = [f for f in instance._meta.fields if f.name.endswith('_verified')]
-        for field in verification_fields_to_reset:
-            setattr(instance, field.name, False)
+# class OnboardingVerificationMixin:
+#     """
+#     Triggers individual verification tasks and one initial evaluation task.
+#     """
+#     def _trigger_verification_tasks(self, instance, is_create=False):
+#         # Reset automated verification fields
+#         verification_fields_to_reset = [f for f in instance._meta.fields if f.name.endswith('_verified')]
+#         for field in verification_fields_to_reset:
+#             setattr(instance, field.name, False)
         
-        note_fields_to_reset = [f for f in instance._meta.fields if f.name.endswith('_verification_note')]
-        for field in note_fields_to_reset:
-            setattr(instance, field.name, "")
+#         note_fields_to_reset = [f for f in instance._meta.fields if f.name.endswith('_verification_note')]
+#         for field in note_fields_to_reset:
+#             setattr(instance, field.name, "")
             
-        instance.verified = False
+#         instance.verified = False
         
-        update_fields = [f.name for f in verification_fields_to_reset] + [f.name for f in note_fields_to_reset] + ['verified']
+#         update_fields = [f.name for f in verification_fields_to_reset] + [f.name for f in note_fields_to_reset] + ['verified']
 
-        # FIX: ADD THIS BLOCK TO RESET REFEREE STATUSES
-        # This ensures that when a referee is changed, the old rejection/confirmation is cleared.
-        referee_fields_to_reset = [
-            'referee1_confirmed', 'referee1_rejected',
-            'referee2_confirmed', 'referee2_rejected'
-        ]
-        for field_name in referee_fields_to_reset:
-            if hasattr(instance, field_name):
-                setattr(instance, field_name, False)
-                update_fields.append(field_name)
+#         # FIX: ADD THIS BLOCK TO RESET REFEREE STATUSES
+#         # This ensures that when a referee is changed, the old rejection/confirmation is cleared.
+#         referee_fields_to_reset = [
+#             'referee1_confirmed', 'referee1_rejected',
+#             'referee2_confirmed', 'referee2_rejected'
+#         ]
+#         for field_name in referee_fields_to_reset:
+#             if hasattr(instance, field_name):
+#                 setattr(instance, field_name, False)
+#                 update_fields.append(field_name)
 
-        if update_fields:
-            instance.save(update_fields=list(set(update_fields)))
+#         if update_fields:
+#             instance.save(update_fields=list(set(update_fields)))
 
-        def schedule_orchestrator():
-            Schedule.objects.create(
-                func='client_profile.tasks.run_all_verifications',
-                args=f"'{instance._meta.model_name}',{instance.pk}",
-                kwargs={'is_create': is_create},
-                schedule_type=Schedule.ONCE,
-                next_run=timezone.now() + timedelta(minutes=1),
-            )
-        transaction.on_commit(schedule_orchestrator)
+#         def schedule_orchestrator():
+#             Schedule.objects.create(
+#                 func='client_profile.tasks.run_all_verifications',
+#                 args=f"'{instance._meta.model_name}',{instance.pk}",
+#                 kwargs={'is_create': is_create},
+#                 schedule_type=Schedule.ONCE,
+#                 next_run=timezone.now() + timedelta(minutes=1),
+#             )
+#         transaction.on_commit(schedule_orchestrator)
 
 
 class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
@@ -260,6 +290,7 @@ class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
     tab = serializers.CharField(write_only=True, required=False)
     submitted_for_verification = serializers.BooleanField(write_only=True, required=False)
     progress_percent = serializers.SerializerMethodField()
+    ahpra_years_since_first_registration = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = OwnerOnboarding
@@ -277,7 +308,9 @@ class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
             "ahpra_registration_status",
             "ahpra_registration_type",
             "ahpra_expiry_date",
+            "ahpra_first_registration_date",
             "ahpra_verification_note",
+            "ahpra_years_since_first_registration",
             "organization",
             "verified",
             "progress_percent",
@@ -290,6 +323,7 @@ class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
             "ahpra_registration_status": {"read_only": True},
             "ahpra_registration_type": {"read_only": True},
             "ahpra_expiry_date": {"read_only": True},
+            "ahpra_first_registration_date": {"read_only": True},
             "ahpra_verification_note": {"read_only": True},
             "verified": {"read_only": True},
             "profile_photo": {"required": False, "allow_null": True},
@@ -359,12 +393,6 @@ class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
         if first_submit:
             instance.submitted_for_verification = True
             update_fields.append("submitted_for_verification")
-            from .utils import notify_superuser_on_onboarding
-
-            try:
-                notify_superuser_on_onboarding(instance)
-            except Exception:
-                pass
 
         if submit:
             instance.verified = False
@@ -373,20 +401,29 @@ class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
         if update_fields:
             instance.save(update_fields=list(set(update_fields)))
 
-        if submit and instance.role == "PHARMACIST":
-            should_verify_ahpra = bool(instance.ahpra_number) and (
-                ahpra_changed or not instance.ahpra_verified
-            )
-            if should_verify_ahpra:
-                async_task(
-                    "client_profile.tasks.verify_ahpra_task",
-                    instance._meta.model_name,
-                    instance.pk,
-                    instance.ahpra_number,
-                    instance.user.first_name or "",
-                    instance.user.last_name or "",
-                    instance.user.email or "",
-                )
+        # Notify on any update to this onboarding (manual review required).
+        if update_fields:
+            from .utils import notify_superuser_on_onboarding
+            try:
+                notify_superuser_on_onboarding(instance)
+            except Exception:
+                pass
+
+        # NOTE: AHPRA verification is handled manually to avoid automated scraping.
+        # if submit and instance.role == "PHARMACIST":
+        #     should_verify_ahpra = bool(instance.ahpra_number) and (
+        #         ahpra_changed or not instance.ahpra_verified
+        #     )
+        #     if should_verify_ahpra:
+        #         async_task(
+        #             "client_profile.tasks.verify_ahpra_task",
+        #             instance._meta.model_name,
+        #             instance.pk,
+        #             instance.ahpra_number,
+        #             instance.user.first_name or "",
+        #             instance.user.last_name or "",
+        #             instance.user.email or "",
+        #         )
 
         return instance
 
@@ -409,6 +446,9 @@ class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
 
     def get_profile_photo_url(self, obj):
         return _build_absolute_media_url(self.context.get("request"), getattr(obj, "profile_photo", None))
+
+    def get_ahpra_years_since_first_registration(self, obj):
+        return obj.ahpra_years_since_first_registration
 
 
 class RefereeResponseSerializer(serializers.ModelSerializer):
@@ -482,6 +522,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             'street_address','suburb','state','postcode','google_place_id','latitude','longitude','open_to_travel','coverage_radius_km',
             'ahpra_verified','ahpra_registration_status','ahpra_registration_type','ahpra_expiry_date',
             'ahpra_verification_note',
+            'ahpra_years_since_first_registration',
 
             # -------- IDENTITY (new tab) --------
             'government_id','identity_secondary_file','government_id_type','identity_meta','gov_id_verified','gov_id_verification_note',
@@ -902,14 +943,14 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             if errors:
                 raise serializers.ValidationError(errors)
 
-            # AHPRA: changed OR not verified yet
-            if instance.ahpra_number and (ahpra_changed or not instance.ahpra_verified):
-                async_task(
-                    'client_profile.tasks.verify_ahpra_task',
-                    instance._meta.model_name, instance.pk,
-                    instance.ahpra_number, instance.user.first_name,
-                    instance.user.last_name, instance.user.email,
-                )
+            # NOTE: AHPRA verification is handled manually to avoid automated scraping.
+            # if instance.ahpra_number and (ahpra_changed or not instance.ahpra_verified):
+            #     async_task(
+            #         'client_profile.tasks.verify_ahpra_task',
+            #         instance._meta.model_name, instance.pk,
+            #         instance.ahpra_number, instance.user.first_name,
+            #         instance.user.last_name, instance.user.email,
+            #     )
 
             # GOV ID: file changed OR not verified yet
             # if instance.government_id and (gov_id_changed or not instance.gov_id_verified):
@@ -925,6 +966,9 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             #     )
 
         return instance
+
+    def get_ahpra_years_since_first_registration(self, obj):
+        return obj.ahpra_years_since_first_registration
 
 
     # ---------------- Identity TAB (new) ----------------
@@ -1362,8 +1406,9 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
                     "uploaded_at": timezone.now().isoformat(),
                 }
 
-        # (C) Validation: each checked skill must have a certificate (either from before or uploaded now)
-        missing = [code for code in skills if code not in cert_map]
+        # (C) Validation: only skills that require certificates must have one
+        required_codes = _required_cert_skill_codes("pharmacist")
+        missing = [code for code in skills if code in required_codes and code not in cert_map]
         if missing:
             raise serializers.ValidationError(
                 {"skills": f"Certificate required for checked skill(s): {', '.join(missing)}"}
@@ -2324,8 +2369,9 @@ class OtherStaffOnboardingV2Serializer(serializers.ModelSerializer):
                     "uploaded_at": timezone.now().isoformat(),
                 }
 
-        # 5) Validation: every selected skill must have a certificate (existing or uploaded now)
-        missing = [code for code in skills if code not in cert_map]
+        # 5) Validation: only skills that require certificates must have one
+        required_codes = _required_cert_skill_codes("otherstaff")
+        missing = [code for code in skills if code in required_codes and code not in cert_map]
         if missing:
             raise serializers.ValidationError(
                 {"skills": f"Certificate required for: {', '.join(missing)}"}
@@ -4817,6 +4863,8 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
     author_user_id = serializers.IntegerField(source="author_user.id", read_only=True)
     skills = serializers.SerializerMethodField()
     software = serializers.SerializerMethodField()
+    rating_average = serializers.FloatField(read_only=True)
+    rating_count = serializers.IntegerField(read_only=True)
 
     attachments = ExplorerPostAttachmentSerializer(many=True, read_only=True)
     is_liked_by_me = serializers.SerializerMethodField()
@@ -4848,6 +4896,8 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
             "view_count",
             "like_count",
             "reply_count",
+            "rating_average",
+            "rating_count",
             "created_at",
             "updated_at",
             "attachments",
@@ -4883,12 +4933,18 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
             if obj.role_category == "OTHER_STAFF":
                 so = OtherStaffOnboarding.objects.filter(user=user).first()
                 return list(so.skills or []) if so else []
-            eo = ExplorerOnboarding.objects.filter(user=user).first()
-            return list(eo.interests or []) if eo else []
+            # Explorers do not expose skills on TalentBoard.
+            return []
         except Exception:
             return []
 
     def get_skills(self, obj):
+        # Always prefer onboarding skills for Pharmacist/Other Staff.
+        if obj.role_category in ("PHARMACIST", "OTHER_STAFF"):
+            return self._get_onboarding_skills(obj)
+        # Explorers do not expose skills on TalentBoard.
+        if obj.role_category == "EXPLORER":
+            return []
         return list(obj.skills or []) if obj.skills else self._get_onboarding_skills(obj)
 
     def get_software(self, obj):

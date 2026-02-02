@@ -1,4 +1,10 @@
 /* src/index.css */
+@import "https://unpkg.com/@googlemaps/extension-placeautocomplete@1.0.0-beta.3/dist/place_autocomplete.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   --primary-color: #007AFF;
   --success-color: #28a745;
@@ -51,9 +57,3 @@ body {
 .pac-container {
   z-index: 2000 !important;
 }
-
-@import "https://unpkg.com/@googlemaps/extension-placeautocomplete@1.0.0-beta.3/dist/place_autocomplete.css";
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;

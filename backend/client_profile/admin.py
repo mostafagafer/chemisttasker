@@ -14,7 +14,8 @@ class OrganizationAdmin(admin.ModelAdmin):
 class OwnerOnboardingAdmin(admin.ModelAdmin):
     list_display = [
         'user', 'role', 'chain_pharmacy', 'verified',
-        'submitted_for_verification', 'organization', 'ahpra_verified', 'ahpra_verification_note'
+        'submitted_for_verification', 'organization', 'ahpra_verified', 'ahpra_verification_note',
+        'ahpra_first_registration_date', 'ahpra_years_since_first_registration'
     ]
     list_filter = [
         'role', 'chain_pharmacy', 'verified', 'submitted_for_verification',
@@ -26,8 +27,14 @@ class OwnerOnboardingAdmin(admin.ModelAdmin):
     ]
     fields = [
         'user', 'phone_number', 'role', 'chain_pharmacy',
-        'ahpra_number', 'ahpra_verified', 'verified', 'submitted_for_verification', 'organization'
+        'ahpra_number', 'ahpra_first_registration_date', 'ahpra_years_since_first_registration',
+        'ahpra_verified', 'verified', 'submitted_for_verification', 'organization'
     ]
+    readonly_fields = ['ahpra_years_since_first_registration']
+
+    @admin.display(description="Years since first registration")
+    def ahpra_years_since_first_registration(self, obj):
+        return obj.ahpra_years_since_first_registration
     def save_model(self, request, obj, form, change):
         obj.full_clean()
         super().save_model(request, obj, form, change)
@@ -46,6 +53,8 @@ class PharmacistOnboardingAdmin(admin.ModelAdmin):
             'ahpra_registration_status',
             'ahpra_registration_type',
             'ahpra_expiry_date',
+            'ahpra_first_registration_date',
+            'ahpra_years_since_first_registration',
             'ahpra_verification_note',
     ]
     list_filter  = ['verified', 'member_of_chain', 'payment_preference']
@@ -54,7 +63,7 @@ class PharmacistOnboardingAdmin(admin.ModelAdmin):
     ]
     fields = [
         'user',
-        'government_id', 'ahpra_number', 'short_bio', 'resume',
+        'government_id', 'ahpra_number', 'ahpra_first_registration_date', 'ahpra_years_since_first_registration', 'short_bio', 'resume',
         'skills',  'payment_preference',
         'abn', 'gst_registered', 'super_fund_name', 'super_usi', 'super_member_number',
         # Referee 1
@@ -66,6 +75,11 @@ class PharmacistOnboardingAdmin(admin.ModelAdmin):
         'verified',
         'member_of_chain',
     ]
+    readonly_fields = ['ahpra_years_since_first_registration']
+
+    @admin.display(description="Years since first registration")
+    def ahpra_years_since_first_registration(self, obj):
+        return obj.ahpra_years_since_first_registration
     def save_model(self, request, obj, form, change):
         obj.full_clean()
         super().save_model(request, obj, form, change)

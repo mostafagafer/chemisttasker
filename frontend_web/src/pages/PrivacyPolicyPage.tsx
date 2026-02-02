@@ -9,7 +9,7 @@ export default function PrivacyPolicyPage() {
       "Read how ChemistTasker collects, uses, and protects your data across the website and mobile app.";
     const origin = window.location.origin;
     const url = `${origin}/privacy-policy`;
-    const image = `${origin}/images/Chemisttasker.png`;
+    const image = `${origin}/images/ChatGPT Image Jan 18, 2026, 08_14_43 PM.png`;
     setPageMeta(title, description);
     setCanonical(url);
     setSocialMeta({ title, description, url, image, type: "website" });

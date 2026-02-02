@@ -72,7 +72,7 @@ function LandingPage() {
     const description =
       'Manage pharmacy shifts, compliance, and staffing with ChemistTasker. Browse public shifts or sign up today.';
     const origin = window.location.origin;
-    const image = `${origin}/images/Chemisttasker.png`;
+    const image = `${origin}/images/ChatGPT Image Jan 18, 2026, 08_14_43 PM.png`;
 
     setPageMeta(title, description);
     setCanonical(`${origin}/`);

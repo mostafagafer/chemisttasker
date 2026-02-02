@@ -9,7 +9,7 @@ export default function TermsOfServicePage() {
       "Read the ChemistTasker terms of service for using our pharmacy workforce platform.";
     const origin = window.location.origin;
     const url = `${origin}/terms-of-service`;
-    const image = `${origin}/images/Chemisttasker.png`;
+    const image = `${origin}/images/ChatGPT Image Jan 18, 2026, 08_14_43 PM.png`;
     setPageMeta(title, description);
     setCanonical(url);
     setSocialMeta({ title, description, url, image, type: "website" });

@@ -106,7 +106,7 @@ const SharedShiftLandingPage: React.FC = () => {
     const defaultDescription = 'View shift details and apply on ChemistTasker.';
     const origin = window.location.origin;
     const fallbackUrl = `${origin}/shifts/link`;
-    const defaultImage = `${origin}/images/Chemisttasker.png`;
+    const defaultImage = `${origin}/images/ChatGPT Image Jan 18, 2026, 08_14_43 PM.png`;
 
     if (!shift) {
       setPageMeta(defaultTitle, defaultDescription);

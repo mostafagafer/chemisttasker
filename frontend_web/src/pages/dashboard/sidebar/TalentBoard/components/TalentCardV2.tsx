@@ -159,18 +159,48 @@ export default function TalentCard({
           </Stack>
         </Stack>
 
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 2, flexWrap: "wrap" }}>
-          <Typography variant="caption" fontWeight={700} color="text.secondary">
-            Skills:
-          </Typography>
-          {candidate.skills.length > 0 ? (
-            candidate.skills.map((skill) => <Chip key={skill} size="small" label={skill} />)
-          ) : (
-            <Typography variant="caption" color="text.secondary">
-              --
-            </Typography>
-          )}
-        </Stack>
+        {!candidate.isExplorer && (
+          <Stack spacing={1} sx={{ mt: 2 }}>
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+              <Typography variant="caption" fontWeight={700} color="text.secondary">
+                Clinical Services:
+              </Typography>
+              {candidate.clinicalServices.length > 0 ? (
+                candidate.clinicalServices.map((skill) => <Chip key={skill} size="small" label={skill} />)
+              ) : (
+                <Typography variant="caption" color="text.secondary">
+                  --
+                </Typography>
+              )}
+            </Stack>
+
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+              <Typography variant="caption" fontWeight={700} color="text.secondary">
+                Dispense Software:
+              </Typography>
+              {candidate.dispenseSoftware.length > 0 ? (
+                candidate.dispenseSoftware.map((skill) => <Chip key={skill} size="small" label={skill} />)
+              ) : (
+                <Typography variant="caption" color="text.secondary">
+                  --
+                </Typography>
+              )}
+            </Stack>
+
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+              <Typography variant="caption" fontWeight={700} color="text.secondary">
+                Expanded Scope:
+              </Typography>
+              {candidate.expandedScope.length > 0 ? (
+                candidate.expandedScope.map((skill) => <Chip key={skill} size="small" label={skill} />)
+              ) : (
+                <Typography variant="caption" color="text.secondary">
+                  --
+                </Typography>
+              )}
+            </Stack>
+          </Stack>
+        )}
 
         {candidate.attachments.length > 0 && (
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1, flexWrap: "wrap" }}>

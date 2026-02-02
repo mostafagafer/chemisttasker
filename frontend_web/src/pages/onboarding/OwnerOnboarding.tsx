@@ -13,7 +13,11 @@ import {
   Switch,
   FormControlLabel,
   InputAdornment,
+  Chip,
 } from '@mui/material';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 import { API_BASE_URL } from '../../constants/api';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { useNavigate } from 'react-router-dom';
@@ -28,6 +32,9 @@ interface FormData {
   role: 'MANAGER' | 'PHARMACIST';
   chain_pharmacy: boolean;
   ahpra_number: string;
+  ahpra_years_since_first_registration?: number | null;
+  ahpra_verified?: boolean | null;
+  ahpra_verification_note?: string | null;
   profile_photo?: string | null;
   profile_photo_url?: string | null;
 }
@@ -69,6 +76,9 @@ export default function OwnerOnboarding() {
           role: (d.role as 'MANAGER' | 'PHARMACIST') || 'MANAGER',
           chain_pharmacy: !!d.chain_pharmacy,
           ahpra_number: d.ahpra_number || '',
+          ahpra_years_since_first_registration: d.ahpra_years_since_first_registration ?? null,
+          ahpra_verified: typeof d.ahpra_verified === 'boolean' ? d.ahpra_verified : null,
+          ahpra_verification_note: d.ahpra_verification_note || null,
         });
         const nextPhoto =
           d.profile_photo_url || (d.profile_photo ? `${API_BASE_URL}${d.profile_photo}` : null);
@@ -104,6 +114,7 @@ const handleSubmit = async (e: React.FormEvent) => {
     Object.entries(data).forEach(([k, v]) => {
       payload.append(k, String(v));
     });
+    payload.append('submitted_for_verification', 'true');
     if (profilePhotoFile) {
       payload.append('profile_photo', profilePhotoFile);
     } else if (profilePhotoCleared) {
@@ -126,6 +137,12 @@ const handleSubmit = async (e: React.FormEvent) => {
   const handleCloseSnackbar = () => {
     setSnackbarOpen(false);
     navigate('/dashboard/owner');
+  };
+
+  const VerifiedChip = ({ ok, label }: { ok?: boolean | null; label: string }) => {
+    if (ok === true)   return <Chip icon={<CheckCircleOutlineIcon />} color="success" label={label} variant="outlined" />;
+    if (ok === false)  return <Chip icon={<ErrorOutlineIcon />}   color="error"   label={`${label}`} variant="outlined" />;
+    return               <Chip icon={<HourglassBottomIcon />}      label={`${label}`}               variant="outlined" />;
   };
 
   if (loading) return <Typography>Loading…</Typography>;
@@ -233,18 +250,54 @@ const handleSubmit = async (e: React.FormEvent) => {
           </TextField>
 
           {data.role === 'PHARMACIST' && (
-            <TextField
-              fullWidth
-              margin="normal"
-              label="AHPRA Number"
-              name="ahpra_number"
-              value={data.ahpra_number}
-              onChange={handleChange}
-              required
-              InputProps={{
-                startAdornment: <InputAdornment position="start">PHA000</InputAdornment>,
-              }}
-            />
+            <>
+              <TextField
+                fullWidth
+                margin="normal"
+                label="AHPRA Number"
+                name="ahpra_number"
+                value={data.ahpra_number}
+                onChange={handleChange}
+                required
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">PHA000</InputAdornment>,
+                }}
+              />
+              <TextField
+                fullWidth
+                margin="normal"
+                label="Years Since First Registration"
+                value={
+                  data.ahpra_years_since_first_registration != null
+                    ? String(data.ahpra_years_since_first_registration)
+                    : ''
+                }
+                disabled
+              />
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mt: 1 }}>
+                <VerifiedChip ok={data.ahpra_verified} label="AHPRA" />
+                {typeof data.ahpra_verified === 'boolean' && (
+                  <Typography
+                    variant="body2"
+                    title={data.ahpra_verification_note || (data.ahpra_verified ? 'Verified' : 'Pending/Not verified')}
+                    sx={{
+                      color: data.ahpra_verified
+                        ? 'success.main'
+                        : (data.ahpra_verification_note ? 'error.main' : 'text.secondary'),
+                      flex: '1 1 260px',
+                      minWidth: 180,
+                      maxWidth: 520,
+                      overflow: 'hidden',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                    }}
+                  >
+                    {data.ahpra_verification_note || (data.ahpra_verified ? 'AHPRA registration is valid and current.' : 'Pending/Not verified')}
+                  </Typography>
+                )}
+              </Box>
+            </>
           )}
 
           <Box sx={{ mt: 3, textAlign: 'right' }}>

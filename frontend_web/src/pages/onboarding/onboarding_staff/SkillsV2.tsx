@@ -2,7 +2,7 @@
 import * as React from 'react';
 import {
   Box, Stack, Typography, Checkbox, FormControlLabel, Button, Link,
-  Alert, Snackbar, Chip, Divider, CircularProgress, TextField, MenuItem
+  Alert, Snackbar, Chip, Divider, CircularProgress, TextField, MenuItem, Tabs, Tab
 } from '@mui/material';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
@@ -10,16 +10,27 @@ import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 
 import { API_BASE_URL } from '../../../constants/api';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
+import skillsCatalog from '../../../../../shared-core/skills_catalog.json';
 
-// ---- Legacy-like skill choices (extend if needed) ----
-const SKILL_CHOICES: Array<{ value: string; label: string }> = [
-  { value: 'VACCINATION', label: 'Vaccination (w/ Anaphylaxis training)' },
-  { value: 'CANNABIS',    label: 'Cannabis handling (no cert)' },
-  { value: 'COMPOUNDING', label: 'Compounding' },
-  { value: 'CRED_PHARM',  label: 'Credentialed Pharmacist' },
-  { value: 'FIRST_AID',   label: 'First Aid/CPR' },
-  { value: 'PDL',         label: 'PDL Insurance Certificate' },
-];
+type SkillItem = {
+  code: string;
+  label: string;
+  description?: string;
+  requires_certificate?: boolean;
+};
+
+type RoleCatalog = {
+  clinical_services: SkillItem[];
+  dispense_software: SkillItem[];
+  expanded_scope: SkillItem[];
+};
+
+type SkillsCatalog = {
+  pharmacist: RoleCatalog;
+  otherstaff: RoleCatalog;
+};
+
+const catalog = skillsCatalog as SkillsCatalog;
 
 // ---- Legacy-style Years of Experience (string values; keep exactly as backend expects) ----
 const YEARS_EXPERIENCE_CHOICES: Array<{ value: string; label: string }> = [
@@ -45,17 +56,32 @@ type ApiData = {
 };
 
 export default function SkillsV2() {
-  const roleKey = 'otherstaff';
+  const roleKey = 'otherstaff' as const;
+  const roleCatalog = catalog[roleKey];
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [snack, setSnack] = React.useState('');
   const [error, setError] = React.useState('');
+  const [tabIndex, setTabIndex] = React.useState(0);
 
   const [yearsExperience, setYearsExperience] = React.useState<string>('');
   const [selected, setSelected] = React.useState<string[]>([]);
   const [existingCerts, setExistingCerts] = React.useState<Record<string, CertRow>>({});
   const [pendingFiles, setPendingFiles] = React.useState<Record<string, File | null>>({}); // newly chosen (not yet uploaded)
+
+  const tabs = [
+    { key: 'dispense_software', label: 'Dispense Software', items: roleCatalog.dispense_software },
+    { key: 'clinical_services', label: 'Clinical Services', items: roleCatalog.clinical_services },
+    { key: 'expanded_scope', label: 'Expanded Scope', items: roleCatalog.expanded_scope },
+  ] as const;
+
+  const skillIndex = React.useMemo(() => {
+    const map = new Map<string, SkillItem>();
+    [...roleCatalog.dispense_software, ...roleCatalog.clinical_services, ...roleCatalog.expanded_scope]
+      .forEach(item => map.set(item.code, item));
+    return map;
+  }, [roleCatalog]);
 
   const getFileUrl = (path?: string | null) =>
     path ? (path.startsWith('http') ? path : `${API_BASE_URL}${path}`) : '';
@@ -97,6 +123,7 @@ export default function SkillsV2() {
 
   const hasExisting = (code: string) => Boolean(existingCerts[code]?.path);
   const hasPending = (code: string) => Boolean(pendingFiles[code]);
+  const requiresCert = (code: string) => Boolean(skillIndex.get(code)?.requires_certificate);
   const previewPendingUrl = (code: string) => {
     const f = pendingFiles[code];
     return f ? URL.createObjectURL(f) : '';
@@ -104,7 +131,7 @@ export default function SkillsV2() {
 
   const validateClientSide = (): string[] => {
     // If a skill is checked, the user must either have an existing cert OR pick a new file now.
-    const missing = selected.filter(code => !hasExisting(code) && !hasPending(code));
+    const missing = selected.filter(code => requiresCert(code) && !hasExisting(code) && !hasPending(code));
     return missing;
   };
 
@@ -190,91 +217,107 @@ export default function SkillsV2() {
 
       {/* Guidance */}
       <Alert severity="info" sx={{ mb: 2 }}>
-        Checking a skill is optional. If a skill is checked, you <b>must upload</b> a certificate (PDF or image).
+        Only skills marked as requiring certificates need uploads. Other selections do not need a file.
       </Alert>
 
-      {/* Checkbox grid — 2 cols on md+, 1 col on mobile */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', sm: '1fr', md: '1fr 1fr' },
-          gap: 1.5,
-        }}
-      >
-        {SKILL_CHOICES.map(opt => {
-          const checked = selected.includes(opt.value);
-          const existingUrl = getFileUrl(existingCerts[opt.value]?.url || existingCerts[opt.value]?.path);
-          const pendingUrl = previewPendingUrl(opt.value);
-          const needsFile = checked && !hasExisting(opt.value) && !hasPending(opt.value);
+      <Tabs value={tabIndex} onChange={(_, next) => setTabIndex(next)} sx={{ mb: 2 }}>
+        {tabs.map(tab => (
+          <Tab key={tab.key} label={tab.label} />
+        ))}
+      </Tabs>
 
-          return (
+      {tabs.map((tab, idx) => (
+        <Box key={tab.key} role="tabpanel" hidden={tabIndex !== idx}>
+          {tabIndex === idx && (
             <Box
-              key={opt.value}
               sx={{
-                border: '1px solid',
-                borderColor: 'divider',
-                borderRadius: 1.5,
-                p: 1.25,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 1,
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', sm: '1fr', md: '1fr 1fr' },
+                gap: 1.5,
               }}
             >
-              <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ flexWrap: 'wrap' }}>
-                <FormControlLabel
-                  control={<Checkbox checked={checked} onChange={toggleSkill(opt.value)} />}
-                  label={opt.label}
-                />
+              {tab.items.map(item => {
+                const checked = selected.includes(item.code);
+                const existingUrl = getFileUrl(existingCerts[item.code]?.url || existingCerts[item.code]?.path);
+                const pendingUrl = previewPendingUrl(item.code);
+                const needsFile = checked && requiresCert(item.code) && !hasExisting(item.code) && !hasPending(item.code);
 
-                {/* status chip */}
-                {checked ? (
-                  hasPending(opt.value) ? (
-                    <Chip icon={<UploadFileIcon />} label="File selected" size="small" />
-                  ) : hasExisting(opt.value) ? (
-                    <Chip icon={<CheckCircleOutlineIcon />} color="success" variant="outlined" label="On file" size="small" />
-                  ) : needsFile ? (
-                    <Chip icon={<HourglassBottomIcon />} color="warning" variant="outlined" label="Certificate required" size="small" />
-                  ) : null
-                ) : null}
-              </Stack>
-
-              {/* Upload / View row (shown only when checked) */}
-              {checked && (
-                <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexWrap: 'wrap' }}>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    component="label"
-                    startIcon={<UploadFileIcon />}
+                return (
+                  <Box
+                    key={item.code}
+                    sx={{
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 1.5,
+                      p: 1.25,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 1,
+                    }}
                   >
-                    {hasPending(opt.value) ? 'Change file' : 'Upload certificate'}
-                    <input
-                      hidden
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={pickFileFor(opt.value)}
-                    />
-                  </Button>
+                    <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ flexWrap: 'wrap' }}>
+                      <FormControlLabel
+                        control={<Checkbox checked={checked} onChange={toggleSkill(item.code)} />}
+                        label={
+                          <Box>
+                            <Typography variant="body1">{item.label}</Typography>
+                            {item.description && (
+                              <Typography variant="body2" color="text.secondary">
+                                {item.description}
+                              </Typography>
+                            )}
+                          </Box>
+                        }
+                      />
 
-                  {/* Show "View" for existing in storage */}
-                  {hasExisting(opt.value) && (
-                    <Link href={existingUrl} target="_blank" rel="noopener noreferrer">
-                      View current
-                    </Link>
-                  )}
+                      {checked && requiresCert(item.code) ? (
+                        hasPending(item.code) ? (
+                          <Chip icon={<UploadFileIcon />} label="File selected" size="small" />
+                        ) : hasExisting(item.code) ? (
+                          <Chip icon={<CheckCircleOutlineIcon />} color="success" variant="outlined" label="On file" size="small" />
+                        ) : needsFile ? (
+                          <Chip icon={<HourglassBottomIcon />} color="warning" variant="outlined" label="Certificate required" size="small" />
+                        ) : null
+                      ) : null}
+                    </Stack>
 
-                  {/* Show "Preview" for just-picked file this session */}
-                  {hasPending(opt.value) && (
-                    <Link href={pendingUrl} target="_blank" rel="noopener noreferrer">
-                      Preview selected
-                    </Link>
-                  )}
-                </Stack>
-              )}
+                    {checked && requiresCert(item.code) && (
+                      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          component="label"
+                          startIcon={<UploadFileIcon />}
+                        >
+                          {hasPending(item.code) ? 'Change file' : 'Upload certificate'}
+                          <input
+                            hidden
+                            type="file"
+                            accept="image/*,.pdf"
+                            onChange={pickFileFor(item.code)}
+                          />
+                        </Button>
+
+                        {hasExisting(item.code) && (
+                          <Link href={existingUrl} target="_blank" rel="noopener noreferrer">
+                            View current
+                          </Link>
+                        )}
+
+                        {hasPending(item.code) && (
+                          <Link href={pendingUrl} target="_blank" rel="noopener noreferrer">
+                            Preview selected
+                          </Link>
+                        )}
+                      </Stack>
+                    )}
+                  </Box>
+                );
+              })}
             </Box>
-          );
-        })}
-      </Box>
+          )}
+        </Box>
+      ))}
 
       <Divider sx={{ my: 2 }} />
 

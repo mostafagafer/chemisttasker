@@ -23,6 +23,9 @@ export type Candidate = {
   pitch: string;
   skills: string[];
   software: string[];
+  clinicalServices: string[];
+  dispenseSoftware: string[];
+  expandedScope: string[];
   experience: number | null;
   availabilityText: string;
   availabilityMode: string | null;
@@ -36,6 +39,10 @@ export type Candidate = {
   attachments: CandidateAttachment[];
   authorUserId: number | null;
   explorerUserId: number | null;
+  isExplorer: boolean;
+  rawRoleCategory?: string | null;
+  explorerRoleType?: string | null;
+  explorerProfileId?: number | null;
   openToTravel?: boolean | null;
   coverageRadiusKm?: number | null;
   availabilityDays?: Array<string | number> | null;

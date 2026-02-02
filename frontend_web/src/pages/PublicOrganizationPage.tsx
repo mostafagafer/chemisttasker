@@ -56,7 +56,7 @@ export default function PublicOrganizationPage() {
         "Explore public organization profiles and open pharmacy shifts on ChemistTasker.";
       const origin = window.location.origin;
       const url = `${origin}/organization/${slug ?? ""}`.replace(/\/$/, "") || `${origin}/`;
-      const image = `${origin}/images/Chemisttasker.png`;
+      const image = `${origin}/images/ChatGPT Image Jan 18, 2026, 08_14_43 PM.png`;
       setPageMeta(title, description);
       setCanonical(url);
       setSocialMeta({ title, description, url, image, type: "website" });
@@ -69,7 +69,7 @@ export default function PublicOrganizationPage() {
         "This organization profile is unavailable. Browse public shifts on ChemistTasker.";
       const origin = window.location.origin;
       const url = `${origin}/organization/${slug ?? ""}`.replace(/\/$/, "") || `${origin}/`;
-      const image = `${origin}/images/Chemisttasker.png`;
+      const image = `${origin}/images/ChatGPT Image Jan 18, 2026, 08_14_43 PM.png`;
       setPageMeta(title, description);
       setCanonical(url);
       setSocialMeta({ title, description, url, image, type: "website" });
@@ -84,7 +84,7 @@ export default function PublicOrganizationPage() {
       const title = `${org.name} | ChemistTasker`;
       const origin = window.location.origin;
       const url = `${origin}/organization/${org.slug}`;
-      const image = org.cover_image_url || `${origin}/images/Chemisttasker.png`;
+      const image = org.cover_image_url || `${origin}/images/ChatGPT Image Jan 18, 2026, 08_14_43 PM.png`;
       setPageMeta(title, description);
       setCanonical(url);
       setSocialMeta({ title, description, url, image, type: "organization" });

@@ -93,6 +93,7 @@ class OwnerOnboarding(models.Model):
     ahpra_registration_status = models.CharField(max_length=100, blank=True, null=True)
     ahpra_registration_type = models.CharField(max_length=100, blank=True, null=True)
     ahpra_expiry_date = models.DateField(blank=True, null=True)
+    ahpra_first_registration_date = models.DateField(blank=True, null=True)
     ahpra_verification_note = models.TextField(blank=True, null=True)
 
     # Notifications
@@ -107,6 +108,17 @@ class OwnerOnboarding(models.Model):
     def __str__(self):
         # Always show the user’s login email
         return self.user.email
+
+    @property
+    def ahpra_years_since_first_registration(self):
+        start = self.ahpra_first_registration_date
+        if not start:
+            return None
+        today = timezone.now().date()
+        years = today.year - start.year
+        if (today.month, today.day) < (start.month, start.day):
+            years -= 1
+        return max(years, 0)
 
 class PharmacistOnboarding(models.Model):
     REFEREE_REL_CHOICES = [
@@ -191,6 +203,7 @@ class PharmacistOnboarding(models.Model):
     ahpra_registration_status = models.CharField(max_length=100, blank=True, null=True)
     ahpra_registration_type = models.CharField(max_length=100, blank=True, null=True)
     ahpra_expiry_date = models.DateField(blank=True, null=True)
+    ahpra_first_registration_date = models.DateField(blank=True, null=True)
 
     # Verification notes
     ahpra_verification_note = models.TextField(blank=True, null=True)
@@ -210,6 +223,17 @@ class PharmacistOnboarding(models.Model):
 
     def __str__(self):
         return f"{self.user.get_full_name()} - Onboarding"
+
+    @property
+    def ahpra_years_since_first_registration(self):
+        start = self.ahpra_first_registration_date
+        if not start:
+            return None
+        today = timezone.now().date()
+        years = today.year - start.year
+        if (today.month, today.day) < (start.month, start.day):
+            years -= 1
+        return max(years, 0)
 
 class OtherStaffOnboarding(models.Model):
     ROLE_CHOICES = [

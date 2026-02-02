@@ -84,7 +84,7 @@ export default function PublicJobBoardPage() {
     const baseUrl = `${origin}/shifts/public-board`;
     const org = searchParams.get('organization');
     const canonicalUrl = org ? `${baseUrl}?organization=${org}` : baseUrl;
-    const image = `${origin}/images/Chemisttasker.png`;
+    const image = `${origin}/images/ChatGPT Image Jan 18, 2026, 08_14_43 PM.png`;
 
     setPageMeta(title, description);
     setCanonical(canonicalUrl);

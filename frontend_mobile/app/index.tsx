@@ -32,7 +32,7 @@ export default function HomeScreen() {
     <AuthLayout title="Welcome" showTitle={false}>
       <View style={styles.hero}>
         <Animated.Image
-          source={require('../assets/images/Chemisttasker.png')}
+          source={require('../assets/images/ChatGPT Image Jan 18, 2026, 08_14_43 PM.png')}
           style={[styles.heroImage, { transform: [{ translateY }, { rotate }] }]}
           resizeMode="contain"
         />

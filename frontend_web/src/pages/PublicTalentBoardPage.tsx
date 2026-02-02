@@ -23,7 +23,7 @@ export default function PublicTalentBoardPage() {
     const description = "Browse pharmacist and pharmacy staff talent profiles on ChemistTasker.";
     const origin = window.location.origin;
     const canonicalUrl = `${origin}/talent/public-board`;
-    const image = `${origin}/images/Chemisttasker.png`;
+    const image = `${origin}/images/ChatGPT Image Jan 18, 2026, 08_14_43 PM.png`;
 
     setPageMeta(title, description);
     setCanonical(canonicalUrl);
@@ -67,6 +67,9 @@ export default function PublicTalentBoardPage() {
         referenceCode: post.reference_code ?? post.referenceCode ?? null,
         explorerRoleType: post.explorer_role_type ?? post.explorerRoleType ?? null,
         explorerUserId: post.explorer_user_id ?? post.explorerUserId ?? null,
+        explorerProfileId: post.explorer_profile ?? post.explorerProfile ?? null,
+        ratingAverage: post.rating_average ?? post.ratingAverage ?? null,
+        ratingCount: post.rating_count ?? post.ratingCount ?? null,
       }));
       setPosts(mapped);
     } catch (err: any) {

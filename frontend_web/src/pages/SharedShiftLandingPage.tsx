@@ -15,7 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
 import { getViewSharedShift, Shift } from '@chemisttasker/shared-core';
 import AuthLayout from '../layouts/AuthLayout';
-import { setCanonical, setJsonLd, setPageMeta, setSocialMeta } from '../utils/seo';
+import { setCanonical, setJsonLd, setPageMeta, setSocialMeta, setRobotsMeta } from '../utils/seo';
 import ShiftsBoard from './dashboard/sidebar/ShiftsBoard';
 
 const formatClockTime = (value?: string | null) => {
@@ -98,6 +98,8 @@ const SharedShiftLandingPage: React.FC = () => {
         postcode: pharmacy.postcode,
       },
       createdAt: raw.created_at ?? raw.createdAt,
+      isClosed: raw.is_closed ?? raw.isClosed,
+      closedReason: raw.closed_reason ?? raw.closedReason,
     } as Shift;
   }, []);
 
@@ -119,6 +121,7 @@ const SharedShiftLandingPage: React.FC = () => {
         type: 'website',
       });
       setJsonLd('shared-shift');
+      setRobotsMeta();
       return;
     }
 
@@ -147,6 +150,12 @@ const SharedShiftLandingPage: React.FC = () => {
     const description = rawDescription.length > 280 ? `${rawDescription.slice(0, 277)}...` : rawDescription;
 
     const canonicalUrl = `${origin}/shifts/link?id=${shift.id}`;
+    const isClosed = Boolean((shift as any).isClosed ?? (shift as any).is_closed);
+    if (isClosed) {
+      setRobotsMeta('noindex,follow');
+    } else {
+      setRobotsMeta();
+    }
     setPageMeta(title, description);
     setCanonical(canonicalUrl);
     setSocialMeta({
@@ -288,30 +297,51 @@ const SharedShiftLandingPage: React.FC = () => {
 
     if (!shift) return null;
 
+    const isClosed = Boolean((shift as any).isClosed ?? (shift as any).is_closed);
+    const closedReason =
+      (shift as any).closedReason ??
+      (shift as any).closed_reason ??
+      "This shift doesn't accept candidates anymore.";
+
     return (
-      <ShiftsBoard
-        title="Shift Details"
-        shifts={shift ? [shift] : []}
-        loading={loading}
-        onApplyAll={() => setLoginDialogOpen(true)}
-        onApplySlot={() => setLoginDialogOpen(true)}
-        enableSaved={false}
-        hideSaveToggle
-        readOnlyActions
-        disableLocalPersistence
-        hideCounterOffer
-        hideFiltersAndSort
-        hideTabs
+      <>
+        {isClosed && (
+          <Card sx={{ borderRadius: 3, boxShadow: 6, border: '1px solid #f5c6cb', backgroundColor: '#fff5f6', mb: 3 }}>
+            <CardContent sx={{ textAlign: 'center' }}>
+              <Typography variant="h6" color="error" gutterBottom>
+                {closedReason}
+              </Typography>
+            </CardContent>
+          </Card>
+        )}
+        <ShiftsBoard
+          title="Shift Details"
+          shifts={shift ? [shift] : []}
+          loading={loading}
+          onApplyAll={() => setLoginDialogOpen(true)}
+          onApplySlot={() => setLoginDialogOpen(true)}
+          enableSaved={false}
+          hideSaveToggle
+          readOnlyActions
+          disableLocalPersistence
+          hideCounterOffer
+          hideFiltersAndSort
+          hideTabs
+        rejectActionGuard={() => isClosed}
+        actionDisabledGuard={() => isClosed}
+        fallbackToAllShiftsWhenEmpty
+        showAllSlots={isClosed}
         onRefresh={() => {
-          if (!token && !id) return;
-          return getViewSharedShift({ ...(token ? { token } : {}), ...(id ? { id } : {}) })
-            .then((response: any) => {
-              const fetchedShift = response?.data ?? response;
-              setShift(mapSharedShift(fetchedShift));
-            })
-            .catch(() => setError("Could not load this shift."));
-        }}
-      />
+            if (!token && !id) return;
+            return getViewSharedShift({ ...(token ? { token } : {}), ...(id ? { id } : {}) })
+              .then((response: any) => {
+                const fetchedShift = response?.data ?? response;
+                setShift(mapSharedShift(fetchedShift));
+              })
+              .catch(() => setError("Could not load this shift."));
+          }}
+        />
+      </>
     );
   };
 

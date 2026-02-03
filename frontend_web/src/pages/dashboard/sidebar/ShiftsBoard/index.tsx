@@ -80,6 +80,9 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   onRefresh,
   roleOptionsOverride,
   slotFilterMode: slotFilterModeProp,
+  fallbackToAllShiftsWhenEmpty,
+  showAllSlots,
+  actionDisabledGuard,
 }) => {
   const slotFilterMode: SlotFilterMode = slotFilterModeProp ?? 'all';
   const auth = useAuth();
@@ -199,6 +202,12 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     pharmacistRatePref,
     roleOptionsOverride,
   });
+  const baseShifts = useMemo(() => {
+    if (fallbackToAllShiftsWhenEmpty && !loading && processedShifts.length === 0 && shifts.length > 0) {
+      return shifts;
+    }
+    return processedShifts;
+  }, [fallbackToAllShiftsWhenEmpty, loading, processedShifts, shifts]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [expandedCards, setExpandedCards] = useState<Record<number, boolean>>({});
   const [selectedSlotIds, setSelectedSlotIds] = useState<Record<number, Set<number>>>({});
@@ -271,9 +280,9 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     disableLocalPersistence,
   });
   const displayShifts = useMemo(() => {
-    if (slotFilterMode === 'all') return processedShifts;
+    if (slotFilterMode === 'all') return baseShifts;
 
-    return processedShifts.filter((shift) => {
+    return baseShifts.filter((shift) => {
       const slots = getUpcomingSlotsForDisplay(shift.slots ?? []);
       const counterInfo = counterOffers[shift.id];
       const counterSlotIds = new Set<number>(
@@ -305,7 +314,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     });
   }, [
     slotFilterMode,
-    processedShifts,
+    baseShifts,
     appliedShiftIds,
     appliedSlotIds,
     rejectedShiftIds,
@@ -670,9 +679,11 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
             onReviewOffers={(shiftId) => setReviewOfferShiftId(shiftId)}
             openCounterOffer={openCounterOffer}
             rejectActionGuard={rejectActionGuard}
+            actionDisabledGuard={actionDisabledGuard}
             userRatePreference={userRatePreference}
             pharmacyRatings={pharmacyRatings}
             slotFilterMode={slotFilterMode}
+            showAllSlots={showAllSlots}
           />
         </Box>
       </Box>

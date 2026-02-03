@@ -101,9 +101,11 @@ type ShiftListProps = {
   onReviewOffers: (shiftId: number) => void;
   openCounterOffer: (shift: Shift, selectedSlots?: Set<number>) => void;
   rejectActionGuard?: (shift: Shift) => boolean;
+  actionDisabledGuard?: (shift: Shift) => boolean;
   userRatePreference?: RatePreference;
   pharmacyRatings: Record<number, { average: number; count: number }>;
   slotFilterMode?: SlotFilterMode;
+  showAllSlots?: boolean;
 };
 
 const ShiftList: React.FC<ShiftListProps> = ({
@@ -136,9 +138,11 @@ const ShiftList: React.FC<ShiftListProps> = ({
   onReviewOffers,
   openCounterOffer,
   rejectActionGuard,
+  actionDisabledGuard,
   userRatePreference,
   pharmacyRatings,
   slotFilterMode,
+  showAllSlots,
 }) => (
   <Stack spacing={2}>
     {loading && (
@@ -161,8 +165,9 @@ const ShiftList: React.FC<ShiftListProps> = ({
 
     {processedShifts.map((shift) => {
       const rawSlots = shift.slots ?? [];
-      const allSlots = getUpcomingSlotsForDisplay(rawSlots as ShiftSlot[]);
+      const allSlots = showAllSlots ? (rawSlots as ShiftSlot[]) : getUpcomingSlotsForDisplay(rawSlots as ShiftSlot[]);
       const mode = slotFilterMode ?? 'all';
+      const actionsDisabled = actionDisabledGuard ? actionDisabledGuard(shift) : false;
       const isShiftApplied = appliedShiftIds.has(shift.id);
       const isShiftRejected = rejectedShiftIds.has(shift.id);
       const counterInfo = counterOffers[shift.id];
@@ -249,7 +254,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
       const isApplied = isShiftApplied || allSlotsApplied;
       const hasRejectedSlots = allSlots.some((slot) => rejectedSlotIds.has(slot.id));
       const slotRejected = (slotId: number) => rejectedSlotIds.has(slotId) || isRejectedShift;
-      const shiftActionsDisabled = isShiftApplied || isRejectedShift || hasShiftLevelCounter || hasSlotActions;
+      const shiftActionsDisabled = actionsDisabled || isShiftApplied || isRejectedShift || hasShiftLevelCounter || hasSlotActions;
       const allowPartial = getShiftAllowPartial(shift);
       const urgent = getShiftUrgent(shift);
       const rateSummary = getRateSummary(shift);
@@ -510,11 +515,11 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                                   <Stack direction="row" spacing={1} alignItems="center">
                                     {isMulti && allowPartial && (
-                                      <Checkbox
-                                        checked={isSelected || isSlotApplied || isCountered}
-                                        onChange={() => toggleSlotSelection(shift.id, slotId)}
-                                        disabled={isSlotRejected || isSlotApplied || isCountered}
-                                      />
+                      <Checkbox
+                        checked={isSelected || isSlotApplied || isCountered}
+                        onChange={() => toggleSlotSelection(shift.id, slotId)}
+                        disabled={shiftActionsDisabled || isSlotRejected || isSlotApplied || isCountered}
+                      />
                                     )}
                                     <Box>
                                       <Typography variant="body2" fontWeight={600}>
@@ -548,6 +553,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                         variant="outlined"
                                         color="error"
                                         onClick={() => handleRejectSlot(shift, slotId)}
+                                        disabled={shiftActionsDisabled}
                                       >
                                         Reject
                                       </Button>
@@ -589,7 +595,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                           <Button
                             variant="contained"
                             size="small"
-                            disabled={isRejectedShift}
+                            disabled={shiftActionsDisabled || isRejectedShift}
                             onClick={async () => {
                               const selectedIds = Array.from(selection);
                               // Optimistically mark these slots as applied
@@ -611,7 +617,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                               size="small"
                               variant="outlined"
                               color="error"
-                              disabled={isRejectedShift}
+                              disabled={shiftActionsDisabled || isRejectedShift}
                               onClick={() => handleRejectShift(shift)}
                             >
                               {isRejectedShift ? 'Rejected' : 'Reject Entire Shift'}
@@ -625,7 +631,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                             size="small"
                             variant="outlined"
                             color="error"
-                            disabled={isRejectedShift}
+                            disabled={shiftActionsDisabled || isRejectedShift}
                             onClick={() => handleRejectShift(shift)}
                           >
                             {isRejectedShift ? 'Rejected' : 'Reject Entire Shift'}

@@ -85,6 +85,9 @@ export type ShiftsBoardProps = {
   onActiveTabChange?: (tab: 'browse' | 'saved') => void;
   roleOptionsOverride?: string[];
   slotFilterMode?: SlotFilterMode;
+  fallbackToAllShiftsWhenEmpty?: boolean;
+  showAllSlots?: boolean;
+  actionDisabledGuard?: (shift: Shift) => boolean;
 };
 
 export type SortKey = 'shiftDate' | 'postedDate' | 'rate' | 'distance';

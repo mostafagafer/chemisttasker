@@ -44,6 +44,7 @@ class Http400(APIException):
     default_code = 'bad_request'
 from django_q.tasks import async_task
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from django_q.models import Schedule
 from django.core.signing import TimestampSigner, BadSignature
 from django.contrib.contenttypes.models import ContentType
@@ -3834,6 +3835,8 @@ class CommunityShiftViewSet(BaseShiftViewSet):
 class PublicShiftViewSet(BaseShiftViewSet):
     """Platform‐public shifts, filtered by the user’s exact clinical role."""
     def get_queryset(self):
+        now = timezone.now()
+        today = date.today()
         qs = super().get_queryset().filter(
             visibility=PUBLIC_LEVEL
         ).annotate(
@@ -3841,6 +3844,10 @@ class PublicShiftViewSet(BaseShiftViewSet):
         ).filter(
             Q(employment_type__in=['FULL_TIME', 'PART_TIME'], slot_count=0) |
             Q(slots__date__gte=date.today())
+        ).filter(
+            Q(employment_type__in=['FULL_TIME', 'PART_TIME'], slot_count=0) |
+            Q(slots__date__gt=today) |
+            Q(slots__date=today, slots__end_time__gt=now.time())
         )
 
         user = self.request.user
@@ -4574,6 +4581,7 @@ class PublicJobBoardView(generics.ListAPIView):
             except (TypeError, ValueError):
                 raise ValidationError({"organization": "Organization must be a valid id."})
 
+        now = timezone.now()
         today = date.today()
         qs = qs.annotate(
             slot_count=Count('slots', distinct=True),
@@ -4583,7 +4591,8 @@ class PublicJobBoardView(generics.ListAPIView):
             Q(assigned_count__lt=F('slot_count'))                              # open, unassigned slots
         ).filter(
             Q(employment_type__in=['FULL_TIME', 'PART_TIME'], slot_count=0) |  # slotless FT/PT
-            Q(slots__date__gte=today)                                         # future slots
+            Q(slots__date__gt=today) |                                        # future slots
+            Q(slots__date=today, slots__end_time__gt=now.time())              # today but still active
         )
 
         # --- Filters from query params (mirror PublicShiftViewSet but without role gating) ---
@@ -4716,17 +4725,30 @@ class SharedShiftDetailView(APIView):
         else:
             return Response({"error": "An ID or token is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        today = date.today()
+        tz_name = getattr(shift.pharmacy, 'timezone', None) or getattr(settings, 'TIME_ZONE', None) or 'UTC'
+        try:
+            now_local = timezone.now().astimezone(ZoneInfo(tz_name))
+        except Exception:
+            now_local = timezone.now()
+        today = now_local.date()
+        now_time = now_local.time()
         is_slotless_ftpt = shift.employment_type in ['FULL_TIME', 'PART_TIME'] and shift.slot_count == 0
         has_future_slots = shift.slots.filter(
-            Q(is_recurring=True, recurring_end_date__gte=today) | Q(date__gte=today)
+            Q(is_recurring=True, recurring_end_date__gte=today)
+            | Q(date__gt=today)
+            | Q(date=today, end_time__gt=now_time)
         ).exists()
         has_open_slots = shift.slot_count > 0 and shift.assigned_count < shift.slot_count
-        if not (is_slotless_ftpt or (has_future_slots and has_open_slots)):
-            raise NotFound("This shift is no longer available.")
+        is_closed = not (is_slotless_ftpt or (has_future_slots and has_open_slots))
 
-        serializer = SharedShiftSerializer(shift)
-        return Response(serializer.data)
+        data = SharedShiftSerializer(shift).data
+        if is_closed:
+            data['is_closed'] = True
+            data['closed_reason'] = "This shift doesn't accept candidates anymore."
+        else:
+            data['is_closed'] = False
+
+        return Response(data)
 
 
 # Roster

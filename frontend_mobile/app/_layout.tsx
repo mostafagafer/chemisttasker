@@ -1,34 +1,14 @@
 import React, { useEffect } from 'react';
-import { AppState, StatusBar } from 'react-native';
+import { StatusBar } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter, useSegments } from 'expo-router';
-import * as NavigationBar from 'expo-navigation-bar';
 import { PaperProvider } from 'react-native-paper';
-import Constants from 'expo-constants';
 import crashlytics from '@react-native-firebase/crashlytics';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { WorkspaceProvider } from '../context/WorkspaceContext';
 import { theme } from '../constants/theme';
 import OfflineBanner from '../components/OfflineBanner';
 import '../config/api'; // Configure shared-core on app load
-
-const showNav = async () => {
-  try {
-    const edgeToEdgeEnabled =
-      (Constants.expoConfig as any)?.android?.navigationBar?.edgeToEdgeEnabled ??
-      (Constants.manifest as any)?.android?.navigationBar?.edgeToEdgeEnabled ??
-      false;
-    await NavigationBar.setVisibilityAsync('visible');
-    if (!edgeToEdgeEnabled) {
-      await NavigationBar.setBehaviorAsync('inset-swipe');
-      await NavigationBar.setPositionAsync('relative');
-      await NavigationBar.setBackgroundColorAsync('#000000');
-    }
-    await NavigationBar.setButtonStyleAsync('light');
-  } catch {
-    // ignore on platforms that don't support it
-  }
-};
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -62,7 +42,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
             style={{ flex: 1, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center' }}
             edges={['top', 'left', 'right']}
           >
-            <StatusBar translucent={false} backgroundColor="#FFFFFF" barStyle="dark-content" />
+            <StatusBar barStyle="dark-content" />
             <PaperProvider theme={theme}>
               <Stack screenOptions={{ headerShown: false }} />
             </PaperProvider>
@@ -94,21 +74,11 @@ function AuthGate() {
 }
 
 export default function RootLayout() {
-  useEffect(() => {
-    showNav();
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        showNav();
-      }
-    });
-    return () => sub.remove();
-  }, []);
-
   return (
     <ErrorBoundary>
       <SafeAreaProvider>
         <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }} edges={['top', 'left', 'right']}>
-          <StatusBar translucent={false} backgroundColor="#FFFFFF" barStyle="dark-content" />
+          <StatusBar barStyle="dark-content" />
           <PaperProvider theme={theme}>
             <AuthProvider>
               <WorkspaceProvider>

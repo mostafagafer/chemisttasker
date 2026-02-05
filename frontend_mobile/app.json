@@ -65,6 +65,7 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/withAndroidManifestFixes",
       [
         "expo-splash-screen",
         {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import {  StyleSheet } from 'react-native';
 import { Text, TextInput, Button, Surface } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { passwordReset } from '@chemisttasker/shared-core';

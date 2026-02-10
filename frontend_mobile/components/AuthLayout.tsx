@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View, KeyboardAvoidingView, Platform, ScrollView, Easing } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Surface, Text } from 'react-native-paper';

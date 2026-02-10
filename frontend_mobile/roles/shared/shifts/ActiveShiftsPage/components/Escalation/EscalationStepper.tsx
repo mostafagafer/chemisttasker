@@ -20,6 +20,8 @@ interface EscalationStepperProps {
     onSelectLevel: (level: EscalationLevelKey) => void;
     onEscalate: (shift: Shift, levelKey: EscalationLevelKey) => void;
     escalating?: boolean;
+    labelOverrides?: Partial<Record<EscalationLevelKey, string>>;
+    showPrivateFirst?: boolean;
 }
 
 export default function EscalationStepper({
@@ -29,6 +31,8 @@ export default function EscalationStepper({
     onSelectLevel,
     onEscalate,
     escalating,
+    labelOverrides,
+    showPrivateFirst,
 }: EscalationStepperProps) {
     const allowedKeys = new Set<string>((shift as any).allowedEscalationLevels || []);
     if (!allowedKeys.size) {
@@ -37,9 +41,10 @@ export default function EscalationStepper({
     const levelSequence = ESCALATION_LEVELS.filter((level) => allowedKeys.has(level));
     const currentIndex = Math.max(0, levelSequence.indexOf(currentLevel));
     const selectedIndex = levelSequence.indexOf(selectedLevel);
+    const uiCurrentIndex = showPrivateFirst ? -1 : currentIndex;
 
     const canEscalate =
-        selectedIndex > currentIndex &&
+        selectedIndex > uiCurrentIndex &&
         selectedIndex !== -1 &&
         allowedKeys.has(levelSequence[selectedIndex]);
 
@@ -50,13 +55,21 @@ export default function EscalationStepper({
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.container}
             >
+                {showPrivateFirst && (
+                    <Surface style={[styles.step, styles.privateStep]} elevation={0}>
+                        <Text style={[styles.stepText, styles.privateStepText]} numberOfLines={1}>
+                            Direct / Private
+                        </Text>
+                    </Surface>
+                )}
                 {levelSequence.map((level, index) => {
-                    const isActive = index === currentIndex;
+                    const isActive = index === uiCurrentIndex;
                     const isSelected = level === selectedLevel;
-                    const isCompleted = index < currentIndex;
+                    const isCompleted = index < uiCurrentIndex;
                     const color = levelColors[level] || customTheme.colors.grey;
-                    const selectable = index <= currentIndex + 1 && allowedKeys.has(level);
+                    const selectable = index <= uiCurrentIndex + 1 && allowedKeys.has(level);
 
+                    const label = labelOverrides?.[level] ?? getLevelLabel(level);
                     return (
                         <TouchableOpacity
                             key={level}
@@ -82,7 +95,7 @@ export default function EscalationStepper({
                                     ]}
                                     numberOfLines={1}
                                 >
-                                    {getLevelLabel(level)}
+                                    {label}
                                 </Text>
                             </Surface>
                         </TouchableOpacity>
@@ -99,7 +112,7 @@ export default function EscalationStepper({
                 <View style={styles.escalateBox}>
                     <Text style={styles.escalateHint}>Ready to widen your search?</Text>
                     <Button mode="contained" onPress={() => onEscalate(shift, levelSequence[selectedIndex])}>
-                        Escalate to {getLevelLabel(levelSequence[selectedIndex])}
+                        Escalate to {labelOverrides?.[levelSequence[selectedIndex]] ?? getLevelLabel(levelSequence[selectedIndex])}
                     </Button>
                 </View>
             ) : null}
@@ -125,6 +138,13 @@ const styles = StyleSheet.create({
     stepText: {
         fontSize: 11,
         fontWeight: '600',
+    },
+    privateStep: {
+        backgroundColor: '#E0F2FE',
+        borderColor: '#7DD3FC',
+    },
+    privateStepText: {
+        color: '#0369A1',
     },
     stepDisabled: {
         opacity: 0.6,

@@ -1,6 +1,6 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Box, Button, Chip, Drawer, IconButton, Paper, Stack, Pagination, Typography } from "@mui/material";
+import { useNavigate, useLocation } from "react-router-dom";
+import { Box, Button, Chip, Drawer, IconButton, Paper, Stack, Pagination, Typography, Dialog } from "@mui/material";
 import {
   Add as AddIcon,
   Tune as TuneIcon,
@@ -11,6 +11,7 @@ import PitchDialog, { PitchFormState, PitchAttachment } from "./components/Pitch
 import AvailabilitySidebar from "./components/AvailabilitySidebar";
 import TalentCardV2 from "./components/TalentCardV2";
 import FiltersSidebar, { TalentFilterState } from "./components/FiltersSidebar";
+import PostShiftPage from "../PostShiftPage";
 import { Candidate } from "./types";
 import { ENGAGEMENT_LABELS } from "./constants";
 import { useAuth } from "../../../../contexts/AuthContext";
@@ -20,7 +21,6 @@ import {
   deleteExplorerPost,
   getOnboarding,
   getRatingsSummary,
-  getOrCreateDmByUser,
   likeExplorerPost,
   unlikeExplorerPost,
   updateExplorerPost,
@@ -42,6 +42,20 @@ const formatRoleLabel = (role?: string | null) => {
 const formatWorkType = (workType?: string | null) => {
   if (!workType) return "";
   return titleCase(workType);
+};
+
+const mapRoleToShiftRole = (value?: string | null) => {
+  if (!value) return "";
+  const normalized = value.trim().toUpperCase().replace(/\s+/g, "_");
+  if (["PHARMACIST", "INTERN", "STUDENT", "ASSISTANT", "TECHNICIAN", "EXPLORER"].includes(normalized)) {
+    return normalized;
+  }
+  if (normalized.includes("PHARMACIST")) return "PHARMACIST";
+  if (normalized.includes("TECHNICIAN")) return "TECHNICIAN";
+  if (normalized.includes("ASSISTANT")) return "ASSISTANT";
+  if (normalized.includes("INTERN")) return "INTERN";
+  if (normalized.includes("STUDENT")) return "STUDENT";
+  return "";
 };
 
 const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -110,6 +124,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
   const reload = feed.reload;
   const { user, token, isAdminUser } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [filters, setFilters] = useState<TalentFilterState>({
     search: "",
@@ -119,9 +134,13 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
     skills: [] as string[],
     willingToTravel: false,
     placementSeeker: false,
+    availabilityStart: null,
+    availabilityEnd: null,
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedCalendarCandidate, setSelectedCalendarCandidate] = useState<Candidate | null>(null);
+  const [isPostShiftModalOpen, setIsPostShiftModalOpen] = useState(false);
+  const [previousSearch, setPreviousSearch] = useState(location.search);
   const [expandedRoleSkills, setExpandedRoleSkills] = useState<Record<string, boolean>>({});
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -164,6 +183,23 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
       const state = post.locationState || "";
       const coverageRadius = post.coverageRadiusKm ? `+${post.coverageRadiusKm}km` : "Local";
       const willingToTravel = Boolean(post.openToTravel);
+      const travelStates = Array.isArray((post as any).travelStates)
+        ? (post as any).travelStates
+        : Array.isArray((post as any).travel_states)
+          ? (post as any).travel_states
+          : [];
+      const ahpraYears =
+        (post as any).ahpraYearsSinceFirstRegistration ??
+        (post as any).ahpra_years_since_first_registration ??
+        null;
+      const yearsExperience =
+        (post as any).yearsExperience ?? (post as any).years_experience ?? null;
+      const experienceBadge =
+        roleLabel.includes("Pharmacist") && ahpraYears != null
+          ? `${ahpraYears} yrs AHPRA`
+          : roleLabel.includes("Pharmacy") || roleLabel.includes("Assistant") || roleLabel.includes("Technician")
+            ? (yearsExperience ? `${yearsExperience} yrs exp` : null)
+            : null;
       const pitchText = post.body || (post as any).shortBio || "";
       const availabilityMode = post.availabilityMode || null;
 
@@ -251,6 +287,8 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
         workTypes,
         willingToTravel,
         pitch: pitchText,
+        travelStates,
+        experienceBadge,
         skills,
         software: dispenseSoftware,
         clinicalServices,
@@ -308,6 +346,8 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
     filters.skills,
     filters.willingToTravel,
     filters.placementSeeker,
+    filters.availabilityStart,
+    filters.availabilityEnd,
   ]);
 
   useEffect(() => {
@@ -326,6 +366,8 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
     filters.workTypes.length +
     filters.states.length +
     filters.skills.length +
+    (filters.availabilityStart ? 1 : 0) +
+    (filters.availabilityEnd ? 1 : 0) +
     (filters.search ? 1 : 0) +
     (filters.willingToTravel ? 1 : 0) +
     (filters.placementSeeker ? 1 : 0);
@@ -348,44 +390,6 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
     setExpandedRoleSkills((prev) => ({ ...prev, [role]: !prev[role] }));
   };
 
-  const chatRoute = useMemo(() => {
-    const roleKey = (user?.role || "OWNER").toUpperCase();
-    const routes: Record<string, string> = {
-      OWNER: "/dashboard/owner/chat",
-      PHARMACY_ADMIN: "/dashboard/owner/chat",
-      ORG_ADMIN: "/dashboard/organization/chat",
-      ORG_OWNER: "/dashboard/organization/chat",
-      ORG_STAFF: "/dashboard/organization/chat",
-      ORGANIZATION: "/dashboard/organization/chat",
-      PHARMACIST: "/dashboard/pharmacist/chat",
-      OTHER_STAFF: "/dashboard/otherstaff/chat",
-      EXPLORER: "/dashboard/explorer/chat",
-    };
-    return routes[roleKey] ?? "/dashboard/owner/chat";
-  }, [user?.role]);
-
-  const handleContact = useCallback(
-    async (candidate: Candidate) => {
-      if (publicMode) {
-        onRequireLogin?.();
-        return;
-      }
-      const partnerUserId = candidate.authorUserId ?? candidate.explorerUserId ?? null;
-      if (!partnerUserId) return;
-      try {
-        const res: any = await getOrCreateDmByUser({ partner_user_id: partnerUserId });
-        const conversationId = res?.id ?? res?.conversation_id ?? res?.conversationId;
-        if (conversationId) {
-          navigate(`${chatRoute}?conversationId=${conversationId}`);
-        } else {
-          navigate(chatRoute);
-        }
-      } catch {
-        // ignore for now
-      }
-    },
-    [publicMode, onRequireLogin, chatRoute, navigate]
-  );
 
   const canRequestBooking = useMemo(() => {
     if (!user) return false;
@@ -419,11 +423,37 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
     [publicMode, onRequireLogin]
   );
 
-  const handleRequestBooking = useCallback((candidate: Candidate) => {
-    // Placeholder for future booking flow
+  const handleRequestBooking = useCallback((candidate: Candidate, dates: string[]) => {
     if (!canRequestBooking) return;
-    setSelectedCalendarCandidate(candidate);
-  }, [canRequestBooking]);
+    const targetUserId = candidate.authorUserId ?? candidate.explorerUserId ?? null;
+    if (!targetUserId) return;
+    const uniqueDates = Array.from(new Set(dates)).sort();
+    if (uniqueDates.length === 0) return;
+    const params = new URLSearchParams(location.search);
+    params.set("dates", uniqueDates.join(","));
+    params.set("dedicated_user", String(targetUserId));
+    const shiftRole =
+      mapRoleToShiftRole(candidate.rawRoleCategory) ||
+      mapRoleToShiftRole(candidate.explorerRoleType) ||
+      mapRoleToShiftRole(candidate.role);
+    if (shiftRole) {
+      params.set("role", shiftRole);
+    }
+    params.set("embedded", "1");
+    setPreviousSearch(location.search);
+    navigate({ pathname: location.pathname, search: `?${params.toString()}` }, { replace: true });
+    setSelectedCalendarCandidate(null);
+    setIsPostShiftModalOpen(true);
+  }, [canRequestBooking, location.pathname, location.search, navigate]);
+
+  const handleClosePostShiftModal = useCallback(() => {
+    setIsPostShiftModalOpen(false);
+    navigate({ pathname: location.pathname, search: previousSearch }, { replace: true });
+  }, [location.pathname, navigate, previousSearch]);
+
+  const handlePostShiftCompleted = useCallback(() => {
+    handleClosePostShiftModal();
+  }, [handleClosePostShiftModal]);
 
   const handleToggleLike = useCallback(
     async (candidate: Candidate) => {
@@ -454,6 +484,8 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
       skills: [],
       willingToTravel: false,
       placementSeeker: false,
+      availabilityStart: null,
+      availabilityEnd: null,
     });
   };
 
@@ -472,6 +504,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
     state: "",
     postcode: "",
     openToTravel: false,
+    travelStates: [] as string[],
     coverageRadiusKm: 30,
     latitude: null as number | null,
     longitude: null as number | null,
@@ -499,6 +532,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
       state: "",
       postcode: "",
       openToTravel: false,
+      travelStates: [] as string[],
       coverageRadiusKm: 30,
       latitude: null,
       longitude: null,
@@ -536,6 +570,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           state: onboarding?.state || "",
           postcode: onboarding?.postcode || "",
           openToTravel: Boolean(onboarding?.open_to_travel),
+          travelStates: Array.isArray(onboarding?.travel_states) ? onboarding.travel_states : [],
           coverageRadiusKm: onboarding?.coverage_radius_km || 30,
           latitude: onboarding?.latitude ? Number(onboarding.latitude) : null,
           longitude: onboarding?.longitude ? Number(onboarding.longitude) : null,
@@ -554,6 +589,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           state: onboarding?.state || "",
           postcode: onboarding?.postcode || "",
           openToTravel: Boolean(onboarding?.open_to_travel),
+          travelStates: Array.isArray(onboarding?.travel_states) ? onboarding.travel_states : [],
           coverageRadiusKm: onboarding?.coverage_radius_km || 30,
           latitude: onboarding?.latitude ? Number(onboarding.latitude) : null,
           longitude: onboarding?.longitude ? Number(onboarding.longitude) : null,
@@ -575,6 +611,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           state: onboarding?.state || "",
           postcode: onboarding?.postcode || "",
           openToTravel: Boolean(onboarding?.open_to_travel),
+          travelStates: Array.isArray(onboarding?.travel_states) ? onboarding.travel_states : [],
           coverageRadiusKm: onboarding?.coverage_radius_km || 30,
           latitude: onboarding?.latitude ? Number(onboarding.latitude) : null,
           longitude: onboarding?.longitude ? Number(onboarding.longitude) : null,
@@ -657,10 +694,43 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
     }
   };
 
+  const updateOnboardingLocationPrefs = useCallback(async () => {
+    if (!token) return;
+    const safeRole = isOtherStaff ? "otherstaff" : isPharmacist ? "pharmacist" : "explorer";
+    const form = new FormData();
+    form.append("street_address", pitchForm.streetAddress || "");
+    form.append("suburb", pitchForm.suburb || "");
+    form.append("state", pitchForm.state || "");
+    form.append("postcode", pitchForm.postcode || "");
+    form.append("open_to_travel", pitchForm.openToTravel ? "true" : "false");
+    form.append("travel_states", JSON.stringify(pitchForm.travelStates || []));
+    form.append("coverage_radius_km", String(pitchForm.coverageRadiusKm || 0));
+    if (pitchForm.latitude != null) form.append("latitude", String(pitchForm.latitude));
+    if (pitchForm.longitude != null) form.append("longitude", String(pitchForm.longitude));
+    if (pitchForm.googlePlaceId) form.append("google_place_id", pitchForm.googlePlaceId);
+
+    const response = await fetch(`${API_BASE_URL}/client-profile/${safeRole}/onboarding/me/`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: "Failed to update location preferences" }));
+      throw new Error(err.detail || "Failed to update location preferences");
+    }
+  }, [token, isOtherStaff, isPharmacist, pitchForm]);
+
   const handlePitchSave = async () => {
     setPitchSaving(true);
     setPitchError(null);
     try {
+      if (pitchForm.openToTravel && (pitchForm.travelStates || []).length === 0) {
+        setPitchError("Select at least one travel state.");
+        setPitchSaving(false);
+        return;
+      }
+      await updateOnboardingLocationPrefs();
+
       const availabilityDays = (pitchForm.availabilitySlots || [])
         .filter((entry: any) => entry && entry.date)
         .map((entry: any) => ({
@@ -843,6 +913,14 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
                 {filters.placementSeeker && (
                   <Chip label="Interns/Students" onDelete={() => toggleBooleanFilter("placementSeeker")} />
                 )}
+                {(filters.availabilityStart || filters.availabilityEnd) && (
+                  <Chip
+                    label={`Availability: ${filters.availabilityStart ?? "Any"} → ${filters.availabilityEnd ?? "Any"}`}
+                    onDelete={() =>
+                      setFilters((prev) => ({ ...prev, availabilityStart: null, availabilityEnd: null }))
+                    }
+                  />
+                )}
                 {filters.roles.map((r: string) => (
                   <Chip key={r} label={r} onDelete={() => toggleFilter("roles", r)} />
                 ))}
@@ -865,7 +943,6 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
                 <TalentCardV2
                   key={candidate.id}
                   candidate={candidate}
-                  onContact={handleContact}
                   onViewCalendar={handleViewCalendar}
                   onToggleLike={handleToggleLike}
                   canViewCalendar={canRequestBooking}
@@ -930,6 +1007,25 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           onFileRemove={handleFileRemove}
         />
       )}
+
+      <Dialog
+        open={isPostShiftModalOpen}
+        onClose={handleClosePostShiftModal}
+        fullWidth
+        maxWidth="md"
+        PaperProps={{
+          sx: {
+            width: "78vw",
+            maxHeight: "80vh",
+            borderRadius: 3,
+            overflow: "hidden",
+          },
+        }}
+      >
+        <Box sx={{ maxHeight: "80vh", overflow: "auto", bgcolor: "background.default" }}>
+          <PostShiftPage onCompleted={handlePostShiftCompleted} />
+        </Box>
+      </Dialog>
     </Box>
   );
 

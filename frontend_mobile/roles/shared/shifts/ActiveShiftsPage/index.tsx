@@ -1,7 +1,7 @@
 // ActiveShiftsPage - Main Component
 // Mobile implementation aligned with web logic and hooks
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Text, Button, IconButton, Snackbar, ActivityIndicator, Card, Divider, Chip } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -424,12 +424,31 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
         router.push({ pathname: baseRoute as any, params: { edit: String(shift.id) } });
     }, [router, user]);
 
+    const isDedicatedShift = useCallback((shift: Shift) => {
+        const shiftAny = shift as any;
+        return Boolean(shiftAny.dedicatedUser ?? shiftAny.dedicated_user);
+    }, []);
+
+    const getLevelLabelForShift = useCallback((level: EscalationLevelKey) => {
+        return getLevelLabel(level);
+    }, []);
+
     useEffect(() => {
         expandedShifts.forEach((shiftId) => {
             if (Object.prototype.hasOwnProperty.call(counterOffersByShift, shiftId)) return;
             loadCounterOffers(shiftId);
         });
     }, [expandedShifts, counterOffersByShift, loadCounterOffers]);
+
+    const orderedShifts = useMemo(() => {
+        const list = [...shifts];
+        list.sort((a, b) => {
+            const aDedicated = isDedicatedShift(a) ? 1 : 0;
+            const bDedicated = isDedicatedShift(b) ? 1 : 0;
+            return bDedicated - aDedicated;
+        });
+        return list;
+    }, [shifts, isDedicatedShift]);
 
     if (shiftsLoading) {
         return (
@@ -454,7 +473,10 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
             <ScrollView contentContainerStyle={styles.content}>
                 <Text style={styles.title}>{title}</Text>
-                {shifts.map(shift => {
+                {orderedShifts.map((shift, idx) => {
+                    const isDedicated = isDedicatedShift(shift);
+                    const prev = idx > 0 ? orderedShifts[idx - 1] : null;
+                    const showSectionHeader = idx === 0 || (prev && isDedicatedShift(prev) !== isDedicated);
                     const isExpanded = expandedShifts.has(shift.id);
                     const isSingleUserShift = Boolean((shift as any).singleUserOnly);
                     const shiftLevel = getCurrentLevelKey(shift);
@@ -479,12 +501,19 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                     const isUrgent = Boolean((shift as any).isUrgent ?? (shift as any).is_urgent);
                     const description = (shift as any).description ?? null;
                     const hasBadges = Boolean(roleNeeded || employmentType || isUrgent);
+                    const labelOverrides = undefined;
+                    const candidatesLabel = isDedicated ? 'Direct / Private' : getLevelLabelForShift(selectedLevel);
 
                     return (
-                        <Card
-                            key={shift.id}
-                            style={[styles.shiftCard, { borderLeftColor: cardBorderColor }]}
-                        >
+                        <React.Fragment key={shift.id}>
+                            {showSectionHeader && (
+                                <Text style={styles.sectionTitle}>
+                                    {isDedicated ? 'Direct / Private Offers' : 'Active Shifts'}
+                                </Text>
+                            )}
+                            <Card
+                                style={[styles.shiftCard, { borderLeftColor: cardBorderColor }]}
+                            >
                             <TouchableOpacity onPress={() => toggleShiftExpansion(shift.id)}>
                                 <Card.Title
                                     title={(shift as any).pharmacyDetail?.name ?? 'Unnamed Pharmacy'}
@@ -549,6 +578,17 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                     </View>
                                 </View>
 
+                                {isDedicated ? (
+                                    <View style={styles.directBadgeRow}>
+                                        <Chip style={styles.directBadge} textStyle={styles.directBadgeText}>
+                                            Direct / Private
+                                        </Chip>
+                                        <Chip mode="outlined" style={styles.pendingBadge} textStyle={styles.pendingBadgeText}>
+                                            Pending
+                                        </Chip>
+                                    </View>
+                                ) : null}
+
                                 {isExpanded && (
                                     <>
                                         <Divider style={styles.divider} />
@@ -559,11 +599,11 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                             </View>
                                         ) : null}
 
-                                        <EscalationStepper
-                                            shift={shift}
-                                            currentLevel={shiftLevel}
-                                            selectedLevel={selectedLevel}
-                                            onSelectLevel={(levelKey) => handleLevelChange(shift, levelKey)}
+                                            <EscalationStepper
+                                                shift={shift}
+                                                currentLevel={shiftLevel}
+                                                selectedLevel={selectedLevel}
+                                                onSelectLevel={(levelKey) => handleLevelChange(shift, levelKey)}
                                             onEscalate={async (_s, _levelKey) => {
                                                 const success = await handleEscalate(shift.id);
                                                 if (!success) return;
@@ -573,16 +613,18 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                                     return next;
                                                 });
                                                 await loadShifts();
-                                            }}
-                                            escalating={actionLoading[`escalate_${shift.id}`]}
-                                        />
+                                                }}
+                                                escalating={actionLoading[`escalate_${shift.id}`]}
+                                            labelOverrides={labelOverrides}
+                                            showPrivateFirst={isDedicated}
+                                            />
 
                                         <Divider style={styles.divider} />
 
                                         <View style={styles.sectionHeader}>
                                             <Divider style={styles.sectionDivider} />
                                             <Chip mode="outlined" style={styles.sectionChip}>
-                                                Candidates for {getLevelLabel(selectedLevel)}
+                                                Candidates for {candidatesLabel}
                                             </Chip>
                                             <Divider style={styles.sectionDivider} />
                                         </View>
@@ -624,6 +666,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                 )}
                             </Card.Content>
                         </Card>
+                        </React.Fragment>
                     );
                 })}
             </ScrollView>
@@ -696,6 +739,14 @@ const styles = StyleSheet.create({
         fontSize: 20,
         fontWeight: '700',
         color: customTheme.colors.text,
+    },
+    sectionTitle: {
+        fontSize: 12,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        color: customTheme.colors.textMuted,
+        letterSpacing: 1,
+        marginTop: customTheme.spacing.sm,
     },
     cardTitle: {
         fontSize: 16,
@@ -770,6 +821,27 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: customTheme.spacing.xs,
+    },
+    directBadgeRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: customTheme.spacing.sm,
+        marginTop: customTheme.spacing.sm,
+        marginBottom: customTheme.spacing.sm,
+    },
+    directBadge: {
+        backgroundColor: '#E0F2FE',
+    },
+    directBadgeText: {
+        color: '#0369A1',
+        fontWeight: '600',
+    },
+    pendingBadge: {
+        borderColor: customTheme.colors.border,
+    },
+    pendingBadgeText: {
+        color: customTheme.colors.textMuted,
+        fontWeight: '600',
     },
     actionButton: {
         margin: 0,

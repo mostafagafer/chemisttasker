@@ -320,17 +320,17 @@ const ownerSteps: Step[] = [
   {
     title: "Instant Roster Link",
     description: "Your open shifts are detected automatically from your system.",
-    videoId: "dQw4w9WgXcQ"
+    videoId: "LKcxI3VFW0Q"
   },
   {
     title: "Internal Team Notified First",
     description: "Staff get first chance to fill shifts before escalation.",
-    videoId: "dQw4w9WgXcQ"
+    videoId: "LKcxI3VFW0Q"
   },
   {
     title: "Public Platform Escalation",
     description: "Broadcast to verified locums for fast, Award-compliant coverage.",
-    videoId: "dQw4w9WgXcQ"
+    videoId: "LKcxI3VFW0Q"
   }
 ];
 
@@ -338,12 +338,12 @@ const pharmacistSteps: Step[] = [
     {
       title: "Find & Manage Shifts",
       description: "Set your availability, apply for shifts that suit you, and see your entire roster in one place.",
-      videoId: "dQw4w9WgXcQ"
+      videoId: "LKcxI3VFW0Q"
     },
     {
       title: "Seamless Invoicing",
       description: "Handle all your billing and payments easily with instant, automated invoices.",
-      videoId: "dQw4w9WgXcQ"
+      videoId: "LKcxI3VFW0Q"
     },
     {
       title: "Pitch Yourself",

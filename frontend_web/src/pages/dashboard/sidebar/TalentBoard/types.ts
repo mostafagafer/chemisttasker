@@ -21,6 +21,8 @@ export type Candidate = {
   workTypes: string[];
   willingToTravel: boolean;
   pitch: string;
+  travelStates?: string[];
+  experienceBadge?: string | null;
   skills: string[];
   software: string[];
   clinicalServices: string[];

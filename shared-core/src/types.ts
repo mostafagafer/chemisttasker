@@ -466,6 +466,9 @@ export interface ExplorerPostApi {
     work_type?: "FULL_TIME" | "PART_TIME" | "CASUAL" | null;
     coverage_radius_km?: number | null;
     open_to_travel?: boolean;
+    travel_states?: string[] | null;
+    ahpra_years_since_first_registration?: number | null;
+    years_experience?: string | null;
     availability_mode?: "FULL_TIME_NOTICE" | "PART_TIME_DAYS" | "CASUAL_CALENDAR" | null;
     availability_summary?: string | null;
     availability_days?: string[] | number[] | null;
@@ -746,7 +749,6 @@ export interface ShiftCounterOfferApi {
     id: number;
     shift: number;
     user: number;
-    message?: string | null;
     request_travel?: boolean;
     status?: "PENDING" | "ACCEPTED" | "REJECTED";
     slots?: ShiftCounterOfferSlotApi[];
@@ -764,7 +766,6 @@ export interface ShiftCounterOfferSlotPayload {
 
 export interface ShiftCounterOfferPayload {
     shiftId: number;
-    message?: string | null;
     requestTravel?: boolean;
     slots: ShiftCounterOfferSlotPayload[];
 }
@@ -778,6 +779,19 @@ export interface ShiftSaved {
     id: number;
     shift: number;
     createdAt: string;
+}
+
+export interface ShiftOfferApi {
+    id: number;
+    shift: number;
+    shift_detail?: ShiftApi;
+    slot?: number | null;
+    slot_detail?: ShiftSlotApi | null;
+    user: number;
+    status?: "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED";
+    expires_at?: string | null;
+    created_at?: string | null;
+    updated_at?: string | null;
 }
 
 export type ShiftSlot = CamelCasedPropertiesDeep<ShiftSlotApi>;
@@ -802,6 +816,7 @@ export type ShiftRatingComment = CamelCasedPropertiesDeep<ShiftRatingCommentApi>
 export type Shift = CamelCasedPropertiesDeep<ShiftApi>;
 export type ShiftCounterOfferSlot = CamelCasedPropertiesDeep<ShiftCounterOfferSlotApi>;
 export type ShiftCounterOffer = CamelCasedPropertiesDeep<ShiftCounterOfferApi>;
+export type ShiftOffer = CamelCasedPropertiesDeep<ShiftOfferApi>;
 
 export interface NotificationApi {
     id: number;

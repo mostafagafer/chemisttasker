@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>You have a shift offer</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
+        .btn {
+            display: inline-block;
+            background: #23b59c;
+            color: #fff;
+            padding: 12px 28px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.05rem;
+            margin: 16px 0;
+            box-shadow: 0 1px 3px #e0e0e0;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #199982; }
+        .meta { margin: 12px 0; color: #555; }
+        ul { padding-left: 18px; margin: 8px 0 0 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>You have a shift offer</h2>
+        <p>Hi {{ user_first_name }},</p>
+        <p>
+            You have received a shift offer for <b>{{ role_label }}</b> at <b>{{ pharmacy_name }}</b>.
+        </p>
+        {% if slot_summary %}
+        <div class="meta">
+            <strong>Shift summary:</strong><br>
+            {{ slot_summary }}
+        </div>
+        {% endif %}
+        {% if slots_display %}
+        <div class="meta">
+            <strong>Dates:</strong>
+            <ul>
+                {% for line in slots_display %}
+                <li>{{ line }}</li>
+                {% endfor %}
+            </ul>
+            {% if slots_extra_count %}
+            <div>+ {{ slots_extra_count }} more</div>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if expires_at %}
+        <p><strong>Confirm by:</strong> {{ expires_at }}</p>
+        {% endif %}
+        <a class="btn" href="{{ shift_link }}">Review & Confirm</a>
+        <p>
+            Please confirm this offer in your ChemistTasker portal to lock in the shift.
+        </p>
+        <p>— The ChemistTasker Team</p>
+    </div>
+</body>
+</html>

@@ -14,7 +14,7 @@ export default function AvailabilitySidebar({
   candidate: Candidate | null;
   onClose: () => void;
   canRequestBooking?: boolean;
-  onRequestBooking?: (candidate: Candidate) => void;
+  onRequestBooking?: (candidate: Candidate, dates: string[]) => void;
   currentUserId?: number | null;
 }) {
   if (!candidate) return null;
@@ -22,7 +22,7 @@ export default function AvailabilitySidebar({
   const today = new Date();
   const daysInView = 28;
   const calendarGrid: Array<{ dayNum: number; isAvailable: boolean; date: Date }> = [];
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const isOwnPost = currentUserId != null && candidate.authorUserId === currentUserId;
 
   for (let i = 0; i < daysInView; i++) {
@@ -34,9 +34,15 @@ export default function AvailabilitySidebar({
   }
 
   const slotsForSelected = useMemo(() => {
-    if (!selectedDate) return [];
-    return (candidate.availableSlots || []).filter((slot) => slot.date === selectedDate);
-  }, [candidate.availableSlots, selectedDate]);
+    if (selectedDates.length === 0) return [];
+    return (candidate.availableSlots || []).filter((slot) => selectedDates.includes(slot.date));
+  }, [candidate.availableSlots, selectedDates]);
+
+  const toggleSelectedDate = (dateStr: string) => {
+    setSelectedDates((prev) =>
+      prev.includes(dateStr) ? prev.filter((d) => d !== dateStr) : [...prev, dateStr]
+    );
+  };
 
   return (
     <Drawer anchor="right" open onClose={onClose}>
@@ -81,7 +87,7 @@ export default function AvailabilitySidebar({
             <Typography variant="body2" color="text.secondary">
               Dates selected in the pitch calendar.
             </Typography>
-            {selectedDate && slotsForSelected.length > 0 && (
+            {selectedDates.length > 0 && slotsForSelected.length > 0 && (
               <Stack spacing={0.5} sx={{ mt: 1 }}>
                 {slotsForSelected.map((slot, idx) => {
                   const start = slot.startTime ?? (slot as any).start_time ?? null;
@@ -99,9 +105,9 @@ export default function AvailabilitySidebar({
                 })}
               </Stack>
             )}
-            {!selectedDate && (candidate.availableSlots?.length || 0) > 0 && (
+            {selectedDates.length === 0 && (candidate.availableSlots?.length || 0) > 0 && (
               <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-                Select a date to see the time slot.
+                Select one or more dates to see the time slot.
               </Typography>
             )}
           </Box>
@@ -109,6 +115,11 @@ export default function AvailabilitySidebar({
           <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ letterSpacing: 1 }}>
             Next 4 Weeks
           </Typography>
+          {selectedDates.length > 0 && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+              Selected: {selectedDates.length} date{selectedDates.length > 1 ? "s" : ""}
+            </Typography>
+          )}
 
           <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0.5, mt: 1 }}>
             {["S", "M", "T", "W", "T", "F", "S"].map((d) => (
@@ -121,14 +132,14 @@ export default function AvailabilitySidebar({
           <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0.5, mt: 0.5 }}>
             {calendarGrid.map((day, idx) => {
               const dateStr = day.date.toISOString().split("T")[0];
-              const isSelected = selectedDate === dateStr;
+              const isSelected = selectedDates.includes(dateStr);
               return (
                 <Box
                   key={idx}
                   title={day.date.toDateString()}
                   onClick={() => {
                     if (!day.isAvailable) return;
-                    setSelectedDate(dateStr);
+                    toggleSelectedDate(dateStr);
                   }}
                   sx={(theme) => ({
                     aspectRatio: "1 / 1",
@@ -198,24 +209,19 @@ export default function AvailabilitySidebar({
         </Box>
 
         <Divider />
-        {!isOwnPost && (
+        {canRequestBooking && !isOwnPost && (
           <Box sx={{ p: 2.5 }}>
             <Button
               fullWidth
               variant="contained"
-              disabled={!canRequestBooking || !selectedDate}
-              onClick={() => onRequestBooking?.(candidate)}
+              disabled={selectedDates.length === 0}
+              onClick={() => onRequestBooking?.(candidate, selectedDates)}
             >
-              Request Booking
+              {selectedDates.length > 0 ? `Request Booking (${selectedDates.length})` : "Request Booking"}
             </Button>
-            {!canRequestBooking && (
+            {selectedDates.length === 0 && (
               <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block", textAlign: "center" }}>
-                Owners and admins only.
-              </Typography>
-            )}
-            {canRequestBooking && !selectedDate && (
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block", textAlign: "center" }}>
-                Select a date to request booking.
+                Select one or more dates to request booking.
               </Typography>
             )}
           </Box>

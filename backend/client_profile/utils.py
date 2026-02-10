@@ -1,5 +1,6 @@
 from django.conf import settings
 import re
+from datetime import datetime, date, time
 from django.contrib.auth import get_user_model
 from django_q.tasks import async_task
 import difflib
@@ -10,9 +11,58 @@ from django.db.models import Q
 from rest_framework.exceptions import ValidationError
 
 from client_profile.models import Shift
+from client_profile.services import expand_shift_slots
 from client_profile.admin_helpers import is_admin_of
 
 MAX_PUBLIC_SHIFTS_PER_DAY = 10
+TRAVEL_ORIGIN_PREFIX = "Traveling from:"
+STATE_CODES = {"NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"}
+
+
+def extract_travel_origin_from_message(message: str | None):
+    if not message:
+        return "", ""
+    lines = message.splitlines()
+    filtered = []
+    travel_origin = ""
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(TRAVEL_ORIGIN_PREFIX):
+            if not travel_origin:
+                travel_origin = stripped.replace(TRAVEL_ORIGIN_PREFIX, "", 1).strip()
+            continue
+        filtered.append(line)
+    cleaned = "\n".join(filtered).strip()
+    return cleaned, travel_origin
+
+
+def extract_suburb_from_travel_origin(origin: str | None):
+    if not origin:
+        return ""
+    cleaned = re.sub(r"\s+", " ", origin).strip()
+    if not cleaned:
+        return ""
+
+    # If the string includes a comma, use the segment after the first comma.
+    if "," in cleaned:
+        parts = [part.strip() for part in cleaned.split(",") if part.strip()]
+        if len(parts) >= 2:
+            cleaned = parts[1]
+        else:
+            cleaned = parts[0]
+
+    # Try to extract suburb from patterns like "Suburb QLD 4214"
+    pattern = r"^(.+?)\s+(NSW|VIC|QLD|WA|SA|TAS|ACT|NT)\s+\d{3,4}$"
+    match = re.match(pattern, cleaned, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+
+    tokens = cleaned.split(" ")
+    if tokens and tokens[-1].isdigit():
+        tokens = tokens[:-1]
+    if tokens and tokens[-1].upper() in STATE_CODES:
+        tokens = tokens[:-1]
+    return " ".join(tokens).strip()
 
 def build_shift_email_context(shift, user=None, extra=None, role=None, shift_type=None):
     """
@@ -63,19 +113,8 @@ def build_shift_counter_offer_context(shift, offer, recipient=None):
     """
     Build context for counter-offer notifications. Reuses the shift link logic so owners/admins land on the shift page.
     """
-    travel_origin = ""
-    cleaned_message = offer.message or ""
-    if cleaned_message:
-        lines = cleaned_message.splitlines()
-        filtered_lines = []
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith("Traveling from:"):
-                if not travel_origin:
-                    travel_origin = stripped.replace("Traveling from:", "", 1).strip()
-                continue
-            filtered_lines.append(line)
-        cleaned_message = "\n".join(filtered_lines).strip()
+    cleaned_message, travel_origin = extract_travel_origin_from_message(offer.message or "")
+    travel_origin = extract_suburb_from_travel_origin(travel_origin)
 
     base_ctx = build_shift_email_context(shift, user=recipient)
     slots = []
@@ -89,12 +128,96 @@ def build_shift_counter_offer_context(shift, offer, recipient=None):
         })
 
     base_ctx.update({
-        "worker_name": offer.user.get_full_name() if offer.user else "",
+        "worker_name": "A candidate"
+        if getattr(shift, "visibility", None) == "PLATFORM"
+        else (offer.user.get_full_name() if offer.user else "A candidate"),
         "worker_email": offer.user.email if offer.user else "",
         "message": cleaned_message,
         "request_travel": bool(offer.request_travel),
         "travel_origin": travel_origin,
         "slots": slots,
+    })
+    return base_ctx
+
+
+def _format_slot_date(value):
+    if not value:
+        return None
+    if isinstance(value, date):
+        parsed = value
+    elif isinstance(value, datetime):
+        parsed = value.date()
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError:
+            try:
+                parsed = datetime.fromisoformat(value).date()
+            except ValueError:
+                return value
+    else:
+        return str(value)
+    return parsed.strftime("%d %B, %Y").lstrip("0")
+
+
+def _format_slot_time(value):
+    if not value:
+        return None
+    if isinstance(value, time):
+        parsed = value
+    elif isinstance(value, datetime):
+        parsed = value.time()
+    elif isinstance(value, str):
+        parsed = None
+        for fmt in ("%H:%M:%S", "%H:%M"):
+            try:
+                parsed = datetime.strptime(value, fmt).time()
+                break
+            except ValueError:
+                continue
+        if parsed is None:
+            return value
+    else:
+        return str(value)
+    return parsed.strftime("%I:%M %p").lstrip("0")
+
+
+def build_shift_offer_context(shift, offer, recipient=None, *, ignore_slot_filter: bool = False):
+    """
+    Build context for shift offer notifications sent to workers.
+    """
+    base_ctx = build_shift_email_context(shift, user=recipient)
+
+    pharmacy_display = shift.pharmacy.name
+    if getattr(shift, "post_anonymously", False):
+        suburb = getattr(shift.pharmacy, "suburb", None)
+        pharmacy_display = f"Shift in {suburb}" if suburb else "Anonymous Pharmacy"
+
+    slot_entries = expand_shift_slots(shift)
+    if getattr(offer, "slot_id", None) and not ignore_slot_filter:
+        slot_entries = [e for e in slot_entries if e.get("slot") and e["slot"].id == offer.slot_id]
+
+    slot_lines = []
+    for entry in slot_entries or []:
+        date_text = _format_slot_date(entry.get("date"))
+        start_text = _format_slot_time(entry.get("start_time"))
+        end_text = _format_slot_time(entry.get("end_time"))
+        if date_text and start_text and end_text:
+            slot_lines.append(f"{date_text} — {start_text} to {end_text}")
+
+    slot_summary = slot_lines[0] if slot_lines else None
+    max_slots_in_email = 6
+    slots_display = slot_lines[:max_slots_in_email]
+    slots_extra_count = max(0, len(slot_lines) - len(slots_display))
+
+    base_ctx.update({
+        "pharmacy_name": pharmacy_display,
+        "role_label": shift.get_role_needed_display() if hasattr(shift, "get_role_needed_display") else shift.role_needed,
+        "employment_type_label": shift.get_employment_type_display() if hasattr(shift, "get_employment_type_display") else shift.employment_type,
+        "slot_summary": slot_summary,
+        "slots_display": slots_display,
+        "slots_extra_count": slots_extra_count,
+        "expires_at": getattr(offer, "expires_at", None),
     })
     return base_ctx
 

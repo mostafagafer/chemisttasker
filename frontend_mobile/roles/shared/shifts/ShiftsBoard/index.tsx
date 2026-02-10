@@ -74,6 +74,8 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     roleOptionsOverride,
     slotFilterMode: slotFilterModeProp,
     onScroll,
+    applyLabel,
+    disableSlotActions,
 }) => {
     const slotFilterMode: SlotFilterMode = slotFilterModeProp ?? 'all';
     const { user, token } = useAuth();
@@ -231,12 +233,10 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
         counterOfferOpen,
         counterOfferShift,
         counterOfferSlots,
-        counterOfferMessage,
         counterOfferTravel,
         counterOfferTravelLocation,
         counterOfferError,
         hasCounterOfferTravelLocation,
-        setCounterOfferMessage,
         setCounterOfferTravel,
         setCounterOfferTravelLocation,
         openCounterOffer,
@@ -496,12 +496,10 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                 counterOfferTravelLocation={counterOfferTravelLocation}
                 hasCounterOfferTravelLocation={hasCounterOfferTravelLocation}
                 counterSubmitting={counterSubmitting}
-                counterOfferMessage={counterOfferMessage}
                 onCounterSlotChange={handleCounterSlotChange}
                 onCounterOfferTravelChange={setCounterOfferTravel}
                 setCounterOfferTravelLocation={setCounterOfferTravelLocation}
                 onClearTravelLocation={clearCounterOfferTravelLocation}
-                onMessageChange={setCounterOfferMessage}
                 onSubmit={handleSubmitCounterOffer}
             />
 
@@ -676,6 +674,8 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                     userRatePreference={userRatePreference}
                     pharmacyRatings={pharmacyRatings}
                     slotFilterMode={slotFilterMode}
+                    applyLabel={applyLabel}
+                    disableSlotActions={disableSlotActions}
                 />
             </ScrollView>
 

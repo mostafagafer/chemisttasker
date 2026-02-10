@@ -167,16 +167,27 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
   const params = new URLSearchParams(location.search);
   const adminRedirectBase = scopedPharmacyId != null ? `/dashboard/admin/${scopedPharmacyId}` : null;
   const editingShiftId = params.get('edit');
+  const isEmbedded = params.get('embedded') === '1';
 
   const prefillPharmacyId = params.get('pharmacy') ?? params.get('pharmacy_id');
   const prefillRoleNeeded = params.get('role') ?? params.get('role_needed');
   const prefillDate = params.get('date') ?? params.get('slot_date');
+  const prefillDatesParam = params.get('dates') ?? params.get('slot_dates');
   const prefillStartTime = params.get('start_time') ?? params.get('start');
   const prefillEndTime = params.get('end_time') ?? params.get('end');
   const prefillVisibility = params.get('visibility');
   const prefillEmploymentType = params.get('employment_type');
+  const prefillDedicatedUser = params.get('dedicated_user') ?? params.get('dedicated_user_id');
   const hasPrefill = Boolean(
-    prefillPharmacyId || prefillRoleNeeded || prefillDate || prefillStartTime || prefillEndTime || prefillVisibility || prefillEmploymentType
+    prefillPharmacyId ||
+    prefillRoleNeeded ||
+    prefillDate ||
+    prefillDatesParam ||
+    prefillStartTime ||
+    prefillEndTime ||
+    prefillVisibility ||
+    prefillEmploymentType ||
+    prefillDedicatedUser
   );
 
   const orgMembership = useMemo(() => {
@@ -198,6 +209,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
   const [roleNeeded, setRoleNeeded] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [workloadTags, setWorkloadTags] = useState<string[]>([]);
+  const [dedicatedUserId, setDedicatedUserId] = useState<number | null>(null);
   const [mustHave, setMustHave] = useState<string[]>([]);
   const [niceToHave, setNiceToHave] = useState<string[]>([]);
   const [visibility, setVisibility] = useState<string>('');
@@ -369,6 +381,11 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
       return;
     }
 
+    const parsedPrefillDates = (prefillDatesParam || '')
+      .split(',')
+      .map((d) => d.trim())
+      .filter((d) => d.length > 0 && dayjs(d, 'YYYY-MM-DD', true).isValid());
+
     const parsedPharmacyId = prefillPharmacyId ? Number(prefillPharmacyId) : null;
     if (parsedPharmacyId && scopedPharmacyId == null) {
       setPharmacyId(parsedPharmacyId);
@@ -383,15 +400,6 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
       setVisibility(prefillVisibility);
     }
 
-    if (prefillDate) {
-      setSlotDate(prefillDate);
-      setSelectedDates([prefillDate]);
-      const parsedDate = dayjs(prefillDate);
-      if (parsedDate.isValid()) {
-        setCalendarDate(parsedDate.toDate());
-      }
-    }
-
     const startTime = prefillStartTime || slotStartTime;
     const endTime = prefillEndTime || slotEndTime;
     if (prefillStartTime) {
@@ -400,15 +408,43 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
     if (prefillEndTime) {
       setSlotEndTime(prefillEndTime);
     }
-    if (prefillDate) {
+
+    if (parsedPrefillDates.length > 0) {
+      setSelectedDates(parsedPrefillDates);
+      setSlotDate(parsedPrefillDates[0]);
+      const parsedDate = dayjs(parsedPrefillDates[0]);
+      if (parsedDate.isValid()) {
+        setCalendarDate(parsedDate.toDate());
+      }
+      setSelectedDateTimes((prev) => {
+        const next = { ...prev };
+        parsedPrefillDates.forEach((date) => {
+          next[date] = { startTime, endTime };
+        });
+        return next;
+      });
+    } else if (prefillDate) {
+      setSlotDate(prefillDate);
+      setSelectedDates([prefillDate]);
+      const parsedDate = dayjs(prefillDate);
+      if (parsedDate.isValid()) {
+        setCalendarDate(parsedDate.toDate());
+      }
       setSelectedDateTimes((prev) => ({
         ...prev,
         [prefillDate]: { startTime, endTime },
       }));
     }
 
+    if (prefillDedicatedUser) {
+      const parsedDedicated = Number(prefillDedicatedUser);
+      if (!Number.isNaN(parsedDedicated)) {
+        setDedicatedUserId(parsedDedicated);
+      }
+    }
+
     setPrefillApplied(true);
-  }, [hasPrefill, editingShiftId, prefillApplied, prefillPharmacyId, prefillRoleNeeded, prefillDate, prefillStartTime, prefillEndTime, prefillVisibility, prefillEmploymentType, scopedPharmacyId, slotStartTime, slotEndTime]);
+  }, [hasPrefill, editingShiftId, prefillApplied, prefillPharmacyId, prefillRoleNeeded, prefillDate, prefillDatesParam, prefillStartTime, prefillEndTime, prefillVisibility, prefillEmploymentType, prefillDedicatedUser, scopedPharmacyId, slotStartTime, slotEndTime]);
 
   useEffect(() => {
     if (scopedPharmacyId != null) {
@@ -435,14 +471,21 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
   }, [pharmacyId, pharmacies]);
 
   useEffect(() => {
-    if (allowedVis.length > 0 && !allowedVis.includes(visibility)) {
+    if (allowedVis.length === 0) return;
+    if (isEmbedded && allowedVis.includes('LOCUM_CASUAL')) {
+      if (visibility !== 'LOCUM_CASUAL') {
+        setVisibility('LOCUM_CASUAL');
+      }
+      return;
+    }
+    if (!allowedVis.includes(visibility)) {
       setVisibility(allowedVis[0]);
     }
-  }, [allowedVis, visibility]);
+  }, [allowedVis, visibility, isEmbedded]);
 
-  const showNotifyPharmacyStaff = !editingShiftId && ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(visibility);
-  const showNotifyFavoriteStaff = !editingShiftId && ['LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(visibility);
-  const showNotifyChainMembers = !editingShiftId && ['OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(visibility);
+  const showNotifyPharmacyStaff = !isEmbedded && !editingShiftId && ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(visibility);
+  const showNotifyFavoriteStaff = !isEmbedded && !editingShiftId && ['LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(visibility);
+  const showNotifyChainMembers = !isEmbedded && !editingShiftId && ['OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(visibility);
 
   useEffect(() => {
     if (!showNotifyPharmacyStaff) setNotifyPharmacyStaff(false);
@@ -893,11 +936,12 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
 
     const payload: any = {
       pharmacy: pharmacyId, role_needed: roleNeeded, description, employment_type: employmentType,
-      workload_tags: workloadTags, must_have: mustHave, nice_to_have: niceToHave, visibility,
-      escalate_to_locum_casual: escalationDates['LOCUM_CASUAL'] || null,
-      escalate_to_owner_chain: escalationDates['OWNER_CHAIN'] || null,
-      escalate_to_org_chain: escalationDates['ORG_CHAIN'] || null,
-      escalate_to_platform: escalationDates['PLATFORM'] || null,
+      workload_tags: workloadTags, must_have: mustHave, nice_to_have: niceToHave,
+      visibility: isEmbedded ? 'LOCUM_CASUAL' : visibility,
+      escalate_to_locum_casual: isEmbedded ? null : (escalationDates['LOCUM_CASUAL'] || null),
+      escalate_to_owner_chain: isEmbedded ? null : (escalationDates['OWNER_CHAIN'] || null),
+      escalate_to_org_chain: isEmbedded ? null : (escalationDates['ORG_CHAIN'] || null),
+      escalate_to_platform: isEmbedded ? null : (escalationDates['PLATFORM'] || null),
       flexible_timing: flexibleTiming,
       rate_type: roleNeeded === 'PHARMACIST' ? rateType : null,
       owner_adjusted_rate: (roleNeeded !== 'PHARMACIST' && ownerBonus) ? Number(ownerBonus) : null,
@@ -914,13 +958,16 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
         rate: slotRateForEntry(s),
       })),
     };
+    if (dedicatedUserId) {
+      payload.dedicated_user = dedicatedUserId;
+    }
     if (isLocumLike) {
       payload.super_percent = locumSuperIncluded ? DEFAULT_SUPER_PERCENT : 0;
     }
     if (!editingShiftId) {
-      payload.notify_pharmacy_staff = notifyPharmacyStaff;
-      payload.notify_favorite_staff = notifyFavoriteStaff;
-      payload.notify_chain_members = notifyChainMembers;
+      payload.notify_pharmacy_staff = isEmbedded ? false : notifyPharmacyStaff;
+      payload.notify_favorite_staff = isEmbedded ? false : notifyFavoriteStaff;
+      payload.notify_chain_members = isEmbedded ? false : notifyChainMembers;
     }
 
     if (!isLocumLike) {
@@ -1173,7 +1220,9 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
           <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
             <Grid size={12}>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                Define who sees this shift and when it escalates to wider groups.
+                {isEmbedded
+                  ? 'This booking is private and only visible to the selected worker.'
+                  : 'Define who sees this shift and when it escalates to wider groups.'}
               </Typography>
             </Grid>
             <Grid size={12}>
@@ -1200,22 +1249,24 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                 sx={{ alignItems: 'flex-start' }}
               />
             </Grid>
-            <Grid size={12}>
-              <FormControl fullWidth size="small" sx={fieldSx}>
-                <InputLabel>Initial Audience</InputLabel>
-                <Select
-                  value={visibility}
-                  label="Initial Audience"
-                  onChange={e => setVisibility(e.target.value)}
-                >
-                  {allowedVis.map(opt => (
-                    <MenuItem key={opt} value={opt}>
-                      {ESCALATION_LABELS[opt]}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
+            {!isEmbedded && (
+              <Grid size={12}>
+                <FormControl fullWidth size="small" sx={fieldSx}>
+                  <InputLabel>Initial Audience</InputLabel>
+                  <Select
+                    value={visibility}
+                    label="Initial Audience"
+                    onChange={e => setVisibility(e.target.value)}
+                  >
+                    {allowedVis.map(opt => (
+                      <MenuItem key={opt} value={opt}>
+                        {ESCALATION_LABELS[opt]}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
             {(showNotifyPharmacyStaff || showNotifyFavoriteStaff || showNotifyChainMembers) && (
               <Grid size={12}>
                 <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, borderColor: 'grey.200' }}>
@@ -1260,7 +1311,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                 </Paper>
               </Grid>
             )}
-            {startIdx > -1 && allowedVis.slice(startIdx + 1).map(tier => (
+            {!isEmbedded && startIdx > -1 && allowedVis.slice(startIdx + 1).map(tier => (
               <Grid key={tier} size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label={`Escalate to ${ESCALATION_LABELS[tier]}`}
@@ -2072,11 +2123,11 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
       <Container
         maxWidth={false}
         sx={{
-          px: { xs: 1.5, sm: 2.5, md: 4 },
-          py: 4,
-          bgcolor: '#F9FAFB',
-          minHeight: '100vh',
-          maxWidth: { xs: '100%', lg: 1200, xl: 1400 },
+          px: isEmbedded ? { xs: 1, sm: 2, md: 3 } : { xs: 1.5, sm: 2.5, md: 4 },
+          py: isEmbedded ? 2 : 4,
+          bgcolor: isEmbedded ? 'transparent' : '#F9FAFB',
+          minHeight: isEmbedded ? 'auto' : '100vh',
+          maxWidth: isEmbedded ? '100%' : { xs: '100%', lg: 1200, xl: 1400 },
         }}
       >
         <Paper
@@ -2087,8 +2138,14 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
             width: '100%',
           }}
         >
-          <Typography variant="h4" gutterBottom align="center" fontWeight={600}>{editingShiftId ? 'Edit Shift' : 'Create a New Shift'}</Typography>
-          <Typography variant="body1" color="text.secondary" align="center" mb={4}>Follow the steps to post a new shift opportunity.</Typography>
+          <Typography variant="h4" gutterBottom align="center" fontWeight={600}>
+            {editingShiftId ? 'Edit Shift' : (isEmbedded ? 'Request a Booking' : 'Create a New Shift')}
+          </Typography>
+          <Typography variant="body1" color="text.secondary" align="center" mb={4}>
+            {isEmbedded
+              ? 'Review the details and submit a direct booking request for this worker.'
+              : 'Follow the steps to post a new shift opportunity.'}
+          </Typography>
 
           <Stepper
             activeStep={activeStep}

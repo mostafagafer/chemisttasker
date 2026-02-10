@@ -18,7 +18,6 @@ export const normalizeCounterOffers = (raw: any): Record<number, CounterOfferTra
     });
     result[shiftId] = {
       slots: normalizedSlots,
-      message: (payload as any).message ?? '',
       summary: (payload as any).summary ?? '',
     };
   });

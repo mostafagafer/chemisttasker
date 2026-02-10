@@ -31,7 +31,15 @@ import json
 from django.db.models import Q, Count, F, Avg, Exists, OuterRef, Max
 from django.utils import timezone
 from client_profile.services import get_locked_rate_for_slot, expand_shift_slots, generate_invoice_from_shifts, render_invoice_to_pdf, generate_preview_invoice_lines
-from client_profile.utils import build_shift_email_context, clean_email, build_roster_email_link, get_frontend_dashboard_url, enforce_public_shift_daily_limit, build_shift_counter_offer_context
+from client_profile.utils import (
+    build_shift_email_context,
+    clean_email,
+    build_roster_email_link,
+    get_frontend_dashboard_url,
+    enforce_public_shift_daily_limit,
+    build_shift_counter_offer_context,
+    build_shift_offer_context,
+)
 from client_profile.notifications import mark_notifications_read, broadcast_message_read, broadcast_message_badge
 from django.utils.crypto import get_random_string
 from django.contrib.auth.tokens import default_token_generator
@@ -1224,7 +1232,7 @@ class PharmacyViewSet(viewsets.ModelViewSet):
       - Owners manage their own pharmacies.
       - Organization members manage pharmacies according to their scope.
     """
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     queryset = Pharmacy.objects.all()
     serializer_class = PharmacySerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -2371,6 +2379,7 @@ class ChainViewSet(viewsets.ModelViewSet):
 # Shifts Mangment
 COMMUNITY_LEVELS = ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN','ORG_CHAIN']
 PUBLIC_LEVEL = 'PLATFORM'
+OFFER_EXPIRY_HOURS = 48
 ESCALATION_FIELD_MAP = {
     'LOCUM_CASUAL': 'escalate_to_locum_casual',
     'OWNER_CHAIN': 'escalate_to_owner_chain',
@@ -2468,7 +2477,11 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         now = timezone.now()
         self._auto_escalate_shifts(now)
-        return Shift.objects.all().annotate(interested_users_count=Count('interests'))
+        qs = Shift.objects.all().annotate(interested_users_count=Count('interests'))
+        user = self.request.user
+        if getattr(user, "role", None) in ["PHARMACIST", "OTHER_STAFF", "EXPLORER"]:
+            qs = qs.filter(Q(dedicated_user__isnull=True) | Q(dedicated_user=user))
+        return qs
 
     def _auto_escalate_shifts(self, now):
         date_filter = Q()
@@ -2900,9 +2913,8 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def accept_user(self, request, pk=None):
         """
-        Assigns a user to a shift.
-        - If the user is Full/Part-Time, it rosters them onto the shift.
-        - If the user is a Locum or other type, it accepts them and locks in the shift rate.
+        Assigns a user to a shift by creating a time-bound offer.
+        The worker must confirm the offer before any slot assignment is created.
         """
         shift = self.get_object()
         user_id = request.data.get('user_id')
@@ -2957,9 +2969,6 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 elif unassigned_ids:
                     slot_id = unassigned_ids[0]
 
-        membership = Membership.objects.filter(user=candidate, pharmacy=shift.pharmacy).first()
-        is_internal_staff = membership and membership.employment_type in ['FULL_TIME', 'PART_TIME']
-
         # For multi-slot shifts, prefer an explicit slot_id; if still None after auto-pick, raise.
         if not shift.single_user_only and slot_id is None:
             return Response(
@@ -2967,133 +2976,56 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # --- FIX: NEW LOGIC TO HANDLE BOTH EMPLOYEE TYPES ---
+        slot_obj = None
+        if not shift.single_user_only and slot_id is not None:
+            slot_obj = get_object_or_404(shift.slots, pk=slot_id)
 
-        if is_internal_staff:
-            # --- This is for Full/Part-Time staff ---
-            # We treat this as a direct "rostering" action.
-            assignment_ids = []
-            slots_to_assign = []
-            
-            if shift.single_user_only:
-                slots_to_assign = shift.slots.all()
-            else:
-                slot = get_object_or_404(shift.slots, pk=slot_id)
-                slots_to_assign = [slot]
+        now = timezone.now()
+        existing_offer = ShiftOffer.objects.filter(
+            shift=shift,
+            user=candidate,
+            slot=slot_obj,
+            status=ShiftOffer.Status.PENDING,
+        ).first()
+        if existing_offer and existing_offer.expires_at and existing_offer.expires_at <= now:
+            existing_offer.status = ShiftOffer.Status.EXPIRED
+            existing_offer.save(update_fields=["status", "updated_at"])
+            existing_offer = None
 
-            for slot in slots_to_assign:
-                for entry in expand_shift_slots(shift):
-                    if entry['slot'].id == slot.id:
-                        slot_date = entry['date']
-                        rate, reason = get_locked_rate_for_slot(
-                            shift=shift,
-                            slot=slot,
-                            user=candidate,
-                            override_date=slot_date,
-                        )
-                        if not isinstance(reason, dict):
-                            reason = {"source": "Pharmacy"}
-                        assn, _ = ShiftSlotAssignment.objects.update_or_create(
-                            slot=slot,
-                            slot_date=slot_date,
-                            defaults={
-                                "shift": shift,
-                                "user": candidate,
-                                "unit_rate": rate,
-                                "rate_reason": {**reason, "rostered_via": "shift interest"},
-                                "is_rostered": True # Mark as a rostered shift
-                            }
-                        )
-                        assignment_ids.append(assn.id)
-            
-            # (Optional) You can customize the email for rostered staff here if needed
-            ctx = build_shift_email_context(shift, user=candidate, role=candidate.role.lower())
-            notification_payload = {
-                "title": f"Rostered: {shift.pharmacy.name}",
-                "body": f"You have been rostered for an upcoming shift at {shift.pharmacy.name}.",
-                "payload": {"shift_id": shift.id},
-            }
-            if ctx.get("shift_link"):
-                notification_payload["action_url"] = ctx["shift_link"]
-            async_task(
-                'users.tasks.send_async_email',
-                subject=f"You’ve been rostered for a shift at {shift.pharmacy.name}",
-                recipient_list=[candidate.email],
-                template_name="emails/shift_accept.html", # Can reuse or create a new template
-                context=ctx,
-                text_template="emails/shift_accept.txt",
-                notification=notification_payload
-            )
-
-            return Response({
-                'status': f'{candidate.get_full_name()} has been rostered for the shift.',
-                'assignment_ids': assignment_ids
-            }, status=status.HTTP_200_OK)
-
+        if existing_offer:
+            offer = existing_offer
         else:
-            # --- This is the ORIGINAL logic for Locums/other staff ---
-            # It locks in the rate and assigns them as a temporary worker.
-            assignment_ids = []
+            offer = ShiftOffer.objects.create(
+                shift=shift,
+                slot=slot_obj,
+                user=candidate,
+                expires_at=now + timedelta(hours=OFFER_EXPIRY_HOURS),
+            )
 
-            # CASE 1: SINGLE-USER-ONLY SHIFT
-            if shift.single_user_only:
-                for entry in expand_shift_slots(shift):
-                    slot = entry['slot']
-                    slot_date = entry['date']
-                    rate, reason = get_locked_rate_for_slot(shift=shift, slot=slot, user=candidate, override_date=slot_date)
-                    a, _ = ShiftSlotAssignment.objects.update_or_create(
-                        slot=slot, slot_date=slot_date,
-                        defaults={
-                            'shift': shift,
-                            'user': candidate,
-                            'unit_rate': rate,
-                            'rate_reason': reason,
-                            'is_rostered': True,  # Treat public/locum assignments as rostered so they render on roster
-                        }
-                    )
-                    assignment_ids.append(a.id)
-
-            # CASE 2: SPECIFIC SLOT IN MULTI-SLOT SHIFT (slot_id required for multi-slot)
-            else:
-                slot = get_object_or_404(shift.slots, pk=slot_id)
-                for entry in expand_shift_slots(shift):
-                    if entry['slot'].id == slot.id:
-                        slot_date = entry['date']
-                        rate, reason = get_locked_rate_for_slot(shift=shift, slot=slot, user=candidate, override_date=slot_date)
-                        a, _ = ShiftSlotAssignment.objects.update_or_create(
-                            slot=slot, slot_date=slot_date,
-                            defaults={
-                                'shift': shift,
-                                'user': candidate,
-                                'unit_rate': rate,
-                                'rate_reason': reason,
-                                'is_rostered': True,  # Treat public/locum assignments as rostered so they render on roster
-                            }
-                        )
-                        assignment_ids.append(a.id)
-
-            ctx = build_shift_email_context(shift, user=candidate, role=candidate.role.lower())
+        if candidate.email:
+            ctx = build_shift_offer_context(shift, offer, recipient=candidate)
             notification_payload = {
-                "title": f"Shift confirmed: {shift.pharmacy.name}",
-                "body": f"You have been accepted for a shift at {shift.pharmacy.name}.",
-                "payload": {"shift_id": shift.id},
+                "title": "Shift offer received",
+                "body": "You have received a shift offer. Please confirm to lock it in.",
+                "payload": {"shift_id": shift.id, "offer_id": offer.id},
             }
             if ctx.get("shift_link"):
                 notification_payload["action_url"] = ctx["shift_link"]
             async_task(
                 'users.tasks.send_async_email',
-                subject=f"You’ve been accepted for a shift at {shift.pharmacy.name}",
+                subject="You have a new shift offer",
                 recipient_list=[candidate.email],
-                template_name="emails/shift_accept.html",
+                template_name="emails/shift_offer.html",
                 context=ctx,
-                text_template="emails/shift_accept.txt",
+                text_template="emails/shift_offer.txt",
                 notification=notification_payload
             )
-            
-            return Response({
-                'status': f'{candidate.get_full_name()} assigned to the shift.',
-                'assignment_ids': assignment_ids
-            }, status=status.HTTP_200_OK)
+
+        return Response({
+            'status': f'Offer sent to {candidate.get_full_name() or candidate.email}.',
+            'offer_id': offer.id,
+        }, status=status.HTTP_200_OK)
+
 
     @action(detail=True, methods=['get', 'post'], url_path='counter-offers')
     def counter_offers(self, request, pk=None):
@@ -3208,47 +3140,44 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
         slot_id = request.data.get('slot_id')
         if slot_id in (None, ''):
-            slot_id = request.query_params.get('slot_id')
+            slot_id = request.data.get('slotId')
         if slot_id in ('', 'null'):
             slot_id = None
         if isinstance(slot_id, str) and slot_id.isdigit():
             slot_id = int(slot_id)
-        log.info(
+
+        log.warning(
             "[counter_offer_accept] shift_id=%s offer_id=%s slot_id=%s single_user_only=%s request_data=%s",
             shift.id,
             offer.id,
             slot_id,
             shift.single_user_only,
-            dict(request.data),
+            request.data,
         )
-        log.info(
+        log.warning(
             "[counter_offer_accept] request_query=%s",
             dict(request.query_params),
         )
 
         offer_slot_ids = list(offer.slots.values_list('slot_id', flat=True))
-        log.info(
+        log.warning(
             "[counter_offer_accept] offer_slot_ids=%s offer_status=%s",
             offer_slot_ids,
             offer.status,
         )
-        # For multi-slot shifts, enforce an explicit slot selection so we don't
-        # accidentally assign all slots to one candidate when a slot isn't specified.
-        if not shift.single_user_only and slot_id is None:
+
+        if slot_id is None:
             if offer_slot_ids:
                 unassigned_offer_slots = [
                     sid for sid in offer_slot_ids
                     if not ShiftSlotAssignment.objects.filter(slot_id=sid).exists()
                 ]
                 slot_id = unassigned_offer_slots[0] if unassigned_offer_slots else offer_slot_ids[0]
-                log.info(
+                log.warning(
                     "[counter_offer_accept] auto-selected slot_id=%s from offer slots",
                     slot_id,
                 )
-            else:
-                return Response({'detail': 'slot_id is required for multi-slot shifts.'}, status=status.HTTP_400_BAD_REQUEST)
-        if not shift.single_user_only and slot_id is None:
-            return Response({'detail': 'slot_id is required for multi-slot shifts.'}, status=status.HTTP_400_BAD_REQUEST)
+
         # Allow per-slot acceptance even if the offer was already accepted for another slot.
         if offer.status != ShiftCounterOffer.Status.PENDING and slot_id is None:
             return Response({'detail': 'Counter offer is not pending.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -3271,7 +3200,6 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             for offer_slot in offer_slots:
                 slot = offer_slot.slot
-                slot_date = offer_slot.slot_date or slot.date
                 if shift.flexible_timing:
                     if offer_slot.proposed_start_time != slot.start_time or offer_slot.proposed_end_time != slot.end_time:
                         slot.start_time = offer_slot.proposed_start_time
@@ -3281,25 +3209,6 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 if shift.rate_type == 'FLEXIBLE' and offer_slot.proposed_rate is not None:
                     slot.rate = offer_slot.proposed_rate
                     slot.save(update_fields=['rate'])
-                    unit_rate = offer_slot.proposed_rate
-                    rate_reason = {"source": "Counter offer"}
-                else:
-                    unit_rate, rate_reason = get_locked_rate_for_slot(
-                        shift=shift,
-                        slot=slot,
-                        user=offer.user,
-                        override_date=slot_date
-                    )
-
-                ShiftSlotAssignment.objects.create(
-                    shift=shift,
-                    slot=slot,
-                    slot_date=slot_date,
-                    user=offer.user,
-                    unit_rate=unit_rate,
-                    rate_reason=rate_reason,
-                    is_rostered=True
-                )
 
         if slot_id is None:
             # Accepting the whole offer (all slots)
@@ -3313,27 +3222,54 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             offer.decided_at = timezone.now()
             offer.save(update_fields=['decided_by', 'decided_at', 'updated_at'])
 
-        # Notify the candidate that their counter offer was accepted.
-        if offer.user and offer.user.email:
-            ctx = build_shift_email_context(shift, user=offer.user, role=offer.user.role.lower())
-            notification_payload = {
-                "title": f"Shift confirmed: {shift.pharmacy.name}",
-                "body": f"Your counter offer was accepted for {shift.pharmacy.name}.",
-                "payload": {"shift_id": shift.id},
-            }
-            if ctx.get("shift_link"):
-                notification_payload["action_url"] = ctx["shift_link"]
-            async_task(
-                'users.tasks.send_async_email',
-                subject=f"Your counter offer was accepted for {shift.pharmacy.name}",
-                recipient_list=[offer.user.email],
-                template_name="emails/shift_accept.html",
-                context=ctx,
-                text_template="emails/shift_accept.txt",
-                notification=notification_payload
-            )
+        created_offers = []
+        now = timezone.now()
+        for offer_slot in offer_slots:
+            slot = offer_slot.slot
+            existing_offer = ShiftOffer.objects.filter(
+                shift=shift,
+                user=offer.user,
+                slot=slot,
+                status=ShiftOffer.Status.PENDING,
+            ).first()
+            if existing_offer and existing_offer.expires_at and existing_offer.expires_at <= now:
+                existing_offer.status = ShiftOffer.Status.EXPIRED
+                existing_offer.save(update_fields=["status", "updated_at"])
+                existing_offer = None
 
-        return Response({'detail': 'Counter offer accepted.'}, status=status.HTTP_200_OK)
+            if existing_offer:
+                shift_offer = existing_offer
+            else:
+                shift_offer = ShiftOffer.objects.create(
+                    shift=shift,
+                    slot=slot,
+                    user=offer.user,
+                    expires_at=now + timedelta(hours=OFFER_EXPIRY_HOURS),
+                )
+            created_offers.append(shift_offer)
+
+        # Notify the candidate that their counter offer was accepted and is pending confirmation.
+        if offer.user and offer.user.email:
+            for shift_offer in created_offers:
+                ctx = build_shift_offer_context(shift, shift_offer, recipient=offer.user)
+                notification_payload = {
+                    "title": "Shift offer received",
+                    "body": "Your counter offer was accepted. Please confirm the shift offer.",
+                    "payload": {"shift_id": shift.id, "offer_id": shift_offer.id},
+                }
+                if ctx.get("shift_link"):
+                    notification_payload["action_url"] = ctx["shift_link"]
+                async_task(
+                    'users.tasks.send_async_email',
+                    subject="Your counter offer was accepted",
+                    recipient_list=[offer.user.email],
+                    template_name="emails/shift_offer.html",
+                    context=ctx,
+                    text_template="emails/shift_offer.txt",
+                    notification=notification_payload
+                )
+
+        return Response({'detail': 'Counter offer accepted.', 'offer_ids': [o.id for o in created_offers]}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='counter-offers/(?P<offer_id>[^/.]+)/reject')
     def reject_counter_offer(self, request, pk=None, offer_id=None):
@@ -4392,6 +4328,118 @@ class ShiftSavedViewSet(viewsets.ModelViewSet):
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+
+class ShiftOfferViewSet(viewsets.ModelViewSet):
+    serializer_class = ShiftOfferSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        qs = ShiftOffer.objects.select_related('shift', 'slot', 'user', 'shift__pharmacy')
+        user = self.request.user
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            qs = qs.filter(status=status_param)
+
+        if getattr(user, "role", None) in ["PHARMACIST", "OTHER_STAFF", "EXPLORER"]:
+            return qs.filter(user=user)
+
+        managed = BaseShiftViewSet._managed_pharmacies(user)
+        return qs.filter(shift__pharmacy__in=managed)
+
+    def list(self, request, *args, **kwargs):
+        now = timezone.now()
+        ShiftOffer.objects.filter(status=ShiftOffer.Status.PENDING, expires_at__lt=now).update(
+            status=ShiftOffer.Status.EXPIRED,
+            updated_at=now,
+        )
+        return super().list(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'])
+    def accept(self, request, pk=None):
+        offer = self.get_object()
+        if offer.user_id != request.user.id:
+            return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+        if offer.status != ShiftOffer.Status.PENDING:
+            return Response({'detail': 'Offer is not pending.'}, status=status.HTTP_400_BAD_REQUEST)
+        now = timezone.now()
+        if offer.expires_at and offer.expires_at <= now:
+            offer.status = ShiftOffer.Status.EXPIRED
+            offer.save(update_fields=['status', 'updated_at'])
+            return Response({'detail': 'Offer has expired.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        shift = offer.shift
+        slot_obj = offer.slot
+        if not shift.single_user_only and slot_obj is None:
+            return Response({'detail': 'Offer is missing slot selection.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        assignment_ids = []
+        slots_to_assign = shift.slots.all() if shift.single_user_only else [slot_obj]
+        with transaction.atomic():
+            for slot in slots_to_assign:
+                for entry in expand_shift_slots(shift):
+                    if entry['slot'].id != slot.id:
+                        continue
+                    slot_date = entry['date']
+                    if ShiftSlotAssignment.objects.filter(slot=slot, slot_date=slot_date).exists():
+                        continue
+                    rate, reason = get_locked_rate_for_slot(
+                        shift=shift,
+                        slot=slot,
+                        user=offer.user,
+                        override_date=slot_date,
+                    )
+                    assn = ShiftSlotAssignment.objects.create(
+                        shift=shift,
+                        slot=slot,
+                        slot_date=slot_date,
+                        user=offer.user,
+                        unit_rate=rate,
+                        rate_reason=reason,
+                        is_rostered=True,
+                    )
+                    assignment_ids.append(assn.id)
+
+            offer.status = ShiftOffer.Status.ACCEPTED
+            offer.save(update_fields=['status', 'updated_at'])
+
+        pharmacy_display = shift.pharmacy.name
+        if getattr(shift, "post_anonymously", False):
+            suburb = getattr(shift.pharmacy, "suburb", None)
+            pharmacy_display = f"Shift in {suburb}" if suburb else "Anonymous Pharmacy"
+
+        if offer.user and offer.user.email:
+            ctx = build_shift_email_context(shift, user=offer.user, role=offer.user.role.lower())
+            ctx["pharmacy_name"] = pharmacy_display
+            notification_payload = {
+                "title": "Shift confirmed",
+                "body": f"You are confirmed for a shift at {pharmacy_display}.",
+                "payload": {"shift_id": shift.id},
+            }
+            if ctx.get("shift_link"):
+                notification_payload["action_url"] = ctx["shift_link"]
+            async_task(
+                'users.tasks.send_async_email',
+                subject=f"You've been accepted for a shift at {pharmacy_display}",
+                recipient_list=[offer.user.email],
+                template_name="emails/shift_accept.html",
+                context=ctx,
+                text_template="emails/shift_accept.txt",
+                notification=notification_payload
+            )
+
+        return Response({'detail': 'Offer accepted.', 'assignment_ids': assignment_ids}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def decline(self, request, pk=None):
+        offer = self.get_object()
+        if offer.user_id != request.user.id:
+            return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+        if offer.status != ShiftOffer.Status.PENDING:
+            return Response({'detail': 'Offer is not pending.'}, status=status.HTTP_400_BAD_REQUEST)
+        offer.status = ShiftOffer.Status.DECLINED
+        offer.save(update_fields=['status', 'updated_at'])
+        return Response({'detail': 'Offer declined.'}, status=status.HTTP_200_OK)
+
 class ShiftDetailViewSet(BaseShiftViewSet):
     @action(detail=False, methods=['post'], url_path='calculate-rates')
     def calculate_rates(self, request):
@@ -4558,6 +4606,9 @@ class ShiftDetailViewSet(BaseShiftViewSet):
             )
         combined_filter |= eligible_platform_q
 
+        # Allow workers to view dedicated shifts and shifts where they have an offer.
+        combined_filter |= Q(dedicated_user=user) | Q(offers__user=user)
+
         combined_filter |= Q(slot_assignments__user=user)
 
         return qs.filter(combined_filter).distinct()
@@ -4571,7 +4622,7 @@ class PublicJobBoardView(generics.ListAPIView):
         """
         This method ensures that only shifts with open, unassigned slots are returned.
         """
-        qs = Shift.objects.filter(visibility='PLATFORM')
+        qs = Shift.objects.filter(visibility='PLATFORM', dedicated_user__isnull=True)
 
         org_param = self.request.query_params.get("organization")
         if org_param:

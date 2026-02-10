@@ -29,16 +29,6 @@ export const formatTravelLocation = (location: TravelLocation) => {
   return parts.join(', ');
 };
 
-export const buildCounterOfferMessage = (
-  message: string,
-  travelRequested: boolean,
-  location: TravelLocation
-) => {
-  const base = (message ?? '').trim();
-  if (!travelRequested) return base;
-  const travelLine = formatTravelLocation(location);
-  if (!travelLine) return base;
-  const travelMessage = `Traveling from: ${travelLine}`;
-  if (base.includes(travelMessage)) return base;
-  return base ? `${base}\n\n${travelMessage}` : travelMessage;
+export const formatTravelSuburbOnly = (location: TravelLocation) => {
+  return location.suburb.trim();
 };

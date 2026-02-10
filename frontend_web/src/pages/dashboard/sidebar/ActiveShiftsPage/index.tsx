@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
     Container,
     Typography,
@@ -496,6 +496,227 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
         navigate(`${baseRoute}?edit=${shiftId}`);
     }, [navigate, scopedPharmacyId, user?.role]);
 
+    const isDedicatedShift = useCallback((shift: Shift) => {
+        const shiftAny = shift as any;
+        return Boolean(shiftAny.dedicatedUser ?? shiftAny.dedicated_user);
+    }, []);
+
+    const getLevelLabel = useCallback((level: EscalationLevelKey) => {
+        const labels: Record<EscalationLevelKey, string> = {
+            FULL_PART_TIME: 'My Pharmacy',
+            LOCUM_CASUAL: 'Favourites',
+            OWNER_CHAIN: 'Chain',
+            ORG_CHAIN: 'Organization',
+            PLATFORM: 'Platform',
+        };
+        return labels[level] ?? level.replace(/_/g, ' ');
+    }, []);
+
+    const renderShiftCard = (shift: Shift, dedicated: boolean) => {
+        const isExpanded = expandedShifts.has(shift.id);
+        const isSingleUserShift = Boolean((shift as any).singleUserOnly);
+        const shiftLevel = getCurrentLevelKey(shift);
+        const selectedLevel = selectedLevelByShift[shift.id] ?? shiftLevel;
+        const tabKey = getTabKey(shift.id, selectedLevel);
+        const currentTabData = tabData[tabKey] || { loading: false };
+        const selectedSlotId = isSingleUserShift
+            ? null
+            : selectedSlotByShift[shift.id] ?? shift.slots?.[0]?.id ?? null;
+        const offers = counterOffersByShift[shift.id];
+        const counterOffersLoaded = Object.prototype.hasOwnProperty.call(counterOffersByShift, shift.id);
+        const counterOffersLoading = counterOffersLoadingByShift[shift.id] ?? false;
+        const membersForView = isSingleUserShift
+            ? currentTabData.members || []
+            : currentTabData.membersBySlot?.[selectedSlotId ?? -1] || [];
+
+        const cardBorderColor = getCardBorderColor((shift as any).visibility ?? 'PLATFORM');
+        const summaryText = getShiftSummary(shift);
+        const location = getLocationText(shift);
+        const labelOverrides = undefined;
+        const candidatesLabel = dedicated ? 'Direct / Private' : getLevelLabel(selectedLevel);
+
+        return (
+            <Card
+                key={shift.id}
+                sx={{
+                    boxShadow: '0 4px 12px 0 rgba(0,0,0,0.05)',
+                    borderLeft: `4px solid ${cardBorderColor}`,
+                }}
+            >
+                <CardHeader
+                    disableTypography
+                    title={
+                        <Typography variant="h6" component="div" sx={{ fontWeight: 'bold' }}>
+                            {(shift as any).pharmacyDetail?.name ?? "Unnamed Pharmacy"}
+                        </Typography>
+                    }
+                    subheader={
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                            <Chip
+                                label={(shift as any).roleNeeded}
+                                size="small"
+                                sx={{ backgroundColor: cardBorderColor, color: 'white', fontWeight: 500 }}
+                            />
+                            {(shift as any).employmentType && (
+                                <Chip label={(shift as any).employmentType} size="small" variant="outlined" />
+                            )}
+                            {(shift as any).isUrgent && <Chip label="Urgent" color="error" size="small" />}
+                            {summaryText && (
+                                <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
+                                    <CalendarDays sx={{ fontSize: 16 }} />
+                                    <Typography variant="body2" color="text.secondary">
+                                        {summaryText}
+                                    </Typography>
+                                </Box>
+                            )}
+                        </Stack>
+                    }
+                    action={
+                        <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                            <Tooltip title="Share">
+                                <span>
+                                    <IconButton
+                                        size="small"
+                                        onClick={e => {
+                                            e.stopPropagation();
+                                            handleShare(shift);
+                                        }}
+                                        disabled={sharingShiftId === shift.id}
+                                    >
+                                        <Share2 fontSize="small" />
+                                    </IconButton>
+                                </span>
+                            </Tooltip>
+                            <Tooltip title="Edit">
+                                <IconButton
+                                    size="small"
+                                    onClick={e => {
+                                        e.stopPropagation();
+                                        handleEditShift(shift.id);
+                                    }}
+                                >
+                                    <Edit fontSize="small" />
+                                </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete">
+                                <IconButton
+                                    size="small"
+                                    onClick={e => {
+                                        e.stopPropagation();
+                                        setDeleteConfirmDialog({ open: true, shiftId: shift.id });
+                                    }}
+                                    disabled={actionLoading[`delete_${shift.id}`]}
+                                >
+                                    <Trash2 fontSize="small" />
+                                </IconButton>
+                            </Tooltip>
+                            <IconButton
+                                size="small"
+                                onClick={e => {
+                                    e.stopPropagation();
+                                    toggleShiftExpansion(shift.id);
+                                }}
+                                sx={{
+                                    transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                                    transition: 'transform 0.2s',
+                                }}
+                            >
+                                <ChevronDown fontSize="small" />
+                            </IconButton>
+                        </Box>
+                    }
+                />
+                <CardContent>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1 }}>
+                        <Building sx={{ fontSize: 16 }} />
+                        <Typography variant="body2" color="text.secondary">
+                            {location}
+                        </Typography>
+                    </Box>
+
+                    {dedicated && (
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2 }}>
+                            <Chip label="Direct / Private" color="info" size="small" />
+                            <Chip label="Pending" variant="outlined" size="small" />
+                        </Box>
+                    )}
+
+                    {isExpanded && (
+                        <>
+                            <Divider sx={{ my: 2 }} />
+
+                                <EscalationStepper
+                                    shift={shift}
+                                    currentLevel={shiftLevel}
+                                    selectedLevel={selectedLevel}
+                                    onSelectLevel={(levelKey) => handleLevelChange(shift, levelKey)}
+                                    onEscalate={async (_s, _levelKey) => {
+                                    const success = await handleEscalate(shift.id);
+                                    if (!success) return;
+                                    setSelectedLevelByShift(prev => {
+                                        const next = { ...prev };
+                                        delete next[shift.id];
+                                        return next;
+                                    });
+                                    await loadShifts();
+                                    }}
+                                    escalating={actionLoading[`escalate_${shift.id}`]}
+                                    labelOverrides={labelOverrides}
+                                    showPrivateFirst={dedicated}
+                                />
+
+                            <Divider sx={{ my: 2 }} />
+
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                                <Divider sx={{ flex: 1 }} />
+                                <Chip label={`Candidates for ${candidatesLabel}`} />
+                                <Divider sx={{ flex: 1 }} />
+                            </Box>
+
+                            {currentTabData.loading ? (
+                                <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
+                                    <CircularProgress />
+                                </Box>
+                            ) : selectedLevel === PUBLIC_LEVEL_KEY ? (
+                                counterOffersLoading || !counterOffersLoaded ? (
+                                    <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
+                                        <CircularProgress />
+                                    </Box>
+                                ) : (
+                                    <PublicLevelView
+                                        shift={shift}
+                                        slotId={selectedSlotId}
+                                        interestsAll={currentTabData.interestsAll || []}
+                                        counterOffers={offers || []}
+                                        counterOffersLoaded={counterOffersLoaded}
+                                        onReveal={handleRevealInterest}
+                                        onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
+                                        onReviewOffer={(s, o, slotId) =>
+                                            handleReviewOffer(s, o, currentTabData, slotId)
+                                        }
+                                        revealingInterestId={revealingInterestId}
+                                    />
+                                )
+                            ) : (
+                                <CommunityLevelView
+                                    shift={shift}
+                                    members={membersForView}
+                                    selectedSlotId={selectedSlotId}
+                                    offers={offers || []}
+                                    onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
+                                    onReviewCandidate={(member, _shiftId, offer, slotId) =>
+                                        handleReviewCandidate(shift, member, offer, slotId)
+                                    }
+                                    reviewLoadingId={reviewLoadingId}
+                                />
+                            )}
+                        </>
+                    )}
+                </CardContent>
+            </Card>
+        );
+    };
+
     // Load counter offers when shift expands
     React.useEffect(() => {
         expandedShifts.forEach(shiftId => {
@@ -504,6 +725,16 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
             }
         });
     }, [expandedShifts, counterOffersByShift, loadCounterOffers]);
+
+    const orderedShifts = useMemo(() => {
+        const list = [...shifts];
+        list.sort((a, b) => {
+            const aDedicated = isDedicatedShift(a) ? 1 : 0;
+            const bDedicated = isDedicatedShift(b) ? 1 : 0;
+            return bDedicated - aDedicated;
+        });
+        return list;
+    }, [shifts, isDedicatedShift]);
 
     if (shiftsLoading) {
         return (
@@ -530,226 +761,22 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                     </Typography>
                 ) : (
                     <Stack spacing={2}>
-                        {shifts.map(shift => {
-                            const isExpanded = expandedShifts.has(shift.id);
-                            const isSingleUserShift = Boolean((shift as any).singleUserOnly);
-                            // Use shift's actual visibility level, not PUBLIC as default
-                            const shiftLevel = getCurrentLevelKey(shift);
-                            const selectedLevel = selectedLevelByShift[shift.id] ?? shiftLevel;
-                            const tabKey = getTabKey(shift.id, selectedLevel);
-                            const currentTabData = tabData[tabKey] || { loading: false };
-                            const selectedSlotId = isSingleUserShift
-                                ? null
-                                : selectedSlotByShift[shift.id] ?? shift.slots?.[0]?.id ?? null;
-                            const offers = counterOffersByShift[shift.id];
-                            const counterOffersLoaded = Object.prototype.hasOwnProperty.call(counterOffersByShift, shift.id);
-                            const counterOffersLoading = counterOffersLoadingByShift[shift.id] ?? false;
-                            const membersForView = isSingleUserShift
-                                ? currentTabData.members || []
-                                : currentTabData.membersBySlot?.[selectedSlotId ?? -1] || [];
-
-                            const cardBorderColor = getCardBorderColor((shift as any).visibility ?? 'PLATFORM');
-                            const summaryText = getShiftSummary(shift);
-                            const location = getLocationText(shift);
-
+                        {orderedShifts.map((shift, idx) => {
+                            const isDedicated = isDedicatedShift(shift);
+                            const prev = idx > 0 ? orderedShifts[idx - 1] : null;
+                            const showSectionHeader =
+                                idx === 0 || (prev && isDedicatedShift(prev) !== isDedicated);
                             return (
-                                <Card
-                                    key={shift.id}
-                                    sx={{
-                                        boxShadow: '0 4px 12px 0 rgba(0,0,0,0.05)',
-                                        borderLeft: `4px solid ${cardBorderColor}`,
-                                    }}
-                                >
-                                    <CardHeader
-                                        disableTypography
-                                        title={
-                                            <Typography variant="h6" component="div" sx={{ fontWeight: 'bold' }}>
-                                                {(shift as any).pharmacyDetail?.name ?? "Unnamed Pharmacy"}
-                                            </Typography>
-                                        }
-                                        subheader={
-                                            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
-                                                <Chip
-                                                    label={(shift as any).roleNeeded}
-                                                    size="small"
-                                                    sx={{ backgroundColor: cardBorderColor, color: 'white', fontWeight: 500 }}
-                                                />
-                                                {(shift as any).employmentType && (
-                                                    <Chip label={(shift as any).employmentType} size="small" variant="outlined" />
-                                                )}
-                                                {(shift as any).isUrgent && <Chip label="Urgent" color="error" size="small" />}
-                                                {summaryText && (
-                                                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
-                                                        <CalendarDays sx={{ fontSize: 16 }} />
-                                                        <Typography variant="body2" color="text.secondary">
-                                                            {summaryText}
-                                                        </Typography>
-                                                    </Box>
-                                                )}
-                                            </Stack>
-                                        }
-                                        action={
-                                            <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                                                <Tooltip title="Share">
-                                                    <span>
-                                                        <IconButton
-                                                            size="small"
-                                                            onClick={e => {
-                                                                e.stopPropagation();
-                                                                handleShare(shift);
-                                                            }}
-                                                            disabled={sharingShiftId === shift.id}
-                                                        >
-                                                            <Share2 fontSize="small" />
-                                                        </IconButton>
-                                                    </span>
-                                                </Tooltip>
-                                                <Tooltip title="Edit">
-                                                    <IconButton
-                                                        size="small"
-                                                        onClick={e => {
-                                                            e.stopPropagation();
-                                                            handleEditShift(shift.id);
-                                                        }}
-                                                    >
-                                                        <Edit fontSize="small" />
-                                                    </IconButton>
-                                                </Tooltip>
-                                                <Tooltip title="Delete">
-                                                    <IconButton
-                                                        size="small"
-                                                        onClick={e => {
-                                                            e.stopPropagation();
-                                                            setDeleteConfirmDialog({ open: true, shiftId: shift.id });
-                                                        }}
-                                                        disabled={actionLoading[`delete_${shift.id}`]}
-                                                    >
-                                                        <Trash2 fontSize="small" />
-                                                    </IconButton>
-                                                </Tooltip>
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={e => {
-                                                        e.stopPropagation();
-                                                        toggleShiftExpansion(shift.id);
-                                                    }}
-                                                    sx={{
-                                                        transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                                                        transition: 'transform 0.2s',
-                                                    }}
-                                                >
-                                                    <ChevronDown />
-                                                </IconButton>
-                                            </Box>
-                                        }
-                                        sx={{ pb: isExpanded ? 1 : 2 }}
-                                    />
-                                    <CardContent sx={{ pt: 0 }}>
-                                        <Box
-                                            sx={{
-                                                display: 'grid',
-                                                gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-                                                gap: 2,
-                                                mb: 2,
-                                            }}
-                                        >
-                                            <Typography
-                                                variant="body2"
-                                                sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
-                                                color="text.secondary"
-                                            >
-                                                <Building sx={{ fontSize: 16 }} />
-                                                {location}
+                                <React.Fragment key={shift.id}>
+                                    {showSectionHeader && (
+                                        <Box sx={{ px: 1, pt: idx === 0 ? 0 : 2 }}>
+                                            <Typography variant="overline" color="text.secondary">
+                                                {isDedicated ? 'Direct / Private Offers' : 'Active Shifts'}
                                             </Typography>
                                         </Box>
-
-                                        {isExpanded && (
-                                            <>
-                                                <CardContent>
-                                                    {shift.description && (
-                                                        <Typography
-                                                            variant="body2"
-                                                            color="text.primary"
-                                                            sx={{
-                                                                display: 'flex',
-                                                                alignItems: 'flex-start',
-                                                                gap: 1,
-                                                                my: 2,
-                                                                whiteSpace: 'pre-wrap',
-                                                                bgcolor: '#F9FAFB',
-                                                                p: 1.5,
-                                                                borderRadius: 2,
-                                                                border: '1px solid #E5E7EB',
-                                                            }}
-                                                        >
-                                                            {shift.description}
-                                                        </Typography>
-                                                    )}
-
-                                                    {/* Escalation Stepper - Inline from backup */}
-                                                    <EscalationStepper
-                                                        shift={shift}
-                                                        currentLevel={shiftLevel as any}
-                                                        selectedLevel={selectedLevel as any}
-                                                        onSelectLevel={(levelKey: any) => handleLevelChange(shift, levelKey)}
-                                                        onEscalate={async (_s: any, _levelKey: any) => {
-                                                            const success = await handleEscalate(shift.id);
-                                                            if (!success) return;
-                                                            setSelectedLevelByShift(prev => {
-                                                                const next = { ...prev };
-                                                                delete next[shift.id];
-                                                                return next;
-                                                            });
-                                                            await loadShifts();
-                                                        }}
-                                                        escalating={actionLoading[`escalate_${shift.id}`]}
-                                                    />
-
-                                                    <Divider sx={{ my: 3 }}>
-                                                        <Chip label={`Candidates for ${selectedLevel}`} />
-                                                    </Divider>
-
-                                                    {/* Content based on level */}
-                                                    {currentTabData.loading ? (
-                                                        <Box display="flex" justifyContent="center" py={4}>
-                                                            <CircularProgress />
-                                                        </Box>
-                                                    ) : selectedLevel === PUBLIC_LEVEL_KEY ? (
-                                                        counterOffersLoading || !counterOffersLoaded ? (
-                                                            <Box display="flex" justifyContent="center" py={4}>
-                                                                <CircularProgress />
-                                                            </Box>
-                                                        ) : (
-                                                            <PublicLevelView
-                                                                shift={shift}
-                                                                slotId={selectedSlotId}
-                                                                interestsAll={currentTabData.interestsAll || []}
-                                                                counterOffers={offers || []}
-                                                                counterOffersLoaded={counterOffersLoaded}
-                                                                onReveal={handleRevealInterest}
-                                                                onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
-                                                                onReviewOffer={(s, o, slotId) =>
-                                                                    handleReviewOffer(s, o, currentTabData, slotId)
-                                                                }
-                                                                revealingInterestId={revealingInterestId}
-                                                            />
-                                                        )
-                                                    ) : (
-                                                        <CommunityLevelView
-                                                            shift={shift}
-                                                            members={membersForView}
-                                                            selectedSlotId={selectedSlotId}
-                                                            offers={offers || []}
-                                                            onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
-                                                            onReviewCandidate={(member, _shiftId, offer, slotId) => handleReviewCandidate(shift, member, offer, slotId)}
-                                                            reviewLoadingId={reviewLoadingId}
-                                                        />
-                                                    )}
-                                                </CardContent>
-                                            </>
-                                        )}
-                                    </CardContent>
-                                </Card>
+                                    )}
+                                    {renderShiftCard(shift, isDedicated)}
+                                </React.Fragment>
                             );
                         })}
                     </Stack>
@@ -822,3 +849,4 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
 };
 
 export default ActiveShiftsPage;
+

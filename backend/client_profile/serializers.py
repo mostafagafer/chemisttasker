@@ -9,7 +9,7 @@ from users.serializers import UserProfileSerializer
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from decimal import Decimal
-from client_profile.utils import q6, send_referee_emails, clean_email, enforce_public_shift_daily_limit, build_shift_email_context
+from client_profile.utils import q6, send_referee_emails, clean_email, enforce_public_shift_daily_limit, build_shift_email_context, build_shift_offer_context
 from client_profile.services import expand_shift_slots
 from client_profile.admin_helpers import has_admin_capability, CAPABILITY_MANAGE_ROSTER
 from datetime import date, timedelta, datetime, time
@@ -27,6 +27,8 @@ import json
 from pathlib import Path
 from django.utils.text import slugify
 from django.core.files.storage import default_storage
+
+OFFER_EXPIRY_HOURS = 48
 
 
 # --- Skills catalog (shared-core/skills_catalog.json) ---
@@ -520,7 +522,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             'username','first_name','last_name','phone_number','date_of_birth','profile_photo','profile_photo_url',
             'profile_photo','profile_photo_url',
             'ahpra_number',
-            'street_address','suburb','state','postcode','google_place_id','latitude','longitude','open_to_travel','coverage_radius_km',
+            'street_address','suburb','state','postcode','google_place_id','latitude','longitude','open_to_travel','travel_states','coverage_radius_km',
             'ahpra_verified','ahpra_registration_status','ahpra_registration_type','ahpra_expiry_date',
             'ahpra_verification_note',
             'ahpra_years_since_first_registration',
@@ -587,6 +589,10 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             'latitude':        {'required': False, 'allow_null': True},
             'longitude':       {'required': False, 'allow_null': True},
             'open_to_travel':  {'required': False},
+            'travel_states':   {'required': False},
+            'coverage_radius_km': {'required': False, 'allow_null': True},
+            'open_to_travel':  {'required': False},
+            'travel_states':   {'required': False},
             'coverage_radius_km': {'required': False, 'allow_null': True},
             'open_to_travel':  {'required': False},
             'coverage_radius_km': {'required': False, 'allow_null': True},
@@ -866,7 +872,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         direct_fields = [
         'ahpra_number',
         'street_address', 'suburb', 'state', 'postcode', 'google_place_id',
-        'open_to_travel', 'coverage_radius_km',
+        'open_to_travel', 'travel_states', 'coverage_radius_km',
         'date_of_birth',
         ]
 
@@ -1569,7 +1575,7 @@ class OtherStaffOnboardingV2Serializer(serializers.ModelSerializer):
         fields = [
             # ---------- BASIC ----------
             'username','first_name','last_name','phone_number','date_of_birth',
-            'street_address','suburb','state','postcode','google_place_id','latitude','longitude','open_to_travel','coverage_radius_km',
+            'street_address','suburb','state','postcode','google_place_id','latitude','longitude','open_to_travel','travel_states','coverage_radius_km',
 
             # ---------- IDENTITY ----------
             'government_id','identity_secondary_file','government_id_type','identity_meta',
@@ -1886,7 +1892,7 @@ class OtherStaffOnboardingV2Serializer(serializers.ModelSerializer):
 
         # regular writes for basic fields (address + dob)
         direct_fields = [
-            'street_address','suburb','state','postcode','google_place_id','open_to_travel','coverage_radius_km','date_of_birth',
+            'street_address','suburb','state','postcode','google_place_id','open_to_travel','travel_states','coverage_radius_km','date_of_birth',
             'role_type','classification_level','student_year','intern_half',  # allow role data in Basic if FE sends them early
         ]
         for f in direct_fields:
@@ -2483,7 +2489,7 @@ class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
             # ---------- BASIC ----------
             'username','first_name','last_name','phone_number','profile_photo','profile_photo_url',
             'role_type',
-            'street_address','suburb','state','postcode','google_place_id','latitude','longitude','open_to_travel','coverage_radius_km',
+            'street_address','suburb','state','postcode','google_place_id','latitude','longitude','open_to_travel','travel_states','coverage_radius_km',
 
             # ---------- IDENTITY ----------
             'government_id','identity_secondary_file','government_id_type','identity_meta',
@@ -2523,6 +2529,9 @@ class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
             'google_place_id': {'required': False, 'allow_blank': True, 'allow_null': True},
             'latitude':        {'required': False, 'allow_null': True},
             'longitude':       {'required': False, 'allow_null': True},
+            'open_to_travel':  {'required': False},
+            'travel_states':   {'required': False},
+            'coverage_radius_km': {'required': False, 'allow_null': True},
 
             # identity (tab decides requiredness)
             'government_id': {'required': False, 'allow_null': True},
@@ -2681,7 +2690,7 @@ class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
         # role + address
         direct_fields = [
             'role_type',
-            'street_address','suburb','state','postcode','google_place_id','open_to_travel','coverage_radius_km',
+            'street_address','suburb','state','postcode','google_place_id','open_to_travel','travel_states','coverage_radius_km',
         ]
         for f in direct_fields:
             if f in vdata:
@@ -3622,6 +3631,11 @@ class ShiftSlotSerializer(serializers.ModelSerializer):
 
 class ShiftSerializer(serializers.ModelSerializer):
     created_by = serializers.PrimaryKeyRelatedField(read_only=True)
+    dedicated_user = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        required=False,
+        allow_null=True
+    )
     slots = ShiftSlotSerializer(many=True)
     interested_users_count = serializers.IntegerField(read_only=True)
     pharmacy = serializers.PrimaryKeyRelatedField(
@@ -3657,7 +3671,7 @@ class ShiftSerializer(serializers.ModelSerializer):
     class Meta:
         model = Shift
         fields = [
-            'id', 'created_by','created_at', 'pharmacy',  'pharmacy_detail','role_needed', 'employment_type', 'visibility',
+            'id', 'created_by','created_at', 'pharmacy',  'pharmacy_detail', 'dedicated_user', 'role_needed', 'employment_type', 'visibility',
             'escalation_level', 'escalate_to_owner_chain', 'escalate_to_org_chain', 'escalate_to_platform',
             'must_have', 'nice_to_have', 'rate_type', 'fixed_rate', 'owner_adjusted_rate','slots','single_user_only',
             'post_anonymously',
@@ -4097,19 +4111,19 @@ class ShiftSerializer(serializers.ModelSerializer):
 
         if pharm_ids:
             for row in PharmacistOnboarding.objects.filter(user_id__in=pharm_ids).values(
-                "user_id", "latitude", "longitude", "open_to_travel", "coverage_radius_km"
+                "user_id", "latitude", "longitude", "open_to_travel", "travel_states", "coverage_radius_km"
             ):
                 prefs[row["user_id"]] = row
 
         if other_ids:
             for row in OtherStaffOnboarding.objects.filter(user_id__in=other_ids).values(
-                "user_id", "latitude", "longitude", "open_to_travel", "coverage_radius_km"
+                "user_id", "latitude", "longitude", "open_to_travel", "travel_states", "coverage_radius_km"
             ):
                 prefs[row["user_id"]] = row
 
         if explorer_ids:
             for row in ExplorerOnboarding.objects.filter(user_id__in=explorer_ids).values(
-                "user_id", "latitude", "longitude", "open_to_travel", "coverage_radius_km"
+                "user_id", "latitude", "longitude", "open_to_travel", "travel_states", "coverage_radius_km"
             ):
                 prefs[row["user_id"]] = row
 
@@ -4118,6 +4132,15 @@ class ShiftSerializer(serializers.ModelSerializer):
     def _user_can_travel_to_shift(self, pref_row, shift):
         if not pref_row or not shift or not shift.pharmacy:
             return False
+        if pref_row.get("open_to_travel"):
+            travel_states = pref_row.get("travel_states") or []
+            if not travel_states:
+                return False
+            pharmacy_state = getattr(shift.pharmacy, "state", None)
+            if not pharmacy_state:
+                return False
+            normalized = {str(s).strip().upper() for s in travel_states if str(s).strip()}
+            return pharmacy_state.strip().upper() in normalized
         user_lat = pref_row.get("latitude")
         user_lon = pref_row.get("longitude")
         pharm_lat = getattr(shift.pharmacy, "latitude", None)
@@ -4400,6 +4423,54 @@ class ShiftSerializer(serializers.ModelSerializer):
             )
             transaction.on_commit(lambda: self._send_availability_match_notifications(shift))
 
+            dedicated_user = getattr(shift, 'dedicated_user', None)
+            if dedicated_user:
+                offers = []
+                now = timezone.now()
+                if shift.single_user_only or not shift.slots.exists():
+                    offers.append(ShiftOffer.objects.create(
+                        shift=shift,
+                        slot=None,
+                        user=dedicated_user,
+                        expires_at=now + timedelta(hours=OFFER_EXPIRY_HOURS),
+                    ))
+                else:
+                    for slot in shift.slots.all():
+                        offers.append(ShiftOffer.objects.create(
+                            shift=shift,
+                            slot=slot,
+                            user=dedicated_user,
+                            expires_at=now + timedelta(hours=OFFER_EXPIRY_HOURS),
+                        ))
+
+                if offers and dedicated_user.email:
+                    offer_for_email = offers[0]
+                    def _send_offer_email():
+                        ctx = build_shift_offer_context(
+                            shift,
+                            offer_for_email,
+                            recipient=dedicated_user,
+                            ignore_slot_filter=True,
+                        )
+                        notification_payload = {
+                            "title": "Shift offer received",
+                            "body": "You have received a shift offer. Please confirm to lock it in.",
+                            "payload": {"shift_id": shift.id, "offer_id": offer_for_email.id},
+                        }
+                        if ctx.get("shift_link"):
+                            notification_payload["action_url"] = ctx["shift_link"]
+                        async_task(
+                            'users.tasks.send_async_email',
+                            subject="You have a new shift offer",
+                            recipient_list=[dedicated_user.email],
+                            template_name="emails/shift_offer.html",
+                            context=ctx,
+                            text_template="emails/shift_offer.txt",
+                            notification=notification_payload,
+                        )
+
+                    transaction.on_commit(_send_offer_email)
+
         return shift
 
     def update(self, instance, validated_data):
@@ -4567,10 +4638,13 @@ class ShiftCounterOfferSlotSerializer(serializers.ModelSerializer):
             'proposed_rate',
         ]
 
+from client_profile.utils import extract_travel_origin_from_message, extract_suburb_from_travel_origin
+
 class ShiftCounterOfferSerializer(serializers.ModelSerializer):
     user = serializers.PrimaryKeyRelatedField(read_only=True)
     user_detail = serializers.SerializerMethodField()
     slots = ShiftCounterOfferSlotSerializer(many=True)
+    travel_origin = serializers.SerializerMethodField()
 
     class Meta:
         model = ShiftCounterOffer
@@ -4579,7 +4653,7 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
             'shift',
             'user',
             'user_detail',
-            'message',
+            'travel_origin',
             'request_travel',
             'status',
             'slots',
@@ -4677,6 +4751,7 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
         shift = self.context['shift']
         user = self.context['request'].user
         slots_data = validated_data.pop('slots', [])
+        validated_data.setdefault('message', '')
 
         offer = ShiftCounterOffer.objects.create(
             shift=shift,
@@ -4707,6 +4782,42 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
             'email': user.email,
             'short_bio': _get_user_short_bio(user),
         }
+
+    def get_travel_origin(self, obj):
+        _, travel_origin = extract_travel_origin_from_message(getattr(obj, 'message', '') or '')
+        return extract_suburb_from_travel_origin(travel_origin)
+
+
+class ShiftOfferSerializer(serializers.ModelSerializer):
+    shift_detail = ShiftSerializer(source='shift', read_only=True)
+    slot_detail = ShiftSlotSerializer(source='slot', read_only=True)
+
+    class Meta:
+        model = ShiftOffer
+        fields = [
+            'id',
+            'shift',
+            'shift_detail',
+            'slot',
+            'slot_detail',
+            'user',
+            'status',
+            'expires_at',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = [
+            'id',
+            'shift',
+            'shift_detail',
+            'slot',
+            'slot_detail',
+            'user',
+            'status',
+            'expires_at',
+            'created_at',
+            'updated_at',
+        ]
 
 class MyShiftSerializer(serializers.ModelSerializer):
     # reuse the full PharmacySerializer (with all the file‐fields)
@@ -5081,6 +5192,9 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
     author_user_id = serializers.IntegerField(source="author_user.id", read_only=True)
     skills = serializers.SerializerMethodField()
     software = serializers.SerializerMethodField()
+    travel_states = serializers.SerializerMethodField()
+    ahpra_years_since_first_registration = serializers.SerializerMethodField()
+    years_experience = serializers.SerializerMethodField()
     rating_average = serializers.FloatField(read_only=True)
     rating_count = serializers.IntegerField(read_only=True)
 
@@ -5100,6 +5214,9 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
             "work_types",
             "coverage_radius_km",
             "open_to_travel",
+            "travel_states",
+            "ahpra_years_since_first_registration",
+            "years_experience",
             "availability_mode",
             "availability_summary",
             "availability_days",
@@ -5167,6 +5284,48 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
 
     def get_software(self, obj):
         return list(obj.software or []) if obj.software else []
+
+    def get_travel_states(self, obj):
+        user = obj.author_user or getattr(obj.explorer_profile, "user", None)
+        if not user:
+            return []
+        try:
+            if obj.role_category == "PHARMACIST":
+                po = PharmacistOnboarding.objects.filter(user=user).first()
+                return list(getattr(po, "travel_states", []) or []) if po else []
+            if obj.role_category == "OTHER_STAFF":
+                so = OtherStaffOnboarding.objects.filter(user=user).first()
+                return list(getattr(so, "travel_states", []) or []) if so else []
+            if obj.role_category == "EXPLORER":
+                eo = ExplorerOnboarding.objects.filter(user=user).first()
+                return list(getattr(eo, "travel_states", []) or []) if eo else []
+        except Exception:
+            return []
+        return []
+
+    def get_ahpra_years_since_first_registration(self, obj):
+        user = obj.author_user or getattr(obj.explorer_profile, "user", None)
+        if not user:
+            return None
+        if obj.role_category != "PHARMACIST":
+            return None
+        try:
+            po = PharmacistOnboarding.objects.filter(user=user).first()
+            return getattr(po, "ahpra_years_since_first_registration", None) if po else None
+        except Exception:
+            return None
+
+    def get_years_experience(self, obj):
+        user = obj.author_user or getattr(obj.explorer_profile, "user", None)
+        if not user:
+            return None
+        if obj.role_category != "OTHER_STAFF":
+            return None
+        try:
+            so = OtherStaffOnboarding.objects.filter(user=user).first()
+            return getattr(so, "years_experience", None) if so else None
+        except Exception:
+            return None
 
     def get_is_liked_by_me(self, obj):
         req = self.context.get("request")

@@ -22,11 +22,6 @@ const ReviewOfferSlotList: React.FC<ReviewOfferSlotListProps> = ({ offers, shift
         return (
           <Paper key={offer.id ?? idx} variant="outlined" sx={{ p: 1.5, borderColor: 'grey.200' }}>
             <Stack spacing={1}>
-              {offer.message && (
-                <Typography variant="body2" color="text.primary">
-                  Message: {offer.message}
-                </Typography>
-              )}
               {slots.length > 0 ? (
                 slots.map((slot: any, slotIdx: number) => {
                   const slotId = slot.slotId ?? slot.id;

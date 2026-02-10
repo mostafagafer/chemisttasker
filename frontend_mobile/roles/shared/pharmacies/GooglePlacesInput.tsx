@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { TextInput, HelperText } from 'react-native-paper';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
+import { Autocomplete as WebAutocomplete, useJsApiLoader } from '@react-google-maps/api';
 import { surfaceTokens } from './types';
 import { LogBox } from 'react-native';
 
@@ -35,6 +36,7 @@ export default function GooglePlacesInput({
 }: GooglePlacesInputProps) {
     const [focused, setFocused] = useState(false);
     const ref = React.useRef<any>(null);
+    const isWeb = Platform.OS === 'web';
 
     React.useEffect(() => {
         if (value && ref.current) {
@@ -46,7 +48,8 @@ export default function GooglePlacesInput({
     const apiKey = Platform.select({
         ios: process.env.EXPO_PUBLIC_IOS_PLACES,
         android: process.env.EXPO_PUBLIC_ANDROID_PLACES,
-    });
+        web: process.env.EXPO_PUBLIC_WEB_PLACES,
+    }) || process.env.EXPO_PUBLIC_PLACES_KEY;
 
     if (!apiKey) {
         console.warn('Google Places API key not found in environment variables');
@@ -64,6 +67,10 @@ export default function GooglePlacesInput({
                 </HelperText>
             </View>
         );
+    }
+
+    if (isWeb) {
+        return <WebPlacesInput label={label} value={value} onPlaceSelected={onPlaceSelected} error={error} apiKey={apiKey} />;
     }
 
     return (
@@ -155,6 +162,106 @@ export default function GooglePlacesInput({
                     keyboardShouldPersistTaps: 'handled',
                 }}
             />
+            {error && (
+                <HelperText type="error" visible>
+                    {error}
+                </HelperText>
+            )}
+        </View>
+    );
+}
+
+function WebPlacesInput({
+    label,
+    value,
+    onPlaceSelected,
+    error,
+    apiKey,
+}: GooglePlacesInputProps & { apiKey: string }) {
+    const autocompleteRef = React.useRef<any>(null);
+    const [inputValue, setInputValue] = useState(value);
+    const { isLoaded, loadError } = useJsApiLoader({
+        googleMapsApiKey: apiKey,
+        libraries: ['places'],
+    });
+
+    React.useEffect(() => {
+        setInputValue(value);
+    }, [value]);
+
+    const handlePlaceChanged = () => {
+        const place = autocompleteRef.current?.getPlace?.();
+        if (!place) {
+            return;
+        }
+
+        const components = place.address_components || [];
+        const getComponent = (type: string) => {
+            const comp = components.find((c: any) => c.types.includes(type));
+            return comp?.long_name || '';
+        };
+
+        const streetNumber = getComponent('street_number');
+        const route = getComponent('route');
+        const street_address = [streetNumber, route].filter(Boolean).join(' ');
+        const suburb = getComponent('locality') || getComponent('sublocality');
+        const state = getComponent('administrative_area_level_1');
+        const postcode = getComponent('postal_code');
+
+        const selected = {
+            address: place.formatted_address || '',
+            name: place.name,
+            place_id: place.place_id,
+            street_address,
+            suburb,
+            state,
+            postcode,
+            latitude: place.geometry?.location?.lat?.(),
+            longitude: place.geometry?.location?.lng?.(),
+        };
+
+        onPlaceSelected(selected);
+    };
+
+    return (
+        <View style={styles.container}>
+            {!isLoaded && !loadError && (
+                <TextInput
+                    label={label}
+                    value={inputValue}
+                    mode="outlined"
+                    style={styles.input}
+                    editable={false}
+                />
+            )}
+            {loadError && (
+                <HelperText type="error" visible>
+                    Google Maps failed to load. Check your API key and restrictions.
+                </HelperText>
+            )}
+            {isLoaded && !loadError && (
+                <WebAutocomplete
+                    onLoad={(ref) => (autocompleteRef.current = ref)}
+                    onPlaceChanged={handlePlaceChanged}
+                    options={{ componentRestrictions: { country: 'au' }, fields: ['address_components', 'geometry', 'place_id', 'name', 'formatted_address'] }}
+                >
+                    <input
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                        placeholder={label}
+                        style={{
+                            width: '100%',
+                            height: 56,
+                            borderRadius: 4,
+                            border: `1px solid ${surfaceTokens.border}`,
+                            padding: '0 12px',
+                            fontSize: 16,
+                            color: '#111827',
+                            backgroundColor: surfaceTokens.bg,
+                        }}
+                    />
+                </WebAutocomplete>
+            )}
             {error && (
                 <HelperText type="error" visible>
                     {error}

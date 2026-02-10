@@ -11,13 +11,14 @@ import PublicShiftsView from './PublicShiftsView';
 import CommunityShiftsView from './CommunityShiftsView';
 import { useWorkspace } from '../../../context/WorkspaceContext';
 
-type ShiftBoardTab = 'browse' | 'saved' | 'interested' | 'rejected';
+type ShiftBoardTab = 'browse' | 'saved' | 'interested' | 'rejected' | 'accepted';
 
 const TABS = [
     { value: 'browse' as ShiftBoardTab, label: 'Browse' },
     { value: 'saved' as ShiftBoardTab, label: 'Saved' },
     { value: 'interested' as ShiftBoardTab, label: 'Interested' },
     { value: 'rejected' as ShiftBoardTab, label: 'Rejected' },
+    { value: 'accepted' as ShiftBoardTab, label: 'Offers' },
 ];
 
 export default function ShiftBoardTabsPage() {

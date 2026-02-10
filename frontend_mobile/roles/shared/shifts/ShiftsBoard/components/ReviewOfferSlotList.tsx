@@ -26,11 +26,6 @@ const ReviewOfferSlotList: React.FC<ReviewOfferSlotListProps> = ({ offers, shift
                 return (
                     <Card key={offer.id ?? idx} style={styles.offerCard} mode="outlined">
                         <Card.Content>
-                            {offer.message && (
-                                <Text variant="bodyMedium" style={styles.message}>
-                                    Message: {offer.message}
-                                </Text>
-                            )}
                             {slots.length > 0 ? (
                                 slots.map((slot: any, slotIdx: number) => {
                                     const slotId = slot.slotId ?? slot.id;
@@ -70,9 +65,6 @@ const styles = StyleSheet.create({
         gap: 16,
     },
     offerCard: {
-        marginBottom: 12,
-    },
-    message: {
         marginBottom: 12,
     },
     slotCard: {

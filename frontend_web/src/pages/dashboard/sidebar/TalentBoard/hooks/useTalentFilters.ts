@@ -3,6 +3,14 @@ import { Candidate } from "../types";
 import { TalentFilterState } from "../components/FiltersSidebar";
 
 export const useTalentFilters = (candidates: Candidate[], filters: TalentFilterState) => {
+  const normalizedStart = filters.availabilityStart ?? null;
+  const normalizedEnd = filters.availabilityEnd ?? null;
+  const hasDateFilter = Boolean(normalizedStart || normalizedEnd);
+  const startBound =
+    normalizedStart && normalizedEnd && normalizedStart > normalizedEnd ? normalizedEnd : normalizedStart;
+  const endBound =
+    normalizedStart && normalizedEnd && normalizedStart > normalizedEnd ? normalizedStart : normalizedEnd;
+
   const roleOptions = useMemo(() => {
     const unique = new Set<string>();
     candidates.forEach((c) => {
@@ -60,9 +68,19 @@ export const useTalentFilters = (candidates: Candidate[], filters: TalentFilterS
       }
       if (filters.willingToTravel && !c.willingToTravel) return false;
       if (filters.placementSeeker && !c.isInternshipSeeker) return false;
+      if (hasDateFilter) {
+        const dates = Array.isArray(c.availableDates) ? c.availableDates : [];
+        if (dates.length === 0) return false;
+        const matches = dates.some((date) => {
+          if (startBound && date < startBound) return false;
+          if (endBound && date > endBound) return false;
+          return true;
+        });
+        if (!matches) return false;
+      }
       return true;
     });
-  }, [candidates, filters]);
+  }, [candidates, filters, hasDateFilter, startBound, endBound]);
 
   return {
     filtered,

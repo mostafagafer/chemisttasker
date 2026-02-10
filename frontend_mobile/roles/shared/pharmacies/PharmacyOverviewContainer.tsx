@@ -202,6 +202,7 @@ export default function PharmacyOverviewContainer() {
             case 'form-create':
                 return (
                     <PharmacyForm
+                        key="pharmacy-form-create"
                         mode="create"
                         onSuccess={handleFormSuccess}
                         onCancel={handleFormCancel}
@@ -211,6 +212,7 @@ export default function PharmacyOverviewContainer() {
             case 'form-edit':
                 return (
                     <PharmacyForm
+                        key={`pharmacy-form-edit-${selectedPharmacy?.id ?? 'unknown'}`}
                         mode="edit"
                         pharmacyId={selectedPharmacy?.id}
                         onSuccess={handleFormSuccess}

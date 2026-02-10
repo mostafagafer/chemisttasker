@@ -84,6 +84,8 @@ type ShiftListProps = {
     userRatePreference?: RatePreference;
     pharmacyRatings: Record<number, { average: number; count: number }>;
     slotFilterMode?: SlotFilterMode;
+    applyLabel?: string;
+    disableSlotActions?: boolean;
 };
 
 const ShiftList: React.FC<ShiftListProps> = ({
@@ -119,6 +121,8 @@ const ShiftList: React.FC<ShiftListProps> = ({
     userRatePreference,
     pharmacyRatings,
     slotFilterMode,
+    applyLabel,
+    disableSlotActions,
 }) => {
     if (loading) {
         return (
@@ -190,7 +194,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
 
                 const isMulti = slots.length > 1;
                 const isExpanded = Boolean(expandedCards[shift.id]);
-                const selection = selectedSlotIds[shift.id] ?? new Set<number>();
+                const selection = disableSlotActions ? new Set<number>() : (selectedSlotIds[shift.id] ?? new Set<number>());
                 const isRejectedShift = isShiftRejected;
                 const isFullOrPartTime = ['FULL_TIME', 'PART_TIME'].includes(shift.employmentType ?? '');
                 const isPharmacistProvided = shift.rateType === 'PHARMACIST_PROVIDED';
@@ -357,7 +361,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                         onPress={() => handleApplyAll(shift)}
                                         style={styles.applyButton}
                                     >
-                                        {isApplied ? 'Applied' : 'Apply Now'}
+                                        {isApplied ? 'Applied' : (applyLabel ?? 'Apply Now')}
                                     </Button>
                                     {showCounter && onSubmitCounterOffer && (
                                         <Button
@@ -390,6 +394,16 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                             {isRejectedShift ? 'Rejected' : 'Reject Shift'}
                                         </Button>
                                     )}
+                                    {onRejectShift && !shift.singleUserOnly && allowPartial && disableSlotActions && rejectAllowed && (
+                                        <Button
+                                            mode="outlined"
+                                            onPress={() => handleRejectShift(shift)}
+                                            disabled={shiftActionsDisabled}
+                                            style={styles.rejectButton}
+                                        >
+                                            {isRejectedShift ? 'Rejected' : 'Reject Shift'}
+                                        </Button>
+                                    )}
                                 </View>
                             </View>
 
@@ -403,7 +417,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                         {isMulti && !allowPartial && (
                                             <Chip icon="layers" compact style={styles.bundleChip}>Bundle only</Chip>
                                         )}
-                                        {isMulti && allowPartial && (
+                                        {isMulti && allowPartial && !disableSlotActions && (
                                             <Chip icon="check-circle-outline" compact style={styles.selectChip}>Select shifts</Chip>
                                         )}
                                     </View>
@@ -446,7 +460,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                                         <Card.Content style={styles.slotCardContent}>
                                                             <View style={styles.slotRow}>
                                                                 <View style={styles.slotLeft}>
-                                                                    {isMulti && allowPartial && (
+                                                                    {isMulti && allowPartial && !disableSlotActions && (
                                                                         <Checkbox
                                                                             status={(isSelected || isSlotApplied || isCountered) ? 'checked' : 'unchecked'}
                                                                             onPress={() => toggleSlotSelection(shift.id, slotId)}
@@ -473,7 +487,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                                                         </Chip>
                                                                     )}
                                                                     {offerSlot && <Chip compact mode="outlined">Offer sent</Chip>}
-                                                                    {!shift.singleUserOnly && onRejectSlot && rejectAllowed && !isSlotRejected && (
+                                                                    {!disableSlotActions && !shift.singleUserOnly && onRejectSlot && rejectAllowed && !isSlotRejected && (
                                                                         <Button
                                                                             mode="outlined"
                                                                             onPress={() => handleRejectSlot(shift, slotId)}
@@ -503,7 +517,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                         </View>
                                     )}
 
-                                    {isMulti && allowPartial && selection.size > 0 && (
+                                    {isMulti && allowPartial && selection.size > 0 && !disableSlotActions && (
                                         <View style={styles.selectionActions}>
                                             {showCounter && onSubmitCounterOffer && (
                                                 <Button
@@ -547,7 +561,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                         </View>
                                     )}
 
-                                    {isMulti && allowPartial && selection.size === 0 && onRejectShift && rejectAllowed && (
+                                    {isMulti && allowPartial && selection.size === 0 && !disableSlotActions && onRejectShift && rejectAllowed && (
                                         <View style={styles.rejectRow}>
                                             <Button
                                                 mode="outlined"

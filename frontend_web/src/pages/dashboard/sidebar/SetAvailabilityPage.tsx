@@ -67,6 +67,7 @@ export default function SetAvailabilityPage() {
     state: '',
     postcode: '',
     openToTravel: false,
+    travelStates: [] as string[],
     latitude: null as number | null,
     longitude: null as number | null,
     googlePlaceId: '',
@@ -113,6 +114,7 @@ export default function SetAvailabilityPage() {
     return dates;
   }, [availabilityEntries, selectedDates]);
   const radiusOptions = [5, 10, 20, 30, 40, 50, 75, 100, 150, 200, 250, 300, 500, 1000];
+  const stateOptions = ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'];
   const mapCenter = useMemo(() => {
     if (locationForm.latitude != null && locationForm.longitude != null) {
       return { lat: locationForm.latitude, lng: locationForm.longitude };
@@ -158,6 +160,7 @@ export default function SetAvailabilityPage() {
           state: onboarding?.state || '',
           postcode: onboarding?.postcode || '',
           openToTravel: Boolean(onboarding?.open_to_travel),
+          travelStates: Array.isArray(onboarding?.travel_states) ? onboarding.travel_states : [],
           latitude: onboarding?.latitude ? Number(onboarding.latitude) : null,
           longitude: onboarding?.longitude ? Number(onboarding.longitude) : null,
           googlePlaceId: onboarding?.google_place_id || '',
@@ -212,6 +215,7 @@ export default function SetAvailabilityPage() {
       form.append('state', locationForm.state || '');
       form.append('postcode', locationForm.postcode || '');
       form.append('open_to_travel', locationForm.openToTravel ? 'true' : 'false');
+      form.append('travel_states', JSON.stringify(locationForm.travelStates || []));
       if (locationForm.latitude != null) form.append('latitude', String(locationForm.latitude));
       if (locationForm.longitude != null) form.append('longitude', String(locationForm.longitude));
       if (locationForm.googlePlaceId) form.append('google_place_id', locationForm.googlePlaceId);
@@ -372,6 +376,7 @@ export default function SetAvailabilityPage() {
             <Select
               label="Work Travel Radius"
               value={locationForm.coverageRadiusKm}
+              disabled={locationForm.openToTravel}
               onChange={(e) => setLocationForm({ ...locationForm, coverageRadiusKm: Number(e.target.value) })}
             >
               {radiusOptions.map((km) => (
@@ -379,11 +384,37 @@ export default function SetAvailabilityPage() {
               ))}
             </Select>
           </FormControl>
+          {locationForm.openToTravel && (
+            <FormControl fullWidth>
+              <InputLabel>Travel States</InputLabel>
+              <Select
+                label="Travel States"
+                multiple
+                value={locationForm.travelStates}
+                onChange={(e) =>
+                  setLocationForm({ ...locationForm, travelStates: e.target.value as string[] })
+                }
+                renderValue={(selected) => (selected as string[]).join(', ')}
+              >
+                {stateOptions.map((state) => (
+                  <MenuItem key={state} value={state}>
+                    {state}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
           <FormControlLabel
             control={
               <Checkbox
                 checked={locationForm.openToTravel}
-                onChange={(e) => setLocationForm({ ...locationForm, openToTravel: e.target.checked })}
+                onChange={(e) =>
+                  setLocationForm((prev) => ({
+                    ...prev,
+                    openToTravel: e.target.checked,
+                    travelStates: e.target.checked ? prev.travelStates : [],
+                  }))
+                }
               />
             }
             label="Willing to travel/Regional"

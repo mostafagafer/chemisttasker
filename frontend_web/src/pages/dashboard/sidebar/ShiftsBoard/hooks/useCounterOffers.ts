@@ -24,7 +24,7 @@ import {
 } from '../types';
 import { normalizeCounterOffers } from '../utils/counterOffers';
 import { formatDateLong } from '../utils/date';
-import { buildCounterOfferMessage, normalizeOnboardingLocation } from '../utils/location';
+import { normalizeOnboardingLocation } from '../utils/location';
 import { getSlotRate } from '../utils/rates';
 import { getUpcomingSlotsForDisplay, getShiftNegotiable } from '../utils/shift';
 
@@ -71,7 +71,6 @@ export const useCounterOffers = ({
   const [counterOfferOpen, setCounterOfferOpen] = useState(false);
   const [counterOfferShift, setCounterOfferShift] = useState<Shift | null>(null);
   const [counterOfferSlots, setCounterOfferSlots] = useState<CounterOfferFormSlot[]>([]);
-  const [counterOfferMessage, setCounterOfferMessage] = useState('');
   const [counterOfferTravel, setCounterOfferTravel] = useState(false);
   const [counterOfferTravelLocation, setCounterOfferTravelLocation] = useState<TravelLocation>(EMPTY_TRAVEL_LOCATION);
   const [counterOfferError, setCounterOfferError] = useState<string | null>(null);
@@ -193,8 +192,7 @@ export const useCounterOffers = ({
             });
             updates[shiftId] = {
               slots: { ...slotsMap },
-              message: offer.message ?? '',
-              summary: (offer.slots || []).length > 0
+        summary: (offer.slots || []).length > 0
                 ? `Counter offer sent (${(offer.slots || []).length} slot${(offer.slots || []).length > 1 ? 's' : ''})`
                 : 'Counter offer sent',
             };
@@ -265,7 +263,6 @@ export const useCounterOffers = ({
         : [];
 
     setCounterOfferShift(shift);
-    setCounterOfferMessage('');
     setCounterOfferTravel(false);
     setCounterOfferError(null);
     let calculatorRates: string[] | null = null;
@@ -386,11 +383,6 @@ export const useCounterOffers = ({
   const handleSubmitCounterOffer = async () => {
     if (!counterOfferShift || !onSubmitCounterOffer) return;
     const canNegotiateRate = getShiftNegotiable(counterOfferShift);
-    const messageToSend = buildCounterOfferMessage(
-      counterOfferMessage,
-      counterOfferTravel,
-      counterOfferTravelLocation
-    );
     const slotOfferMap: Record<number, { rate: string; start: string; end: string }> = {};
     const hasRealSlots = (counterOfferShift.slots?.length ?? 0) > 0;
     const slotsToSendRaw = hasRealSlots
@@ -421,7 +413,6 @@ export const useCounterOffers = ({
     }
     const payload: ShiftCounterOfferPayload = {
       shiftId: counterOfferShift.id,
-      message: messageToSend,
       requestTravel: counterOfferTravel,
       slots: dedupedSlots.map(
         (slot): ShiftCounterOfferSlotPayloadWithDate => ({
@@ -454,7 +445,6 @@ export const useCounterOffers = ({
       ...counterOffers,
       [counterOfferShift.id]: {
         slots: slotOfferMap,
-        message: messageToSend,
         summary: sentCount > 0 ? `Counter offer sent (${sentCount} slot${sentCount > 1 ? 's' : ''})` : 'Counter offer sent',
       },
     };
@@ -493,13 +483,11 @@ export const useCounterOffers = ({
     counterOfferOpen,
     counterOfferShift,
     counterOfferSlots,
-    counterOfferMessage,
     counterOfferTravel,
     counterOfferTravelLocation,
     counterOfferError,
     hasCounterOfferTravelLocation,
     travelAutocompleteRef,
-    setCounterOfferMessage,
     setCounterOfferTravel,
     setCounterOfferTravelLocation,
     openCounterOffer,

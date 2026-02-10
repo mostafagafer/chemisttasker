@@ -1,0 +1,21 @@
+You have a shift offer
+
+Hi {{ user_first_name }},
+
+You have received a shift offer for {{ role_label }} at {{ pharmacy_name }}.
+
+{% if slot_summary %}Shift summary: {{ slot_summary }}{% endif %}
+{% if slots_display %}
+Dates:
+{% for line in slots_display %}- {{ line }}
+{% endfor %}
+{% if slots_extra_count %}+ {{ slots_extra_count }} more{% endif %}
+{% endif %}
+
+{% if expires_at %}Confirm by: {{ expires_at }}{% endif %}
+
+Review & confirm here: {{ shift_link }}
+
+Please confirm this offer in your ChemistTasker portal to lock in the shift.
+
+— The ChemistTasker Team

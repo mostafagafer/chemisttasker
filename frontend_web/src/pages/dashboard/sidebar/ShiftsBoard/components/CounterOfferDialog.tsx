@@ -40,14 +40,12 @@ type CounterOfferDialogProps = {
   isTravelMapsLoaded: boolean;
   travelMapsLoadError: unknown;
   counterSubmitting: boolean;
-  counterOfferMessage: string;
   onCounterSlotChange: (index: number, key: keyof CounterOfferFormSlot, value: string) => void;
   onCounterOfferTravelChange: (checked: boolean) => void;
   setCounterOfferTravelLocation: React.Dispatch<React.SetStateAction<TravelLocation>>;
   onClearTravelLocation: () => void;
   onPlaceChanged: () => void;
   onAutocompleteLoad: (ref: google.maps.places.Autocomplete) => void;
-  onMessageChange: (value: string) => void;
   onSubmit: () => void;
 };
 
@@ -63,14 +61,12 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
   isTravelMapsLoaded,
   travelMapsLoadError,
   counterSubmitting,
-  counterOfferMessage,
   onCounterSlotChange,
   onCounterOfferTravelChange,
   setCounterOfferTravelLocation,
   onClearTravelLocation,
   onPlaceChanged,
   onAutocompleteLoad,
-  onMessageChange,
   onSubmit,
 }) => (
   <Dialog
@@ -265,13 +261,6 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
               </Stack>
             </Paper>
           )}
-          <TextField
-            label="Message"
-            value={counterOfferMessage}
-            onChange={(event) => onMessageChange(event.target.value)}
-            multiline
-            minRows={3}
-          />
         </Stack>
       )}
     </DialogContent>

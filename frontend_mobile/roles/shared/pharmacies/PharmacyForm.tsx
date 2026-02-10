@@ -46,8 +46,8 @@ type Props = {
 };
 
 const STATES = ['NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'NT', 'ACT'];
-const EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "CASUAL", "LOCUM"];
-const ROLE_OPTIONS = ["PHARMACIST", "INTERN", "TECHNICIAN", "ASSISTANT", "STUDENT"];
+const EMPLOYMENT_TYPES = ["PART_TIME", "FULL_TIME", "LOCUMS"];
+const ROLE_OPTIONS = ["PHARMACIST", "INTERN", "ASSISTANT", "TECHNICIAN", "STUDENT", "ADMIN", "DRIVER"];
 const RATE_TYPES = [
     { value: 'FIXED', label: 'Fixed (Hourly)' },
     { value: 'FLEXIBLE', label: 'Flexible' },
@@ -55,12 +55,12 @@ const RATE_TYPES = [
 ];
 
 const TABS = [
-    { label: 'General', icon: 'domain' },
-    { label: 'Approval', icon: 'check-decagram' },
-    { label: 'Documents', icon: 'file-document' },
-    { label: 'Staffing', icon: 'account-group' },
+    { label: 'Basic', icon: 'domain' },
+    { label: 'Regulatory', icon: 'check-decagram' },
+    { label: 'Docs', icon: 'file-document' },
+    { label: 'Employment', icon: 'account-group' },
     { label: 'Hours', icon: 'clock-outline' },
-    { label: 'Rates', icon: 'cash' },
+    { label: 'Rate', icon: 'cash' },
     { label: 'About', icon: 'message' },
 ];
 
@@ -88,6 +88,12 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
         // Rate
         default_rate_type: '' as '' | 'FIXED' | 'FLEXIBLE' | 'PHARMACIST_PROVIDED',
         default_fixed_rate: '',
+        rate_weekday: '',
+        rate_saturday: '',
+        rate_sunday: '',
+        rate_public_holiday: '',
+        rate_early_morning: '',
+        rate_late_night: '',
         // Hours
         weekdays_start: '', weekdays_end: '',
         saturdays_start: '', saturdays_end: '',
@@ -119,6 +125,29 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
     const [rateMenuVisible, setRateMenuVisible] = useState(false);
     const [stateMenuVisible, setStateMenuVisible] = useState(false);
 
+    const normalizeCoord = (value: number | null) => {
+        if (value === null || value === undefined) return value;
+        const rounded = Number(value.toFixed(6));
+        return Number.isFinite(rounded) ? rounded : value;
+    };
+
+    const formatApiError = (data: any) => {
+        if (!data) return '';
+        if (typeof data === 'string') return data;
+        if (data.detail && typeof data.detail === 'string') return data.detail;
+        if (Array.isArray(data)) return data.join('\n');
+        if (typeof data === 'object') {
+            return Object.entries(data)
+                .map(([key, value]) => {
+                    if (Array.isArray(value)) return `${key}: ${value.join(' ')}`;
+                    if (typeof value === 'string') return `${key}: ${value}`;
+                    return `${key}: ${JSON.stringify(value)}`;
+                })
+                .join('\n');
+        }
+        return String(data);
+    };
+
     // Initial Load
     useEffect(() => {
         if (mode !== 'edit' || !pharmacyId) return;
@@ -143,6 +172,12 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                     about: data.about || '',
                     default_rate_type: data.default_rate_type || '',
                     default_fixed_rate: String(data.default_fixed_rate || ''),
+                    rate_weekday: String(data.rate_weekday || ''),
+                    rate_saturday: String(data.rate_saturday || ''),
+                    rate_sunday: String(data.rate_sunday || ''),
+                    rate_public_holiday: String(data.rate_public_holiday || ''),
+                    rate_early_morning: String(data.rate_early_morning || ''),
+                    rate_late_night: String(data.rate_late_night || ''),
                     weekdays_start: data.weekdays_start || '',
                     weekdays_end: data.weekdays_end || '',
                     saturdays_start: data.saturdays_start || '',
@@ -240,8 +275,15 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
             setActiveTab(0); // Jump to General
             return false;
         }
-        if (activeTab === 1 && !form.abn) {
+        if (!form.abn) {
             setError('ABN is required.');
+            setActiveTab(1); // Jump to Approval
+            return false;
+        }
+        const abnDigits = form.abn.replace(/\D/g, '');
+        if (abnDigits.length !== 11) {
+            setError('ABN must be exactly 11 digits.');
+            setActiveTab(1);
             return false;
         }
         return true;
@@ -253,35 +295,68 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
         setError('');
 
         try {
-            const formData = new FormData();
-            // Text fields
+            const payload: Record<string, any> = {};
             Object.entries(form).forEach(([k, v]) => {
-                if (v !== null && v !== undefined) {
-                    formData.append(k, String(v));
+                if (v === null || v === undefined) return;
+                if (typeof v === 'string' && v.trim() === '') return;
+                if (k === 'abn' && typeof v === 'string') {
+                    payload[k] = v.replace(/\D/g, '');
+                    return;
                 }
+                if (k === 'latitude' && typeof v === 'number') {
+                    payload[k] = normalizeCoord(v);
+                    return;
+                }
+                if (k === 'longitude' && typeof v === 'number') {
+                    payload[k] = normalizeCoord(v);
+                    return;
+                }
+                payload[k] = v;
             });
+            payload.employment_types = employmentTypes;
+            payload.roles_needed = rolesNeeded;
 
-            // Arrays
-            employmentTypes.forEach(t => formData.append('employment_types', t));
-            rolesNeeded.forEach(r => formData.append('roles_needed', r));
+            const hasFiles = Boolean(files.approval || files.sops || files.induction || files.sump);
 
-            // Files
-            if (files.approval) formData.append('approval_certificate', { uri: files.approval.uri, name: files.approval.name, type: files.approval.mimeType ?? 'application/pdf' } as any);
-            if (files.sops) formData.append('sops', { uri: files.sops.uri, name: files.sops.name, type: files.sops.mimeType ?? 'application/pdf' } as any);
-            if (files.induction) formData.append('induction_guides', { uri: files.induction.uri, name: files.induction.name, type: files.induction.mimeType ?? 'application/pdf' } as any);
-            if (files.sump) formData.append('qld_sump_docs', { uri: files.sump.uri, name: files.sump.name, type: files.sump.mimeType ?? 'application/pdf' } as any);
+            
 
-            if (mode === 'edit' && pharmacyId) {
-                await updatePharmacy(pharmacyId, formData as any);
+            if (hasFiles) {
+                const formData = new FormData();
+                // Text fields
+                Object.entries(payload).forEach(([k, v]) => {
+                    if (v === null || v === undefined) return;
+                    if (Array.isArray(v)) {
+                        v.forEach(item => formData.append(k, String(item)));
+                        return;
+                    }
+                    formData.append(k, String(v));
+                });
+
+                // Files
+                if (files.approval) formData.append('approval_certificate', { uri: files.approval.uri, name: files.approval.name, type: files.approval.mimeType ?? 'application/pdf' } as any);
+                if (files.sops) formData.append('sops', { uri: files.sops.uri, name: files.sops.name, type: files.sops.mimeType ?? 'application/pdf' } as any);
+                if (files.induction) formData.append('induction_guides', { uri: files.induction.uri, name: files.induction.name, type: files.induction.mimeType ?? 'application/pdf' } as any);
+                if (files.sump) formData.append('qld_sump_docs', { uri: files.sump.uri, name: files.sump.name, type: files.sump.mimeType ?? 'application/pdf' } as any);
+
+                if (mode === 'edit' && pharmacyId) {
+                    await updatePharmacy(pharmacyId, formData as any);
+                } else {
+                    await createPharmacy(formData as any);
+                }
             } else {
-                await createPharmacy(formData as any);
+                if (mode === 'edit' && pharmacyId) {
+                    await updatePharmacy(pharmacyId, payload as any);
+                } else {
+                    await createPharmacy(payload as any);
+                }
             }
 
             if (onSuccess) onSuccess();
             else router.back();
 
         } catch (err: any) {
-            const detail = err?.response?.data?.detail || err?.message;
+            const apiMessage = formatApiError(err?.response?.data);
+            const detail = apiMessage || err?.message;
             setError(detail || 'Save failed');
             console.error(err);
         } finally {
@@ -437,6 +512,9 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                             {activeTab === 1 && (
                                 <>
                                     <TextInput label="ABN *" value={form.abn} onChangeText={(v) => setForm(p => ({ ...p, abn: v }))} mode="outlined" style={styles.input} keyboardType="numeric" />
+                                    <HelperText type="error" visible={Boolean(error) && !form.abn}>
+                                        ABN is required and must be 11 digits.
+                                    </HelperText>
 
                                     <Text style={styles.label}>Approval Certificate</Text>
                                     <Button mode="outlined" icon="upload" onPress={() => handlePickFile('approval')} style={{ marginBottom: 8 }}>
@@ -505,7 +583,7 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                                 </>
                             )}
 
-                            {/* TAB 5: RATES */}
+                            {/* TAB 5: RATE */}
                             {activeTab === 5 && (
                                 <>
                                     <Text style={styles.label}>Default Rate Type</Text>
@@ -539,6 +617,59 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                                             keyboardType="numeric"
                                             style={styles.input}
                                         />
+                                    )}
+                                    {form.default_rate_type && form.default_rate_type !== 'PHARMACIST_PROVIDED' && (
+                                        <>
+                                            <Text style={styles.label}>Base Rates</Text>
+                                            <TextInput
+                                                label="Weekday Rate"
+                                                value={form.rate_weekday}
+                                                onChangeText={v => setForm(p => ({ ...p, rate_weekday: v }))}
+                                                mode="outlined"
+                                                keyboardType="numeric"
+                                                style={styles.input}
+                                            />
+                                            <TextInput
+                                                label="Saturday Rate"
+                                                value={form.rate_saturday}
+                                                onChangeText={v => setForm(p => ({ ...p, rate_saturday: v }))}
+                                                mode="outlined"
+                                                keyboardType="numeric"
+                                                style={styles.input}
+                                            />
+                                            <TextInput
+                                                label="Sunday Rate"
+                                                value={form.rate_sunday}
+                                                onChangeText={v => setForm(p => ({ ...p, rate_sunday: v }))}
+                                                mode="outlined"
+                                                keyboardType="numeric"
+                                                style={styles.input}
+                                            />
+                                            <TextInput
+                                                label="Public Holiday Rate"
+                                                value={form.rate_public_holiday}
+                                                onChangeText={v => setForm(p => ({ ...p, rate_public_holiday: v }))}
+                                                mode="outlined"
+                                                keyboardType="numeric"
+                                                style={styles.input}
+                                            />
+                                            <TextInput
+                                                label="Early Morning Rate"
+                                                value={form.rate_early_morning}
+                                                onChangeText={v => setForm(p => ({ ...p, rate_early_morning: v }))}
+                                                mode="outlined"
+                                                keyboardType="numeric"
+                                                style={styles.input}
+                                            />
+                                            <TextInput
+                                                label="Late Night Rate"
+                                                value={form.rate_late_night}
+                                                onChangeText={v => setForm(p => ({ ...p, rate_late_night: v }))}
+                                                mode="outlined"
+                                                keyboardType="numeric"
+                                                style={styles.input}
+                                            />
+                                        </>
                                     )}
                                 </>
                             )}

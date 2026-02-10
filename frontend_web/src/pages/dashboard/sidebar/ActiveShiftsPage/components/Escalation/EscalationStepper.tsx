@@ -17,9 +17,10 @@ import {
     Store,
     CorporateFare,
     Public,
+    Lock,
 } from '@mui/icons-material';
 import { ColorStepIcon } from '../StepIcon/ColorStepIcon';
-import { Shift } from '@chemisttasker/shared-core';
+import { Shift, EscalationLevelKey } from '@chemisttasker/shared-core';
 import { useTheme } from '@mui/material/styles';
 
 const CustomStepConnector = styled(StepConnector)(({ theme }) => ({
@@ -43,8 +44,6 @@ const CustomStepConnector = styled(StepConnector)(({ theme }) => ({
     },
 }));
 
-type EscalationLevelKey = 'FULL_PART_TIME' | 'LOCUM_CASUAL' | 'OWNER_CHAIN' | 'ORG_CHAIN' | 'PLATFORM';
-
 const ESCALATION_LEVELS: Array<{
     key: EscalationLevelKey;
     label: string;
@@ -65,6 +64,8 @@ interface EscalationStepperProps {
     onSelectLevel: (levelKey: EscalationLevelKey) => void;
     onEscalate: (shift: Shift, levelKey: EscalationLevelKey) => void;
     escalating?: boolean;
+    labelOverrides?: Partial<Record<EscalationLevelKey, string>>;
+    showPrivateFirst?: boolean;
 }
 
 export const EscalationStepper: React.FC<EscalationStepperProps> = ({
@@ -74,6 +75,8 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
     onSelectLevel,
     onEscalate,
     escalating,
+    labelOverrides,
+    showPrivateFirst,
 }) => {
     const theme = useTheme();
     const allowedKeys = new Set((shift as any).allowedEscalationLevels || []);
@@ -82,24 +85,47 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
     }
 
     const levelSequence = ESCALATION_LEVELS.filter((level) => allowedKeys.has(level.key));
+    const resolveLabel = (key: EscalationLevelKey, fallback: string) =>
+        labelOverrides?.[key] ?? fallback;
     const currentLevelIdx = Math.max(
         0,
         levelSequence.findIndex((level) => level.key === currentLevel)
     );
     const selectedLevelIdx = levelSequence.findIndex((level) => level.key === selectedLevel);
+    const stepOffset = showPrivateFirst ? 1 : 0;
+    const uiCurrentLevelIdx = showPrivateFirst ? -1 : currentLevelIdx;
 
     return (
         <Box>
             <Stepper
                 alternativeLabel
-                activeStep={currentLevelIdx}
+                activeStep={Math.max(0, uiCurrentLevelIdx + stepOffset)}
                 connector={<CustomStepConnector />}
                 sx={{ mb: 3 }}
             >
+                {showPrivateFirst && (
+                    <Step key="DIRECT_PRIVATE" completed={currentLevelIdx >= 0}>
+                        <StepLabel
+                            StepIconComponent={(props) => (
+                                <ColorStepIcon {...props} icon={Lock} />
+                            )}
+                            sx={{
+                                flexDirection: 'column',
+                                '& .MuiStepLabel-label': {
+                                    mt: 1.5,
+                                    fontWeight: 500,
+                                    color: theme.palette.text.secondary,
+                                },
+                            }}
+                        >
+                            Direct / Private
+                        </StepLabel>
+                    </Step>
+                )}
                 {levelSequence.map((level, idx) => {
-                    const levelPassed = idx <= currentLevelIdx;
-                    const levelSelectable = idx <= currentLevelIdx + 1 && allowedKeys.has(level.key);
-                    const levelViewable = idx <= currentLevelIdx;
+                    const levelPassed = idx <= uiCurrentLevelIdx;
+                    const levelSelectable = idx <= uiCurrentLevelIdx + 1 && allowedKeys.has(level.key);
+                    const levelViewable = idx <= uiCurrentLevelIdx;
 
                     return (
                         <Step key={level.key} completed={levelPassed && idx < currentLevelIdx}>
@@ -123,7 +149,7 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                                         },
                                     }}
                                 >
-                                    {level.label}
+                                    {resolveLabel(level.key, level.label)}
                                     </StepLabel>
                                 );
 
@@ -147,7 +173,7 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
             {/* Escalation Button Logic */}
             {(() => {
                 const canEscalateToSelected =
-                    selectedLevelIdx > currentLevelIdx &&
+                    selectedLevelIdx > uiCurrentLevelIdx &&
                     selectedLevelIdx !== -1 &&
                     allowedKeys.has(levelSequence[selectedLevelIdx]?.key);
 
@@ -184,7 +210,7 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                                 Ready to widen your search?
                             </Typography>
                             <Button variant="contained" onClick={() => onEscalate(shift, targetLevel.key)}>
-                                Escalate to {targetLevel.label}
+                                Escalate to {resolveLabel(targetLevel.key, targetLevel.label)}
                             </Button>
                         </Box>
                     );
@@ -206,7 +232,7 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                                 Ready to widen your search?
                             </Typography>
                             <Button variant="contained" onClick={() => onEscalate(shift, nextLevel.key)}>
-                                Escalate to {nextLevel.label}
+                                Escalate to {resolveLabel(nextLevel.key, nextLevel.label)}
                             </Button>
                         </Box>
                     );

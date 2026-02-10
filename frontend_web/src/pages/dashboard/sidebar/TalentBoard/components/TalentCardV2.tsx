@@ -15,7 +15,6 @@ import {
   Star as StarIcon,
   FavoriteBorderOutlined as FavoriteBorderOutlinedIcon,
   FavoriteRounded as FavoriteRoundedIcon,
-  MailOutline as MailOutlineIcon,
   CalendarTodayOutlined as CalendarTodayOutlinedIcon,
   WorkOutline as WorkOutlineIcon,
   SchoolOutlined as SchoolOutlinedIcon,
@@ -27,13 +26,11 @@ import { Candidate } from "../types";
 
 export default function TalentCard({
   candidate,
-  onContact,
   onViewCalendar,
   onToggleLike,
   canViewCalendar,
 }: {
   candidate: Candidate;
-  onContact: (candidate: Candidate) => void;
   onViewCalendar: (candidate: Candidate) => void;
   onToggleLike: (candidate: Candidate) => void;
   canViewCalendar?: boolean;
@@ -58,6 +55,12 @@ export default function TalentCard({
   const visibleDateLabels = availableDateLabels.slice(0, 3);
   const remainingDates = Math.max(availableDateLabels.length - visibleDateLabels.length, 0);
   const showCalendarButton = (candidate.availableDates || []).length > 0;
+  const travelStateLabel =
+    candidate.willingToTravel && (candidate.travelStates || []).length > 0
+      ? `Open to Travel: ${(candidate.travelStates || []).join(", ")}`
+      : candidate.willingToTravel
+        ? "Open to Travel"
+        : candidate.coverageRadius;
 
   return (
     <Card
@@ -90,7 +93,7 @@ export default function TalentCard({
             <Chip
               size="small"
               icon={<FlightTakeoffOutlinedIcon fontSize="inherit" />}
-              label={candidate.willingToTravel ? "Open to Travel" : candidate.coverageRadius}
+              label={travelStateLabel}
               variant="outlined"
               sx={{ borderColor: "divider", color: "text.secondary" }}
             />
@@ -130,9 +133,19 @@ export default function TalentCard({
           <Box sx={{ flex: 1 }}>
             <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1}>
               <Box>
-                <Typography variant="h6" fontWeight={700}>
-                  {candidate.role}
-                </Typography>
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                  <Typography variant="h6" fontWeight={700}>
+                    {candidate.role}
+                  </Typography>
+                  {candidate.experienceBadge && (
+                    <Chip
+                      size="small"
+                      label={candidate.experienceBadge}
+                      variant="outlined"
+                      sx={{ borderColor: "divider" }}
+                    />
+                  )}
+                </Stack>
                 <Typography variant="subtitle2" color="text.secondary">
                   {candidate.headline}
                 </Typography>
@@ -169,11 +182,12 @@ export default function TalentCard({
                     Availability
                   </Typography>
                 </Stack>
-                {showCalendarButton ? (
-                  <Button size="small" onClick={() => onViewCalendar(candidate)} disabled={canViewCalendar === false}>
+                {showCalendarButton && canViewCalendar !== false ? (
+                  <Button size="small" onClick={() => onViewCalendar(candidate)}>
                     View Calendar
                   </Button>
-                ) : (
+                ) : null}
+                {!showCalendarButton && (
                   <Typography variant="caption" color="text.secondary">
                     No dates shared yet
                   </Typography>
@@ -188,15 +202,17 @@ export default function TalentCard({
             </Box>
           </Box>
 
-          <Stack spacing={1} sx={{ minWidth: 160 }}>
-            <Button
-              variant="contained"
-              startIcon={<MailOutlineIcon />}
-              onClick={() => onContact(candidate)}
-            >
-              Contact
-            </Button>
-          </Stack>
+          {canViewCalendar !== false && (
+            <Stack spacing={1} sx={{ minWidth: 160 }}>
+              <Button
+                variant="contained"
+                startIcon={<CalendarTodayOutlinedIcon />}
+                onClick={() => onViewCalendar(candidate)}
+              >
+                Request Booking
+              </Button>
+            </Stack>
+          )}
         </Stack>
 
         {!candidate.isExplorer && (

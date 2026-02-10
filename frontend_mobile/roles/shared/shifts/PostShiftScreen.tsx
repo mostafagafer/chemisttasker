@@ -27,7 +27,7 @@ const ROLE_OPTIONS = ['PHARMACIST', 'TECHNICIAN', 'ASSISTANT', 'INTERN', 'STUDEN
 const EMPLOYMENT_TYPES = ['LOCUM', 'CASUAL', 'PART_TIME', 'FULL_TIME'];
 const SKILL_OPTIONS = ['Vaccination', 'Methadone', 'CPR', 'First Aid', 'Anaphylaxis', 'Credentialed Badge', 'PDL Insurance'];
 const WORKLOAD_TAGS = ['Sole Pharmacist', 'High Script Load', 'Webster Packs'];
-const PRIMARY = '#7C3AED';
+const PRIMARY = '#7c3aed';
 const PRIMARY_LIGHT = '#F3E8FF';
 const PRIMARY_TEXT = '#2D1B69';
 
@@ -60,9 +60,10 @@ type PharmacyOption = {
 
 export default function PostShiftScreen() {
     const router = useRouter();
-    const params = useLocalSearchParams<{ edit?: string }>();
+    const params = useLocalSearchParams<{ edit?: string; dates?: string; date?: string; role?: string; dedicated_user?: string; embedded?: string }>();
     const editingId = params?.edit ? Number(params.edit) : null;
     const loadedVisibilityRef = React.useRef<string | null>(null);
+    const isEmbedded = params?.embedded === '1';
 
     const [pharmacies, setPharmacies] = useState<PharmacyOption[]>([]);
     const [pharmacyId, setPharmacyId] = useState<number | ''>('');
@@ -119,6 +120,7 @@ export default function PostShiftScreen() {
 
     // Other
     const [applyRatesToPharmacy, setApplyRatesToPharmacy] = useState(false);
+    const [dedicatedUserId, setDedicatedUserId] = useState<number | null>(null);
 
     const canSubmit = useMemo(() => Boolean(pharmacyId && slots.length > 0), [pharmacyId, slots.length]);
 
@@ -160,6 +162,7 @@ export default function PostShiftScreen() {
         setMinAnnual('');
         setMaxAnnual('');
         setApplyRatesToPharmacy(false);
+        setDedicatedUserId(null);
     }, []);
 
     // Reset escalation dates when the initial audience changes, mirroring web behaviour
@@ -200,6 +203,13 @@ export default function PostShiftScreen() {
             setInitialAudience(allowedVis[0]);
         }
     }, [allowedVis, initialAudience]);
+
+    useEffect(() => {
+        if (!allowedVis.length || !isEmbedded) return;
+        if (allowedVis.includes('LOCUM_CASUAL')) {
+            setInitialAudience('LOCUM_CASUAL');
+        }
+    }, [allowedVis, isEmbedded]);
 
     // When pharmacy changes, align initial audience to first allowed tier
     useEffect(() => {
@@ -312,6 +322,48 @@ export default function PostShiftScreen() {
 
     useEffect(() => { if (editingId && pharmaciesLoaded) { void loadShift(); } }, [editingId, pharmaciesLoaded, loadShift]);
 
+    useEffect(() => {
+        if (editingId) return;
+        const datesParam = params?.dates;
+        const singleDate = params?.date;
+        const parsedDates = typeof datesParam === 'string'
+            ? datesParam.split(',').map((d) => d.trim()).filter(Boolean)
+            : [];
+        const dates = parsedDates.length ? parsedDates : (singleDate ? [singleDate] : []);
+        if (dates.length) {
+            setSlotDate(dates[0]);
+            setSlots((prev) => {
+                const existingKeys = new Set(prev.map((s) => `${s.date}-${s.startTime}-${s.endTime}-${s.isRecurring}`));
+                const next = [...prev];
+                dates.forEach((d) => {
+                    const key = `${d}-${slotStart}-${slotEnd}-false`;
+                    if (!existingKeys.has(key)) {
+                        next.push({
+                            date: d,
+                            startTime: slotStart,
+                            endTime: slotEnd,
+                            isRecurring: false,
+                            recurringDays: [],
+                            recurringEndDate: '',
+                        });
+                    }
+                });
+                return next;
+            });
+        }
+        const roleParam = params?.role;
+        if (roleParam && typeof roleParam === 'string') {
+            setRoleNeeded(roleParam.toUpperCase());
+        }
+        const dedicated = params?.dedicated_user;
+        if (dedicated && typeof dedicated === 'string') {
+            const parsed = Number(dedicated);
+            if (!Number.isNaN(parsed)) {
+                setDedicatedUserId(parsed);
+            }
+        }
+    }, [editingId, params?.dates, params?.date, params?.role, params?.dedicated_user, slotStart, slotEnd]);
+
     // Automatic rate calculation for PHARMACIST with FLEXIBLE rate type
     useEffect(() => {
         if (!pharmacyId || !slots.length || roleNeeded !== 'PHARMACIST' || rateMode !== 'FLEXIBLE') {
@@ -381,11 +433,11 @@ export default function PostShiftScreen() {
                 nice_to_have: niceToHave,
                 post_anonymously: hideName,
                 single_user_only: singleUserOnly,
-                visibility: initialAudience,
-                escalate_to_locum_casual: escalationDates.locum_casual,
-                escalate_to_owner_chain: escalationDates.owner_chain,
-                escalate_to_org_chain: escalationDates.org_chain,
-                escalate_to_platform: escalationDates.platform,
+                visibility: isEmbedded ? 'LOCUM_CASUAL' : initialAudience,
+                escalate_to_locum_casual: isEmbedded ? null : escalationDates.locum_casual,
+                escalate_to_owner_chain: isEmbedded ? null : escalationDates.owner_chain,
+                escalate_to_org_chain: isEmbedded ? null : escalationDates.org_chain,
+                escalate_to_platform: isEmbedded ? null : escalationDates.platform,
                 slots: slots.map((s) => ({
                     date: s.date,
                     start_time: s.startTime,
@@ -395,13 +447,16 @@ export default function PostShiftScreen() {
                     recurring_end_date: s.isRecurring && s.recurringEndDate ? s.recurringEndDate : undefined,
                 })),
                 // New fields
-                notify_pharmacy_staff: notifyPharmacyStaff,
-                notify_favorite_staff: notifyFavoriteStaff,
-                notify_chain_members: notifyChainMembers,
+                notify_pharmacy_staff: isEmbedded ? false : notifyPharmacyStaff,
+                notify_favorite_staff: isEmbedded ? false : notifyFavoriteStaff,
+                notify_chain_members: isEmbedded ? false : notifyChainMembers,
                 payment_preference: paymentPreference,
                 super_percent: locumSuperIncluded ? 11.5 : 0,
                 apply_rates_to_pharmacy: applyRatesToPharmacy,
             };
+            if (dedicatedUserId) {
+                payload.dedicated_user = dedicatedUserId;
+            }
 
             if (roleNeeded === 'PHARMACIST') {
                 if (rateMode === 'FIXED' && fixedRate) {
@@ -593,113 +648,119 @@ export default function PostShiftScreen() {
     const renderVisibility = () => (
         <Surface style={styles.card} elevation={1}>
             <Text style={styles.label}>Visibility</Text>
-            <Text style={styles.helper}>Define who sees this shift and when it escalates.</Text>
+            <Text style={styles.helper}>
+                {isEmbedded ? 'This booking is private and only visible to the selected worker.' : 'Define who sees this shift and when it escalates.'}
+            </Text>
             <View style={styles.row}>
                 <Checkbox status={hideName ? 'checked' : 'unchecked'} onPress={() => setHideName((v) => !v)} />
                 <Text style={styles.rowText}>Hide pharmacy name from applicants</Text>
             </View>
-            <Text style={styles.label}>Initial Audience</Text>
-            <Menu
-                visible={audienceMenuVisible}
-                onDismiss={() => setAudienceMenuVisible(false)}
-                anchor={
-                    <TouchableOpacity style={styles.selector} onPress={() => setAudienceMenuVisible(true)}>
-                        <Text style={styles.selectorText}>
-                            {{
-                                FULL_PART_TIME: 'Pharmacy Members (FT/PT)',
-                                LOCUM_CASUAL: 'Favourite Staff',
-                                OWNER_CHAIN: 'Owner Chain',
-                                ORG_CHAIN: 'Organization',
-                                PLATFORM: 'Platform (Public)',
-                            }[initialAudience as VisibilityTier] || 'Select audience'}
-                        </Text>
-                        <IconButton icon="chevron-down" size={18} />
-                    </TouchableOpacity>
-                }
-            >
-                {allowedVis.map((value) => (
-                    <Menu.Item
-                        key={value}
-                        onPress={() => {
-                            setInitialAudience(value);
-                            setAudienceMenuVisible(false);
-                        }}
-                        title={{
-                            FULL_PART_TIME: 'Pharmacy Members (FT/PT)',
+            {!isEmbedded && (
+                <>
+                    <Text style={styles.label}>Initial Audience</Text>
+                    <Menu
+                        visible={audienceMenuVisible}
+                        onDismiss={() => setAudienceMenuVisible(false)}
+                        anchor={
+                            <TouchableOpacity style={styles.selector} onPress={() => setAudienceMenuVisible(true)}>
+                                <Text style={styles.selectorText}>
+                                    {{
+                                        FULL_PART_TIME: 'Pharmacy Members (FT/PT)',
+                                        LOCUM_CASUAL: 'Favourite Staff',
+                                        OWNER_CHAIN: 'Owner Chain',
+                                        ORG_CHAIN: 'Organization',
+                                        PLATFORM: 'Platform (Public)',
+                                    }[initialAudience as VisibilityTier] || 'Select audience'}
+                                </Text>
+                                <IconButton icon="chevron-down" size={18} />
+                            </TouchableOpacity>
+                        }
+                    >
+                        {allowedVis.map((value) => (
+                            <Menu.Item
+                                key={value}
+                                onPress={() => {
+                                    setInitialAudience(value);
+                                    setAudienceMenuVisible(false);
+                                }}
+                                title={{
+                                    FULL_PART_TIME: 'Pharmacy Members (FT/PT)',
+                                    LOCUM_CASUAL: 'Favourite Staff',
+                                    OWNER_CHAIN: 'Owner Chain',
+                                    ORG_CHAIN: 'Organization',
+                                    PLATFORM: 'Platform (Public)',
+                                }[value]}
+                            />
+                        ))}
+                    </Menu>
+
+                    {(() => {
+                        const startIdx = allowedVis.indexOf(initialAudience as VisibilityTier);
+                        const items =
+                            startIdx > -1 ? allowedVis.slice(startIdx + 1) : allowedVis;
+                        if (!items.length) return null;
+                        const labelMap: Record<VisibilityTier, string> = {
+                            FULL_PART_TIME: 'Full / Part Time',
                             LOCUM_CASUAL: 'Favourite Staff',
                             OWNER_CHAIN: 'Owner Chain',
                             ORG_CHAIN: 'Organization',
                             PLATFORM: 'Platform (Public)',
-                        }[value]}
-                    />
-                ))}
-            </Menu>
+                        };
+                        return items.map((tier) => (
+                            <View key={tier}>
+                                <Text style={styles.label}>Escalate to {labelMap[tier]}</Text>
+                                <TextInput
+                                    mode="outlined"
+                                    value={escalationDates[
+                                        tier === 'ORG_CHAIN' ? 'org_chain' :
+                                            tier === 'OWNER_CHAIN' ? 'owner_chain' :
+                                                tier === 'LOCUM_CASUAL' ? 'locum_casual' : 'platform'
+                                    ] || ''}
+                                    placeholder="YYYY-MM-DD"
+                                    style={styles.input}
+                                    right={<TextInput.Icon icon="calendar" onPress={() => setEscalationPicker({
+                                        key:
+                                            tier === 'ORG_CHAIN' ? 'org_chain' :
+                                                tier === 'OWNER_CHAIN' ? 'owner_chain' :
+                                                    tier === 'LOCUM_CASUAL' ? 'locum_casual' : 'platform',
+                                        open: true
+                                    })} />}
+                                    editable={false}
+                                />
+                            </View>
+                        ));
+                    })()}
 
-            {(() => {
-                const startIdx = allowedVis.indexOf(initialAudience as VisibilityTier);
-                const items =
-                    startIdx > -1 ? allowedVis.slice(startIdx + 1) : allowedVis;
-                if (!items.length) return null;
-                const labelMap: Record<VisibilityTier, string> = {
-                    FULL_PART_TIME: 'Full / Part Time',
-                    LOCUM_CASUAL: 'Favourite Staff',
-                    OWNER_CHAIN: 'Owner Chain',
-                    ORG_CHAIN: 'Organization',
-                    PLATFORM: 'Platform (Public)',
-                };
-                return items.map((tier) => (
-                    <View key={tier}>
-                        <Text style={styles.label}>Escalate to {labelMap[tier]}</Text>
-                        <TextInput
-                            mode="outlined"
-                            value={escalationDates[
-                                tier === 'ORG_CHAIN' ? 'org_chain' :
-                                    tier === 'OWNER_CHAIN' ? 'owner_chain' :
-                                        tier === 'LOCUM_CASUAL' ? 'locum_casual' : 'platform'
-                            ] || ''}
-                            placeholder="YYYY-MM-DD"
-                            style={styles.input}
-                            right={<TextInput.Icon icon="calendar" onPress={() => setEscalationPicker({
-                                key:
-                                    tier === 'ORG_CHAIN' ? 'org_chain' :
-                                        tier === 'OWNER_CHAIN' ? 'owner_chain' :
-                                            tier === 'LOCUM_CASUAL' ? 'locum_casual' : 'platform',
-                                open: true
-                            })} />}
-                            editable={false}
-                        />
-                    </View>
-                ));
-            })()}
-
-            {/* Notification Preferences */}
-            <Text style={styles.label}>Notifications</Text>
-            {initialAudience !== 'FULL_PART_TIME' && (
-                <TouchableOpacity
-                    style={styles.checkboxRow}
-                    onPress={() => setNotifyPharmacyStaff(v => !v)}
-                >
-                    <Checkbox status={notifyPharmacyStaff ? 'checked' : 'unchecked'} />
-                    <Text style={styles.rowText}>Notify pharmacy staff</Text>
-                </TouchableOpacity>
-            )}
-            {['LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(initialAudience) && (
-                <TouchableOpacity
-                    style={styles.checkboxRow}
-                    onPress={() => setNotifyFavoriteStaff(v => !v)}
-                >
-                    <Checkbox status={notifyFavoriteStaff ? 'checked' : 'unchecked'} />
-                    <Text style={styles.rowText}>Notify favorite staff</Text>
-                </TouchableOpacity>
-            )}
-            {['OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(initialAudience) && (
-                <TouchableOpacity
-                    style={styles.checkboxRow}
-                    onPress={() => setNotifyChainMembers(v => !v)}
-                >
-                    <Checkbox status={notifyChainMembers ? 'checked' : 'unchecked'} />
-                    <Text style={styles.rowText}>Notify chain members</Text>
-                </TouchableOpacity>
+                    {/* Notification Preferences */}
+                    <Text style={styles.label}>Notifications</Text>
+                    {initialAudience !== 'FULL_PART_TIME' && (
+                        <TouchableOpacity
+                            style={styles.checkboxRow}
+                            onPress={() => setNotifyPharmacyStaff(v => !v)}
+                        >
+                            <Checkbox status={notifyPharmacyStaff ? 'checked' : 'unchecked'} />
+                            <Text style={styles.rowText}>Notify pharmacy staff</Text>
+                        </TouchableOpacity>
+                    )}
+                    {['LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(initialAudience) && (
+                        <TouchableOpacity
+                            style={styles.checkboxRow}
+                            onPress={() => setNotifyFavoriteStaff(v => !v)}
+                        >
+                            <Checkbox status={notifyFavoriteStaff ? 'checked' : 'unchecked'} />
+                            <Text style={styles.rowText}>Notify favorite staff</Text>
+                        </TouchableOpacity>
+                    )}
+                    {['OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(initialAudience) && (
+                        <TouchableOpacity
+                            style={styles.checkboxRow}
+                            onPress={() => setNotifyChainMembers(v => !v)}
+                        >
+                            <Checkbox status={notifyChainMembers ? 'checked' : 'unchecked'} />
+                            <Text style={styles.rowText}>Notify chain members</Text>
+                        </TouchableOpacity>
+                    )}
+                </>
             )}
         </Surface>
     );
@@ -1016,10 +1077,10 @@ export default function PostShiftScreen() {
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
             <ScrollView contentContainerStyle={styles.content} style={{ flex: 1 }}>
                 <Text variant="headlineMedium" style={styles.title}>
-                    {editingId ? 'Edit Shift' : 'Create a New Shift'}
+                    {editingId ? 'Edit Shift' : (isEmbedded ? 'Request a Booking' : 'Create a New Shift')}
                 </Text>
                 <Text variant="bodyMedium" style={styles.subtitle}>
-                    Follow the steps to post a new shift opportunity.
+                    {isEmbedded ? 'Review the details and submit a direct booking request for this worker.' : 'Follow the steps to post a new shift opportunity.'}
                 </Text>
 
                 <ScrollView
@@ -1050,7 +1111,7 @@ export default function PostShiftScreen() {
                         <Button mode="contained" onPress={goNext} style={styles.primaryBtn} labelStyle={styles.primaryBtnText}>Next</Button>
                     ) : (
                         <Button mode="contained" onPress={handleSubmit} disabled={!canSubmit || loading} loading={loading} style={styles.primaryBtn} labelStyle={styles.primaryBtnText}>
-                            {editingId ? 'Update Shift' : 'Post Shift'}
+                            {editingId ? 'Update Shift' : (isEmbedded ? 'Send Booking Request' : 'Post Shift')}
                         </Button>
                     )}
                 </View>

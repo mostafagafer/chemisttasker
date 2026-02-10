@@ -4,24 +4,25 @@ import { Portal, Dialog, Button, Text, Surface, Divider, ActivityIndicator, Chip
 import { customTheme } from '../../theme';
 import { RatingComment, RatingSummary } from '../../types';
 
-const TRAVEL_ORIGIN_PREFIX = 'Traveling from:';
+const STATE_CODES = new Set(['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']);
 
-const extractTravelOrigin = (message?: string | null) => {
-    if (!message) return { cleanMessage: '', travelOrigin: null as string | null };
-    const lines = message.split(/\r?\n/);
-    let travelOrigin: string | null = null;
-    const filtered = lines.filter((line) => {
-        const trimmed = line.trim();
-        if (!trimmed) return true;
-        if (trimmed.startsWith(TRAVEL_ORIGIN_PREFIX)) {
-            if (!travelOrigin) {
-                travelOrigin = trimmed.slice(TRAVEL_ORIGIN_PREFIX.length).trim();
-            }
-            return false;
-        }
-        return true;
-    });
-    return { cleanMessage: filtered.join('\n').trim(), travelOrigin };
+const extractSuburb = (origin?: string | null) => {
+    if (!origin) return null;
+    const cleaned = origin.replace(/\s+/g, ' ').trim();
+    if (!cleaned) return null;
+    const commaParts = cleaned.split(',').map((part) => part.trim()).filter(Boolean);
+    const candidate = commaParts.length >= 2 ? commaParts[1] : cleaned;
+    const tokens = candidate.split(' ').filter(Boolean);
+    const stateIndex = tokens.findIndex((token) => STATE_CODES.has(token.toUpperCase()));
+    if (stateIndex > 0) {
+        const beforeState = tokens.slice(0, stateIndex);
+        if (beforeState.length >= 2) return beforeState.slice(-2).join(' ');
+        return beforeState.join(' ');
+    }
+    if (/^\d/.test(tokens[0]) && tokens.length >= 2) {
+        return tokens.slice(-2).join(' ');
+    }
+    return tokens.join(' ') || null;
 };
 
 interface CounterOfferDialogProps {
@@ -63,7 +64,11 @@ export default function CounterOfferDialog({
 }: CounterOfferDialogProps) {
     if (!offer && !candidate) return null;
 
-    const { cleanMessage, travelOrigin } = extractTravelOrigin(offer?.message);
+    const rawOrigin =
+        (offer as any)?.travel_origin ??
+        (offer as any)?.travelOrigin ??
+        null;
+    const travelSuburb = extractSuburb(rawOrigin);
     const rawSlots = offer?._mappedSlots || offer?.slots || offer?.offer_slots || [];
     const visibleSlots =
         slotId == null
@@ -95,13 +100,6 @@ export default function CounterOfferDialog({
                             </Surface>
                         )}
 
-                        {isOffer && cleanMessage ? (
-                            <Surface style={styles.section} elevation={1}>
-                                <Text style={styles.sectionTitle}>Message</Text>
-                                <Text style={styles.message}>{cleanMessage}</Text>
-                            </Surface>
-                        ) : null}
-
                         {isOffer && slotsToShow.length > 0 && (
                             <Surface style={styles.section} elevation={1}>
                                 <Text style={styles.sectionTitle}>Proposed Rates</Text>
@@ -124,8 +122,8 @@ export default function CounterOfferDialog({
                             <Surface style={styles.section} elevation={1}>
                                 <Text style={styles.sectionTitle}>Travel Support</Text>
                                 <Chip icon="airplane" style={styles.travelChip}>Requested travel support</Chip>
-                                {travelOrigin && (
-                                    <Text style={styles.detail}>Traveling from: {travelOrigin}</Text>
+                                {travelSuburb && (
+                                    <Text style={styles.detail}>Traveling from: {travelSuburb}</Text>
                                 )}
                             </Surface>
                         )}
@@ -239,11 +237,6 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: customTheme.colors.textMuted,
         marginTop: 4,
-    },
-    message: {
-        fontSize: 14,
-        color: customTheme.colors.text,
-        fontStyle: 'italic',
     },
     slotRow: {
         flexDirection: 'row',

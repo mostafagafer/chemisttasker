@@ -591,6 +591,18 @@ export function acceptShiftCounterOffer(shiftId, offerId) {
 export function rejectShiftCounterOffer(shiftId, offerId) {
     return fetchApi(`/client-profile/shifts/${shiftId}/counter-offers/${offerId}/reject/`, { method: 'POST' });
 }
+
+export function fetchShiftOffers(query = '') {
+    return fetchApi(`/client-profile/shift-offers/${query}`);
+}
+
+export function acceptShiftOffer(offerId) {
+    return fetchApi(`/client-profile/shift-offers/${offerId}/accept/`, { method: 'POST' });
+}
+
+export function declineShiftOffer(offerId) {
+    return fetchApi(`/client-profile/shift-offers/${offerId}/decline/`, { method: 'POST' });
+}
 export function getCommunityShiftDetail(id) {
     return fetchApi(`/client-profile/community-shifts/${id}`);
 }
@@ -829,7 +841,6 @@ export async function fetchShiftCounterOffersService(shiftId) {
 }
 export async function submitShiftCounterOfferService(payload) {
     const body = {
-        message: payload.message ?? '',
         request_travel: payload.requestTravel ?? false,
         slots: (payload.slots || []).map((slot) => ({
             slot_id: slot.slotId,
@@ -848,6 +859,19 @@ export async function acceptShiftCounterOfferService(payload) {
 }
 export async function rejectShiftCounterOfferService(payload) {
     await rejectShiftCounterOffer(payload.shiftId, payload.offerId);
+}
+export async function fetchShiftOffersService(filters?: { status?: string }) {
+    const params = new URLSearchParams();
+    if (filters?.status) params.set('status', filters.status);
+    const query = params.toString();
+    const data = await fetchShiftOffers(query ? `?${query}` : '');
+    return asList(data).map(camelCaseKeysDeep);
+}
+export async function acceptShiftOfferService(offerId: number) {
+    await acceptShiftOffer(offerId);
+}
+export async function declineShiftOfferService(offerId: number) {
+    await declineShiftOffer(offerId);
 }
 export async function fetchShiftMemberStatus(shiftId, options) {
     const params = {

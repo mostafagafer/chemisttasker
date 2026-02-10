@@ -11,6 +11,9 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import dayjs, { Dayjs } from "dayjs";
 import { alpha } from "@mui/material/styles";
 import {
   Search as SearchIcon,
@@ -28,6 +31,8 @@ export type TalentFilterState = {
   skills: string[];
   willingToTravel: boolean;
   placementSeeker: boolean;
+  availabilityStart: string | null;
+  availabilityEnd: string | null;
 };
 
 const FilterSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
@@ -72,6 +77,9 @@ export default function FiltersSidebar({
   expandedRoleSkills: Record<string, boolean>;
   onToggleRoleSkillExpand: (role: string) => void;
 }) {
+  const startValue: Dayjs | null = filters.availabilityStart ? dayjs(filters.availabilityStart) : null;
+  const endValue: Dayjs | null = filters.availabilityEnd ? dayjs(filters.availabilityEnd) : null;
+
   return (
     <Box sx={{ px: 2.5, py: 2, bgcolor: "background.paper" }}>
       <TextField
@@ -240,6 +248,30 @@ export default function FiltersSidebar({
         </Stack>
       </FilterSection>
 
+      <FilterSection title="Availability Dates">
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <Stack spacing={1.5}>
+            <DatePicker
+              label="Start date"
+              value={startValue}
+              onChange={(value) =>
+                onChange({ ...filters, availabilityStart: value ? value.format("YYYY-MM-DD") : null })
+              }
+              slotProps={{ textField: { size: "small", fullWidth: true } }}
+            />
+            <DatePicker
+              label="End date"
+              value={endValue}
+              minDate={startValue ?? undefined}
+              onChange={(value) =>
+                onChange({ ...filters, availabilityEnd: value ? value.format("YYYY-MM-DD") : null })
+              }
+              slotProps={{ textField: { size: "small", fullWidth: true } }}
+            />
+          </Stack>
+        </LocalizationProvider>
+      </FilterSection>
+
       <FilterSection title="Location (State)">
         <Stack spacing={0.5}>
           {stateOptions.map((state) => (
@@ -270,6 +302,8 @@ export default function FiltersSidebar({
             skills: [],
             willingToTravel: false,
             placementSeeker: false,
+            availabilityStart: null,
+            availabilityEnd: null,
           })
         }
       >

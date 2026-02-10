@@ -17,24 +17,25 @@ import {
     Pagination,
 } from '@mui/material';
 
-const TRAVEL_ORIGIN_PREFIX = 'Traveling from:';
+const STATE_CODES = new Set(['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']);
 
-const extractTravelOrigin = (message?: string | null) => {
-    if (!message) return { cleanMessage: '', travelOrigin: null as string | null };
-    const lines = message.split(/\r?\n/);
-    let travelOrigin: string | null = null;
-    const filtered = lines.filter((line) => {
-        const trimmed = line.trim();
-        if (!trimmed) return true;
-        if (trimmed.startsWith(TRAVEL_ORIGIN_PREFIX)) {
-            if (!travelOrigin) {
-                travelOrigin = trimmed.slice(TRAVEL_ORIGIN_PREFIX.length).trim();
-            }
-            return false;
-        }
-        return true;
-    });
-    return { cleanMessage: filtered.join('\n').trim(), travelOrigin };
+const extractSuburb = (origin?: string | null) => {
+    if (!origin) return null;
+    const cleaned = origin.replace(/\s+/g, ' ').trim();
+    if (!cleaned) return null;
+    const commaParts = cleaned.split(',').map((part) => part.trim()).filter(Boolean);
+    const candidate = commaParts.length >= 2 ? commaParts[1] : cleaned;
+    const tokens = candidate.split(' ').filter(Boolean);
+    const stateIndex = tokens.findIndex((token) => STATE_CODES.has(token.toUpperCase()));
+    if (stateIndex > 0) {
+        const beforeState = tokens.slice(0, stateIndex);
+        if (beforeState.length >= 2) return beforeState.slice(-2).join(' ');
+        return beforeState.join(' ');
+    }
+    if (/^\d/.test(tokens[0]) && tokens.length >= 2) {
+        return tokens.slice(-2).join(' ');
+    }
+    return tokens.join(' ') || null;
 };
 
 interface CounterOfferDialogProps {
@@ -74,7 +75,11 @@ export const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
     onAssign,
     onPageChange,
 }) => {
-    const { cleanMessage, travelOrigin } = extractTravelOrigin(offer?.message);
+    const rawOrigin =
+        (offer as any)?.travel_origin ??
+        (offer as any)?.travelOrigin ??
+        null;
+    const travelSuburb = extractSuburb(rawOrigin);
 
     return (
         <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
@@ -102,15 +107,6 @@ export const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                         {/* Only show offer details if there is an offer */}
                         {offer && (
                             <>
-                                {/* Message */}
-                                {cleanMessage && (
-                                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                                        {cleanMessage}
-                                    </Typography>
-                                )}
-
-                                <Divider sx={{ my: 1 }} />
-
                                 {/* Offer Slots */}
                                 {(() => {
                                     const rawSlots = offer._mappedSlots || offer.slots || [];
@@ -170,9 +166,9 @@ export const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                                 {offer.requestTravel && (
                                     <Stack spacing={0.5}>
                                         <Chip size="small" color="info" label="Requested travel support" />
-                                        {travelOrigin && (
+                                        {travelSuburb && (
                                             <Typography variant="body2" color="text.secondary">
-                                                Traveling from: {travelOrigin}
+                                                Traveling from: {travelSuburb}
                                             </Typography>
                                         )}
                                     </Stack>

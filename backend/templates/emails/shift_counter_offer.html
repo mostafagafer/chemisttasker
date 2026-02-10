@@ -23,9 +23,6 @@
           {% endfor %}
           {% if not slots %}<li>No specific slots provided.</li>{% endif %}
         </ul>
-        {% if message %}
-          <p style="font-size: 15px; margin: 0 0 12px 0;"><strong>Message:</strong> {{ message }}</p>
-        {% endif %}
         {% if request_travel %}
           <p style="font-size: 15px; margin: 0 0 12px 0;">Travel allowance requested.</p>
         {% endif %}

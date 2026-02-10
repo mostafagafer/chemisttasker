@@ -30,7 +30,6 @@ export type ShiftCounterOfferSlotPayloadWithDate = ShiftCounterOfferSlotPayload 
 
 export type CounterOfferTrack = {
   slots: Record<number, { rate: string; start: string; end: string }>;
-  message?: string;
   summary: string;
 };
 
@@ -88,6 +87,8 @@ export type ShiftsBoardProps = {
   fallbackToAllShiftsWhenEmpty?: boolean;
   showAllSlots?: boolean;
   actionDisabledGuard?: (shift: Shift) => boolean;
+  applyLabel?: string;
+  disableSlotActions?: boolean;
 };
 
 export type SortKey = 'shiftDate' | 'postedDate' | 'rate' | 'distance';

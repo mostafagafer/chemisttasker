@@ -106,6 +106,8 @@ type ShiftListProps = {
   pharmacyRatings: Record<number, { average: number; count: number }>;
   slotFilterMode?: SlotFilterMode;
   showAllSlots?: boolean;
+  applyLabel?: string;
+  disableSlotActions?: boolean;
 };
 
 const ShiftList: React.FC<ShiftListProps> = ({
@@ -143,6 +145,8 @@ const ShiftList: React.FC<ShiftListProps> = ({
   pharmacyRatings,
   slotFilterMode,
   showAllSlots,
+  applyLabel,
+  disableSlotActions,
 }) => (
   <Stack spacing={2}>
     {loading && (
@@ -207,7 +211,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
 
       const isMulti = slots.length > 1;
       const isExpanded = Boolean(expandedCards[shift.id]);
-      const selection = selectedSlotIds[shift.id] ?? new Set<number>();
+      const selection = disableSlotActions ? new Set<number>() : (selectedSlotIds[shift.id] ?? new Set<number>());
       const isRejectedShift = isShiftRejected;
       const isFullOrPartTime = ['FULL_TIME', 'PART_TIME'].includes(shift.employmentType ?? '');
       const isPharmacistProvided = shift.rateType === 'PHARMACIST_PROVIDED';
@@ -425,7 +429,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                       disabled={shiftActionsDisabled || (!shift.singleUserOnly && hasRejectedSlots)}
                       onClick={() => handleApplyAll(shift)}
                     >
-                      {isApplied ? 'Applied' : 'Apply Now'}
+                      {isApplied ? 'Applied' : (applyLabel ?? 'Apply Now')}
                     </Button>
                     {showCounter && onSubmitCounterOffer && (
                       <Button
@@ -457,6 +461,16 @@ const ShiftList: React.FC<ShiftListProps> = ({
                         {isRejectedShift ? 'Rejected' : 'Reject Shift'}
                       </Button>
                     )}
+                    {onRejectShift && !shift.singleUserOnly && allowPartial && disableSlotActions && rejectAllowed && (
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        onClick={() => handleRejectShift(shift)}
+                        disabled={shiftActionsDisabled}
+                      >
+                        {isRejectedShift ? 'Rejected' : 'Reject Shift'}
+                      </Button>
+                    )}
                   </Stack>
                 </Stack>
               </Box>
@@ -473,7 +487,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                         {isMulti && !allowPartial && (
                           <Chip icon={<LayersIcon />} label="Bundle only" size="small" color="error" />
                         )}
-                        {isMulti && allowPartial && (
+                        {isMulti && allowPartial && !disableSlotActions && (
                           <Chip icon={<CheckCircleOutlineIcon />} label="Select shifts" size="small" color="success" />
                         )}
                       </Stack>
@@ -514,7 +528,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                               >
                                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                                   <Stack direction="row" spacing={1} alignItems="center">
-                                    {isMulti && allowPartial && (
+                                    {isMulti && allowPartial && !disableSlotActions && (
                       <Checkbox
                         checked={isSelected || isSlotApplied || isCountered}
                         onChange={() => toggleSlotSelection(shift.id, slotId)}
@@ -547,7 +561,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                                         variant="outlined"
                                       />
                                     )}
-                                    {!shift.singleUserOnly && onRejectSlot && rejectAllowed && !isSlotRejected && (
+                                    {!disableSlotActions && !shift.singleUserOnly && onRejectSlot && rejectAllowed && !isSlotRejected && (
                                       <Button
                                         size="small"
                                         variant="outlined"
@@ -580,7 +594,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                         </Stack>
                       )}
 
-                      {isMulti && allowPartial && selection.size > 0 && (
+                      {isMulti && allowPartial && selection.size > 0 && !disableSlotActions && (
                         <Stack direction="row" spacing={1} justifyContent="flex-end">
                           {showCounter && onSubmitCounterOffer && (
                             <Button
@@ -625,7 +639,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                           )}
                         </Stack>
                       )}
-                      {isMulti && allowPartial && selection.size === 0 && onRejectShift && rejectAllowed && (
+                      {isMulti && allowPartial && selection.size === 0 && !disableSlotActions && onRejectShift && rejectAllowed && (
                         <Stack direction="row" justifyContent="flex-end">
                           <Button
                             size="small"

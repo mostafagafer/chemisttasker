@@ -219,6 +219,7 @@ class PharmacistOnboarding(models.Model):
     latitude         = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
     longitude        = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
     open_to_travel   = models.BooleanField(default=False)
+    travel_states    = models.JSONField(default=list, blank=True)
     coverage_radius_km = models.PositiveSmallIntegerField(blank=True, null=True)
 
     def __str__(self):
@@ -294,6 +295,7 @@ class OtherStaffOnboarding(models.Model):
     latitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
     open_to_travel = models.BooleanField(default=False)
+    travel_states = models.JSONField(default=list, blank=True)
     coverage_radius_km = models.PositiveSmallIntegerField(blank=True, null=True)
 
     # --- Experience / Skills ---
@@ -448,6 +450,7 @@ class ExplorerOnboarding(models.Model):
     latitude         = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
     longitude        = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
     open_to_travel   = models.BooleanField(default=False)
+    travel_states    = models.JSONField(default=list, blank=True)
     coverage_radius_km = models.PositiveSmallIntegerField(blank=True, null=True)
 
     profile_photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)
@@ -1205,6 +1208,13 @@ class Shift(models.Model):
         on_delete=models.SET_NULL,
         related_name='shifts_created'
     )
+    dedicated_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='dedicated_shifts'
+    )
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     role_needed = models.CharField(max_length=50, choices=ROLE_CHOICES)
     employment_type = models.CharField(
@@ -1565,6 +1575,46 @@ class ShiftCounterOffer(models.Model):
 
     def __str__(self):
         return f"CounterOffer#{self.pk} shift={self.shift_id} user={self.user_id} status={self.status}"
+
+
+class ShiftOffer(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        ACCEPTED = "ACCEPTED", "Accepted"
+        DECLINED = "DECLINED", "Declined"
+        EXPIRED = "EXPIRED", "Expired"
+
+    shift = models.ForeignKey(
+        Shift,
+        on_delete=models.CASCADE,
+        related_name="offers"
+    )
+    slot = models.ForeignKey(
+        ShiftSlot,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="offers"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="shift_offers"
+    )
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["shift", "status"]),
+            models.Index(fields=["user", "status"]),
+            models.Index(fields=["expires_at"]),
+        ]
+
+    def __str__(self):
+        return f"ShiftOffer#{self.pk} shift={self.shift_id} user={self.user_id} status={self.status}"
 
 
 class ShiftCounterOfferSlot(models.Model):

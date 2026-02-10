@@ -41,6 +41,7 @@ export type PitchFormState = {
   state: string;
   postcode: string;
   openToTravel: boolean;
+  travelStates: string[];
   coverageRadiusKm: number;
   latitude: number | null;
   longitude: number | null;
@@ -57,6 +58,7 @@ export type PitchAttachment = {
 };
 
 const radiusOptions = [5, 10, 20, 30, 40, 50, 75, 100, 150, 200, 250, 300, 500, 1000];
+const stateOptions = ["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"];
 
 const getFileName = (value?: string | null) => {
   if (!value) return "";
@@ -384,6 +386,7 @@ export default function PitchDialog(props: {
                 <Select
                   label="Work Travel Radius (km)"
                   value={pitchForm.coverageRadiusKm}
+                  disabled={pitchForm.openToTravel}
                   onChange={(event) =>
                     setPitchForm((prev) => ({
                       ...prev,
@@ -403,13 +406,42 @@ export default function PitchDialog(props: {
                   <Checkbox
                     checked={pitchForm.openToTravel}
                     onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                      setPitchForm((prev) => ({ ...prev, openToTravel: event.target.checked }))
+                      setPitchForm((prev) => ({
+                        ...prev,
+                        openToTravel: event.target.checked,
+                        travelStates: event.target.checked ? prev.travelStates : [],
+                      }))
                     }
                   />
                 }
                 label="Willing to travel/Regional"
               />
             </Stack>
+            {pitchForm.openToTravel && (
+              <FormControl fullWidth>
+                <InputLabel>Travel States</InputLabel>
+                <Select
+                  label="Travel States"
+                  multiple
+                  value={pitchForm.travelStates}
+                  onChange={(event) =>
+                    setPitchForm((prev) => ({
+                      ...prev,
+                      travelStates: event.target.value as string[],
+                    }))
+                  }
+                  renderValue={(selected) =>
+                    Array.isArray(selected) ? selected.join(", ") : ""
+                  }
+                >
+                  {stateOptions.map((state) => (
+                    <MenuItem key={state} value={state}>
+                      {state}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
 
             <FormControl fullWidth>
               <InputLabel>Engagement Type</InputLabel>

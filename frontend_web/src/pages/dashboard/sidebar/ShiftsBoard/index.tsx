@@ -83,6 +83,8 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   fallbackToAllShiftsWhenEmpty,
   showAllSlots,
   actionDisabledGuard,
+  applyLabel,
+  disableSlotActions,
 }) => {
   const slotFilterMode: SlotFilterMode = slotFilterModeProp ?? 'all';
   const auth = useAuth();
@@ -245,13 +247,11 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     counterOfferOpen,
     counterOfferShift,
     counterOfferSlots,
-    counterOfferMessage,
     counterOfferTravel,
     counterOfferTravelLocation,
     counterOfferError,
     hasCounterOfferTravelLocation,
     travelAutocompleteRef,
-    setCounterOfferMessage,
     setCounterOfferTravel,
     setCounterOfferTravelLocation,
     openCounterOffer,
@@ -508,14 +508,12 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
         isTravelMapsLoaded={isTravelMapsLoaded}
         travelMapsLoadError={travelMapsLoadError}
         counterSubmitting={counterSubmitting}
-        counterOfferMessage={counterOfferMessage}
         onCounterSlotChange={handleCounterSlotChange}
         onCounterOfferTravelChange={setCounterOfferTravel}
         setCounterOfferTravelLocation={setCounterOfferTravelLocation}
         onClearTravelLocation={clearCounterOfferTravelLocation}
         onPlaceChanged={handleCounterOfferTravelPlaceChanged}
         onAutocompleteLoad={(ref) => (travelAutocompleteRef.current = ref)}
-        onMessageChange={setCounterOfferMessage}
         onSubmit={handleSubmitCounterOffer}
       />
 
@@ -684,6 +682,8 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
             pharmacyRatings={pharmacyRatings}
             slotFilterMode={slotFilterMode}
             showAllSlots={showAllSlots}
+            applyLabel={applyLabel}
+            disableSlotActions={disableSlotActions}
           />
         </Box>
       </Box>

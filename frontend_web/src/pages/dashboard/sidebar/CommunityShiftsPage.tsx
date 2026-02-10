@@ -7,13 +7,17 @@ import {
   Shift,
   ShiftCounterOfferPayload,
   ShiftInterest,
+  ShiftOffer,
   PaginatedResponse,
   deleteSavedShift,
+  fetchShiftOffersService,
   expressInterestInCommunityShiftService,
   fetchCommunityShifts,
   fetchSavedShifts,
   fetchShiftInterests,
   fetchShiftRejections,
+  acceptShiftOfferService,
+  declineShiftOfferService,
   rejectCommunityShiftService,
   saveShift,
   submitShiftCounterOfferService,
@@ -53,8 +57,8 @@ const DEFAULT_FILTERS: FilterConfig = {
 };
 
 type CommunityShiftsPageProps = {
-  activeTabOverride?: 'browse' | 'saved' | 'interested' | 'rejected';
-  onActiveTabChange?: (tab: 'browse' | 'saved' | 'interested' | 'rejected') => void;
+  activeTabOverride?: 'browse' | 'saved' | 'interested' | 'rejected' | 'accepted';
+  onActiveTabChange?: (tab: 'browse' | 'saved' | 'interested' | 'rejected' | 'accepted') => void;
   hideTabs?: boolean;
 };
 
@@ -84,8 +88,29 @@ export default function CommunityShiftsPage({
   const [totalCount, setTotalCount] = useState<number | undefined>(undefined);
   const [savedShiftIds, setSavedShiftIds] = useState<Set<number>>(new Set());
   const [savedMap, setSavedMap] = useState<Map<number, number>>(new Map()); // shiftId -> savedId
-  const [boardTab, setBoardTab] = useState<'browse' | 'saved' | 'interested' | 'rejected'>(
+  const [boardTab, setBoardTab] = useState<'browse' | 'saved' | 'interested' | 'rejected' | 'accepted'>(
     activeTabOverride ?? 'browse'
+  );
+  const [offers, setOffers] = useState<ShiftOffer[]>([]);
+  const [offersLoading, setOffersLoading] = useState(false);
+  const showError = (message: string) =>
+    setError(message && message.trim().length > 0 ? message : 'Something went wrong. Please try again.');
+
+  const offersByShift = useMemo(() => {
+    const map = new Map<number, ShiftOffer[]>();
+    offers.forEach((offer) => {
+      const shift = offer.shiftDetail;
+      if (!shift) return;
+      const list = map.get(shift.id) ?? [];
+      list.push(offer);
+      map.set(shift.id, list);
+    });
+    return map;
+  }, [offers]);
+
+  const offerShifts = useMemo(
+    () => Array.from(offersByShift.keys()).map((id) => offersByShift.get(id)?.[0]?.shiftDetail).filter(Boolean) as Shift[],
+    [offersByShift]
   );
 
   useEffect(() => {
@@ -322,9 +347,42 @@ export default function CommunityShiftsPage({
     }
   };
 
-  const handleBoardTabChange = (tab: 'browse' | 'saved' | 'interested' | 'rejected') => {
+  const handleBoardTabChange = (tab: 'browse' | 'saved' | 'interested' | 'rejected' | 'accepted') => {
     setBoardTab(tab);
     onActiveTabChange?.(tab);
+  };
+
+  const loadOffers = useCallback(async () => {
+    setOffersLoading(true);
+    try {
+      const data = await fetchShiftOffersService({ status: 'PENDING' });
+      setOffers(data as ShiftOffer[]);
+    } catch (err) {
+      console.error('Failed to load offers', err);
+      showError('Failed to load offers.');
+    } finally {
+      setOffersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (boardTab === 'accepted') {
+      loadOffers();
+    }
+  }, [boardTab, loadOffers]);
+
+  const handleConfirmOfferShift = async (targetShift: Shift) => {
+    const list = offersByShift.get(targetShift.id) ?? [];
+    if (list.length === 0) return;
+    await Promise.all(list.map((offer) => acceptShiftOfferService(offer.id)));
+    await loadOffers();
+  };
+
+  const handleDeclineOfferShift = async (targetShift: Shift) => {
+    const list = offersByShift.get(targetShift.id) ?? [];
+    if (list.length === 0) return;
+    await Promise.all(list.map((offer) => declineShiftOfferService(offer.id)));
+    await loadOffers();
   };
 
   return (
@@ -428,6 +486,7 @@ export default function CommunityShiftsPage({
             <Tab value="saved" label={`Saved (${savedShiftIds.size})`} disableRipple />
             <Tab value="interested" label="Interested" disableRipple />
             <Tab value="rejected" label="Rejected" disableRipple />
+            <Tab value="accepted" label="Offers" disableRipple />
           </Tabs>
         )}
         <Box
@@ -437,7 +496,46 @@ export default function CommunityShiftsPage({
             pt: { xs: 2, md: 3 },
           }}
         >
-          {boardTab === 'browse' || boardTab === 'saved' || boardTab === 'interested' || boardTab === 'rejected' ? (
+          {boardTab === 'accepted' ? (
+            <Paper
+              elevation={0}
+              sx={{
+                p: { xs: 3, md: 4 },
+                borderRadius: 3,
+                border: `1px dashed ${alpha(theme.palette.divider, 0.8)}`,
+              }}
+            >
+              {offersLoading ? (
+                <Typography color="text.secondary">Loading offers...</Typography>
+              ) : offerShifts.length === 0 ? (
+                <>
+                  <Typography variant="h6" gutterBottom>
+                    Offers
+                  </Typography>
+                  <Typography color="text.secondary">No pending offers yet.</Typography>
+                </>
+              ) : (
+                <ShiftsBoard
+                  title="Offers"
+                  shifts={offerShifts}
+                  loading={offersLoading}
+                  onApplyAll={handleConfirmOfferShift}
+                  onApplySlot={handleConfirmOfferShift}
+                  onSubmitCounterOffer={handleSubmitCounterOffer}
+                  onRejectShift={handleDeclineOfferShift}
+                  onRejectSlot={undefined}
+                  enableSaved={false}
+                  hideSaveToggle
+                  hideFiltersAndSort
+                  hideTabs
+                  disableLocalPersistence
+                  applyLabel="Confirm"
+                  disableSlotActions
+                  onRefresh={loadOffers}
+                />
+              )}
+            </Paper>
+          ) : boardTab === 'browse' || boardTab === 'saved' || boardTab === 'interested' || boardTab === 'rejected' ? (
             (() => {
               const slotFilterMode =
                 boardTab === 'interested' ? 'interested' : boardTab === 'rejected' ? 'rejected' : 'all';

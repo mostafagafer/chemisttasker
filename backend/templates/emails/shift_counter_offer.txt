@@ -8,7 +8,6 @@ Summary:
 {% endfor %}
 {% if not slots %}- No specific slots provided.{% endif %}
 
-{% if message %}Message: {{ message }}{% endif %}
 {% if request_travel %}Travel allowance requested.{% endif %}
 {% if travel_origin %}Traveling from: {{ travel_origin }}{% endif %}
 

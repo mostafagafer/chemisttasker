@@ -3,18 +3,22 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Card, Snackbar, SegmentedButtons, Text } from 'react-native-paper';
+import { ActivityIndicator, Card, Snackbar, SegmentedButtons, Text, Button } from 'react-native-paper';
 import {
     Shift,
     ShiftCounterOfferPayload,
     ShiftInterest,
+    ShiftOffer,
     PaginatedResponse,
     deleteSavedShift,
+    fetchShiftOffersService,
     expressInterestInCommunityShiftService,
     fetchCommunityShifts,
     fetchSavedShifts,
     fetchShiftInterests,
     fetchShiftRejections,
+    acceptShiftOfferService,
+    declineShiftOfferService,
     rejectCommunityShiftService,
     saveShift,
     submitShiftCounterOfferService,
@@ -25,8 +29,8 @@ import ShiftsBoard from './ShiftsBoard';
 import type { FilterConfig } from './ShiftsBoard/types';
 
 type CommunityShiftsViewProps = {
-    activeTabOverride?: 'browse' | 'saved' | 'interested' | 'rejected';
-    onActiveTabChange?: (tab: 'browse' | 'saved' | 'interested' | 'rejected') => void;
+    activeTabOverride?: 'browse' | 'saved' | 'interested' | 'rejected' | 'accepted';
+    onActiveTabChange?: (tab: 'browse' | 'saved' | 'interested' | 'rejected' | 'accepted') => void;
     hideTabs?: boolean;
     hideHero?: boolean;
     onScroll?: (event: any) => void;
@@ -75,9 +79,16 @@ export default function CommunityShiftsView({
     const [totalCount, setTotalCount] = useState<number | undefined>(undefined);
     const [savedShiftIds, setSavedShiftIds] = useState<Set<number>>(new Set());
     const [savedMap, setSavedMap] = useState<Map<number, number>>(new Map());
-    const [boardTab, setBoardTab] = useState<'browse' | 'saved' | 'interested' | 'rejected'>(
+    const [boardTab, setBoardTab] = useState<'browse' | 'saved' | 'interested' | 'rejected' | 'accepted'>(
         activeTabOverride ?? 'browse'
     );
+    const [offers, setOffers] = useState<ShiftOffer[]>([]);
+    const [offersLoading, setOffersLoading] = useState(false);
+
+    const showError = (message: string) => {
+        const msg = message && message.trim().length > 0 ? message : 'Something went wrong. Please try again.';
+        setError(msg);
+    };
 
     useEffect(() => {
         if (activeTabOverride) {
@@ -291,10 +302,61 @@ export default function CommunityShiftsView({
         setPage(1);
     };
 
-    const handleBoardTabChange = (tab: 'browse' | 'saved' | 'interested' | 'rejected') => {
+    const handleBoardTabChange = (tab: 'browse' | 'saved' | 'interested' | 'rejected' | 'accepted') => {
         setBoardTab(tab);
         onActiveTabChange?.(tab);
     };
+
+    const loadOffers = useCallback(async () => {
+        setOffersLoading(true);
+        try {
+            const data = await fetchShiftOffersService({ status: 'PENDING' });
+            setOffers(data as ShiftOffer[]);
+        } catch (err) {
+            console.error('Failed to load offers', err);
+            showError('Failed to load offers.');
+        } finally {
+            setOffersLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (boardTab === 'accepted') {
+            loadOffers();
+        }
+    }, [boardTab, loadOffers]);
+
+    const offersByShift = useMemo(() => {
+        const map = new Map<number, ShiftOffer[]>();
+        offers.forEach((offer) => {
+            const shift = offer.shiftDetail;
+            if (!shift) return;
+            const list = map.get(shift.id) ?? [];
+            list.push(offer);
+            map.set(shift.id, list);
+        });
+        return map;
+    }, [offers]);
+
+    const offerShifts = useMemo(
+        () => Array.from(offersByShift.keys()).map((id) => offersByShift.get(id)?.[0]?.shiftDetail).filter(Boolean) as Shift[],
+        [offersByShift]
+    );
+
+    const handleConfirmOfferShift = async (targetShift: Shift) => {
+        const list = offersByShift.get(targetShift.id) ?? [];
+        if (list.length == 0) return;
+        await Promise.all(list.map((offer) => acceptShiftOfferService(offer.id)));
+        await loadOffers();
+    };
+
+    const handleDeclineOfferShift = async (targetShift: Shift) => {
+        const list = offersByShift.get(targetShift.id) ?? [];
+        if (list.length == 0) return;
+        await Promise.all(list.map((offer) => declineShiftOfferService(offer.id)));
+        await loadOffers();
+    };
+
 
     const slotFilterMode =
         boardTab === 'interested' ? 'interested' : boardTab === 'rejected' ? 'rejected' : 'all';
@@ -367,40 +429,78 @@ export default function CommunityShiftsView({
                             { value: 'saved', label: `Saved (${savedShiftIds.size})` },
                             { value: 'interested', label: 'Interested' },
                             { value: 'rejected', label: 'Rejected' },
+                            { value: 'accepted', label: 'Offers' },
                         ]}
                         theme={{ colors: { secondaryContainer: '#EEF2FF', onSecondaryContainer: '#6366F1' } }}
                     />
                 </View>
             )}
-            <ShiftsBoard
-                title="Community Shifts"
-                shifts={shifts}
-                loading={loading}
-                useServerFiltering
-                filters={filters}
-                onFiltersChange={handleFiltersChange}
-                totalCount={totalCount}
-                page={page}
-                pageSize={pageSize}
-                onPageChange={setPage}
-                savedShiftIds={Array.from(savedShiftIds)}
-                onToggleSave={handleToggleSave}
-                onApplyAll={handleApplyAll}
-                onApplySlot={handleApplySlot}
-                onSubmitCounterOffer={handleSubmitCounterOffer}
-                initialAppliedShiftIds={appliedShiftIds}
-                initialAppliedSlotIds={appliedSlotIds}
-                onRejectShift={handleRejectShift}
-                onRejectSlot={handleRejectSlot}
-                initialRejectedShiftIds={rejectedShiftIds}
-                initialRejectedSlotIds={rejectedSlotIds}
-                hideTabs
-                activeTabOverride={boardTabForBoard}
-                onActiveTabChange={(tab) => handleBoardTabChange(tab as any)}
-                onRefresh={() => loadShifts(filters, page)}
-                slotFilterMode={slotFilterMode}
-                onScroll={handleScroll}
-            />
+            {boardTab === 'accepted' ? (
+                <View style={styles.placeholderCard}>
+                    {offersLoading ? (
+                        <ActivityIndicator style={styles.placeholderLoader} />
+                    ) : offerShifts.length === 0 ? (
+                        <>
+                            <Text variant="titleMedium" style={styles.placeholderTitle}>
+                                Offers
+                            </Text>
+                            <Text variant="bodyMedium" style={styles.placeholderText}>
+                                No pending offers yet.
+                            </Text>
+                        </>
+                    ) : (
+                        <ShiftsBoard
+                            title="Offers"
+                            shifts={offerShifts}
+                            loading={offersLoading}
+                            onApplyAll={handleConfirmOfferShift}
+                            onApplySlot={handleConfirmOfferShift}
+                            onSubmitCounterOffer={handleSubmitCounterOffer}
+                            onRejectShift={handleDeclineOfferShift}
+                            onRejectSlot={undefined}
+                            enableSaved={false}
+                            hideSaveToggle
+                            hideFiltersAndSort
+                            hideTabs
+                            disableLocalPersistence
+                            applyLabel="Confirm"
+                            disableSlotActions
+                            onRefresh={loadOffers}
+                            onScroll={onScroll}
+                        />
+                    )}
+                </View>
+            ) : (
+                <ShiftsBoard
+                    title="Community Shifts"
+                    shifts={shifts}
+                    loading={loading}
+                    useServerFiltering
+                    filters={filters}
+                    onFiltersChange={handleFiltersChange}
+                    totalCount={totalCount}
+                    page={page}
+                    pageSize={pageSize}
+                    onPageChange={setPage}
+                    savedShiftIds={Array.from(savedShiftIds)}
+                    onToggleSave={handleToggleSave}
+                    onApplyAll={handleApplyAll}
+                    onApplySlot={handleApplySlot}
+                    onSubmitCounterOffer={handleSubmitCounterOffer}
+                    initialAppliedShiftIds={appliedShiftIds}
+                    initialAppliedSlotIds={appliedSlotIds}
+                    onRejectShift={handleRejectShift}
+                    onRejectSlot={handleRejectSlot}
+                    initialRejectedShiftIds={rejectedShiftIds}
+                    initialRejectedSlotIds={rejectedSlotIds}
+                    hideTabs
+                    activeTabOverride={boardTabForBoard}
+                    onActiveTabChange={(tab) => handleBoardTabChange(tab as any)}
+                    onRefresh={() => loadShifts(filters, page)}
+                    slotFilterMode={slotFilterMode}
+                    onScroll={handleScroll}
+                />
+            )}
             <Snackbar
                 visible={!!error}
                 onDismiss={() => setError(null)}
@@ -446,5 +546,50 @@ const styles = StyleSheet.create({
     tabsContainer: {
         paddingHorizontal: 16,
         paddingVertical: 8,
+    },
+    placeholderCard: {
+        marginHorizontal: 16,
+        marginTop: 8,
+        padding: 16,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderStyle: 'dashed',
+        borderColor: '#D1D5DB',
+        backgroundColor: '#FFFFFF',
+        alignItems: 'center',
+    },
+    placeholderTitle: {
+        fontWeight: '700',
+        marginBottom: 6,
+        textAlign: 'center',
+    },
+    placeholderText: {
+        color: '#6B7280',
+        textAlign: 'center',
+    },
+    placeholderLoader: {
+        marginTop: 8,
+    },
+    offerList: {
+        width: '100%',
+        marginTop: 12,
+        gap: 12,
+    },
+    offerCard: {
+        borderRadius: 12,
+        backgroundColor: '#FFFFFF',
+    },
+    offerTitle: {
+        fontWeight: '700',
+        marginBottom: 4,
+    },
+    offerMeta: {
+        color: '#6B7280',
+        marginBottom: 4,
+    },
+    offerActions: {
+        flexDirection: 'row',
+        gap: 8,
+        marginTop: 8,
     },
 });

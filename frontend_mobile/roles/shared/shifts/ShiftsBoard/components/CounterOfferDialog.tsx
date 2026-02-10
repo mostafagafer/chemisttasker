@@ -19,12 +19,10 @@ type CounterOfferDialogProps = {
     counterOfferTravelLocation: TravelLocation;
     hasCounterOfferTravelLocation: boolean;
     counterSubmitting: boolean;
-    counterOfferMessage: string;
     onCounterSlotChange: (index: number, key: keyof CounterOfferFormSlot, value: string) => void;
     onCounterOfferTravelChange: (checked: boolean) => void;
     setCounterOfferTravelLocation: React.Dispatch<React.SetStateAction<TravelLocation>>;
     onClearTravelLocation: () => void;
-    onMessageChange: (value: string) => void;
     onSubmit: () => void;
 };
 
@@ -38,12 +36,10 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
     counterOfferTravelLocation,
     hasCounterOfferTravelLocation,
     counterSubmitting,
-    counterOfferMessage,
     onCounterSlotChange,
     onCounterOfferTravelChange,
     setCounterOfferTravelLocation,
     onClearTravelLocation,
-    onMessageChange,
     onSubmit,
 }) => (
     <Portal>
@@ -243,15 +239,6 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                                 </Card>
                             )}
 
-                            <TextInput
-                                label="Message"
-                                value={counterOfferMessage}
-                                onChangeText={onMessageChange}
-                                multiline
-                                numberOfLines={3}
-                                style={styles.messageInput}
-                                mode="outlined"
-                            />
                         </View>
                     )}
                 </ScrollView>
@@ -339,9 +326,6 @@ const styles = StyleSheet.create({
     },
     clearButton: {
         marginTop: 8,
-    },
-    messageInput: {
-        marginTop: 12,
     },
 });
 

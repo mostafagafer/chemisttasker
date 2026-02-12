@@ -164,6 +164,11 @@ export default function PharmacistProfileScreen() {
 
   const supportItems = [
     {
+      title: 'Contact Us',
+      icon: 'message-text-outline',
+      onPress: () => router.push('/contact' as any),
+    },
+    {
       title: 'Terms of Service',
       icon: 'file-document',
       onPress: () => {

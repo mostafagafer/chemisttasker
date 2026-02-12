@@ -10,6 +10,7 @@ export const API_ENDPOINTS = {
     verifyOtp: "/users/verify-otp/",
     resendOtp: "/users/resend-otp/",
     deleteAccount: "/account/",
+    contactSupport: '/users/contact/',
 
 
     // --- Mobile OTP (users app) ---

@@ -261,6 +261,13 @@ export default function OwnerProfileScreen() {
           <Text variant="titleSmall" style={styles.sectionTitle}>Support</Text>
           <Surface style={styles.listSurface} elevation={0}>
             <List.Item
+              title="Contact Us"
+              left={props => <List.Icon {...props} icon="message-text-outline" />}
+              right={props => <List.Icon {...props} icon="chevron-right" />}
+              onPress={() => router.push('/contact' as any)}
+            />
+            <Divider />
+            <List.Item
               title="Terms of Service"
               left={props => <List.Icon {...props} icon="file-document" />}
               right={props => <List.Icon {...props} icon="chevron-right" />}

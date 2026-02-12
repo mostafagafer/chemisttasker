@@ -133,3 +133,29 @@ class DeviceToken(models.Model):
 
     def __str__(self):
         return f"{self.user.email} ({self.platform})"
+
+
+class ContactMessage(models.Model):
+    class Source(models.TextChoices):
+        WEB = 'web', 'Web'
+        MOBILE = 'mobile', 'Mobile'
+
+    user = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='contact_messages',
+    )
+    name = models.CharField(max_length=200)
+    email = models.EmailField()
+    phone = models.CharField(max_length=50, blank=True, default='')
+    subject = models.CharField(max_length=200)
+    message = models.TextField()
+    source = models.CharField(max_length=20, choices=Source.choices, default=Source.WEB)
+    page_url = models.URLField(blank=True, default='')
+    app_version = models.CharField(max_length=50, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.subject} ({self.email})"

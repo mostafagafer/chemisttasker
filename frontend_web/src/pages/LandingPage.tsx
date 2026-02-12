@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AppBar, Box, Button, Container, CssBaseline, IconButton, Menu, MenuItem, ThemeProvider,
-  Toolbar, Typography, createTheme, styled, Modal, Link
+  Toolbar, Typography, createTheme, styled, Modal, Link, TextField, Snackbar, Alert
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import * as THREE from 'three';
 import YouTube from 'react-youtube';
 import logoBanner from '../assets/logo-banner.jpg';
 import { setCanonical, setPageMeta, setSocialMeta } from '../utils/seo';
+import { contactSupport } from '@chemisttasker/shared-core';
 
 // --- Constants ---
 const PAGE_ROUTES = {
@@ -104,6 +105,7 @@ function LandingPage() {
             <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'flex' }, justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
               <Button onClick={() => handleNavClick('#how-it-works')} sx={{ color: 'text.primary', fontWeight: 500 }}>How It Works</Button>
               <Button onClick={() => handleNavClick('#for-who')} sx={{ color: 'text.primary', fontWeight: 500 }}>For Who?</Button>
+              <Button onClick={() => handleNavClick('#contact')} sx={{ color: 'text.primary', fontWeight: 500 }}>Contact</Button>
               <Button href={PAGE_ROUTES.login} sx={{ color: 'text.primary', fontWeight: 500 }}>Login</Button>
               <CtaButton href={PAGE_ROUTES.register} variant="contained" size="small" sx={{ px: 2.5, py: 1 }}>Sign Up</CtaButton>
             </Box>
@@ -117,6 +119,7 @@ function LandingPage() {
                 sx={{ display: { xs: 'block', md: 'none' } }}>
                 <MenuItem onClick={() => handleNavClick('#how-it-works')}><Typography>How It Works</Typography></MenuItem>
                 <MenuItem onClick={() => handleNavClick('#for-who')}><Typography>For Who?</Typography></MenuItem>
+                <MenuItem onClick={() => handleNavClick('#contact')}><Typography>Contact</Typography></MenuItem>
                 <MenuItem component="a" href={PAGE_ROUTES.login}><Typography>Login</Typography></MenuItem>
                 <MenuItem component="a" href={PAGE_ROUTES.register}>
                   <CtaButton variant="contained" fullWidth>Sign Up</CtaButton>
@@ -124,13 +127,14 @@ function LandingPage() {
               </Menu>
             </Box>
           </Toolbar>
-        </Container>``
+        </Container>
       </AppBar>
 
       <main>
         <HeroSection />
         <HowItWorksSplitSection />
         <ForWhoSection />
+        <ContactSection />
         <FinalCTASection />
       </main>
 
@@ -556,6 +560,89 @@ const ForWhoSection: React.FC = () => (
     </Container>
   </Box>
 );
+
+// --- Contact Section ---
+const ContactSection: React.FC = () => {
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    subject: '',
+    message: '',
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [toast, setToast] = useState<{ open: boolean; severity: 'success' | 'error'; message: string }>({
+    open: false,
+    severity: 'success',
+    message: '',
+  });
+
+  const handleChange = (field: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    setForm(prev => ({ ...prev, [field]: event.target.value }));
+  };
+
+  const handleSubmit = async () => {
+    if (!form.name.trim() || !form.email.trim() || !form.subject.trim() || !form.message.trim()) {
+      setToast({ open: true, severity: 'error', message: 'Please complete all required fields.' });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await contactSupport({
+        ...form,
+        source: 'web',
+        page_url: window.location.href,
+      });
+      setToast({ open: true, severity: 'success', message: 'Thanks! Your message has been sent.' });
+      setForm({ name: '', email: '', phone: '', subject: '', message: '' });
+    } catch (err: any) {
+      setToast({ open: true, severity: 'error', message: err?.message || 'Failed to send message.' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Box id="contact" component="section" sx={{ py: { xs: 10, md: 12 }, bgcolor: '#f4f7fb' }}>
+      <Container>
+        <Box sx={{ textAlign: 'center', mb: 6 }}>
+          <Typography variant="h2" component="h2">Contact Us</Typography>
+          <Typography color="text.primary" sx={{ mt: 2, maxWidth: '42rem', mx: 'auto' }}>
+            Questions about ChemistTasker? Send us a message and we'll respond ASAP.
+          </Typography>
+        </Box>
+        <Box sx={{ maxWidth: 720, mx: 'auto', bgcolor: '#ffffff', borderRadius: 3, p: { xs: 3, md: 4 }, boxShadow: '0 12px 30px rgba(15, 23, 42, 0.08)' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+            <TextField label="Full Name" value={form.name} onChange={handleChange('name')} required />
+            <TextField label="Email" type="email" value={form.email} onChange={handleChange('email')} required />
+            <TextField label="Phone (optional)" value={form.phone} onChange={handleChange('phone')} />
+            <TextField label="Subject" value={form.subject} onChange={handleChange('subject')} required />
+          </Box>
+          <TextField
+            label="Message"
+            value={form.message}
+            onChange={handleChange('message')}
+            required
+            multiline
+            minRows={5}
+            sx={{ mt: 2 }}
+            fullWidth
+          />
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
+            <CtaButton onClick={handleSubmit} disabled={submitting} sx={{ px: 4, py: 1.2 }}>
+              {submitting ? 'Sendingâ€¦' : 'Send Message'}
+            </CtaButton>
+          </Box>
+        </Box>
+        <Snackbar open={toast.open} autoHideDuration={4000} onClose={() => setToast(prev => ({ ...prev, open: false }))}>
+          <Alert severity={toast.severity} onClose={() => setToast(prev => ({ ...prev, open: false }))}>
+            {toast.message}
+          </Alert>
+        </Snackbar>
+      </Container>
+    </Box>
+  );
+};
 
 // --- Final CTA Section ---
 const FinalCTASection: React.FC = () => (

@@ -15,15 +15,14 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Allow camera access to add profile photos.",
         "NSPhotoLibraryUsageDescription": "Allow photo library access to upload profile photos and attachments.",
-        "NSPhotoLibraryAddUsageDescription": "Allow saving images to your photo library."
+        "NSPhotoLibraryAddUsageDescription": "Allow saving images to your photo library.",
+        "ITSAppUsesNonExemptEncryption": false
       },
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
           {
             "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
-            "NSPrivacyAccessedAPITypeReasons": [
-              "CA92.1"
-            ]
+            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
           }
         ],
         "NSPrivacyCollectedDataTypes": [
@@ -79,7 +78,18 @@
       "expo-web-browser",
       "@react-native-firebase/app",
       "@react-native-firebase/crashlytics",
-      "expo-secure-store"
+      "./plugins/withIosNonModularHeaders",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static",
+            "extraPods": [],
+            "flipper": false,
+            "deploymentTarget": "15.1"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

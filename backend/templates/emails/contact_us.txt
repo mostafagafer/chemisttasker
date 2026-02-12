@@ -1,0 +1,14 @@
+New Contact Us Message
+
+Name: {{ name }}
+Email: {{ email }}
+{% if phone %}Phone: {{ phone }}
+{% endif %}Subject: {{ subject }}
+Source: {{ source }}
+{% if page_url %}Page: {{ page_url }}
+{% endif %}{% if app_version %}App Version: {{ app_version }}
+{% endif %}
+Message:
+{{ message }}
+
+Submitted at: {{ submitted_at }}

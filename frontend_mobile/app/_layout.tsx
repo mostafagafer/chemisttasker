@@ -62,7 +62,7 @@ function AuthGate() {
   useEffect(() => {
     if (isLoading) return;
     const top = segments[0];
-    const publicRoutes = new Set(['login', 'register', 'welcome', 'verify-otp', 'index']);
+    const publicRoutes = new Set(['login', 'register', 'welcome', 'verify-otp', 'index', 'contact']);
     const isPublic = publicRoutes.has(top ?? '');
 
     if (!user && !isPublic) {

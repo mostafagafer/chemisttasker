@@ -6,7 +6,7 @@ from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
 from rest_framework_simplejwt.tokens      import RefreshToken
 from client_profile.models import Organization
-from .models import OrganizationMembership
+from .models import OrganizationMembership, ContactMessage
 import random
 from django.utils import timezone
 from client_profile.models import Pharmacy, Membership as PharmacyMembership
@@ -444,4 +444,40 @@ class InviteOrgUserSerializer(serializers.Serializer):
             })
 
         attrs['pharmacies'] = supplied_pharmacies
+        return attrs
+
+
+class ContactMessageCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContactMessage
+        fields = (
+            'id',
+            'name',
+            'email',
+            'phone',
+            'subject',
+            'message',
+            'source',
+            'page_url',
+            'app_version',
+            'created_at',
+        )
+        read_only_fields = ('id', 'created_at')
+
+    def validate(self, attrs):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if user and user.is_authenticated:
+            if not attrs.get('email'):
+                attrs['email'] = user.email
+            if not attrs.get('name'):
+                attrs['name'] = user.get_full_name() or user.email
+        if not attrs.get('name'):
+            raise serializers.ValidationError({'name': 'Name is required.'})
+        if not attrs.get('email'):
+            raise serializers.ValidationError({'email': 'Email is required.'})
+        if not attrs.get('subject'):
+            raise serializers.ValidationError({'subject': 'Subject is required.'})
+        if not attrs.get('message'):
+            raise serializers.ValidationError({'message': 'Message is required.'})
         return attrs

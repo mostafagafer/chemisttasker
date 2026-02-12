@@ -287,6 +287,9 @@ export function passwordReset(email) {
 export function passwordResetConfirm(data) {
     return fetchApi('/users/password-reset-confirm/', { method: 'POST', body: JSON.stringify(data), skipAuth: true });
 }
+export function contactSupport(payload) {
+    return fetchApi(API_ENDPOINTS.contactSupport, { method: 'POST', body: JSON.stringify(payload) });
+}
 export function inviteOrgUser(data) {
     return fetchApi('/users/invite-org-user/', { method: 'POST', body: JSON.stringify(data) });
 }

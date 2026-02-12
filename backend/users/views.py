@@ -8,10 +8,10 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.crypto import get_random_string
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
-from .models import OrganizationMembership
+from .models import OrganizationMembership, ContactMessage
 from client_profile.admin_helpers import admin_assignments_for
 from client_profile.models import Membership, Pharmacy
-from .serializers import InviteOrgUserSerializer
+from .serializers import InviteOrgUserSerializer, ContactMessageCreateSerializer
 from .permissions import OrganizationRolePermission
 from .org_roles import (
     ADMIN_LEVEL_DEFINITIONS,
@@ -564,6 +564,37 @@ class PasswordResetRequestAPIView(APIView):
             )
         # Always succeed (do not reveal which emails are registered)
         return Response({'detail': 'If this email exists, a reset link has been sent.'})
+
+
+class ContactMessageCreateView(generics.CreateAPIView):
+    serializer_class = ContactMessageCreateSerializer
+    permission_classes = [permissions.AllowAny]
+    queryset = ContactMessage.objects.all()
+
+    def perform_create(self, serializer):
+        user = self.request.user if self.request.user and self.request.user.is_authenticated else None
+        contact = serializer.save(user=user)
+
+        support_email = getattr(settings, 'SUPPORT_EMAIL', settings.DEFAULT_FROM_EMAIL)
+        context = {
+            'name': contact.name,
+            'email': contact.email,
+            'phone': contact.phone,
+            'subject': contact.subject,
+            'message': contact.message,
+            'source': contact.source,
+            'page_url': contact.page_url,
+            'app_version': contact.app_version,
+            'submitted_at': contact.created_at,
+        }
+
+        send_async_email(
+            subject=f"Contact Us: {contact.subject}",
+            recipient_list=[support_email],
+            template_name="emails/contact_us.html",
+            context=context,
+            text_template="emails/contact_us.txt",
+        )
 
 class InviteOrgUserView(generics.CreateAPIView):
     """

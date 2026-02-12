@@ -46,7 +46,7 @@ eas build:download --platform android --latest
 
 
 eas build -p android --profile production
-
+eas build -p ios --profile production --clear-cache
 =========================
 
 
@@ -206,7 +206,7 @@ del /f /q package-lock.json
 del /f /q *.tgz
 copy /Y ..\shared-core\chemisttasker-shared-core-1.0.0.tgz .\
 
-npm install
+npm install --include=dev
 
 cd ..\frontend_web
 rmdir /s /q node_modules

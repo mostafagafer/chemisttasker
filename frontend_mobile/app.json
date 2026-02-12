@@ -78,7 +78,6 @@
       "expo-web-browser",
       "@react-native-firebase/app",
       "@react-native-firebase/crashlytics",
-      "./plugins/withIosNonModularHeaders",
       [
         "expo-build-properties",
         {
@@ -89,7 +88,8 @@
             "deploymentTarget": "15.1"
           }
         }
-      ]
+      ],
+      "./plugins/withIosNonModularHeaders"
     ],
     "experiments": {
       "typedRoutes": true

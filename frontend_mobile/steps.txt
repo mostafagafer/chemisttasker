@@ -47,6 +47,10 @@ eas build:download --platform android --latest
 
 eas build -p android --profile production
 eas build -p ios --profile production --clear-cache
+
+then this
+eas submit -p ios --profile production
+
 =========================
 
 

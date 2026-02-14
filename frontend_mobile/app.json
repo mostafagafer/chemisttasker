@@ -83,6 +83,8 @@
         {
           "ios": {
             "useFrameworks": "static",
+            "useModularHeaders": true,
+            "buildReactNativeFromSource": true,
             "extraPods": [],
             "flipper": false,
             "deploymentTarget": "15.1"

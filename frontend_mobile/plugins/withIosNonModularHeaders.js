@@ -8,23 +8,13 @@ const MARKER_END = "# END CHEMISTTASKER NON-MODULAR HEADERS";
 const POST_INSTALL_SNIPPET = `${MARKER_BEGIN}
   installer.pods_project.targets.each do |target|
     target.build_configurations.each do |config|
+      # Allow non-modular React headers inside RNFirebase framework modules
       config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+      # Prevent warnings like -Wimplicit-int from becoming hard errors in Pods
+      config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
     end
   end
 ${MARKER_END}`;
-
-function addUseModularHeaders(podfile) {
-  if (podfile.includes("use_modular_headers!")) {
-    return podfile;
-  }
-
-  const platformRegex = /^platform\s+:ios.*$/m;
-  if (platformRegex.test(podfile)) {
-    return podfile.replace(platformRegex, (match) => `${match}\nuse_modular_headers!`);
-  }
-
-  return `use_modular_headers!\n${podfile}`;
-}
 
 function addOrUpdatePostInstallSnippet(podfile) {
   if (podfile.includes(MARKER_BEGIN)) {
@@ -55,7 +45,7 @@ module.exports = function withIosNonModularHeaders(config) {
       }
 
       let podfile = fs.readFileSync(podfilePath, "utf8");
-      const updated = addOrUpdatePostInstallSnippet(addUseModularHeaders(podfile));
+      const updated = addOrUpdatePostInstallSnippet(podfile);
 
       if (updated !== podfile) {
         fs.writeFileSync(podfilePath, updated);

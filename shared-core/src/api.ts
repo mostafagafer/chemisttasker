@@ -1260,9 +1260,6 @@ export function likeExplorerPost(id) {
 export function unlikeExplorerPost(id) {
     return fetchApi(`/client-profile/explorer-posts/${id}/unlike/`, { method: 'POST' });
 }
-export function getExplorerPostAttachments(id) {
-    return fetchApi(`/client-profile/explorer-posts/${id}/attachments/`);
-}
 export function createExplorerPost(data) {
     const body = data instanceof FormData ? data : JSON.stringify(data);
     return fetchApi('/client-profile/explorer-posts/', { method: 'POST', body });
@@ -1289,9 +1286,6 @@ export function updateExplorerPost(id, data) {
 }
 export function deleteExplorerPost(id) {
     return fetchApi(`/client-profile/explorer-posts/${id}/`, { method: 'DELETE' });
-}
-export function createExplorerPostAttachment(postId, data) {
-    return fetchApi(`/client-profile/explorer-posts/${postId}/attachments/`, { method: 'POST', body: data });
 }
 // ============ RATINGS ============
 export function getRatings(params) {

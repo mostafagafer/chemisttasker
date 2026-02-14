@@ -15,6 +15,7 @@ interface CommunityLevelViewProps {
     shift: Shift;
     members: ShiftMemberStatus[];
     selectedSlotId: number | null;
+    slotHasUpdates?: Record<number, boolean>;
     offers: any[];
     onSelectSlot: (slotId: number) => void;
     onReviewCandidate: (member: ShiftMemberStatus, shiftId: number, offer: any | null, slotId: number | null) => void;
@@ -25,6 +26,7 @@ export const CommunityLevelView: React.FC<CommunityLevelViewProps> = ({
     shift,
     members,
     selectedSlotId,
+    slotHasUpdates,
     offers,
     onSelectSlot,
     onReviewCandidate,
@@ -61,6 +63,7 @@ export const CommunityLevelView: React.FC<CommunityLevelViewProps> = ({
                     slots={slots}
                     selectedSlotId={selectedSlotId}
                     onSelectSlot={onSelectSlot}
+                    slotHasUpdates={slotHasUpdates}
                 />
             )}
 

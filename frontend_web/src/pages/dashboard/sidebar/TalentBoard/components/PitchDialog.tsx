@@ -21,7 +21,6 @@ import {
 } from "@mui/material";
 import { DateCalendar, LocalizationProvider, TimePicker } from "@mui/x-date-pickers";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
-import { UploadFile as UploadFileIcon } from "@mui/icons-material";
 import { GoogleMap, Marker, Circle, Autocomplete, useJsApiLoader } from "@react-google-maps/api";
 import dayjs, { Dayjs } from "dayjs";
 type PitchAvailabilityEntry = {
@@ -46,29 +45,11 @@ export type PitchFormState = {
   latitude: number | null;
   longitude: number | null;
   googlePlaceId: string;
-  files: File[];
   availabilitySlots: PitchAvailabilityEntry[];
-};
-
-export type PitchAttachment = {
-  id: number;
-  file: string;
-  kind: string;
-  caption?: string | null;
 };
 
 const radiusOptions = [5, 10, 20, 30, 40, 50, 75, 100, 150, 200, 250, 300, 500, 1000];
 const stateOptions = ["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"];
-
-const getFileName = (value?: string | null) => {
-  if (!value) return "";
-  try {
-    const clean = value.split("?")[0];
-    return clean.split("/").pop() || clean;
-  } catch {
-    return value;
-  }
-};
 
 const titleCase = (value: string) =>
   value
@@ -87,10 +68,6 @@ export default function PitchDialog(props: {
   onClose: () => void;
   onSave: () => void;
   onDelete: () => void;
-  existingAttachments: PitchAttachment[];
-  onExistingAttachmentRemove: (id: number) => void;
-  onFilePick: (event: React.ChangeEvent<HTMLInputElement>) => void;
-  onFileRemove: (index: number) => void;
 }) {
   const {
     open,
@@ -103,10 +80,6 @@ export default function PitchDialog(props: {
     onClose,
     onSave,
     onDelete,
-    existingAttachments,
-    onExistingAttachmentRemove,
-    onFilePick,
-    onFileRemove,
   } = props;
 
   const { isLoaded: isMapsLoaded } = useJsApiLoader({
@@ -291,28 +264,6 @@ export default function PitchDialog(props: {
               value={pitchForm.body}
               onChange={(event) => setPitchForm((prev) => ({ ...prev, body: event.target.value }))}
             />
-            <Button variant="outlined" component="label" startIcon={<UploadFileIcon />}>
-              Add attachments
-              <input hidden type="file" multiple onChange={onFilePick} />
-            </Button>
-            {existingAttachments.length > 0 && (
-              <Stack direction="row" spacing={1} flexWrap="wrap">
-                {existingAttachments.map((att) => (
-                  <Chip
-                    key={att.id}
-                    label={getFileName(att.file) || att.caption || `Attachment ${att.id}`}
-                    onDelete={() => onExistingAttachmentRemove(att.id)}
-                  />
-                ))}
-              </Stack>
-            )}
-            {pitchForm.files.length > 0 && (
-              <Stack direction="row" spacing={1} flexWrap="wrap">
-                {pitchForm.files.map((file, idx) => (
-                  <Chip key={`${file.name}-${idx}`} label={file.name} onDelete={() => onFileRemove(idx)} />
-                ))}
-              </Stack>
-            )}
           </Stack>
         )}
 

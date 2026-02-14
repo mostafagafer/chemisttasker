@@ -26,7 +26,7 @@ export default function CustomAppTitle({
 }: Props) {
   const { isAdminUser, activePersona } = useAuth();
   const [verified, setVerified] = React.useState<boolean>(false);
-  const { workspace, setWorkspace } = useWorkspace();
+  const { workspace, setWorkspace, canUseInternal } = useWorkspace();
 
   const isAdminPersona = activePersona === "admin" && isAdminUser;
 
@@ -36,7 +36,7 @@ export default function CustomAppTitle({
   const roleKey = rawRole === "other_staff" ? "otherstaff" : rawRole;
   // Visibility: ONLY Pharmacist and Other Staff get the switcher
   const isSwitcherVisible =
-    activePersona === "staff" && (rawRole === "pharmacist" || rawRole === "other_staff");
+    canUseInternal && activePersona === "staff" && (rawRole === "pharmacist" || rawRole === "other_staff");
 
   // Title that reflects role; treat Pharmacy Admin like Owner
   const roleTitle =

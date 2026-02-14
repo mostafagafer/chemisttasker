@@ -7,7 +7,7 @@ import {
 } from "@mui/icons-material";
 import { useTalentFeed } from "./hooks/useTalentFeed";
 import { useTalentFilters } from "./hooks/useTalentFilters";
-import PitchDialog, { PitchFormState, PitchAttachment } from "./components/PitchDialog";
+import PitchDialog, { PitchFormState } from "./components/PitchDialog";
 import AvailabilitySidebar from "./components/AvailabilitySidebar";
 import TalentCardV2 from "./components/TalentCardV2";
 import FiltersSidebar, { TalentFilterState } from "./components/FiltersSidebar";
@@ -17,7 +17,6 @@ import { ENGAGEMENT_LABELS } from "./constants";
 import { useAuth } from "../../../../contexts/AuthContext";
 import {
   createExplorerPost,
-  createExplorerPostAttachment,
   deleteExplorerPost,
   getOnboarding,
   getRatingsSummary,
@@ -107,7 +106,7 @@ type TalentBoardProps = {
   externalPosts?: Record<string, any>[];
   externalLoading?: boolean;
   externalError?: string | null;
-  onRequireLogin?: () => void;
+  onRequireLogin?: (reason?: "like" | "calendar" | "booking") => void;
 };
 
 const TalentBoard: React.FC<TalentBoardProps> = ({
@@ -241,15 +240,6 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
         else otherSkills.push(label);
       });
       const skills = Array.from(new Set([...clinicalServices, ...expandedScope, ...otherSkills])).filter(Boolean) as string[];
-      const attachments = Array.isArray(post.attachments)
-        ? post.attachments.map((att: any) => ({
-            id: att.id,
-            kind: att.kind,
-            file: att.file,
-            caption: att.caption,
-          }))
-        : [];
-
       const ratingFromPostAverageRaw =
         (post as any).ratingAverage ??
         (post as any).rating_average ??
@@ -308,7 +298,6 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
         ratingCount,
         likeCount: typeof post.like_count === "number" ? post.like_count : 0,
         isLikedByMe: Boolean(post.is_liked_by_me),
-        attachments,
         authorUserId: post.authorUserId ?? null,
         explorerUserId: post.explorerUserId ?? null,
         isExplorer:
@@ -415,7 +404,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
   const handleViewCalendar = useCallback(
     (candidate: Candidate) => {
       if (publicMode) {
-        onRequireLogin?.();
+        onRequireLogin?.("calendar");
         return;
       }
       setSelectedCalendarCandidate(candidate);
@@ -458,7 +447,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
   const handleToggleLike = useCallback(
     async (candidate: Candidate) => {
       if (publicMode) {
-        onRequireLogin?.();
+        onRequireLogin?.("like");
         return;
       }
       try {
@@ -509,12 +498,9 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
     latitude: null as number | null,
     longitude: null as number | null,
     googlePlaceId: "",
-    files: [] as File[],
     availabilitySlots: [] as any[],
   });
 
-
-  const [existingAttachments, setExistingAttachments] = useState<PitchAttachment[]>([]);
   const [pitchSkills, setPitchSkills] = useState<string[]>([]);
 
 
@@ -537,14 +523,12 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
       latitude: null,
       longitude: null,
       googlePlaceId: "",
-      files: [],
       availabilitySlots: [],
     });
     setExplorerProfileId(null);
     setExistingPostId(null);
     setRoleTitle("Explorer");
     setPitchSkills([]);
-    setExistingAttachments([]);
   }, []);
 
   const loadPitchDefaults = useCallback(async () => {
@@ -646,9 +630,6 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
             };
           }) : prev.availabilitySlots,
         }));
-        if (Array.isArray(mine.attachments)) {
-          setExistingAttachments(mine.attachments);
-        }
       }
       if (mine && Array.isArray(mine.skills) && mine.skills.length > 0) {
         setPitchSkills(mine.skills);
@@ -665,34 +646,6 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
       loadPitchDefaults();
     }
   }, [pitchOpen, loadPitchDefaults]);
-
-  const handleFilePick = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const picked = Array.from(event.target.files ?? []);
-    setPitchForm((prev) => ({ ...prev, files: [...prev.files, ...picked] }));
-  };
-
-  const handleFileRemove = (index: number) => {
-    setPitchForm((prev) => ({ ...prev, files: prev.files.filter((_, i) => i !== index) }));
-  };
-
-  const handleExistingAttachmentRemove = async (attachmentId: number) => {
-    if (!existingPostId || !token) return;
-    try {
-      await fetch(
-        `${API_BASE_URL}/client-profile/explorer-posts/${existingPostId}/attachments/${attachmentId}/`,
-        {
-          method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-      setExistingAttachments((prev) => prev.filter((att) => att.id !== attachmentId));
-      await reload();
-    } catch {
-      // ignore for now
-    }
-  };
 
   const updateOnboardingLocationPrefs = useCallback(async () => {
     if (!token) return;
@@ -763,14 +716,10 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           availability_mode: availabilityDays.length > 0 ? "CASUAL_CALENDAR" : null,
         };
         if (explorerProfileId) payload.explorer_profile = explorerProfileId;
-        const created: any = existingPostId
-          ? await updateExplorerPost(existingPostId, payload)
-          : await createExplorerPost(payload);
-        const postId = existingPostId || created?.id;
-        if (postId && pitchForm.files.length > 0) {
-          const form = new FormData();
-          pitchForm.files.forEach((file) => form.append("file", file));
-          await createExplorerPostAttachment(postId, form);
+        if (existingPostId) {
+          await updateExplorerPost(existingPostId, payload);
+        } else {
+          await createExplorerPost(payload);
         }
       } else {
         const payload: Record<string, any> = {
@@ -789,14 +738,10 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           availability_days: availabilityDays,
           availability_mode: availabilityDays.length > 0 ? "CASUAL_CALENDAR" : null,
         };
-        const created: any = existingPostId
-          ? await updateExplorerPost(existingPostId, payload)
-          : await createExplorerPost(payload);
-        const postId = existingPostId || created?.id;
-        if (postId && pitchForm.files.length > 0) {
-          const upload = new FormData();
-          pitchForm.files.forEach((file) => upload.append("file", file));
-          await createExplorerPostAttachment(postId, upload);
+        if (existingPostId) {
+          await updateExplorerPost(existingPostId, payload);
+        } else {
+          await createExplorerPost(payload);
         }
       }
       await reload();
@@ -945,7 +890,7 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
                   candidate={candidate}
                   onViewCalendar={handleViewCalendar}
                   onToggleLike={handleToggleLike}
-                  canViewCalendar={canRequestBooking}
+                  canViewCalendar={publicMode ? true : canRequestBooking}
                 />
                 ))
               ) : (
@@ -1001,10 +946,6 @@ const TalentBoard: React.FC<TalentBoardProps> = ({
           setPitchForm={setPitchForm}
           pitchError={pitchError}
           pitchSaving={pitchSaving}
-          existingAttachments={existingAttachments}
-          onExistingAttachmentRemove={handleExistingAttachmentRemove}
-          onFilePick={handleFilePick}
-          onFileRemove={handleFileRemove}
         />
       )}
 

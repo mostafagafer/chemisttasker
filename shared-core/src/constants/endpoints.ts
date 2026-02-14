@@ -185,7 +185,6 @@ export const API_ENDPOINTS = {
     explorerPostAddView: (id: number) => `/client-profile/explorer-posts/${id}/view/`,
     explorerPostLike: (id: number) => `/client-profile/explorer-posts/${id}/like/`,
     explorerPostUnlike: (id: number) => `/client-profile/explorer-posts/${id}/unlike/`,
-    explorerPostAttachments: (id: number) => `/client-profile/explorer-posts/${id}/attachments/`,
 
 
     // Ratings

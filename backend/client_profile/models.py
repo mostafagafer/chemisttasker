@@ -2006,11 +2006,14 @@ class InvoiceLineItem(models.Model):
 
 
 
-# ExplorerPost Model
 def explorer_post_upload_path(instance, filename):
-    # Keep it flat & CDN-friendly (works with local MEDIA or Azure in prod)
-    # e.g. explorer_posts/<post_id>/<filename>
-    return f"explorer_posts/{instance.post_id}/{filename}"
+    """
+    Legacy upload path kept for historical migrations (e.g. 0002_initial).
+    Do not remove unless those migrations are rewritten.
+    """
+    post_id = getattr(instance, "post_id", "unknown")
+    return f"explorer_posts/{post_id}/{filename}"
+
 
 class ExplorerPost(models.Model):
     ROLE_CATEGORY_CHOICES = [
@@ -2083,29 +2086,6 @@ class ExplorerPost(models.Model):
         if self.explorer_profile and getattr(self.explorer_profile, "user", None):
             return f"{self.headline} - {self.explorer_profile.user.get_full_name()}"
         return self.headline
-
-class ExplorerPostAttachment(models.Model):
-    """
-    Supports multiple attachments per post (image/video/pdf/etc.).
-    Stored via your MEDIA backend (local dev) or Azure (prod), per settings.
-    """
-    IMAGE = 'IMAGE'
-    VIDEO = 'VIDEO'
-    FILE  = 'FILE'
-    KIND_CHOICES = [(IMAGE, 'Image'), (VIDEO, 'Video'), (FILE, 'File')]
-
-    post      = models.ForeignKey(ExplorerPost, on_delete=models.CASCADE, related_name='attachments')
-    file      = models.FileField(upload_to=explorer_post_upload_path)
-    kind      = models.CharField(max_length=10, choices=KIND_CHOICES, default=FILE)
-    caption   = models.CharField(max_length=255, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        indexes = [models.Index(fields=['post'])]
-
-    @property
-    def post_id(self):
-        return self.post_id  # used by upload path
 
 class ExplorerPostReaction(models.Model):
     """

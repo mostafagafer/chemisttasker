@@ -57,7 +57,8 @@ export default function App() {
     activeAdminAssignment,
     activeAdminPharmacyId,
   } = useAuth();
-  const { workspace } = useWorkspace();
+  const { workspace, canUseInternal } = useWorkspace();
+  const effectiveWorkspace: "internal" | "platform" = canUseInternal ? workspace : "platform";
   const navigate = useNavigate();
   const location = useLocation();
   const prevPersonaRef = useRef<string | null>(null);
@@ -175,10 +176,10 @@ export default function App() {
       return getOwnerNav(progress, hasUnreadMessages);
     }
     if (user.role === "PHARMACIST") {
-      return getPharmacistNavDynamic(progress, workspace, hasUnreadMessages);
+      return getPharmacistNavDynamic(progress, effectiveWorkspace, hasUnreadMessages);
     }
     if (user.role === "OTHER_STAFF") {
-      return getOtherStaffNavDynamic(progress, workspace, hasUnreadMessages);
+      return getOtherStaffNavDynamic(progress, effectiveWorkspace, hasUnreadMessages);
     }
     if (user.role === "EXPLORER") {
       return getExplorerNav(progress, hasUnreadMessages);
@@ -189,6 +190,8 @@ export default function App() {
     user,
     progress,
     workspace,
+    effectiveWorkspace,
+    canUseInternal,
     unreadCount,
     activePersona,
     adminAssignments,

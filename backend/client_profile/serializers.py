@@ -5177,14 +5177,6 @@ class InvoiceSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
-# ExplorerPost Serializer
-class ExplorerPostAttachmentSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ExplorerPostAttachment
-        fields = ["id", "kind", "file", "caption", "created_at"]
-        read_only_fields = ["id", "created_at"]
-
-
 class ExplorerPostReadSerializer(serializers.ModelSerializer):
     explorer_name = serializers.SerializerMethodField()
     explorer_user_id = serializers.SerializerMethodField()
@@ -5198,7 +5190,6 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
     rating_average = serializers.FloatField(read_only=True)
     rating_count = serializers.IntegerField(read_only=True)
 
-    attachments = ExplorerPostAttachmentSerializer(many=True, read_only=True)
     is_liked_by_me = serializers.SerializerMethodField()
 
     class Meta:
@@ -5235,7 +5226,6 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
             "rating_count",
             "created_at",
             "updated_at",
-            "attachments",
             "explorer_name",
             # --- ADD THE NEW FIELDS TO THE LIST ---
             "explorer_user_id",
@@ -5335,12 +5325,6 @@ class ExplorerPostReadSerializer(serializers.ModelSerializer):
 
 
 class ExplorerPostWriteSerializer(serializers.ModelSerializer):
-    """
-    Write serializer; you can optionally pass initial attachments:
-    attachments=[{file, kind, caption}, ...]
-    """
-    attachments = ExplorerPostAttachmentSerializer(many=True, write_only=True, required=False)
-
     class Meta:
         model = ExplorerPost
         fields = [
@@ -5364,7 +5348,6 @@ class ExplorerPostWriteSerializer(serializers.ModelSerializer):
             "software",
             "reference_code",
             "is_anonymous",
-            "attachments",
         ]
 
     def validate(self, attrs):
@@ -5400,7 +5383,6 @@ class ExplorerPostWriteSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        atts = validated_data.pop("attachments", [])
         request = self.context.get("request")
         if request and request.user and request.user.is_authenticated:
             validated_data.setdefault("author_user", request.user)
@@ -5411,13 +5393,9 @@ class ExplorerPostWriteSerializer(serializers.ModelSerializer):
                     pass
         if not validated_data.get("reference_code"):
             validated_data["reference_code"] = uuid.uuid4().hex[:8].upper()
-        post = ExplorerPost.objects.create(**validated_data)
-        for a in atts:
-            ExplorerPostAttachment.objects.create(post=post, **a)
-        return post
+        return ExplorerPost.objects.create(**validated_data)
 
     def update(self, instance, validated_data):
-        # editing post fields only; attachments are handled by the attachments endpoint
         updatable_fields = [
             "headline",
             "body",

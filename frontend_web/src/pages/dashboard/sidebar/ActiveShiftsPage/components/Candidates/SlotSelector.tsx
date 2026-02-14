@@ -6,9 +6,10 @@ interface SlotSelectorProps {
     slots: any[];
     selectedSlotId: number | null;
     onSelectSlot: (slotId: number) => void;
+    slotHasUpdates?: Record<number, boolean>;
 }
 
-export const SlotSelector: React.FC<SlotSelectorProps> = ({ slots, selectedSlotId, onSelectSlot }) => {
+export const SlotSelector: React.FC<SlotSelectorProps> = ({ slots, selectedSlotId, onSelectSlot, slotHasUpdates }) => {
     const formatSlotDate = (slot: any) => {
         const date = new Date(slot.date);
         return `${date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}`;
@@ -50,7 +51,21 @@ export const SlotSelector: React.FC<SlotSelectorProps> = ({ slots, selectedSlotI
                         size="small"
                         onClick={() => onSelectSlot(slot.id!)}
                     >
-                        {formatLabel(slot)}
+                        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                            {formatLabel(slot)}
+                            {Boolean(slotHasUpdates?.[slot.id]) && (
+                                <Box
+                                    component="span"
+                                    sx={{
+                                        width: 8,
+                                        height: 8,
+                                        borderRadius: '50%',
+                                        bgcolor: 'error.main',
+                                        flexShrink: 0,
+                                    }}
+                                />
+                            )}
+                        </Box>
                     </Button>
                 ))}
             </Box>

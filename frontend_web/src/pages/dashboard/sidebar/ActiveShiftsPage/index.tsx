@@ -72,6 +72,75 @@ import {
 // Theme
 import { customTheme } from './theme';
 
+const ACTIVE_SHIFT_SLOT_SEEN_KEY_PREFIX = 'active_shift_slot_seen_v2';
+
+const toFiniteNumber = (raw: any): number | null => {
+    if (raw == null) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+};
+
+const resolveSlotId = (slot: any): number | null => {
+    const raw = slot?.id ?? slot?.slotId ?? slot?.slot_id ?? null;
+    return toFiniteNumber(raw);
+};
+
+const getSlotIds = (shift: Shift): number[] => {
+    const slots = (shift as any).slots || [];
+    return slots
+        .map((slot: any) => resolveSlotId(slot))
+        .filter((id: number | null): id is number => id != null);
+};
+
+const offerBelongsToSlot = (offer: any, slotId: number) => {
+    const offerSlots = offer?.slots || offer?.offer_slots || [];
+    if (Array.isArray(offerSlots) && offerSlots.length > 0) {
+        return offerSlots.some((s: any) => resolveSlotId(s?.slot) === slotId || resolveSlotId(s) === slotId);
+    }
+    const fallbackSlotId = resolveSlotId(offer?.slot) ?? toFiniteNumber(offer?.slot_id ?? offer?.slotId);
+    if (fallbackSlotId == null) return false;
+    return fallbackSlotId === slotId;
+};
+
+const interestBelongsToSlot = (interest: any, slotId: number) => {
+    const explicitSlotId = resolveSlotId(interest?.slot) ?? toFiniteNumber(interest?.slot_id ?? interest?.slotId);
+    if (explicitSlotId == null) return false;
+    return explicitSlotId === slotId;
+};
+
+const buildPublicSlotSignature = (slotId: number, interests: any[], offers: any[]) => {
+    const interestSig = interests
+        .filter((i: any) => interestBelongsToSlot(i, slotId))
+        .map((i: any) => {
+            const userId = i?.userId ?? i?.user_id ?? i?.user?.id ?? '';
+            const ts = i?.expressedAt ?? i?.expressed_at ?? '';
+            return `${i?.id ?? ''}:${userId}:${i?.revealed ? 1 : 0}:${ts}`;
+        })
+        .sort()
+        .join('|');
+
+    const offerSig = offers
+        .filter((o: any) => offerBelongsToSlot(o, slotId))
+        .map((o: any) => `${o?.id ?? ''}:${o?.status ?? ''}:${o?.updatedAt ?? o?.updated_at ?? o?.createdAt ?? o?.created_at ?? ''}`)
+        .sort()
+        .join('|');
+
+    return `i:${interestSig}#o:${offerSig}`;
+};
+
+const buildMemberSlotSignature = (slotId: number, members: ShiftMemberStatus[], offers: any[]) => {
+    const memberSig = members
+        .map((m: any) => `${m?.userId ?? m?.user_id ?? ''}:${m?.status ?? ''}`)
+        .sort()
+        .join('|');
+    const offerSig = offers
+        .filter((o: any) => offerBelongsToSlot(o, slotId))
+        .map((o: any) => `${o?.id ?? ''}:${o?.status ?? ''}:${o?.updatedAt ?? o?.updated_at ?? o?.createdAt ?? o?.created_at ?? ''}`)
+        .sort()
+        .join('|');
+    return `m:${memberSig}#o:${offerSig}`;
+};
+
 type ActiveShiftsPageProps = {
     shiftId?: number | null;
     title?: string;
@@ -98,6 +167,10 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
     // Escalation level tracking
     const [selectedLevelByShift, setSelectedLevelByShift] = useState<Record<number, EscalationLevelKey>>({});
     const [selectedSlotByShift, setSelectedSlotByShift] = useState<Record<number, number>>({});
+    const [slotHasUpdatesByShift, setSlotHasUpdatesByShift] = useState<Record<number, Record<number, boolean>>>({});
+    const [seenSlotSignatures, setSeenSlotSignatures] = useState<Record<string, string>>({});
+    const [slotSeenReady, setSlotSeenReady] = useState(false);
+    const latestSlotSignaturesRef = React.useRef<Record<string, string>>({});
     const reviewLoadingId: number | null = null;
 
     // Dialogs
@@ -120,6 +193,10 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
     const getTabKey = useCallback((shiftId: number, levelKey: EscalationLevelKey) => {
         return `${shiftId}_${levelKey}`;
     }, []);
+    const seenStorageKey = useMemo(
+        () => `${ACTIVE_SHIFT_SLOT_SEEN_KEY_PREFIX}:${user?.id ?? 'anon'}`,
+        [user?.id]
+    );
 
     // Data hooks
     const { shifts, setShifts, loading: shiftsLoading, loadShifts } = useShiftsData({ selectedPharmacyId, shiftId });
@@ -144,6 +221,76 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
     } = useWorkerRatings();
     const { actionLoading, handleEscalate, handleDelete, handleAccept } = useShiftActions(setShifts, showSnackbar);
     const { sharingShiftId, handleShare } = useShareShift(showSnackbar);
+
+    const markShiftSlotsUpdated = useCallback((shiftId: number, slotIds: number[] | null) => {
+        const shift = shifts.find((s) => s.id === shiftId);
+        if (!shift) return;
+        const targetSlotIds = (slotIds && slotIds.length > 0) ? slotIds : [];
+        if (targetSlotIds.length === 0) return;
+        setSlotHasUpdatesByShift((prev) => {
+            const nextShiftState = { ...(prev[shiftId] || {}) };
+            targetSlotIds.forEach((slotId) => {
+                nextShiftState[slotId] = true;
+            });
+            return {
+                ...prev,
+                [shiftId]: nextShiftState,
+            };
+        });
+    }, [shifts]);
+
+    React.useEffect(() => {
+        try {
+            const raw = localStorage.getItem(seenStorageKey);
+            const parsed = raw ? JSON.parse(raw) : {};
+            if (parsed && typeof parsed === 'object') {
+                setSeenSlotSignatures(parsed);
+            } else {
+                setSeenSlotSignatures({});
+            }
+        } catch {
+            setSeenSlotSignatures({});
+        } finally {
+            setSlotSeenReady(true);
+        }
+    }, [seenStorageKey]);
+
+    React.useEffect(() => {
+        if (!slotSeenReady) return;
+        try {
+            localStorage.setItem(seenStorageKey, JSON.stringify(seenSlotSignatures));
+        } catch {
+            // ignore persistence failures
+        }
+    }, [seenSlotSignatures, seenStorageKey, slotSeenReady]);
+
+    React.useEffect(() => {
+        const onShiftSlotActivity = (evt: Event) => {
+            const customEvt = evt as CustomEvent<any>;
+            const notification = customEvt?.detail;
+            const payload = notification?.payload || notification?.data || {};
+            const shiftIdRaw = payload.shift_id ?? payload.shiftId;
+            const shiftId = Number(shiftIdRaw);
+            if (!Number.isFinite(shiftId)) return;
+
+            const rawSlotIds = payload.slot_ids ?? payload.slotIds;
+            const slotIdsFromList = Array.isArray(rawSlotIds)
+                ? rawSlotIds.map((value: any) => Number(value)).filter((value: number) => Number.isFinite(value))
+                : [];
+            const slotIdRaw = payload.slot_id ?? payload.slotId;
+            const slotIdSingle = Number(slotIdRaw);
+            const slotIds = slotIdsFromList.length > 0
+                ? slotIdsFromList
+                : (Number.isFinite(slotIdSingle) ? [slotIdSingle] : null);
+
+            markShiftSlotsUpdated(shiftId, slotIds);
+        };
+
+        window.addEventListener('shift-slot-activity', onShiftSlotActivity as EventListener);
+        return () => {
+            window.removeEventListener('shift-slot-activity', onShiftSlotActivity as EventListener);
+        };
+    }, [markShiftSlotsUpdated]);
 
     const getOfferSlotIds = useCallback((offer: any): number[] => {
         const offerSlots = offer?.slots || offer?.offer_slots || [];
@@ -481,10 +628,34 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
         [loadTabDataForShift, showSnackbar]
     );
 
+    const markSlotSeen = useCallback(
+        (shiftId: number, slotId: number) => {
+            const shift = shifts.find((s) => s.id === shiftId);
+            if (!shift) return;
+            const levelKey = selectedLevelByShift[shiftId] ?? getCurrentLevelKey(shift);
+            const signatureKey = `${shiftId}:${levelKey}:${slotId}`;
+            const latestSignature = latestSlotSignaturesRef.current[signatureKey];
+            if (!latestSignature) return;
+            setSeenSlotSignatures((prev) => {
+                if (prev[signatureKey] === latestSignature) return prev;
+                return { ...prev, [signatureKey]: latestSignature };
+            });
+            setSlotHasUpdatesByShift((prev) => ({
+                ...prev,
+                [shiftId]: {
+                    ...(prev[shiftId] || {}),
+                    [slotId]: false,
+                },
+            }));
+        },
+        [selectedLevelByShift, shifts]
+    );
+
     // Handle slot selection
     const handleSlotSelection = useCallback((shiftId: number, slotId: number) => {
         setSelectedSlotByShift(prev => ({ ...prev, [shiftId]: slotId }));
-    }, []);
+        markSlotSeen(shiftId, slotId);
+    }, [markSlotSeen]);
 
     const handleEditShift = useCallback((shiftId: number) => {
         const baseRoute =
@@ -686,6 +857,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                     <PublicLevelView
                                         shift={shift}
                                         slotId={selectedSlotId}
+                                        slotHasUpdates={slotHasUpdatesByShift[shift.id] || {}}
                                         interestsAll={currentTabData.interestsAll || []}
                                         counterOffers={offers || []}
                                         counterOffersLoaded={counterOffersLoaded}
@@ -702,6 +874,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                     shift={shift}
                                     members={membersForView}
                                     selectedSlotId={selectedSlotId}
+                                    slotHasUpdates={slotHasUpdatesByShift[shift.id] || {}}
                                     offers={offers || []}
                                     onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
                                     onReviewCandidate={(member, _shiftId, offer, slotId) =>
@@ -725,6 +898,69 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
             }
         });
     }, [expandedShifts, counterOffersByShift, loadCounterOffers]);
+
+    React.useEffect(() => {
+        if (!slotSeenReady) return;
+
+        const nextUpdatesByShift: Record<number, Record<number, boolean>> = {};
+        const nextSignatures: Record<string, string> = {};
+        const baselineMissing: Record<string, string> = {};
+
+        shifts.forEach((shift) => {
+            const isSingleUserShift = Boolean((shift as any).singleUserOnly);
+            if (isSingleUserShift) return;
+
+            const slotIds = getSlotIds(shift);
+            if (slotIds.length === 0) return;
+
+            const levelKey = selectedLevelByShift[shift.id] ?? getCurrentLevelKey(shift);
+            const tabKey = getTabKey(shift.id, levelKey);
+            const currentTabData = tabData[tabKey] || {};
+
+            // Avoid creating a false "seen baseline" from empty/loading state.
+            const tabDataReady = Object.prototype.hasOwnProperty.call(tabData, tabKey) && !currentTabData.loading;
+            if (!tabDataReady) return;
+
+            // Slot signatures include offers, so wait until they are loaded.
+            const offersReady = Object.prototype.hasOwnProperty.call(counterOffersByShift, shift.id);
+            if (!offersReady) return;
+
+            const offers = counterOffersByShift[shift.id] || [];
+
+            slotIds.forEach((slotId) => {
+                const signature =
+                    levelKey === PUBLIC_LEVEL_KEY
+                        ? buildPublicSlotSignature(slotId, currentTabData.interestsAll || [], offers)
+                        : buildMemberSlotSignature(slotId, currentTabData.membersBySlot?.[slotId] || [], offers);
+                const signatureKey = `${shift.id}:${levelKey}:${slotId}`;
+                nextSignatures[signatureKey] = signature;
+
+                const seen = seenSlotSignatures[signatureKey];
+                if (seen == null) {
+                    baselineMissing[signatureKey] = signature;
+                    return;
+                }
+                if (seen !== signature) {
+                    if (!nextUpdatesByShift[shift.id]) nextUpdatesByShift[shift.id] = {};
+                    nextUpdatesByShift[shift.id][slotId] = true;
+                }
+            });
+        });
+
+        latestSlotSignaturesRef.current = nextSignatures;
+        setSlotHasUpdatesByShift(nextUpdatesByShift);
+        if (Object.keys(baselineMissing).length > 0) {
+            setSeenSlotSignatures((prev) => ({ ...prev, ...baselineMissing }));
+        }
+    }, [
+        shifts,
+        tabData,
+        counterOffersByShift,
+        selectedLevelByShift,
+        getTabKey,
+        seenSlotSignatures,
+        slotSeenReady,
+    ]);
 
     const orderedShifts = useMemo(() => {
         const list = [...shifts];

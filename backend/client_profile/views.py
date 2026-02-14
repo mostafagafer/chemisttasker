@@ -2769,12 +2769,14 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             applicant_name = "A candidate" if is_public else (user.get_full_name() or user.email)
             notification_payload = None
             if shift.created_by_id:
+                interest_slot_id = getattr(interest, "slot_id", None)
                 notification_payload = {
                     "title": "New shift interest",
                     "body": f"{applicant_name} expressed interest in your shift at {shift.pharmacy.name}.",
                     "payload": {
                         "shift_id": shift.id,
                         "interest_id": interest.id,
+                        "slot_id": interest_slot_id,
                     },
                 }
                 action_url = ctx.get("shift_link")
@@ -3075,6 +3077,8 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             recipients.extend([oa.user for oa in org_admins if oa.user])
 
         seen_emails = set()
+        offer_slot_ids = list(offer.slots.values_list('slot_id', flat=True))
+        primary_slot_id = offer_slot_ids[0] if offer_slot_ids else None
         for recipient in recipients:
             if not recipient or not recipient.email:
                 continue
@@ -3088,7 +3092,11 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             notification_payload = {
                 "title": f"New counter offer: {shift.pharmacy.name}",
                 "body": f"{sender_name} sent a counter offer.",
-                "payload": {"shift_id": shift.id},
+                "payload": {
+                    "shift_id": shift.id,
+                    "slot_id": primary_slot_id,
+                    "slot_ids": offer_slot_ids,
+                },
             }
             if ctx.get("shift_link"):
                 notification_payload["action_url"] = ctx["shift_link"]
@@ -6277,12 +6285,11 @@ class IsPostOwner(permissions.BasePermission):
 class ExplorerPostViewSet(viewsets.ModelViewSet):
     """
     Authenticated users can view.
-    Only Explorers (who own the profile) can create/update/delete/react/attach.
+    Only Explorers (who own the profile) can create/update/delete/react.
     """
     queryset = (
         ExplorerPost.objects
         .select_related("explorer_profile__user", "author_user")
-        .prefetch_related("attachments")
         .annotate(
             rating_average=Avg(
                 "author_user__ratings_received_as_worker__stars",
@@ -6311,7 +6318,7 @@ class ExplorerPostViewSet(viewsets.ModelViewSet):
         public_read_actions = ["public_feed"]
 
         # Owner-required writes → must be Explorer (ownership checked later)
-        owner_write_actions = ["create", "update", "partial_update", "destroy", "attachments"]
+        owner_write_actions = ["create", "update", "partial_update", "destroy"]
 
         # Reactions → any authenticated user (no Explorer requirement)
         react_actions = ["like", "unlike"]
@@ -6398,54 +6405,6 @@ class ExplorerPostViewSet(viewsets.ModelViewSet):
         ExplorerPost.objects.filter(pk=post.pk).update(view_count=models.F("view_count") + 1)
         post.refresh_from_db(fields=["view_count"])
         return Response({"view_count": post.view_count})
-
-    # --------- Attachments (owner only) ---------
-    @action(detail=True, methods=["post"], url_path="attachments")
-    def attachments(self, request, pk=None):
-        """
-        Multipart form-data for one or many files:
-        - file: <binary>  (use `file` multiple times to send many)
-        - kind: IMAGE | VIDEO | FILE (optional; default FILE)
-        - caption: optional
-        """
-        post = self.get_object()
-        self.check_object_permissions_for_write(post)
-
-        files = request.FILES.getlist("file") or ([request.FILES["file"]] if "file" in request.FILES else [])
-        kind = request.data.get("kind", "FILE")
-        caption = request.data.get("caption", "")
-
-        created = []
-        with transaction.atomic():
-            if files:
-                for f in files:
-                    created.append(
-                        ExplorerPostAttachment.objects.create(
-                            post=post, file=f, kind=kind, caption=caption
-                        )
-                    )
-            else:
-                # JSON payload fallback (rare)
-                ser = ExplorerPostAttachmentSerializer(data=request.data)
-                ser.is_valid(raise_exception=True)
-                ser.save(post=post)
-                created.append(ser.instance)
-
-        return Response(ExplorerPostAttachmentSerializer(created, many=True).data, status=status.HTTP_201_CREATED)
-
-    @action(detail=True, methods=["delete"], url_path=r"attachments/(?P<attachment_id>[^/.]+)")
-    def delete_attachment(self, request, pk=None, attachment_id=None):
-        """
-        Delete a single attachment by id (owner only).
-        """
-        post = self.get_object()
-        self.check_object_permissions_for_write(post)
-
-        attachment = post.attachments.filter(id=attachment_id).first()
-        if not attachment:
-            return Response({"detail": "Attachment not found."}, status=status.HTTP_404_NOT_FOUND)
-        attachment.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     # --------- Reactions (like/unlike) (owner NOT required, but must be Explorer) ---------
     @action(detail=True, methods=["post"], url_path="like")

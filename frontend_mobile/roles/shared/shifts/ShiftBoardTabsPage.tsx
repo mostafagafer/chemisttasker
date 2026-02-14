@@ -22,7 +22,8 @@ const TABS = [
 ];
 
 export default function ShiftBoardTabsPage() {
-    const { workspace } = useWorkspace();
+    const { workspace, canUseInternal } = useWorkspace();
+    const effectiveWorkspace: 'internal' | 'platform' = canUseInternal ? workspace : 'platform';
     const [activeTab, setActiveTab] = useState<ShiftBoardTab>('browse');
     const scrollY = useRef(new Animated.Value(0)).current;
     const AnimatedText = useMemo(() => Animated.createAnimatedComponent(Text), []);
@@ -43,7 +44,7 @@ export default function ShiftBoardTabsPage() {
     }, [activeTab]);
 
     // Use the appropriate view based on workspace
-    const ShiftsView = workspace === 'internal' ? CommunityShiftsView : PublicShiftsView;
+    const ShiftsView = effectiveWorkspace === 'internal' ? CommunityShiftsView : PublicShiftsView;
     const heroHeight = scrollY.interpolate({
         inputRange: [0, 140],
         outputRange: [150, 70],

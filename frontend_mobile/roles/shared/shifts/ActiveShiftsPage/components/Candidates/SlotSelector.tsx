@@ -10,9 +10,10 @@ interface SlotSelectorProps {
     slots: any[];
     selectedSlotId: number | null;
     onSelectSlot: (slotId: number) => void;
+    slotHasUpdates?: Record<number, boolean>;
 }
 
-export default function SlotSelector({ slots, selectedSlotId, onSelectSlot }: SlotSelectorProps) {
+export default function SlotSelector({ slots, selectedSlotId, onSelectSlot, slotHasUpdates }: SlotSelectorProps) {
     const getSlotId = (slot: any): number | null =>
         (slot?.id ?? slot?.slotId ?? slot?.slot_id ?? null);
 
@@ -58,15 +59,17 @@ export default function SlotSelector({ slots, selectedSlotId, onSelectSlot }: Sl
                 contentContainerStyle={styles.scrollContent}
             >
                 {normalizedSlots.map((slot) => (
-                    <Button
-                        key={slot._slotId}
-                        mode={slot._slotId === selectedSlotId ? 'contained' : 'outlined'}
-                        compact
-                        onPress={() => onSelectSlot(slot._slotId!)}
-                        style={styles.slotButton}
-                    >
-                        {formatLabel(slot)}
-                    </Button>
+                    <View key={slot._slotId} style={styles.slotButtonWrap}>
+                        <Button
+                            mode={slot._slotId === selectedSlotId ? 'contained' : 'outlined'}
+                            compact
+                            onPress={() => onSelectSlot(slot._slotId!)}
+                            style={styles.slotButton}
+                        >
+                            {formatLabel(slot)}
+                        </Button>
+                        {Boolean(slotHasUpdates?.[slot._slotId]) && <View style={styles.updateDot} />}
+                    </View>
                 ))}
             </ScrollView>
             <IconButton
@@ -103,6 +106,18 @@ const styles = StyleSheet.create({
     },
     slotButton: {
         marginHorizontal: 2,
+    },
+    slotButtonWrap: {
+        position: 'relative',
+    },
+    updateDot: {
+        position: 'absolute',
+        top: 2,
+        right: 2,
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#DC2626',
     },
     navButton: {
         margin: 0,

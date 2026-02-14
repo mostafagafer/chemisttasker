@@ -13,6 +13,7 @@ import { getInterestDisplayName } from '../../utils/candidateHelpers';
 interface PublicLevelViewProps {
     shift: Shift;
     slotId: number | null;
+    slotHasUpdates?: Record<number, boolean>;
     interestsAll: any[];
     counterOffers: any[];
     counterOffersLoaded: boolean;
@@ -25,6 +26,7 @@ interface PublicLevelViewProps {
 export default function PublicLevelView({
     shift,
     slotId,
+    slotHasUpdates,
     interestsAll,
     counterOffers,
     counterOffersLoaded,
@@ -93,6 +95,7 @@ export default function PublicLevelView({
                     slots={slots}
                     selectedSlotId={slotId}
                     onSelectSlot={onSelectSlot}
+                    slotHasUpdates={slotHasUpdates}
                 />
             )}
 

@@ -447,14 +447,6 @@ export interface PaginatedResponse<T> {
 
 // ============ EXPLORER / TALENT POSTS ============
 
-export interface ExplorerPostAttachmentApi {
-    id: number;
-    kind: "IMAGE" | "VIDEO" | "FILE";
-    file: string;
-    caption: string | null;
-    created_at: string;
-}
-
 export interface ExplorerPostApi {
     id: number;
     explorer_profile?: number | null;
@@ -485,14 +477,12 @@ export interface ExplorerPostApi {
     reply_count?: number;
     created_at: string;
     updated_at: string;
-    attachments?: ExplorerPostAttachmentApi[];
     explorer_name?: string | null;
     explorer_user_id?: number | null;
     explorer_role_type?: string | null;
     is_liked_by_me?: boolean;
 }
 
-export type ExplorerPostAttachment = CamelCasedPropertiesDeep<ExplorerPostAttachmentApi>;
 export type ExplorerPost = CamelCasedPropertiesDeep<ExplorerPostApi>;
 
 export interface ExplorerPostPayload {

@@ -258,28 +258,6 @@ export default function TalentCard({
           </Stack>
         )}
 
-        {candidate.attachments.length > 0 && (
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1, flexWrap: "wrap" }}>
-            <Typography variant="caption" fontWeight={700} color="text.secondary">
-              Attachments:
-            </Typography>
-            {candidate.attachments.map((att) => {
-              const label = att.caption || att.file?.split("/").pop() || "Attachment";
-              return (
-                <Chip
-                  key={att.id}
-                  size="small"
-                  label={label}
-                  component="a"
-                  href={att.file}
-                  clickable
-                  target="_blank"
-                  rel="noreferrer"
-                />
-              );
-            })}
-          </Stack>
-        )}
       </CardContent>
 
       <Box sx={{ position: "absolute", right: 16, bottom: 16 }}>

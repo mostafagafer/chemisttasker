@@ -8,6 +8,7 @@ import { getInterestDisplayName } from '../../utils/candidateHelpers';
 interface PublicLevelViewProps {
     shift: Shift;
     slotId: number | null;
+    slotHasUpdates?: Record<number, boolean>;
     interestsAll: any[];
     counterOffers: any[];
     counterOffersLoaded: boolean;
@@ -20,6 +21,7 @@ interface PublicLevelViewProps {
 export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
     shift,
     slotId,
+    slotHasUpdates,
     interestsAll,
     counterOffers,
     counterOffersLoaded,
@@ -88,6 +90,7 @@ export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
                     slots={slots}
                     selectedSlotId={slotId}
                     onSelectSlot={onSelectSlot}
+                    slotHasUpdates={slotHasUpdates}
                 />
             )}
             {/* Counter Offers Section */}

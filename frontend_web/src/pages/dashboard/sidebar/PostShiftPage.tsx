@@ -657,6 +657,35 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
   }, [slots]);
 
   const selectedDateSet = useMemo(() => new Set(selectedDates), [selectedDates]);
+  const mergeSelectedDates = useCallback(
+    (incomingDates: string[], timeOverride?: { startTime: string; endTime: string }) => {
+      if (!incomingDates.length) return;
+
+      const normalizedIncoming = incomingDates.filter((date) => !dayjs(date).isBefore(todayStart, 'day'));
+      if (!normalizedIncoming.length) return;
+
+      setSelectedDates((prev) => {
+        const merged = Array.from(new Set([...prev, ...normalizedIncoming])).sort();
+        return merged;
+      });
+
+      setSelectedDateTimes((prev) => {
+        const next = { ...prev };
+        normalizedIncoming.forEach((date) => {
+          if (timeOverride) {
+            next[date] = timeOverride;
+          } else if (!next[date]) {
+            next[date] = { startTime: slotStartTime, endTime: slotEndTime };
+          }
+        });
+        return next;
+      });
+
+      const latest = normalizedIncoming[normalizedIncoming.length - 1];
+      if (latest) setSlotDate(latest);
+    },
+    [slotEndTime, slotStartTime, todayStart]
+  );
 
   const expandedSlots = useMemo(() => {
     const occurrences: Array<{ date: string; startTime: string; endTime: string }> = [];
@@ -1684,8 +1713,6 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
 
                       if (calendarView === 'week' || calendarView === 'day') {
                         const dateStr = startMoment.format('YYYY-MM-DD');
-                        setSelectedDates([dateStr]);
-                        setSlotDate(dateStr);
                         setSlotStartTime(startMoment.format('HH:mm'));
                         let endCandidate = endMoment;
                         if (!endMoment.isAfter(startMoment)) {
@@ -1693,7 +1720,10 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                         }
                         const endVal = endCandidate.format('HH:mm');
                         setSlotEndTime(endVal);
-                        setSelectedDateTimes({ [dateStr]: { startTime: startMoment.format('HH:mm'), endTime: endVal } });
+                        mergeSelectedDates([dateStr], {
+                          startTime: startMoment.format('HH:mm'),
+                          endTime: endVal,
+                        });
                         setIsRecurring(false);
                         setRecurringDays([]);
                         setRecurringEndDate('');
@@ -1713,16 +1743,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                         return;
                       }
 
-                      const sortedDates = [...uniqueDates].sort();
-                      setSelectedDates(sortedDates);
-                      if (sortedDates.length) {
-                        setSlotDate(sortedDates[0]);
-                      }
-                      setSelectedDateTimes(
-                        Object.fromEntries(
-                          sortedDates.map((d) => [d, { startTime: slotStartTime, endTime: slotEndTime }])
-                        )
-                      );
+                      mergeSelectedDates([...uniqueDates].sort());
                       setIsRecurring(false);
                       setRecurringDays([]);
                       setRecurringEndDate('');

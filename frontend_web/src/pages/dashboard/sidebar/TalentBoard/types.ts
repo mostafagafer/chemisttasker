@@ -7,8 +7,6 @@ export type TalentFilterConfig = {
   engagementTypes: EngagementType[];
 };
 
-export type CandidateAttachment = { id: number; kind: string; file: string; caption?: string | null };
-
 export type Candidate = {
   id: number;
   refId: string;
@@ -44,7 +42,6 @@ export type Candidate = {
   ratingCount: number;
   likeCount: number;
   isLikedByMe: boolean;
-  attachments: CandidateAttachment[];
   authorUserId: number | null;
   explorerUserId: number | null;
   isExplorer: boolean;

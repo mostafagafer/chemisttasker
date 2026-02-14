@@ -6,6 +6,7 @@ import {
   DialogContent,
   DialogTitle,
   Button,
+  Typography,
 } from "@mui/material";
 import AuthLayout from "../layouts/AuthLayout";
 import TalentBoard from "./dashboard/sidebar/TalentBoard";
@@ -17,6 +18,7 @@ export default function PublicTalentBoardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
+  const [loginReason, setLoginReason] = useState<"like" | "calendar" | "booking" | null>(null);
 
   useEffect(() => {
     const title = "Find Talent | ChemistTasker";
@@ -84,6 +86,30 @@ export default function PublicTalentBoardPage() {
     load();
   }, [load]);
 
+  const openLoginDialog = useCallback((reason?: "like" | "calendar" | "booking") => {
+    setLoginReason(reason || null);
+    setLoginDialogOpen(true);
+  }, []);
+
+  const closeLoginDialog = useCallback(() => {
+    setLoginDialogOpen(false);
+    setLoginReason(null);
+  }, []);
+
+  const dialogTitle =
+    loginReason === "like"
+      ? "Log in to like talent"
+      : loginReason === "calendar" || loginReason === "booking"
+        ? "Log in to view availability"
+        : "Log in to continue";
+
+  const dialogMessage =
+    loginReason === "like"
+      ? "You need an account to like profiles and keep track of candidates."
+      : loginReason === "calendar" || loginReason === "booking"
+        ? "You need an account to view candidate availability and request bookings."
+        : "You need an account to contact talent, view profiles, or save preferences.";
+
   return (
     <AuthLayout title="Find Talent" maxWidth={false} noCard showTitle={false}>
       <TalentBoard
@@ -91,18 +117,18 @@ export default function PublicTalentBoardPage() {
         externalPosts={posts}
         externalLoading={loading}
         externalError={error}
-        onRequireLogin={() => setLoginDialogOpen(true)}
+        onRequireLogin={openLoginDialog}
       />
 
-      <Dialog open={loginDialogOpen} onClose={() => setLoginDialogOpen(false)}>
-        <DialogTitle>Log in to continue</DialogTitle>
+      <Dialog open={loginDialogOpen} onClose={closeLoginDialog}>
+        <DialogTitle>{dialogTitle}</DialogTitle>
         <DialogContent dividers>
-          <p className="text-sm text-slate-600">
-            You need an account to contact talent, view profiles, or save preferences.
-          </p>
+          <Typography variant="body2" color="text.secondary">
+            {dialogMessage}
+          </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setLoginDialogOpen(false)}>Cancel</Button>
+          <Button onClick={closeLoginDialog}>Cancel</Button>
           <Button component={RouterLink} to="/register" variant="outlined">
             Create account
           </Button>

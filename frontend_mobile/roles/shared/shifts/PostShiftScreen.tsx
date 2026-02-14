@@ -81,6 +81,7 @@ export default function PostShiftScreen() {
     const [ownerBonus, setOwnerBonus] = useState('');
     const [slots, setSlots] = useState<SlotEntry[]>([]);
     const [slotDate, setSlotDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [selectedDates, setSelectedDates] = useState<string[]>([]);
     const [slotStart, setSlotStart] = useState('09:00');
     const [slotEnd, setSlotEnd] = useState('17:00');
     const [slotRecurring, setSlotRecurring] = useState(false);
@@ -141,6 +142,7 @@ export default function PostShiftScreen() {
         setDescription('');
         setSlots([]);
         setSlotDate(todayIso);
+        setSelectedDates([]);
         setSlotStart('09:00');
         setSlotEnd('17:00');
         setSlotRecurring(false);
@@ -332,6 +334,7 @@ export default function PostShiftScreen() {
         const dates = parsedDates.length ? parsedDates : (singleDate ? [singleDate] : []);
         if (dates.length) {
             setSlotDate(dates[0]);
+            setSelectedDates((prev) => Array.from(new Set([...prev, ...dates])).sort());
             setSlots((prev) => {
                 const existingKeys = new Set(prev.map((s) => `${s.date}-${s.startTime}-${s.endTime}-${s.isRecurring}`));
                 const next = [...prev];
@@ -363,6 +366,19 @@ export default function PostShiftScreen() {
             }
         }
     }, [editingId, params?.dates, params?.date, params?.role, params?.dedicated_user, slotStart, slotEnd]);
+
+    const mergeSelectedDates = useCallback((incomingDates: string[]) => {
+        const todayIso = new Date().toISOString().split('T')[0];
+        const valid = incomingDates.filter((d) => d && d >= todayIso);
+        if (!valid.length) return;
+        setSelectedDates((prev) => Array.from(new Set([...prev, ...valid])).sort());
+        setSlotDate(valid[valid.length - 1]);
+    }, []);
+
+    const selectedDateObjects = useMemo(
+        () => selectedDates.map((d) => new Date(`${d}T00:00:00`)),
+        [selectedDates]
+    );
 
     // Automatic rate calculation for PHARMACIST with FLEXIBLE rate type
     useEffect(() => {
@@ -397,18 +413,27 @@ export default function PostShiftScreen() {
     }, [pharmacyId, roleNeeded, employmentType, slots, rateMode]);
 
     const addSlot = () => {
-        if (!slotDate || !slotStart || !slotEnd) return;
-        setSlots((prev) => [
-            ...prev,
-            {
-                date: slotDate,
-                startTime: slotStart,
-                endTime: slotEnd,
-                isRecurring: slotRecurring,
-                recurringDays: slotRecurring ? slotRecurringDays : [],
-                recurringEndDate: slotRecurring ? slotRecurringEnd : '',
-            },
-        ]);
+        if (!slotStart || !slotEnd) return;
+        const baseDates = selectedDates.length ? selectedDates : slotDate ? [slotDate] : [];
+        if (!baseDates.length) return;
+        setSlots((prev) => {
+            const existingKeys = new Set(prev.map((s) => `${s.date}-${s.startTime}-${s.endTime}-${s.isRecurring}`));
+            const next = [...prev];
+            baseDates.forEach((date) => {
+                const key = `${date}-${slotStart}-${slotEnd}-${slotRecurring}`;
+                if (!existingKeys.has(key)) {
+                    next.push({
+                        date,
+                        startTime: slotStart,
+                        endTime: slotEnd,
+                        isRecurring: slotRecurring,
+                        recurringDays: slotRecurring ? slotRecurringDays : [],
+                        recurringEndDate: slotRecurring ? slotRecurringEnd : '',
+                    });
+                }
+            });
+            return next;
+        });
     };
 
     const removeSlot = (index: number) => setSlots((prev) => prev.filter((_, i) => i !== index));
@@ -946,9 +971,9 @@ export default function PostShiftScreen() {
                 <TextInput
                     mode="outlined"
                     label="Date"
-                    value={slotDate}
+                    value={selectedDates.length > 0 ? `${selectedDates.length} dates selected` : slotDate}
                     style={styles.slotInput}
-                    placeholder="YYYY-MM-DD"
+                    placeholder="Select date(s)"
                     right={<TextInput.Icon icon="calendar" onPress={() => setSlotDatePickerOpen(true)} />}
                     editable={false}
                 />
@@ -1006,6 +1031,21 @@ export default function PostShiftScreen() {
                 <Checkbox status={singleUserOnly ? 'checked' : 'unchecked'} onPress={() => setSingleUserOnly((v) => !v)} />
                 <Text style={styles.rowText}>Single user only</Text>
             </View>
+
+            {selectedDates.length > 0 ? (
+                <View style={styles.pills}>
+                    {selectedDates.map((date) => (
+                        <Chip
+                            key={date}
+                            onClose={() => setSelectedDates((prev) => prev.filter((d) => d !== date))}
+                            style={styles.chipUnselected}
+                            textStyle={styles.chipText}
+                        >
+                            {date}
+                        </Chip>
+                    ))}
+                </View>
+            ) : null}
 
             <View style={{ gap: 8, marginTop: 8 }}>
                 {slots.map((slot, idx) => (
@@ -1122,13 +1162,22 @@ export default function PostShiftScreen() {
             </Snackbar>
 
             <DatePickerModal
-                mode="single"
+                mode="multiple"
                 locale="en"
                 visible={slotDatePickerOpen}
                 onDismiss={() => setSlotDatePickerOpen(false)}
-                date={new Date(slotDate)}
-                onConfirm={({ date }) => {
-                    if (date) setSlotDate(date.toISOString().split('T')[0]);
+                dates={selectedDateObjects}
+                onConfirm={(params: any) => {
+                    const pickedDates: Date[] = Array.isArray(params?.dates)
+                        ? params.dates
+                        : params?.date
+                            ? [params.date]
+                            : [];
+                    mergeSelectedDates(
+                        pickedDates
+                            .filter(Boolean)
+                            .map((d) => d.toISOString().split('T')[0])
+                    );
                     setSlotDatePickerOpen(false);
                 }}
             />

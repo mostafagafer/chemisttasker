@@ -7,6 +7,7 @@ import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared
 import { useFocusEffect } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
 import { resolveCalendarNotificationRoute, resolveChatNotificationRoomId, resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
+import { triggerShiftSlotActivity } from '@/utils/pushNotifications';
 
 const tabTitles: Record<string, string> = {
   dashboard: 'Home',
@@ -117,6 +118,7 @@ export default function PharmacistTabs() {
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data: any = response?.notification?.request?.content?.data || {};
+      triggerShiftSlotActivity(data);
       const roomId = resolveChatNotificationRoomId({
         actionUrl: data.action_url ?? data.actionUrl ?? null,
         payload: data,
@@ -145,6 +147,14 @@ export default function PharmacistTabs() {
     });
     return () => sub.remove();
   }, [router, user?.role]);
+
+  useEffect(() => {
+    const sub = Notifications.addNotificationReceivedListener((notification) => {
+      const data: any = notification?.request?.content?.data || {};
+      triggerShiftSlotActivity(data);
+    });
+    return () => sub.remove();
+  }, []);
 
   const openNotifications = useCallback(async () => {
     try {

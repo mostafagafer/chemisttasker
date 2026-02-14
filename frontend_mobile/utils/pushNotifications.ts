@@ -8,6 +8,7 @@ import { secureRemoveMany } from './secureStorage';
 
 const inAppEmitter = new EventEmitter();
 const IN_APP_UNREAD_BUMP_EVENT = 'in-app-unread-bump';
+const SHIFT_SLOT_ACTIVITY_EVENT = 'shift-slot-activity';
 
 
 Notifications.setNotificationHandler({
@@ -118,6 +119,19 @@ export function subscribeUnreadBump(callback: (payload: any) => void) {
   return {
     remove: () => {
       inAppEmitter.off(IN_APP_UNREAD_BUMP_EVENT, callback);
+    },
+  };
+}
+
+export function triggerShiftSlotActivity(payload: any) {
+  inAppEmitter.emit(SHIFT_SLOT_ACTIVITY_EVENT, payload);
+}
+
+export function subscribeShiftSlotActivity(callback: (payload: any) => void) {
+  inAppEmitter.on(SHIFT_SLOT_ACTIVITY_EVENT, callback);
+  return {
+    remove: () => {
+      inAppEmitter.off(SHIFT_SLOT_ACTIVITY_EVENT, callback);
     },
   };
 }

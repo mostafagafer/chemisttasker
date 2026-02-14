@@ -872,6 +872,15 @@ export default function TopBarActions() {
             break;
           case "notification.created":
             if (payload.notification) {
+              try {
+                window.dispatchEvent(
+                  new CustomEvent("shift-slot-activity", {
+                    detail: payload.notification,
+                  })
+                );
+              } catch {
+                // ignore custom event failures
+              }
               setNotifications((prev) => {
                 const next = [
                   payload.notification as NotificationItem,

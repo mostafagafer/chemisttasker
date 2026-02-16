@@ -37,20 +37,31 @@ const normalizeRoleSlug = (rawRole?: string | null): string | null => {
 const parseShiftFromActionUrl = (actionUrl?: string | null) => {
   if (!actionUrl) return null;
   let path = actionUrl;
+  let searchParams: URLSearchParams | null = null;
   try {
-    if (actionUrl.startsWith('http')) {
-      path = new URL(actionUrl).pathname || actionUrl;
-    }
+    const url = new URL(actionUrl, 'http://localhost');
+    path = url.pathname || actionUrl;
+    searchParams = url.searchParams;
   } catch {
     // ignore malformed URLs and treat as raw path
   }
 
-  const match = path.match(/\/dashboard\/([^/]+)\/shifts\/(?:active\/)?(\d+)/);
+  const match = path.match(/\/dashboard\/([^/]+)\/shifts(?:\/(?:active\/)?(\d+))?/);
   if (!match) return null;
   const roleSlug = match[1];
   const shiftId = Number(match[2]);
-  if (!Number.isFinite(shiftId)) return null;
-  return { roleSlug, shiftId };
+  const tab = searchParams?.get('tab') ?? null;
+  const offerIdRaw = searchParams?.get('offer_id') ?? searchParams?.get('offerId') ?? null;
+  const shiftIdFromQueryRaw = searchParams?.get('shift_id') ?? searchParams?.get('shiftId') ?? null;
+  const offerId = offerIdRaw != null ? Number(offerIdRaw) : null;
+  const shiftIdFromQuery = shiftIdFromQueryRaw != null ? Number(shiftIdFromQueryRaw) : null;
+
+  return {
+    roleSlug,
+    shiftId: Number.isFinite(shiftId) ? shiftId : (Number.isFinite(shiftIdFromQuery) ? shiftIdFromQuery : null),
+    tab,
+    offerId: Number.isFinite(offerId) ? offerId : null,
+  };
 };
 
 const parseShiftIdFromPayload = (payload?: NotificationPayload | null) => {
@@ -61,6 +72,14 @@ const parseShiftIdFromPayload = (payload?: NotificationPayload | null) => {
     payload.shift ??
     payload.shiftID ??
     null;
+  const parsed = typeof raw === 'string' ? Number(raw) : raw;
+  if (!Number.isFinite(parsed)) return null;
+  return Number(parsed);
+};
+
+const parseOfferIdFromPayload = (payload?: NotificationPayload | null) => {
+  if (!payload) return null;
+  const raw = payload.offer_id ?? payload.offerId ?? null;
   const parsed = typeof raw === 'string' ? Number(raw) : raw;
   if (!Number.isFinite(parsed)) return null;
   return Number(parsed);
@@ -134,7 +153,8 @@ export const resolveShiftNotificationRoute = ({
 }: ResolveRouteInput): string | null => {
   const actionMatch = parseShiftFromActionUrl(actionUrl);
   const shiftId = actionMatch?.shiftId ?? parseShiftIdFromPayload(payload);
-  if (!shiftId) return null;
+  const offerId = actionMatch?.offerId ?? parseOfferIdFromPayload(payload);
+  const incomingTab = actionMatch?.tab ?? null;
 
   const roleSlug =
     actionMatch?.roleSlug ??
@@ -143,6 +163,18 @@ export const resolveShiftNotificationRoute = ({
 
   const baseRoute = roleSlug ? ROLE_ROUTE_MAP[roleSlug] : null;
   if (!baseRoute) return null;
+
+  const isWorkerRole = roleSlug === 'pharmacist' || roleSlug === 'otherstaff' || roleSlug === 'explorer';
+  const shouldOpenOffers = isWorkerRole && (incomingTab === 'accepted' || offerId != null);
+  if (shouldOpenOffers) {
+    const params = new URLSearchParams();
+    params.set('tab', 'accepted');
+    if (shiftId != null) params.set('shift_id', String(shiftId));
+    if (offerId != null) params.set('offer_id', String(offerId));
+    return `${baseRoute}?${params.toString()}`;
+  }
+
+  if (!shiftId) return null;
   return `${baseRoute}/${shiftId}`;
 };
 

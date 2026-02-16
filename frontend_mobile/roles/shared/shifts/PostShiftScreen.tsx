@@ -15,6 +15,7 @@ import {
 import { DatePickerModal } from 'react-native-paper-dates';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import {
     fetchPharmaciesService,
     fetchActiveShiftDetailService,
@@ -31,9 +32,9 @@ const PRIMARY = '#7c3aed';
 const PRIMARY_LIGHT = '#F3E8FF';
 const PRIMARY_TEXT = '#2D1B69';
 
-const STEP_ORDER = ['details', 'skills', 'visibility', 'payrate', 'timetable', 'review'] as const;
-type StepKey = typeof STEP_ORDER[number];
-type RateMode = 'FLEXIBLE' | 'FIXED';
+const BASE_STEP_ORDER = ['details', 'skills', 'visibility'] as const;
+type StepKey = 'details' | 'skills' | 'visibility' | 'timetable' | 'payrate';
+type RateType = 'FLEXIBLE' | 'FIXED' | 'PHARMACIST_PROVIDED';
 type VisibilityTier = 'FULL_PART_TIME' | 'LOCUM_CASUAL' | 'OWNER_CHAIN' | 'ORG_CHAIN' | 'PLATFORM';
 type VisibilityDates = { locum_casual?: string; owner_chain?: string; org_chain?: string; platform?: string };
 
@@ -58,6 +59,14 @@ type PharmacyOption = {
     allowedEscalationLevels?: VisibilityTier[];
 };
 
+const toIsoDate = (value: string): Date | null => {
+    if (!value) return null;
+    const date = new Date(`${value}T00:00:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
+};
+const toLocalIsoDate = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
 export default function PostShiftScreen() {
     const router = useRouter();
     const params = useLocalSearchParams<{ edit?: string; dates?: string; date?: string; role?: string; dedicated_user?: string; embedded?: string }>();
@@ -76,7 +85,7 @@ export default function PostShiftScreen() {
     const [singleUserOnly, setSingleUserOnly] = useState(false);
     const [hideName, setHideName] = useState(false);
     const [initialAudience, setInitialAudience] = useState<string>('');
-    const [rateMode, setRateMode] = useState<RateMode>('FLEXIBLE');
+    const [rateType, setRateType] = useState<RateType>('FLEXIBLE');
     const [fixedRate, setFixedRate] = useState('');
     const [ownerBonus, setOwnerBonus] = useState('');
     const [slots, setSlots] = useState<SlotEntry[]>([]);
@@ -98,10 +107,10 @@ export default function PostShiftScreen() {
     const [pharmacyMenuVisible, setPharmacyMenuVisible] = useState(false);
     const [audienceMenuVisible, setAudienceMenuVisible] = useState(false);
     const [activeStep, setActiveStep] = useState<StepKey>('details');
+    const [calendarMonthAnchor, setCalendarMonthAnchor] = useState<Date>(new Date());
 
     // Rate calculation
-    const [calculatedRates, setCalculatedRates] = useState<Array<{ rate: number; error?: string }>>([]);
-    const [ratesLoading, setRatesLoading] = useState(false);
+    const [slotRateRows, setSlotRateRows] = useState<Array<{ rate: string; status: 'idle' | 'loading' | 'success' | 'error'; error?: string; dirty?: boolean }>>([]);
 
     // Notification preferences
     const [notifyPharmacyStaff, setNotifyPharmacyStaff] = useState(false);
@@ -109,8 +118,15 @@ export default function PostShiftScreen() {
     const [notifyChainMembers, setNotifyChainMembers] = useState(false);
 
     // Payment & super
-    const [paymentPreference, setPaymentPreference] = useState<'ABN' | 'NON_ABN'>('ABN');
+    const [paymentPreference, setPaymentPreference] = useState<'ABN' | 'TFN'>('ABN');
     const [locumSuperIncluded, setLocumSuperIncluded] = useState(true);
+    const [superPercent, setSuperPercent] = useState('');
+    const [rateWeekday, setRateWeekday] = useState('');
+    const [rateSaturday, setRateSaturday] = useState('');
+    const [rateSunday, setRateSunday] = useState('');
+    const [ratePublicHoliday, setRatePublicHoliday] = useState('');
+    const [rateEarlyMorning, setRateEarlyMorning] = useState('');
+    const [rateLateNight, setRateLateNight] = useState('');
 
     // FT/PT specific
     const [ftptPayMode, setFtptPayMode] = useState<'HOURLY' | 'ANNUAL'>('HOURLY');
@@ -123,10 +139,19 @@ export default function PostShiftScreen() {
     const [applyRatesToPharmacy, setApplyRatesToPharmacy] = useState(false);
     const [dedicatedUserId, setDedicatedUserId] = useState<number | null>(null);
 
-    const canSubmit = useMemo(() => Boolean(pharmacyId && slots.length > 0), [pharmacyId, slots.length]);
+    const isLocumLike = useMemo(
+        () => employmentType === 'LOCUM' || employmentType === 'CASUAL',
+        [employmentType]
+    );
+    const stepOrder = useMemo<StepKey[]>(
+        () => [...BASE_STEP_ORDER, ...(isLocumLike ? (['timetable'] as StepKey[]) : []), 'payrate'],
+        [isLocumLike]
+    );
+    const canSubmit = useMemo(() => Boolean(pharmacyId && (!isLocumLike || slots.length > 0)), [pharmacyId, isLocumLike, slots.length]);
 
     const resetForm = useCallback(() => {
         const todayIso = new Date().toISOString().split('T')[0];
+        setCalendarMonthAnchor(new Date(`${todayIso}T00:00:00`));
         setPharmacyId('');
         setRoleNeeded('PHARMACIST');
         setEmploymentType('LOCUM');
@@ -136,7 +161,7 @@ export default function PostShiftScreen() {
         setHideName(false);
         setSingleUserOnly(false);
         setInitialAudience('');
-        setRateMode('FLEXIBLE');
+        setRateType('FLEXIBLE');
         setFixedRate('');
         setOwnerBonus('');
         setDescription('');
@@ -152,12 +177,19 @@ export default function PostShiftScreen() {
         setToast('');
         setError('');
         // Reset new fields
-        setCalculatedRates([]);
+        setSlotRateRows([]);
         setNotifyPharmacyStaff(false);
         setNotifyFavoriteStaff(false);
         setNotifyChainMembers(false);
         setPaymentPreference('ABN');
         setLocumSuperIncluded(true);
+        setSuperPercent('');
+        setRateWeekday('');
+        setRateSaturday('');
+        setRateSunday('');
+        setRatePublicHoliday('');
+        setRateEarlyMorning('');
+        setRateLateNight('');
         setFtptPayMode('HOURLY');
         setMinHourly('');
         setMaxHourly('');
@@ -198,6 +230,27 @@ export default function PostShiftScreen() {
         tiers.push('PLATFORM');
         return tiers;
     }, [pharmacyId, pharmacies]);
+    const selectedPharmacy = useMemo(
+        () => pharmacies.find((x) => x.id === pharmacyId),
+        [pharmacyId, pharmacies]
+    );
+
+    useEffect(() => {
+        if (!selectedPharmacy) return;
+        const normalize = (val: any) => (val === undefined || val === null || val === '' ? '' : String(val));
+        const defaultRateType = (selectedPharmacy as any).default_rate_type || (selectedPharmacy as any).defaultRateType || 'FLEXIBLE';
+
+        setRateType((prev) => {
+            const next = prev || defaultRateType;
+            return next === 'FIXED' ? 'FLEXIBLE' : next;
+        });
+        setRateWeekday((prev) => prev || normalize((selectedPharmacy as any).rate_weekday ?? (selectedPharmacy as any).rateWeekday));
+        setRateSaturday((prev) => prev || normalize((selectedPharmacy as any).rate_saturday ?? (selectedPharmacy as any).rateSaturday));
+        setRateSunday((prev) => prev || normalize((selectedPharmacy as any).rate_sunday ?? (selectedPharmacy as any).rateSunday));
+        setRatePublicHoliday((prev) => prev || normalize((selectedPharmacy as any).rate_public_holiday ?? (selectedPharmacy as any).ratePublicHoliday));
+        setRateEarlyMorning((prev) => prev || normalize((selectedPharmacy as any).rate_early_morning ?? (selectedPharmacy as any).rateEarlyMorning));
+        setRateLateNight((prev) => prev || normalize((selectedPharmacy as any).rate_late_night ?? (selectedPharmacy as any).rateLateNight));
+    }, [selectedPharmacy]);
 
     // Ensure initial audience stays within allowed tiers
     useEffect(() => {
@@ -291,7 +344,29 @@ export default function PostShiftScreen() {
             const fixed = data.fixed_rate ?? data.fixedRate;
             setFixedRate(fixed ? String(fixed) : '');
             const rateTypeValue = data.rate_type ?? data.rateType;
-            setRateMode(rateTypeValue === 'FIXED' || fixed ? 'FIXED' : 'FLEXIBLE');
+            if (rateTypeValue === 'PHARMACIST_PROVIDED') {
+                setRateType('PHARMACIST_PROVIDED');
+            } else if (rateTypeValue === 'FIXED' || fixed) {
+                setRateType('FIXED');
+            } else {
+                setRateType('FLEXIBLE');
+            }
+            setRateWeekday(String(data.rate_weekday ?? data.rateWeekday ?? ''));
+            setRateSaturday(String(data.rate_saturday ?? data.rateSaturday ?? ''));
+            setRateSunday(String(data.rate_sunday ?? data.rateSunday ?? ''));
+            setRatePublicHoliday(String(data.rate_public_holiday ?? data.ratePublicHoliday ?? ''));
+            setRateEarlyMorning(String(data.rate_early_morning ?? data.rateEarlyMorning ?? ''));
+            setRateLateNight(String(data.rate_late_night ?? data.rateLateNight ?? ''));
+            setPaymentPreference((data.payment_preference ?? data.paymentPreference ?? 'ABN') === 'TFN' ? 'TFN' : 'ABN');
+            const detailSuper = data.super_percent ?? data.superPercent;
+            if (detailSuper === null || detailSuper === undefined || detailSuper === '') {
+                setLocumSuperIncluded(true);
+                setSuperPercent('');
+            } else {
+                const superNumber = Number(detailSuper);
+                setLocumSuperIncluded(superNumber > 0);
+                setSuperPercent(String(detailSuper));
+            }
             const parsedSlots = Array.isArray(data.slots)
                 ? data.slots.map((s: any) => ({
                     date: s.date ?? s.slot_date ?? s.shift_date ?? '',
@@ -310,13 +385,14 @@ export default function PostShiftScreen() {
 
     useEffect(() => {
         const initialize = async () => {
+            if (!editingId) {
+                resetForm();
+            }
             await loadPharmacies(); // This will set pharmaciesLoaded to true
             if (editingId) {
                 // We need to wait for pharmacies to be loaded before loading the shift
                 // to ensure all dependencies like `allowedVis` are ready.
                 // The `pharmaciesLoaded` state change will trigger the next effect.
-            } else {
-                resetForm();
             }
         };
         void initialize();
@@ -324,36 +400,39 @@ export default function PostShiftScreen() {
 
     useEffect(() => { if (editingId && pharmaciesLoaded) { void loadShift(); } }, [editingId, pharmaciesLoaded, loadShift]);
 
-    useEffect(() => {
+    const applyBookingPrefillFromParams = useCallback(() => {
         if (editingId) return;
-        const datesParam = params?.dates;
+
+        const datesParam = params?.dates as unknown;
         const singleDate = params?.date;
-        const parsedDates = typeof datesParam === 'string'
-            ? datesParam.split(',').map((d) => d.trim()).filter(Boolean)
-            : [];
-        const dates = parsedDates.length ? parsedDates : (singleDate ? [singleDate] : []);
-        if (dates.length) {
-            setSlotDate(dates[0]);
-            setSelectedDates((prev) => Array.from(new Set([...prev, ...dates])).sort());
-            setSlots((prev) => {
-                const existingKeys = new Set(prev.map((s) => `${s.date}-${s.startTime}-${s.endTime}-${s.isRecurring}`));
-                const next = [...prev];
-                dates.forEach((d) => {
-                    const key = `${d}-${slotStart}-${slotEnd}-false`;
-                    if (!existingKeys.has(key)) {
-                        next.push({
-                            date: d,
-                            startTime: slotStart,
-                            endTime: slotEnd,
-                            isRecurring: false,
-                            recurringDays: [],
-                            recurringEndDate: '',
-                        });
-                    }
-                });
-                return next;
-            });
+        let parsedDates: string[] = [];
+        if (typeof datesParam === 'string') {
+            parsedDates = datesParam.split(',').map((d: string) => d.trim()).filter(Boolean);
+        } else if (Array.isArray(datesParam)) {
+            parsedDates = (datesParam as Array<string | number>)
+                .reduce<string[]>((acc, value) => [...acc, ...String(value).split(',')], [])
+                .map((d: string) => d.trim())
+                .filter(Boolean);
         }
+        const uniqueDates = Array.from(new Set(parsedDates.length ? parsedDates : (singleDate ? [singleDate] : []))).sort();
+
+        if (uniqueDates.length > 0) {
+            setSlotDate(uniqueDates[0]);
+            setCalendarMonthAnchor(new Date(`${uniqueDates[0]}T00:00:00`));
+            setSelectedDates(uniqueDates);
+            setSlots(
+                uniqueDates.map((date) => ({
+                    date,
+                    startTime: slotStart,
+                    endTime: slotEnd,
+                    isRecurring: false,
+                    recurringDays: [],
+                    recurringEndDate: '',
+                }))
+            );
+            setActiveStep('details');
+        }
+
         const roleParam = params?.role;
         if (roleParam && typeof roleParam === 'string') {
             setRoleNeeded(roleParam.toUpperCase());
@@ -365,7 +444,17 @@ export default function PostShiftScreen() {
                 setDedicatedUserId(parsed);
             }
         }
-    }, [editingId, params?.dates, params?.date, params?.role, params?.dedicated_user, slotStart, slotEnd]);
+    }, [editingId, params?.date, params?.dates, params?.dedicated_user, params?.role, slotEnd, slotStart]);
+
+    useEffect(() => {
+        applyBookingPrefillFromParams();
+    }, [applyBookingPrefillFromParams]);
+
+    useFocusEffect(
+        useCallback(() => {
+            applyBookingPrefillFromParams();
+        }, [applyBookingPrefillFromParams])
+    );
 
     const mergeSelectedDates = useCallback((incomingDates: string[]) => {
         const todayIso = new Date().toISOString().split('T')[0];
@@ -379,38 +468,165 @@ export default function PostShiftScreen() {
         () => selectedDates.map((d) => new Date(`${d}T00:00:00`)),
         [selectedDates]
     );
+    const selectedDateSet = useMemo(() => new Set(selectedDates), [selectedDates]);
+    const slotDateSet = useMemo(() => new Set(slots.map((s) => s.date)), [slots]);
+    const monthCalendarCells = useMemo(() => {
+        const year = calendarMonthAnchor.getFullYear();
+        const month = calendarMonthAnchor.getMonth();
+        const first = new Date(year, month, 1);
+        const leading = first.getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const cells: Array<{ iso: string; day: number; inMonth: boolean }> = [];
+        for (let i = 0; i < leading; i += 1) {
+            cells.push({ iso: `pad-prev-${i}`, day: 0, inMonth: false });
+        }
+        for (let day = 1; day <= daysInMonth; day += 1) {
+            const iso = toLocalIsoDate(new Date(year, month, day));
+            cells.push({ iso, day, inMonth: true });
+        }
+        while (cells.length % 7 !== 0) {
+            cells.push({ iso: `pad-next-${cells.length}`, day: 0, inMonth: false });
+        }
+        return cells;
+    }, [calendarMonthAnchor]);
+    const monthLabel = useMemo(
+        () => calendarMonthAnchor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+        [calendarMonthAnchor]
+    );
 
-    // Automatic rate calculation for PHARMACIST with FLEXIBLE rate type
+    const expandedSlots = useMemo(() => {
+        const occurrences: Array<{ date: string; startTime: string; endTime: string }> = [];
+        slots.forEach((slot) => {
+            const addOccurrence = (date: Date) => {
+                occurrences.push({
+                    date: date.toISOString().split('T')[0],
+                    startTime: (slot.startTime || '').slice(0, 5),
+                    endTime: (slot.endTime || '').slice(0, 5),
+                });
+            };
+
+            const baseDate = toIsoDate(slot.date);
+            if (!baseDate) return;
+
+            if (slot.isRecurring && slot.recurringEndDate && slot.recurringDays.length) {
+                const endBoundary = toIsoDate(slot.recurringEndDate);
+                if (!endBoundary) {
+                    addOccurrence(baseDate);
+                    return;
+                }
+                let cursor = new Date(baseDate);
+                while (cursor <= endBoundary) {
+                    if (slot.recurringDays.includes(cursor.getDay())) {
+                        addOccurrence(cursor);
+                    }
+                    cursor.setDate(cursor.getDate() + 1);
+                }
+            } else {
+                addOccurrence(baseDate);
+            }
+        });
+
+        return occurrences.sort((a, b) => {
+            const left = new Date(`${a.date}T${a.startTime}:00`).getTime();
+            const right = new Date(`${b.date}T${b.startTime}:00`).getTime();
+            return left - right;
+        });
+    }, [slots]);
+
     useEffect(() => {
-        if (!pharmacyId || !slots.length || roleNeeded !== 'PHARMACIST' || rateMode !== 'FLEXIBLE') {
-            setCalculatedRates([]);
+        setSlotRateRows((prev) =>
+            expandedSlots.map((_, idx) => prev[idx] ?? { rate: '', status: 'idle' as const })
+        );
+    }, [expandedSlots]);
+
+    useEffect(() => {
+        const pharmacistProvided = roleNeeded === 'PHARMACIST' && rateType === 'PHARMACIST_PROVIDED';
+        const shouldCalculate = isLocumLike && pharmacyId && roleNeeded && expandedSlots.length > 0 && !pharmacistProvided;
+
+        if (!shouldCalculate) {
+            setSlotRateRows((prev) =>
+                expandedSlots.map((_, idx) => prev[idx] ?? { rate: '', status: 'idle' as const })
+            );
             return;
         }
 
-        const fetchRates = async () => {
-            setRatesLoading(true);
-            try {
-                const ratesData = await calculateShiftRates({
-                    pharmacyId: pharmacyId as number,
-                    role: roleNeeded,
-                    employmentType,
-                    slots: slots.map(s => ({
-                        date: s.date,
-                        startTime: s.startTime,
-                        endTime: s.endTime,
-                    })),
-                });
-                setCalculatedRates(ratesData);
-            } catch (error) {
-                console.error('Rate calculation failed:', error);
-                setCalculatedRates([]);
-            } finally {
-                setRatesLoading(false);
-            }
-        };
+        let cancelled = false;
+        setSlotRateRows((prev) =>
+            expandedSlots.map((_, idx) => ({
+                rate: prev[idx]?.rate ?? '',
+                status: 'loading' as const,
+                dirty: prev[idx]?.dirty,
+            }))
+        );
 
-        void fetchRates();
-    }, [pharmacyId, roleNeeded, employmentType, slots, rateMode]);
+        const payload: any = {
+            pharmacyId: Number(pharmacyId),
+            role: roleNeeded,
+            employmentType,
+            slots: expandedSlots.map((slot) => ({
+                date: slot.date,
+                startTime: (slot.startTime || '').slice(0, 5),
+                endTime: (slot.endTime || '').slice(0, 5),
+            })),
+        };
+        if (roleNeeded === 'PHARMACIST') {
+            payload.rateType = rateType || 'FLEXIBLE';
+            payload.rateWeekday = rateWeekday || undefined;
+            payload.rateSaturday = rateSaturday || undefined;
+            payload.rateSunday = rateSunday || undefined;
+            payload.ratePublicHoliday = ratePublicHoliday || undefined;
+            payload.rateEarlyMorning = rateEarlyMorning || undefined;
+            payload.rateLateNight = rateLateNight || undefined;
+        }
+
+        calculateShiftRates(payload)
+            .then((resp) => {
+                if (cancelled) return;
+                const list: any[] = Array.isArray(resp) ? resp : [];
+                setSlotRateRows((prev) =>
+                    expandedSlots.map((_slot, idx) => {
+                        const entry: any = list[idx] ?? {};
+                        const prior = prev[idx] ?? {};
+                        if (entry.error) return { ...prior, status: 'error' as const, error: String(entry.error) };
+                        const rateVal = entry.rate ?? entry.rate_per_hour ?? entry.value;
+                        const nextRate =
+                            prior.dirty && prior.rate !== undefined && prior.rate !== null && prior.rate !== ''
+                                ? prior.rate
+                                : rateVal != null
+                                    ? String(rateVal)
+                                    : '';
+                        return { ...prior, rate: nextRate, status: 'success' as const, error: undefined };
+                    })
+                );
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setSlotRateRows((prev) =>
+                    expandedSlots.map((_slot, idx) => ({
+                        ...(prev[idx] ?? { rate: '' }),
+                        status: 'error' as const,
+                        error: 'Unable to calculate rates',
+                    }))
+                );
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        employmentType,
+        expandedSlots,
+        isLocumLike,
+        pharmacyId,
+        rateEarlyMorning,
+        rateLateNight,
+        ratePublicHoliday,
+        rateSaturday,
+        rateSunday,
+        rateType,
+        rateWeekday,
+        roleNeeded,
+    ]);
 
     const addSlot = () => {
         if (!slotStart || !slotEnd) return;
@@ -439,15 +655,44 @@ export default function PostShiftScreen() {
     const removeSlot = (index: number) => setSlots((prev) => prev.filter((_, i) => i !== index));
     const toggleRecurringDay = (day: number) => setSlotRecurringDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
     const setEscalation = (key: keyof VisibilityDates, value: string) => setEscalationDates((prev) => ({ ...prev, [key]: value }));
+    const handleSlotRateChange = (index: number, value: string) => {
+        setSlotRateRows((rows) =>
+            rows.map((row, idx) =>
+                idx === index ? { ...row, rate: value, status: 'success', error: undefined, dirty: true } : row
+            )
+        );
+    };
 
     const handleSubmit = async () => {
         setError('');
-        if (!canSubmit) {
-            setError('Please select a pharmacy and add at least one slot.');
+        if (!pharmacyId || !roleNeeded || !employmentType) {
+            setError('Please fill all required fields in Shift Details.');
+            return;
+        }
+        if (isLocumLike && slots.length === 0) {
+            setError('Please add at least one timetable entry.');
+            return;
+        }
+        if (!isLocumLike && ftptPayMode === 'HOURLY' && (!minHourly || !maxHourly)) {
+            setError('Please enter min and max hourly rates.');
+            return;
+        }
+        if (!isLocumLike && ftptPayMode === 'ANNUAL' && (!minAnnual || !maxAnnual || !superPercent)) {
+            setError('Please enter min/max annual and super %.');
             return;
         }
         setLoading(true);
         try {
+            const slotRateForEntry = (entry: SlotEntry) => {
+                const idx = expandedSlots.findIndex(
+                    (slot) => slot.date === entry.date && slot.startTime === entry.startTime && slot.endTime === entry.endTime
+                );
+                if (idx < 0) return null;
+                const raw = slotRateRows[idx]?.rate;
+                if (raw === undefined || raw === null || raw === '') return null;
+                const num = Number(raw);
+                return Number.isFinite(num) ? num : null;
+            };
             const payload: any = {
                 pharmacy: pharmacyId,
                 role_needed: roleNeeded,
@@ -470,13 +715,14 @@ export default function PostShiftScreen() {
                     is_recurring: s.isRecurring,
                     recurring_days: s.isRecurring ? s.recurringDays : [],
                     recurring_end_date: s.isRecurring && s.recurringEndDate ? s.recurringEndDate : undefined,
+                    rate: slotRateForEntry(s),
                 })),
                 // New fields
                 notify_pharmacy_staff: isEmbedded ? false : notifyPharmacyStaff,
                 notify_favorite_staff: isEmbedded ? false : notifyFavoriteStaff,
                 notify_chain_members: isEmbedded ? false : notifyChainMembers,
-                payment_preference: paymentPreference,
-                super_percent: locumSuperIncluded ? 11.5 : 0,
+                payment_preference: isLocumLike ? paymentPreference : null,
+                super_percent: isLocumLike ? (locumSuperIncluded ? 11.5 : 0) : null,
                 apply_rates_to_pharmacy: applyRatesToPharmacy,
             };
             if (dedicatedUserId) {
@@ -484,23 +730,36 @@ export default function PostShiftScreen() {
             }
 
             if (roleNeeded === 'PHARMACIST') {
-                if (rateMode === 'FIXED' && fixedRate) {
+                payload.rate_type = rateType;
+                payload.rate_weekday = rateWeekday || null;
+                payload.rate_saturday = rateSaturday || null;
+                payload.rate_sunday = rateSunday || null;
+                payload.rate_public_holiday = ratePublicHoliday || null;
+                payload.rate_early_morning = rateEarlyMorning || null;
+                payload.rate_late_night = rateLateNight || null;
+                if (rateType === 'FIXED' && fixedRate) {
                     payload.hourly_rate = Number(fixedRate);
                 }
             } else {
                 if (ownerBonus) {
-                    payload.owner_bonus = Number(ownerBonus);
+                    payload.owner_adjusted_rate = Number(ownerBonus);
                 }
             }
 
             // Add FT/PT specific fields
-            if (employmentType === 'FULL_TIME' || employmentType === 'PART_TIME') {
+            if (!isLocumLike) {
                 if (ftptPayMode === 'HOURLY') {
                     if (minHourly) payload.min_hourly_rate = Number(minHourly);
                     if (maxHourly) payload.max_hourly_rate = Number(maxHourly);
+                    payload.min_annual_salary = null;
+                    payload.max_annual_salary = null;
+                    payload.super_percent = null;
                 } else {
                     if (minAnnual) payload.min_annual_salary = Number(minAnnual);
                     if (maxAnnual) payload.max_annual_salary = Number(maxAnnual);
+                    payload.min_hourly_rate = null;
+                    payload.max_hourly_rate = null;
+                    payload.super_percent = Number(superPercent);
                 }
             }
 
@@ -790,173 +1049,167 @@ export default function PostShiftScreen() {
         </Surface>
     );
 
-    const renderPayRate = () => (
-        <Surface style={styles.card} elevation={1}>
-            <Text style={styles.label}>Pay Rate</Text>
-            {roleNeeded === 'PHARMACIST' ? (
-                <>
-                    <View style={styles.pills}>
-                        {['FLEXIBLE', 'FIXED'].map((mode) => {
-                            const selected = rateMode === mode;
-                            return (
-                                <Chip
-                                    key={mode}
-                                    selected={selected}
-                                    onPress={() => setRateMode(mode as RateMode)}
-                                    style={chipStyle(selected)}
-                                    textStyle={chipTextStyle(selected)}
-                                >
-                                    {mode === 'FLEXIBLE' ? 'Flexible / Pharmacist Provided' : 'Fixed Rate'}
-                                </Chip>
-                            );
-                        })}
-                    </View>
-                    {rateMode === 'FIXED' ? (
-                        <TextInput
-                            mode="outlined"
-                            label="Fixed rate ($/hr)"
-                            value={fixedRate}
-                            onChangeText={setFixedRate}
-                            keyboardType="numeric"
-                            style={styles.input}
-                        />
-                    ) : null}
-                </>
-            ) : (
-                <>
-                    <Text style={styles.helper}>Rate is set by award. Add optional owner bonus.</Text>
-                    <TextInput
-                        mode="outlined"
-                        label="Owner Bonus ($/hr, optional)"
-                        value={ownerBonus}
-                        onChangeText={setOwnerBonus}
-                        keyboardType="numeric"
-                        style={styles.input}
-                    />
-                </>
-            )}
-
-            {/* Calculated Rates Display (Pharmacist + Flexible only) */}
-            {roleNeeded === 'PHARMACIST' && rateMode === 'FLEXIBLE' && calculatedRates.length > 0 && (
-                <View style={{ marginTop: 12, padding: 12, backgroundColor: '#F3F4F6', borderRadius: 8 }}>
-                    <Text style={[styles.label, { marginBottom: 8 }]}>Calculated Rates (Preview)</Text>
-                    {ratesLoading ? (
-                        <Text style={styles.helper}>Calculating...</Text>
-                    ) : (
-                        calculatedRates.map((rateData, idx) => (
-                            <Text key={idx} style={styles.helper}>
-                                Slot {idx + 1}: {rateData.error || `$${rateData.rate.toFixed(2)}/hr`}
-                            </Text>
-                        ))
-                    )}
+    const renderPayRate = () => {
+        const showSlotPreview = isLocumLike && !(roleNeeded === 'PHARMACIST' && rateType === 'PHARMACIST_PROVIDED');
+        const renderSlotPreviewList = () => {
+            if (!showSlotPreview || expandedSlots.length === 0) return null;
+            return (
+                <View style={{ marginTop: 12, padding: 12, backgroundColor: '#F3F4F6', borderRadius: 8, gap: 8 }}>
+                    <Text style={styles.label}>Slot rate preview</Text>
+                    {expandedSlots.map((slot, idx) => {
+                        const row = slotRateRows[idx] ?? { rate: '', status: 'idle' as const };
+                        const baseNum = Number(row.rate);
+                        const rateValid = Number.isFinite(baseNum);
+                        const bonusNum = Number(ownerBonus);
+                        const bonusValid = Number.isFinite(bonusNum);
+                        const finalNum = roleNeeded === 'PHARMACIST'
+                            ? (rateValid ? baseNum : null)
+                            : (rateValid ? baseNum : 0) + (bonusValid ? bonusNum : 0);
+                        const finalLabel =
+                            finalNum != null && Number.isFinite(finalNum)
+                                ? `$${finalNum.toFixed(2)}/hr`
+                                : '$0.00/hr';
+                        return (
+                            <View key={`${slot.date}-${slot.startTime}-${idx}`} style={{ gap: 6 }}>
+                                <Text style={styles.helper}>{`${slot.date} ${slot.startTime}-${slot.endTime}`}</Text>
+                                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                                    <TextInput
+                                        mode="outlined"
+                                        label="Rate ($/hr)"
+                                        value={row.rate}
+                                        onChangeText={(value) => handleSlotRateChange(idx, value)}
+                                        keyboardType="numeric"
+                                        style={[styles.input, { flex: 1 }]}
+                                    />
+                                    <Text style={styles.helper}>
+                                        {row.status === 'loading' ? 'Calculating...' : `Final: ${finalLabel}`}
+                                    </Text>
+                                </View>
+                                {row.status === 'error' && row.error ? (
+                                    <Text style={{ color: '#B91C1C', fontSize: 12 }}>{row.error}</Text>
+                                ) : null}
+                            </View>
+                        );
+                    })}
                 </View>
-            )}
+            );
+        };
 
-            {/* Payment Preference */}
-            <Text style={[styles.label, { marginTop: 16 }]}>Payment Preference</Text>
-            <View style={styles.pills}>
-                {['ABN', 'NON_ABN'].map((pref) => {
-                    const selected = paymentPreference === pref;
-                    return (
-                        <Chip
-                            key={pref}
-                            selected={selected}
-                            onPress={() => setPaymentPreference(pref as 'ABN' | 'NON_ABN')}
-                            style={chipStyle(selected)}
-                            textStyle={chipTextStyle(selected)}
-                        >
-                            {pref === 'ABN' ? 'ABN' : 'Non-ABN'}
-                        </Chip>
-                    );
-                })}
-            </View>
+        return (
+            <Surface style={styles.card} elevation={1}>
+                <Text style={styles.label}>Pay Rate</Text>
+                {!isLocumLike ? (
+                    <>
+                        <Text style={[styles.label, { marginTop: 16 }]}>Salary Range</Text>
+                        <View style={styles.pills}>
+                            {['HOURLY', 'ANNUAL'].map((mode) => {
+                                const selected = ftptPayMode === mode;
+                                return (
+                                    <Chip
+                                        key={mode}
+                                        selected={selected}
+                                        onPress={() => setFtptPayMode(mode as 'HOURLY' | 'ANNUAL')}
+                                        style={chipStyle(selected)}
+                                        textStyle={chipTextStyle(selected)}
+                                    >
+                                        {mode === 'HOURLY' ? 'Hourly' : 'Annual Package'}
+                                    </Chip>
+                                );
+                            })}
+                        </View>
+                        {ftptPayMode === 'HOURLY' ? (
+                            <>
+                                <TextInput mode="outlined" label="Min Hourly Rate ($/hr)" value={minHourly} onChangeText={setMinHourly} keyboardType="numeric" style={styles.input} />
+                                <TextInput mode="outlined" label="Max Hourly Rate ($/hr)" value={maxHourly} onChangeText={setMaxHourly} keyboardType="numeric" style={styles.input} />
+                            </>
+                        ) : (
+                            <>
+                                <TextInput mode="outlined" label="Min Annual Package ($)" value={minAnnual} onChangeText={setMinAnnual} keyboardType="numeric" style={styles.input} />
+                                <TextInput mode="outlined" label="Max Annual Package ($)" value={maxAnnual} onChangeText={setMaxAnnual} keyboardType="numeric" style={styles.input} />
+                                <TextInput mode="outlined" label="Super (%)" value={superPercent} onChangeText={setSuperPercent} keyboardType="numeric" style={styles.input} />
+                            </>
+                        )}
+                    </>
+                ) : roleNeeded === 'PHARMACIST' ? (
+                    <>
+                        <View style={styles.pills}>
+                            {(['FLEXIBLE', 'FIXED', 'PHARMACIST_PROVIDED'] as RateType[]).map((mode) => {
+                                const selected = rateType === mode;
+                                return (
+                                    <Chip key={mode} selected={selected} onPress={() => setRateType(mode)} style={chipStyle(selected)} textStyle={chipTextStyle(selected)}>
+                                        {mode === 'FLEXIBLE' ? 'Flexible Rate' : mode === 'FIXED' ? 'Fixed Rate' : 'Pharmacist Provided'}
+                                    </Chip>
+                                );
+                            })}
+                        </View>
+                        <Text style={[styles.label, { marginTop: 16 }]}>Payment Type</Text>
+                        <View style={styles.pills}>
+                            {(['ABN', 'TFN'] as const).map((pref) => {
+                                const selected = paymentPreference === pref;
+                                return (
+                                    <Chip
+                                        key={pref}
+                                        selected={selected}
+                                        onPress={() => setPaymentPreference(pref)}
+                                        style={chipStyle(selected)}
+                                        textStyle={chipTextStyle(selected)}
+                                    >
+                                        {pref}
+                                    </Chip>
+                                );
+                            })}
+                        </View>
+                        <TouchableOpacity style={styles.checkboxRow} onPress={() => setLocumSuperIncluded((v) => !v)}>
+                            <Checkbox status={locumSuperIncluded ? 'checked' : 'unchecked'} />
+                            <Text style={styles.rowText}>Include superannuation (+super)</Text>
+                        </TouchableOpacity>
 
-            {/* Super Toggle (LOCUM/CASUAL only) */}
-            {(employmentType === 'LOCUM' || employmentType === 'CASUAL') && (
-                <TouchableOpacity
-                    style={styles.checkboxRow}
-                    onPress={() => setLocumSuperIncluded(v => !v)}
-                >
-                    <Checkbox status={locumSuperIncluded ? 'checked' : 'unchecked'} />
-                    <Text style={styles.rowText}>Superannuation included in rate (11.5%)</Text>
-                </TouchableOpacity>
-            )}
+                        {rateType === 'FIXED' ? (
+                            <TextInput mode="outlined" label="Fixed rate ($/hr)" value={fixedRate} onChangeText={setFixedRate} keyboardType="numeric" style={styles.input} />
+                        ) : null}
 
-            {/* Apply Rates to Pharmacy */}
-            {roleNeeded === 'PHARMACIST' && rateMode === 'FIXED' && (
-                <TouchableOpacity
-                    style={styles.checkboxRow}
-                    onPress={() => setApplyRatesToPharmacy(v => !v)}
-                >
-                    <Checkbox status={applyRatesToPharmacy ? 'checked' : 'unchecked'} />
-                    <Text style={styles.rowText}>Save as default pharmacy rates</Text>
-                </TouchableOpacity>
-            )}
-
-            {/* FT/PT Specific Fields */}
-            {(employmentType === 'FULL_TIME' || employmentType === 'PART_TIME') && (
-                <>
-                    <Text style={[styles.label, { marginTop: 16 }]}>Salary Range</Text>
-                    <View style={styles.pills}>
-                        {['HOURLY', 'ANNUAL'].map((mode) => {
-                            const selected = ftptPayMode === mode;
-                            return (
-                                <Chip
-                                    key={mode}
-                                    selected={selected}
-                                    onPress={() => setFtptPayMode(mode as 'HOURLY' | 'ANNUAL')}
-                                    style={chipStyle(selected)}
-                                    textStyle={chipTextStyle(selected)}
-                                >
-                                    {mode === 'HOURLY' ? 'Hourly' : 'Annual Salary'}
-                                </Chip>
-                            );
-                        })}
-                    </View>
-
-                    {ftptPayMode === 'HOURLY' ? (
-                        <>
-                            <TextInput
-                                mode="outlined"
-                                label="Min Hourly Rate ($/hr)"
-                                value={minHourly}
-                                onChangeText={setMinHourly}
-                                keyboardType="numeric"
-                                style={styles.input}
-                            />
-                            <TextInput
-                                mode="outlined"
-                                label="Max Hourly Rate ($/hr)"
-                                value={maxHourly}
-                                onChangeText={setMaxHourly}
-                                keyboardType="numeric"
-                                style={styles.input}
-                            />
-                        </>
-                    ) : (
-                        <>
-                            <TextInput
-                                mode="outlined"
-                                label="Min Annual Salary ($)"
-                                value={minAnnual}
-                                onChangeText={setMinAnnual}
-                                keyboardType="numeric"
-                                style={styles.input}
-                            />
-                            <TextInput
-                                mode="outlined"
-                                label="Max Annual Salary ($)"
-                                value={maxAnnual}
-                                onChangeText={setMaxAnnual}
-                                keyboardType="numeric"
-                                style={styles.input}
-                            />
-                        </>
-                    )}
-                </>
-            )}
-        </Surface>
-    );
+                        {rateType !== 'PHARMACIST_PROVIDED' ? (
+                            <>
+                                <Text style={[styles.label, { marginTop: 16 }]}>Base rates ($/hr)</Text>
+                                <TextInput mode="outlined" label="Weekday" value={rateWeekday} onChangeText={setRateWeekday} keyboardType="numeric" style={styles.input} />
+                                <TextInput mode="outlined" label="Saturday" value={rateSaturday} onChangeText={setRateSaturday} keyboardType="numeric" style={styles.input} />
+                                <TextInput mode="outlined" label="Sunday" value={rateSunday} onChangeText={setRateSunday} keyboardType="numeric" style={styles.input} />
+                                <TextInput mode="outlined" label="Public Holiday" value={ratePublicHoliday} onChangeText={setRatePublicHoliday} keyboardType="numeric" style={styles.input} />
+                                <TextInput mode="outlined" label="Early Morning" value={rateEarlyMorning} onChangeText={setRateEarlyMorning} keyboardType="numeric" style={styles.input} />
+                                <TextInput mode="outlined" label="Late Night" value={rateLateNight} onChangeText={setRateLateNight} keyboardType="numeric" style={styles.input} />
+                                <TouchableOpacity style={styles.checkboxRow} onPress={() => setApplyRatesToPharmacy((v) => !v)}>
+                                    <Checkbox status={applyRatesToPharmacy ? 'checked' : 'unchecked'} />
+                                    <Text style={styles.rowText}>Apply these rates to pharmacy defaults</Text>
+                                </TouchableOpacity>
+                            </>
+                        ) : null}
+                        {renderSlotPreviewList()}
+                    </>
+                ) : (
+                    <>
+                        <Text style={styles.helper}>Rate is set by government award</Text>
+                        <Text style={[styles.label, { marginTop: 16 }]}>Payment Type</Text>
+                        <View style={styles.pills}>
+                            {(['ABN', 'TFN'] as const).map((pref) => {
+                                const selected = paymentPreference === pref;
+                                return (
+                                    <Chip key={pref} selected={selected} onPress={() => setPaymentPreference(pref)} style={chipStyle(selected)} textStyle={chipTextStyle(selected)}>
+                                        {pref}
+                                    </Chip>
+                                );
+                            })}
+                        </View>
+                        <TouchableOpacity style={styles.checkboxRow} onPress={() => setLocumSuperIncluded((v) => !v)}>
+                            <Checkbox status={locumSuperIncluded ? 'checked' : 'unchecked'} />
+                            <Text style={styles.rowText}>Include superannuation (+super)</Text>
+                        </TouchableOpacity>
+                        <TextInput mode="outlined" label="Owner Bonus ($/hr, optional)" value={ownerBonus} onChangeText={setOwnerBonus} keyboardType="numeric" style={styles.input} />
+                        {renderSlotPreviewList()}
+                    </>
+                )}
+            </Surface>
+        );
+    };
 
     const renderTimetable = () => (
         <Surface style={styles.card} elevation={1}>
@@ -994,6 +1247,59 @@ export default function PostShiftScreen() {
                     placeholder="17:00"
                 />
             </View>
+
+            <Surface style={styles.calendarPanel} elevation={0}>
+                <View style={styles.calendarHeader}>
+                    <IconButton
+                        icon="chevron-left"
+                        size={18}
+                        onPress={() => setCalendarMonthAnchor((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                    />
+                    <Text style={styles.calendarTitle}>{monthLabel}</Text>
+                    <IconButton
+                        icon="chevron-right"
+                        size={18}
+                        onPress={() => setCalendarMonthAnchor((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                    />
+                </View>
+                <View style={styles.calendarWeekHead}>
+                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, idx) => (
+                        <Text key={`${d}-${idx}`} style={styles.calendarWeekText}>{d}</Text>
+                    ))}
+                </View>
+                <View style={styles.calendarGrid}>
+                    {monthCalendarCells.map((cell, idx) => {
+                        if (!cell.inMonth) {
+                            return <View key={`${cell.iso}-${idx}`} style={[styles.calendarCell, styles.calendarCellPad]} />;
+                        }
+                        const isSelected = selectedDateSet.has(cell.iso);
+                        const hasSlot = slotDateSet.has(cell.iso);
+                        return (
+                            <TouchableOpacity
+                                key={`${cell.iso}-${idx}`}
+                                style={[
+                                    styles.calendarCell,
+                                    isSelected && styles.calendarCellSelected,
+                                    hasSlot && styles.calendarCellWithSlot,
+                                ]}
+                                onPress={() => {
+                                    setSlotDate(cell.iso);
+                                    setSelectedDates((prev) =>
+                                        prev.includes(cell.iso)
+                                            ? prev.filter((d) => d !== cell.iso)
+                                            : [...prev, cell.iso].sort()
+                                    );
+                                }}
+                            >
+                                <Text style={[styles.calendarCellText, isSelected && styles.calendarCellTextSelected]}>
+                                    {cell.day}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+                <Text style={styles.hint}>Blue: selected dates, purple border: dates already added to timetable.</Text>
+            </Surface>
 
             <View style={styles.row}>
                 <Checkbox status={slotRecurring ? 'checked' : 'unchecked'} onPress={() => setSlotRecurring((v) => !v)} />
@@ -1068,49 +1374,29 @@ export default function PostShiftScreen() {
         </Surface>
     );
 
-    const renderReview = () => (
-        <Surface style={styles.card} elevation={1}>
-            <Text style={styles.label}>Review</Text>
-            <Text>Pharmacy: {pharmacies.find((p) => p.id === pharmacyId)?.name || '-'}</Text>
-            <Text>Role: {roleNeeded}</Text>
-            <Text>Employment: {employmentType.replace('_', ' ')}</Text>
-            <Text>Workload: {workloadTags.join(', ') || '-'}</Text>
-            <Text>
-                Pay: {roleNeeded === 'PHARMACIST'
-                    ? rateMode === 'FIXED'
-                        ? `Fixed $${fixedRate || '0'}/hr`
-                        : 'Flexible / pharmacist provided'
-                    : ownerBonus
-                        ? `Award + $${ownerBonus}/hr bonus`
-                        : 'Award rate'}
-            </Text>
-            <Text>Must have: {mustHave.join(', ') || '-'}</Text>
-            <Text>Nice to have: {niceToHave.join(', ') || '-'}</Text>
-            <Text>Hide name: {hideName ? 'Yes' : 'No'}</Text>
-            <Text>Single user only: {singleUserOnly ? 'Yes' : 'No'}</Text>
-            <Text>Escalation dates: {Object.entries(escalationDates).map(([k, v]) => `${k}: ${v}`).join(' | ') || '-'}</Text>
-            <Text>Slots: {slots.length}</Text>
-        </Surface>
-    );
-
     const renderStep = (step: StepKey) => {
         switch (step) {
             case 'details': return renderDetails();
             case 'skills': return renderSkills();
             case 'visibility': return renderVisibility();
-            case 'payrate': return renderPayRate();
             case 'timetable': return renderTimetable();
-            case 'review': return renderReview();
+            case 'payrate': return renderPayRate();
             default: return null;
         }
     };
 
-    const stepIndex = STEP_ORDER.indexOf(activeStep);
+    useEffect(() => {
+        if (!stepOrder.includes(activeStep)) {
+            setActiveStep(stepOrder[stepOrder.length - 1]);
+        }
+    }, [activeStep, stepOrder]);
+
+    const stepIndex = stepOrder.indexOf(activeStep);
     const goNext = () => {
-        if (stepIndex < STEP_ORDER.length - 1) setActiveStep(STEP_ORDER[stepIndex + 1]);
+        if (stepIndex < stepOrder.length - 1) setActiveStep(stepOrder[stepIndex + 1]);
     };
     const goBack = () => {
-        if (stepIndex > 0) setActiveStep(STEP_ORDER[stepIndex - 1]);
+        if (stepIndex > 0) setActiveStep(stepOrder[stepIndex - 1]);
     };
 
     return (
@@ -1128,7 +1414,7 @@ export default function PostShiftScreen() {
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.stepper}
                 >
-                    {STEP_ORDER.map((step) => (
+                    {stepOrder.map((step) => (
                         <TouchableOpacity
                             key={step}
                             style={[styles.stepPill, activeStep === step && styles.stepPillActive]}
@@ -1147,8 +1433,21 @@ export default function PostShiftScreen() {
 
                 <View style={styles.navRow}>
                     <Button mode="outlined" onPress={goBack} disabled={stepIndex === 0}>Back</Button>
-                    {stepIndex < STEP_ORDER.length - 1 ? (
-                        <Button mode="contained" onPress={goNext} style={styles.primaryBtn} labelStyle={styles.primaryBtnText}>Next</Button>
+                    {stepIndex < stepOrder.length - 1 ? (
+                        <Button
+                            mode="contained"
+                            onPress={() => {
+                                if (activeStep === 'timetable' && slots.length === 0) {
+                                    setError('Please add at least one timetable entry.');
+                                    return;
+                                }
+                                goNext();
+                            }}
+                            style={styles.primaryBtn}
+                            labelStyle={styles.primaryBtnText}
+                        >
+                            Next
+                        </Button>
                     ) : (
                         <Button mode="contained" onPress={handleSubmit} disabled={!canSubmit || loading} loading={loading} style={styles.primaryBtn} labelStyle={styles.primaryBtnText}>
                             {editingId ? 'Update Shift' : (isEmbedded ? 'Send Booking Request' : 'Post Shift')}
@@ -1262,6 +1561,60 @@ const styles = StyleSheet.create({
     slotHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     slotRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
     slotInput: { flex: 1, backgroundColor: '#FFFFFF' },
+    calendarPanel: {
+        marginTop: 10,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        backgroundColor: '#FFFFFF',
+        padding: 10,
+        gap: 6,
+    },
+    calendarHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    calendarTitle: { color: '#111827', fontWeight: '700' },
+    calendarWeekHead: { flexDirection: 'row' },
+    calendarWeekText: {
+        width: '14.2857%',
+        textAlign: 'center',
+        color: '#6B7280',
+        fontWeight: '700',
+        fontSize: 12,
+    },
+    calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+    calendarCell: {
+        width: '14.2857%',
+        aspectRatio: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        borderRadius: 8,
+        marginBottom: 4,
+    },
+    calendarCellPad: {
+        borderColor: 'transparent',
+        backgroundColor: 'transparent',
+    },
+    calendarCellSelected: {
+        backgroundColor: '#DBEAFE',
+        borderColor: '#2563EB',
+    },
+    calendarCellWithSlot: {
+        borderColor: '#7C3AED',
+        borderWidth: 2,
+    },
+    calendarCellText: {
+        color: '#111827',
+        fontWeight: '600',
+    },
+    calendarCellTextSelected: {
+        color: '#1D4ED8',
+        fontWeight: '700',
+    },
     slotItem: {
         flexDirection: 'row',
         alignItems: 'center',

@@ -73,6 +73,7 @@ export default function PublicShiftsPage({
   const location = useLocation();
   const navigate = useNavigate();
   const theme = useTheme();
+  const queryTab = useMemo(() => new URLSearchParams(location.search).get('tab'), [location.search]);
   const coerceVerified = (value: any) => {
     if (value === true || value === 'true' || value === 'True') return true;
     if (value === 1 || value === '1') return true;
@@ -108,6 +109,13 @@ export default function PublicShiftsPage({
       setBoardTab(activeTabOverride);
     }
   }, [activeTabOverride]);
+
+  useEffect(() => {
+    if (activeTabOverride) return;
+    if (queryTab === 'accepted') {
+      setBoardTab('accepted');
+    }
+  }, [activeTabOverride, queryTab]);
 
   const showError = (message: string) => {
     setError(message && message.trim().length > 0 ? message : 'Something went wrong. Please try again.');
@@ -386,10 +394,34 @@ export default function PublicShiftsPage({
     return map;
   }, [offers]);
 
-  const offerShifts = useMemo(
-    () => Array.from(offersByShift.keys()).map((id) => offersByShift.get(id)?.[0]?.shiftDetail).filter(Boolean) as Shift[],
-    [offersByShift]
-  );
+  const offerShifts = useMemo(() => {
+    return Array.from(offersByShift.entries())
+      .map(([, shiftOffers]) => {
+        const shift = shiftOffers[0]?.shiftDetail as Shift | undefined;
+        if (!shift) return null;
+
+        const offerSlotIds = new Set<number>(
+          shiftOffers
+            .map((offer) => {
+              const raw = offer.slot ?? (offer as any).slotId ?? offer.slotDetail?.id ?? null;
+              const n = Number(raw);
+              return Number.isFinite(n) ? n : null;
+            })
+            .filter((id): id is number => id != null)
+        );
+
+        if (offerSlotIds.size === 0) {
+          return shift;
+        }
+
+        const slots = (shift.slots ?? []).filter((slot: any) => {
+          const n = Number(slot?.id);
+          return Number.isFinite(n) && offerSlotIds.has(n);
+        });
+        return slots.length > 0 ? ({ ...shift, slots } as Shift) : shift;
+      })
+      .filter(Boolean) as Shift[];
+  }, [offersByShift]);
 
   const handleConfirmOfferShift = async (targetShift: Shift) => {
     const list = offersByShift.get(targetShift.id) ?? [];
@@ -443,6 +475,8 @@ export default function PublicShiftsPage({
               applyLabel="Confirm"
               disableSlotActions
               onRefresh={loadOffers}
+              fallbackToAllShiftsWhenEmpty
+              showAllSlots
             />
           )}
         </Paper>

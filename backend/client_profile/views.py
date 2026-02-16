@@ -4362,6 +4362,63 @@ class ShiftOfferViewSet(viewsets.ModelViewSet):
         )
         return super().list(request, *args, **kwargs)
 
+    def _resolve_owner_recipient(self, shift):
+        pharmacy_owner = getattr(getattr(shift, "pharmacy", None), "owner", None)
+        owner_user = getattr(pharmacy_owner, "user", None) if pharmacy_owner else None
+        if owner_user and getattr(owner_user, "email", None):
+            return owner_user
+        creator = getattr(shift, "created_by", None)
+        if creator and getattr(creator, "email", None):
+            return creator
+        return None
+
+    def _first_offer_date(self, shift, offer):
+        try:
+            entries = expand_shift_slots(shift)
+        except Exception:
+            entries = []
+        if getattr(offer, "slot_id", None):
+            entries = [e for e in entries if e.get("slot") and e["slot"].id == offer.slot_id]
+        if entries:
+            return entries[0].get("date")
+        if offer.slot and getattr(offer.slot, "date", None):
+            return offer.slot.date
+        return None
+
+    def _format_rate_label(self, shift, *, assignment_rates=None, offer=None):
+        assignment_rates = [Decimal(str(r)) for r in (assignment_rates or []) if r is not None]
+        if assignment_rates:
+            minimum = min(assignment_rates)
+            maximum = max(assignment_rates)
+            if minimum == maximum:
+                return f"${minimum:.2f}/hr"
+            return f"${minimum:.2f}–${maximum:.2f}/hr"
+
+        if offer and getattr(offer, "slot", None) and getattr(offer.slot, "rate", None) is not None:
+            return f"${Decimal(str(offer.slot.rate)):.2f}/hr"
+
+        fixed_rate = getattr(shift, "fixed_rate", None)
+        if fixed_rate is not None:
+            return f"${Decimal(str(fixed_rate)):.2f}/hr"
+
+        min_hourly = getattr(shift, "min_hourly_rate", None)
+        max_hourly = getattr(shift, "max_hourly_rate", None)
+        if min_hourly is not None or max_hourly is not None:
+            if min_hourly is not None and max_hourly is not None:
+                return f"${Decimal(str(min_hourly)):.2f}–${Decimal(str(max_hourly)):.2f}/hr"
+            only = min_hourly if min_hourly is not None else max_hourly
+            return f"${Decimal(str(only)):.2f}/hr"
+
+        min_annual = getattr(shift, "min_annual_salary", None)
+        max_annual = getattr(shift, "max_annual_salary", None)
+        if min_annual is not None or max_annual is not None:
+            if min_annual is not None and max_annual is not None:
+                return f"${Decimal(str(min_annual)):.0f}–${Decimal(str(max_annual)):.0f} package"
+            only = min_annual if min_annual is not None else max_annual
+            return f"${Decimal(str(only)):.0f} package"
+
+        return "N/A"
+
     @action(detail=True, methods=['post'])
     def accept(self, request, pk=None):
         offer = self.get_object()
@@ -4381,6 +4438,7 @@ class ShiftOfferViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Offer is missing slot selection.'}, status=status.HTTP_400_BAD_REQUEST)
 
         assignment_ids = []
+        assignment_rates = []
         slots_to_assign = shift.slots.all() if shift.single_user_only else [slot_obj]
         with transaction.atomic():
             for slot in slots_to_assign:
@@ -4406,6 +4464,7 @@ class ShiftOfferViewSet(viewsets.ModelViewSet):
                         is_rostered=True,
                     )
                     assignment_ids.append(assn.id)
+                    assignment_rates.append(assn.unit_rate)
 
             offer.status = ShiftOffer.Status.ACCEPTED
             offer.save(update_fields=['status', 'updated_at'])
@@ -4435,6 +4494,39 @@ class ShiftOfferViewSet(viewsets.ModelViewSet):
                 notification=notification_payload
             )
 
+        owner_user = self._resolve_owner_recipient(shift)
+        if owner_user and owner_user.email:
+            worker_name = offer.user.get_full_name() or offer.user.email
+            shift_date = self._first_offer_date(shift, offer)
+            shift_link = build_roster_email_link(owner_user, shift.pharmacy)
+            rate_label = self._format_rate_label(shift, assignment_rates=assignment_rates, offer=offer)
+            owner_ctx = {
+                "owner_name": owner_user.get_full_name() or owner_user.email,
+                "worker_name": worker_name,
+                "pharmacy_name": pharmacy_display,
+                "role_needed": shift.role_needed,
+                "shift_date": shift_date,
+                "shift_link": shift_link,
+                "rate": rate_label,
+            }
+            owner_notification = {
+                "title": f"Worker confirmed: {pharmacy_display}",
+                "body": f"{worker_name} confirmed your shift offer.",
+                "action_url": shift_link,
+                "payload": {"shift_id": shift.id, "offer_id": offer.id, "status": "ACCEPTED"},
+            }
+            if getattr(owner_user, "id", None):
+                owner_notification["user_ids"] = [owner_user.id]
+            async_task(
+                'users.tasks.send_async_email',
+                subject=f"Worker confirmed shift offer at {pharmacy_display}",
+                recipient_list=[owner_user.email],
+                template_name="emails/owner_worker_confirmed.html",
+                context=owner_ctx,
+                text_template="emails/owner_worker_confirmed.txt",
+                notification=owner_notification,
+            )
+
         return Response({'detail': 'Offer accepted.', 'assignment_ids': assignment_ids}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'])
@@ -4446,6 +4538,45 @@ class ShiftOfferViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Offer is not pending.'}, status=status.HTTP_400_BAD_REQUEST)
         offer.status = ShiftOffer.Status.DECLINED
         offer.save(update_fields=['status', 'updated_at'])
+
+        shift = offer.shift
+        pharmacy_display = shift.pharmacy.name
+        if getattr(shift, "post_anonymously", False):
+            suburb = getattr(shift.pharmacy, "suburb", None)
+            pharmacy_display = f"Shift in {suburb}" if suburb else "Anonymous Pharmacy"
+
+        owner_user = self._resolve_owner_recipient(shift)
+        if owner_user and owner_user.email:
+            worker_name = offer.user.get_full_name() or offer.user.email
+            shift_date = self._first_offer_date(shift, offer)
+            shift_link = build_roster_email_link(owner_user, shift.pharmacy)
+            rate_label = self._format_rate_label(shift, offer=offer)
+            owner_ctx = {
+                "owner_name": owner_user.get_full_name() or owner_user.email,
+                "worker_name": worker_name,
+                "pharmacy_name": pharmacy_display,
+                "role_needed": shift.role_needed,
+                "shift_date": shift_date,
+                "shift_link": shift_link,
+                "rate": rate_label,
+            }
+            owner_notification = {
+                "title": f"Worker rejected: {pharmacy_display}",
+                "body": f"{worker_name} rejected your shift offer.",
+                "action_url": shift_link,
+                "payload": {"shift_id": shift.id, "offer_id": offer.id, "status": "DECLINED"},
+            }
+            if getattr(owner_user, "id", None):
+                owner_notification["user_ids"] = [owner_user.id]
+            async_task(
+                'users.tasks.send_async_email',
+                subject=f"Worker rejected shift offer at {pharmacy_display}",
+                recipient_list=[owner_user.email],
+                template_name="emails/owner_worker_rejected.html",
+                context=owner_ctx,
+                text_template="emails/owner_worker_rejected.txt",
+                notification=owner_notification,
+            )
         return Response({'detail': 'Offer declined.'}, status=status.HTTP_200_OK)
 
 class ShiftDetailViewSet(BaseShiftViewSet):

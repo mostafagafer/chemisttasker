@@ -118,6 +118,7 @@ export default function OwnerDashboard() {
       { title: 'Calendar', icon: 'calendar', route: '/owner/calendar', gradient: ['#22C55E', '#16A34A'] as const },
       { title: 'Staff', icon: 'account-group', route: '/owner/staff', gradient: ['#10B981', '#14B8A6'] as const },
       { title: 'Locums', icon: 'account-heart', route: '/owner/locums', gradient: ['#F59E0B', '#F97316'] as const },
+      { title: 'Talent Board', icon: 'account-search', route: '/owner/talent-board', gradient: ['#2563EB', '#1D4ED8'] as const },
       { title: 'Messages', icon: 'message-text', route: '/owner/chat', gradient: ['#8B5CF6', '#A78BFA'] as const },
     ],
     []

@@ -74,6 +74,7 @@ export default function CommunityShiftsPage({
   const location = useLocation();
   const navigate = useNavigate();
   const theme = useTheme();
+  const queryTab = useMemo(() => new URLSearchParams(location.search).get('tab'), [location.search]);
 
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,7 +110,33 @@ export default function CommunityShiftsPage({
   }, [offers]);
 
   const offerShifts = useMemo(
-    () => Array.from(offersByShift.keys()).map((id) => offersByShift.get(id)?.[0]?.shiftDetail).filter(Boolean) as Shift[],
+    () =>
+      Array.from(offersByShift.entries())
+        .map(([, shiftOffers]) => {
+          const shift = shiftOffers[0]?.shiftDetail as Shift | undefined;
+          if (!shift) return null;
+
+          const offerSlotIds = new Set<number>(
+            shiftOffers
+              .map((offer) => {
+                const raw = offer.slot ?? (offer as any).slotId ?? offer.slotDetail?.id ?? null;
+                const n = Number(raw);
+                return Number.isFinite(n) ? n : null;
+              })
+              .filter((id): id is number => id != null)
+          );
+
+          if (offerSlotIds.size === 0) {
+            return shift;
+          }
+
+          const slots = (shift.slots ?? []).filter((slot: any) => {
+            const n = Number(slot?.id);
+            return Number.isFinite(n) && offerSlotIds.has(n);
+          });
+          return slots.length > 0 ? ({ ...shift, slots } as Shift) : shift;
+        })
+        .filter(Boolean) as Shift[],
     [offersByShift]
   );
 
@@ -118,6 +145,13 @@ export default function CommunityShiftsPage({
       setBoardTab(activeTabOverride);
     }
   }, [activeTabOverride]);
+
+  useEffect(() => {
+    if (activeTabOverride) return;
+    if (queryTab === 'accepted') {
+      setBoardTab('accepted');
+    }
+  }, [activeTabOverride, queryTab]);
 
   useEffect(() => {
     if (!user) return;
@@ -532,6 +566,8 @@ export default function CommunityShiftsPage({
                   applyLabel="Confirm"
                   disableSlotActions
                   onRefresh={loadOffers}
+                  fallbackToAllShiftsWhenEmpty
+                  showAllSlots
                 />
               )}
             </Paper>

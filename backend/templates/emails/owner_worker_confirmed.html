@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Worker Confirmed Shift Offer</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
+        .btn {
+            display: inline-block;
+            background: #23b59c;
+            color: #fff;
+            padding: 12px 28px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.05rem;
+            margin: 16px 0;
+        }
+        .meta { color: #6b7280; font-size: 0.95rem; margin: 6px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Worker confirmed your shift offer</h2>
+        <p>Hi {{ owner_name }},</p>
+        <p><b>{{ worker_name }}</b> has confirmed the shift offer.</p>
+
+        <p class="meta"><b>Pharmacy:</b> {{ pharmacy_name }}</p>
+        <p class="meta"><b>Role:</b> {{ role_needed }}</p>
+        <p class="meta"><b>Date:</b> {{ shift_date|default:"N/A" }}</p>
+        <p class="meta"><b>Rate:</b> {{ rate|default:"N/A" }}</p>
+
+        <a class="btn" href="{{ shift_link }}">View Shift</a>
+        <p>Thanks,<br>The ChemistTasker Team</p>
+    </div>
+</body>
+</html>

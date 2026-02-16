@@ -1006,6 +1006,8 @@ export default function TopBarActions() {
   const handleNotificationNavigate = React.useCallback(
     (item: NotificationItem) => {
       const payload: any = item.payload ?? {};
+      const shiftId = payload.shift_id ?? payload.shiftId ?? null;
+      const offerId = payload.offer_id ?? payload.offerId ?? null;
       const conversationId =
         payload.conversation_id ??
         payload.conversationId ??
@@ -1015,6 +1017,26 @@ export default function TopBarActions() {
         null;
       if (conversationId) {
         navigate(`${chatRoute}?conversationId=${conversationId}`);
+      } else if (offerId || shiftId) {
+        const role = String(user?.role || "").toUpperCase();
+        const rolePath =
+          role === "PHARMACIST"
+            ? "pharmacist"
+            : role === "OTHER_STAFF"
+            ? "otherstaff"
+            : role === "EXPLORER"
+            ? "explorer"
+            : null;
+        if (rolePath) {
+          const params = new URLSearchParams();
+          params.set("tab", "accepted");
+          if (shiftId != null) params.set("shift_id", String(shiftId));
+          if (offerId != null) params.set("offer_id", String(offerId));
+          navigate(`/dashboard/${rolePath}/shifts?${params.toString()}`);
+        } else {
+          handleCloseNotifications();
+          return;
+        }
       } else if (item.actionUrl) {
         try {
           const target = new URL(item.actionUrl, window.location.origin);
@@ -1047,7 +1069,7 @@ export default function TopBarActions() {
       );
       handleCloseNotifications();
     },
-    [chatRoute, handleCloseNotifications, navigate]
+    [chatRoute, handleCloseNotifications, navigate, user?.role]
   );
   const handleMessageNavigate = React.useCallback(
     (summary: MessageSummary) => {

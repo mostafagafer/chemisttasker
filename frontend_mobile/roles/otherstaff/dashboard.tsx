@@ -167,6 +167,14 @@ export default function OtherStaffOverviewScreen() {
       route: '/otherstaff/calendar',
     },
     {
+      title: 'Talent Board',
+      description: 'Browse talent',
+      icon: 'account-search',
+      color: '#2563EB',
+      gradient: ['#2563EB', '#1D4ED8'] as const,
+      route: '/otherstaff/talent-board',
+    },
+    {
       title: 'Invoices',
       description: 'View payments',
       icon: 'file-document-outline',

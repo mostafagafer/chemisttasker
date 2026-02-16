@@ -76,8 +76,11 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     onScroll,
     applyLabel,
     disableSlotActions,
+    fallbackToAllShiftsWhenEmpty,
+    showAllSlots,
 }) => {
     const slotFilterMode: SlotFilterMode = slotFilterModeProp ?? 'all';
+    const effectiveSlotFilterMode: SlotFilterMode = showAllSlots ? 'all' : slotFilterMode;
     const { user, token } = useAuth();
     const currentUserId = user?.id ?? null;
 
@@ -265,9 +268,9 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     });
 
     const displayShifts = useMemo(() => {
-        if (slotFilterMode === 'all') return processedShifts;
+        if (effectiveSlotFilterMode === 'all') return processedShifts;
 
-        return processedShifts.filter((shift) => {
+        const filteredShifts = processedShifts.filter((shift) => {
             const slots = getUpcomingSlotsForDisplay(shift.slots ?? []);
             const counterInfo = counterOffers[shift.id];
             const counterSlotIds = new Set<number>(
@@ -278,7 +281,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
             const hasShiftLevelCounter = Boolean(counterInfo) && counterSlotIds.size === 0;
             const hasShiftLevelInterest = appliedShiftIds.has(shift.id) || hasShiftLevelCounter;
 
-            if (slotFilterMode === 'interested') {
+            if (effectiveSlotFilterMode === 'interested') {
                 if (slots.length === 0) {
                     return hasShiftLevelInterest;
                 }
@@ -288,7 +291,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                     return appliedSlotIds.has(slot.id) || counterSlotIds.has(slot.id);
                 });
             }
-            if (slotFilterMode === 'rejected') {
+            if (effectiveSlotFilterMode === 'rejected') {
                 if (slots.length === 0) {
                     return rejectedShiftIds.has(shift.id);
                 }
@@ -297,14 +300,21 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
             }
             return true;
         });
+
+        if (fallbackToAllShiftsWhenEmpty && filteredShifts.length === 0 && processedShifts.length > 0) {
+            return processedShifts;
+        }
+
+        return filteredShifts;
     }, [
-        slotFilterMode,
+        effectiveSlotFilterMode,
         processedShifts,
         appliedShiftIds,
         appliedSlotIds,
         rejectedShiftIds,
         rejectedSlotIds,
         counterOffers,
+        fallbackToAllShiftsWhenEmpty,
     ]);
 
     useEffect(() => {
@@ -475,7 +485,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     const headerSubtitle =
         activeTab === 'saved'
             ? `${displayShifts.length} saved items`
-            : useServerFiltering && typeof totalCount === 'number' && slotFilterMode === 'all'
+            : useServerFiltering && typeof totalCount === 'number' && effectiveSlotFilterMode === 'all'
                 ? `Showing ${totalCount} opportunities`
                 : `Showing ${displayShifts.length} opportunities`;
 
@@ -619,7 +629,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                     </View>
                 )}
 
-                {useServerFiltering && slotFilterMode === 'all' && pageCount && onPageChange && (
+                {useServerFiltering && effectiveSlotFilterMode === 'all' && pageCount && onPageChange && (
                     <View style={styles.paginationRow}>
                         <Button
                             mode="outlined"
@@ -673,7 +683,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                     rejectActionGuard={rejectActionGuard}
                     userRatePreference={userRatePreference}
                     pharmacyRatings={pharmacyRatings}
-                    slotFilterMode={slotFilterMode}
+                    slotFilterMode={effectiveSlotFilterMode}
                     applyLabel={applyLabel}
                     disableSlotActions={disableSlotActions}
                 />

@@ -4,7 +4,6 @@ Hi {{ user_first_name }},
 
 You have received a shift offer for {{ role_label }} at {{ pharmacy_name }}.
 
-{% if slot_summary %}Shift summary: {{ slot_summary }}{% endif %}
 {% if slots_display %}
 Dates:
 {% for line in slots_display %}- {{ line }}

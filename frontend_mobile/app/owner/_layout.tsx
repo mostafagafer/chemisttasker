@@ -16,6 +16,7 @@ const tabTitles: Record<string, string> = {
   hub: 'Hub',
   notifications: 'Notifications',
   calendar: 'Calendar',
+  'talent-board': 'Talent Board',
 };
 
 const sidebarItems = [
@@ -26,6 +27,7 @@ const sidebarItems = [
   { label: 'Shifts', icon: 'calendar-month', route: '/owner/shifts' },
   { label: 'Calendar', icon: 'calendar', route: '/owner/calendar' },
   { label: 'Messages', icon: 'message', route: '/owner/chat' },
+  { label: 'Talent Board', icon: 'account-search', route: '/owner/talent-board' },
   { label: 'Profile', icon: 'account-circle', route: '/owner/profile' },
 ];
 
@@ -335,6 +337,7 @@ export default function OwnerLayout() {
           }}
         />
         <Tabs.Screen name="calendar" options={{ href: null }} />
+        <Tabs.Screen name="talent-board" options={{ href: null }} />
         <Tabs.Screen name="onboarding" options={{ href: null }} />
       </Tabs>
     </>

@@ -1,0 +1,13 @@
+Hi {{ owner_name }},
+
+{{ worker_name }} has confirmed your shift offer.
+
+Pharmacy: {{ pharmacy_name }}
+Role: {{ role_needed }}
+Date: {{ shift_date|default:"N/A" }}
+Rate: {{ rate|default:"N/A" }}
+
+View Shift: {{ shift_link }}
+
+Thanks,
+The ChemistTasker Team

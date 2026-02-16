@@ -16,6 +16,7 @@ const tabTitles: Record<string, string> = {
   hub: 'Hub',
   invoice: 'Invoices',
   calendar: 'Calendar',
+  'talent-board': 'Talent Board',
 };
 
 const sidebarItems = [
@@ -25,6 +26,7 @@ const sidebarItems = [
   { label: 'Chat', icon: 'message', route: '/pharmacist/chat' },
   { label: 'Hub', icon: 'view-grid', route: '/pharmacist/hub' },
   { label: 'Invoices', icon: 'file-document-multiple', route: '/pharmacist/invoice' },
+  { label: 'Talent Board', icon: 'account-search', route: '/pharmacist/talent-board' },
 ];
 
 function PharmacistSidebar({
@@ -370,6 +372,7 @@ export default function PharmacistTabs() {
         <Tabs.Screen name="invoice/new" options={{ href: null }} />
         <Tabs.Screen name="invoice/[id]" options={{ href: null }} />
         <Tabs.Screen name="calendar" options={{ href: null }} />
+        <Tabs.Screen name="talent-board" options={{ href: null }} />
       </Tabs>
     </>
   );

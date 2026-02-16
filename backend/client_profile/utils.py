@@ -210,6 +210,20 @@ def build_shift_offer_context(shift, offer, recipient=None, *, ignore_slot_filte
     slots_display = slot_lines[:max_slots_in_email]
     slots_extra_count = max(0, len(slot_lines) - len(slots_display))
 
+    if recipient and getattr(recipient, "role", None):
+        role_value = str(recipient.role).upper()
+        role_route_map = {
+            "PHARMACIST": "pharmacist",
+            "OTHER_STAFF": "otherstaff",
+            "EXPLORER": "explorer",
+        }
+        role_path = role_route_map.get(role_value)
+        if role_path:
+            base_ctx["shift_link"] = (
+                f"{settings.FRONTEND_BASE_URL}/dashboard/{role_path}/shifts"
+                f"?tab=accepted&shift_id={shift.id}&offer_id={getattr(offer, 'id', '')}"
+            )
+
     base_ctx.update({
         "pharmacy_name": pharmacy_display,
         "role_label": shift.get_role_needed_display() if hasattr(shift, "get_role_needed_display") else shift.role_needed,

@@ -15,6 +15,7 @@ const tabTitles: Record<string, string> = {
   hub: 'Hub',
   invoice: 'Invoices',
   calendar: 'Calendar',
+  'talent-board': 'Talent Board',
 };
 
 const sidebarItems = [
@@ -24,6 +25,7 @@ const sidebarItems = [
   { label: 'Chat', icon: 'message', route: '/otherstaff/chat' },
   { label: 'Hub', icon: 'view-grid', route: '/otherstaff/hub' },
   { label: 'Invoices', icon: 'file-document-multiple', route: '/otherstaff/invoice' },
+  { label: 'Talent Board', icon: 'account-search', route: '/otherstaff/talent-board' },
 ];
 
 function OtherStaffSidebar({
@@ -356,6 +358,7 @@ export default function OtherStaffTabs() {
         <Tabs.Screen name="invoice/new" options={{ href: null }} />
         <Tabs.Screen name="invoice/[id]" options={{ href: null }} />
         <Tabs.Screen name="calendar" options={{ href: null }} />
+        <Tabs.Screen name="talent-board" options={{ href: null }} />
       </Tabs>
     </>
   );

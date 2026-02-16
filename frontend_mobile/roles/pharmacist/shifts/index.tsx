@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, SegmentedButtons, IconButton, Menu } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLocalSearchParams } from 'expo-router';
 import { useWorkspace } from '../../../context/WorkspaceContext';
 
 // Shared components
@@ -28,8 +29,11 @@ const getTabsForWorkspace = (workspace: 'internal' | 'platform') => {
 };
 
 export default function PharmacistShiftsScreen() {
+  const params = useLocalSearchParams<{ tab?: string; shift_id?: string; offer_id?: string }>();
   const { workspace, setWorkspace, canUseInternal } = useWorkspace();
   const effectiveWorkspace: 'internal' | 'platform' = canUseInternal ? workspace : 'platform';
+  const incomingTab = typeof params.tab === 'string' ? params.tab.toLowerCase() : null;
+  const boardTabOverride = incomingTab === 'accepted' ? 'accepted' : undefined;
   const [activeTab, setActiveTab] = useState('public');
   const [workspaceMenuVisible, setWorkspaceMenuVisible] = useState(false);
 
@@ -43,6 +47,11 @@ export default function PharmacistShiftsScreen() {
       setActiveTab('public');
     }
   }, [effectiveWorkspace, activeTab]);
+
+  useEffect(() => {
+    if (incomingTab !== 'accepted') return;
+    setActiveTab(effectiveWorkspace === 'internal' ? 'community' : 'public');
+  }, [incomingTab, effectiveWorkspace]);
 
   const subtitle = useMemo(() => {
     switch (activeTab) {
@@ -116,8 +125,8 @@ export default function PharmacistShiftsScreen() {
       </View>
 
       <View style={styles.content}>
-        {activeTab === 'public' && <PublicShiftsView />}
-        {activeTab === 'community' && <CommunityShiftsView />}
+        {activeTab === 'public' && <PublicShiftsView activeTabOverride={boardTabOverride} />}
+        {activeTab === 'community' && <CommunityShiftsView activeTabOverride={boardTabOverride} />}
         {activeTab === 'confirmed' && <WorkerConfirmedShiftsView />}
         {activeTab === 'history' && <WorkerHistoryShiftsView invoiceRoute="/pharmacist/invoice/new" />}
       </View>

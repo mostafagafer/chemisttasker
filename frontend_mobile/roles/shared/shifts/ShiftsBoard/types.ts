@@ -91,6 +91,8 @@ export type ShiftsBoardProps = {
     onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
     applyLabel?: string;
     disableSlotActions?: boolean;
+    fallbackToAllShiftsWhenEmpty?: boolean;
+    showAllSlots?: boolean;
 };
 
 export type SortKey = 'shiftDate' | 'postedDate' | 'rate' | 'distance';

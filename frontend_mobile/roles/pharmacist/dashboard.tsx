@@ -173,6 +173,14 @@ export default function PharmacistOverviewScreen() {
       route: '/pharmacist/calendar',
     },
     {
+      title: 'Talent Board',
+      description: 'Browse talent',
+      icon: 'account-search',
+      color: '#2563EB',
+      gradient: ['#2563EB', '#1D4ED8'] as const,
+      route: '/pharmacist/talent-board',
+    },
+    {
       title: 'Invoices',
       description: 'View payments',
       icon: 'file-document-outline',

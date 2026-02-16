@@ -1,0 +1,10 @@
+Hi {{ owner_name }},
+
+{{ worker_name }} has rejected your shift offer.
+
+Pharmacy: {{ pharmacy_name }}
+Role: {{ role_needed }}
+Date: {{ shift_date|default:"N/A" }}
+Rate: {{ rate|default:"N/A" }}
+
+View and manage shift: {{ shift_link }}

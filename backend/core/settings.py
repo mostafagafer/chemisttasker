@@ -59,6 +59,7 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
+    'x-client-platform',
 ]
 
 # Application definition
@@ -250,9 +251,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # JWT settings for better frontend integration
 SIMPLE_JWT = {
     # Short‑lived access token
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
     # Longer‑lived refresh token
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=90),
     # Issue a new refresh token each time /refresh/ is called
     'ROTATE_REFRESH_TOKENS': True,
     # Blacklist old refresh tokens—prevents reuse

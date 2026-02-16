@@ -80,7 +80,7 @@ export default function VerifyOTPScreen() {
             } else if (user?.role === 'PHARMACIST') {
                 router.replace('/pharmacist/dashboard' as never);
             } else if (user?.role === 'OTHER_STAFF') {
-                router.replace('/otherstaff/shifts' as never);
+                router.replace('/otherstaff/dashboard' as never);
             } else if (user?.role === 'EXPLORER') {
                 router.replace('/explorer' as never);
             } else if (user?.role === 'ORGANIZATION') {

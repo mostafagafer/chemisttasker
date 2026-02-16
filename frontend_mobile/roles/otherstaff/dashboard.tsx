@@ -182,22 +182,22 @@ export default function OtherStaffOverviewScreen() {
       gradient: ['#06B6D4', '#0EA5E9'] as const,
       route: '/otherstaff/invoice',
     },
-    {
-      title: 'Learning',
-      description: 'CPD & Training',
-      icon: 'school',
-      color: '#10B981',
-      gradient: ['#10B981', '#14B8A6'] as const,
-      route: '/otherstaff/learning',
-    },
-    {
-      title: 'Interests',
-      description: 'Job preferences',
-      icon: 'heart',
-      color: '#F59E0B',
-      gradient: ['#F59E0B', '#F97316'] as const,
-      route: '/otherstaff/interests',
-    },
+    // {
+    //   title: 'Learning',
+    //   description: 'CPD & Training',
+    //   icon: 'school',
+    //   color: '#10B981',
+    //   gradient: ['#10B981', '#14B8A6'] as const,
+    //   route: '/otherstaff/learning',
+    // },
+    // {
+    //   title: 'Interests',
+    //   description: 'Job preferences',
+    //   icon: 'heart',
+    //   color: '#F59E0B',
+    //   gradient: ['#F59E0B', '#F97316'] as const,
+    //   route: '/otherstaff/interests',
+    // },
     {
       title: 'Profile',
       description: 'Edit details',
@@ -384,7 +384,7 @@ export default function OtherStaffOverviewScreen() {
 
           <Divider />
 
-          <TouchableOpacity style={styles.bottomMenuItem} onPress={() => { }}>
+          <TouchableOpacity style={styles.bottomMenuItem} onPress={() => router.push('/contact' as any)}>
             <View style={styles.bottomMenuIcon}>
               <IconButton icon="help-circle" size={24} iconColor="#10B981" />
             </View>

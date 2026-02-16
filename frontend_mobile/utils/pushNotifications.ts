@@ -3,8 +3,6 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import apiClient from './apiClient';
 import { EventEmitter } from 'eventemitter3';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { secureRemoveMany } from './secureStorage';
 
 const inAppEmitter = new EventEmitter();
 const IN_APP_UNREAD_BUMP_EVENT = 'in-app-unread-bump';
@@ -69,14 +67,9 @@ export async function registerDeviceTokenWithBackend(token: string, platform: 'i
       platform,
     });
   } catch (err) {
-    const resp: any = (err as any)?.response;
-    const status = resp?.status;
-    const data = resp?.data;
-    // If the token is invalid/blacklisted, clear stored creds so the user can re-login with fresh tokens
-    if (status === 401 && data?.code === 'token_not_valid') {
-      await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
-      await AsyncStorage.removeItem('user');
-    }
+    const data = (err as any)?.response?.data;
+    // Never wipe local auth from a push-token registration failure.
+    // Auth refresh/invalid-token handling belongs to the central API interceptor.
     console.error('Failed to register device token', data || err);
   }
 }

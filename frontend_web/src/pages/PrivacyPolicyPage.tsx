@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Container, Paper, Typography, Box, Divider } from "@mui/material";
+import PublicLogoTopBar from "../components/PublicLogoTopBar";
 import { setCanonical, setPageMeta, setSocialMeta } from "../utils/seo";
 
 export default function PrivacyPolicyPage() {
@@ -16,8 +17,10 @@ export default function PrivacyPolicyPage() {
   }, []);
 
   return (
-    <Container maxWidth="md" sx={{ mt: 8, mb: 8 }}>
-      <Paper elevation={3} sx={{ p: { xs: 2, sm: 5 }, borderRadius: 4 }}>
+    <>
+      <PublicLogoTopBar />
+      <Container maxWidth="md" sx={{ mt: 8, mb: 8 }}>
+        <Paper elevation={3} sx={{ p: { xs: 2, sm: 5 }, borderRadius: 4 }}>
         <Typography variant="h3" component="h1" gutterBottom align="center">
           Privacy Policy
         </Typography>
@@ -289,7 +292,8 @@ export default function PrivacyPolicyPage() {
             &copy; {new Date().getFullYear()} CHEMISTTASKER PTY LTD. All rights reserved.
           </Typography>
         </Box>
-      </Paper>
-    </Container>
+        </Paper>
+      </Container>
+    </>
   );
 }

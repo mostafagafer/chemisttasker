@@ -317,7 +317,7 @@ export default function OwnerDashboard() {
 
           <Divider />
 
-          <TouchableOpacity style={styles.bottomMenuItem} onPress={() => router.push('/owner/help' as any)}>
+          <TouchableOpacity style={styles.bottomMenuItem} onPress={() => router.push('/contact' as any)}>
             <View style={styles.bottomMenuIcon}>
               <IconButton icon="help-circle" size={24} iconColor="#10B981" />
             </View>

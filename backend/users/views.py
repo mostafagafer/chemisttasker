@@ -65,6 +65,13 @@ def verify_recaptcha(token):
         return False
     return result.get('success', False)
 
+def is_mobile_registration_request(request):
+    platform_header = (request.headers.get("X-Client-Platform") or "").strip().lower()
+    if platform_header in {"mobile", "mobile-app", "expo", "react-native"}:
+        return True
+    user_agent = (request.headers.get("User-Agent") or "").lower()
+    return "expo" in user_agent or "reactnative" in user_agent or "okhttp" in user_agent
+
 def _delete_verification_docs_for_user(user):
     from client_profile.models import PharmacistOnboarding, OtherStaffOnboarding, ExplorerOnboarding
 
@@ -152,12 +159,13 @@ class RegisterView(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]
     
     def create(self, request, *args, **kwargs):
-        captcha_token = request.data.get('captcha_token')
-        if not captcha_token or not verify_recaptcha(captcha_token):
-            return Response(
-                {'captcha': ['reCAPTCHA validation failed. Please try again.']},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        if not is_mobile_registration_request(request):
+            captcha_token = request.data.get('captcha_token')
+            if not captcha_token or not verify_recaptcha(captcha_token):
+                return Response(
+                    {'captcha': ['reCAPTCHA validation failed. Please try again.']},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):

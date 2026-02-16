@@ -9,6 +9,7 @@ import {
   Typography,
 } from "@mui/material";
 import AuthLayout from "../layouts/AuthLayout";
+import PublicLogoTopBar from "../components/PublicLogoTopBar";
 import TalentBoard from "./dashboard/sidebar/TalentBoard";
 import { API_BASE_URL } from "../constants/api";
 import { setCanonical, setPageMeta, setSocialMeta } from "../utils/seo";
@@ -111,32 +112,35 @@ export default function PublicTalentBoardPage() {
         : "You need an account to contact talent, view profiles, or save preferences.";
 
   return (
-    <AuthLayout title="Find Talent" maxWidth={false} noCard showTitle={false}>
-      <TalentBoard
-        publicMode
-        externalPosts={posts}
-        externalLoading={loading}
-        externalError={error}
-        onRequireLogin={openLoginDialog}
-      />
+    <>
+      <PublicLogoTopBar />
+      <AuthLayout title="Find Talent" maxWidth={false} noCard showTitle={false}>
+        <TalentBoard
+          publicMode
+          externalPosts={posts}
+          externalLoading={loading}
+          externalError={error}
+          onRequireLogin={openLoginDialog}
+        />
 
-      <Dialog open={loginDialogOpen} onClose={closeLoginDialog}>
-        <DialogTitle>{dialogTitle}</DialogTitle>
-        <DialogContent dividers>
-          <Typography variant="body2" color="text.secondary">
-            {dialogMessage}
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeLoginDialog}>Cancel</Button>
-          <Button component={RouterLink} to="/register" variant="outlined">
-            Create account
-          </Button>
-          <Button component={RouterLink} to="/login" variant="contained">
-            Log in
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </AuthLayout>
+        <Dialog open={loginDialogOpen} onClose={closeLoginDialog}>
+          <DialogTitle>{dialogTitle}</DialogTitle>
+          <DialogContent dividers>
+            <Typography variant="body2" color="text.secondary">
+              {dialogMessage}
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeLoginDialog}>Cancel</Button>
+            <Button component={RouterLink} to="/register" variant="outlined">
+              Create account
+            </Button>
+            <Button component={RouterLink} to="/login" variant="contained">
+              Log in
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </AuthLayout>
+    </>
   );
 }

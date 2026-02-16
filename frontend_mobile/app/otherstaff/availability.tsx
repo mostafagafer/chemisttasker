@@ -1,1 +1,1 @@
-export { default } from '@/roles/pharmacist/availability';
+export { default } from '@/roles/otherstaff/availability';

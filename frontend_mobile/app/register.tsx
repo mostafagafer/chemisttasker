@@ -82,6 +82,7 @@ export default function RegisterScreen() {
       await register({
         email: formData.email,
         password: formData.password,
+        confirm_password: formData.confirm_password,
         role: formData.role,
         accepted_terms: formData.accepted_terms,
       });

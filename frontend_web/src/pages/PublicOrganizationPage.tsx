@@ -11,6 +11,7 @@ import {
   Typography,
 } from "@mui/material";
 import AuthLayout from "../layouts/AuthLayout";
+import PublicLogoTopBar from "../components/PublicLogoTopBar";
 import { getPublicOrganization } from "@chemisttasker/shared-core";
 import NotFoundPage from "./NotFoundPage";
 import { setCanonical, setPageMeta, setSocialMeta } from "../utils/seo";
@@ -101,21 +102,23 @@ export default function PublicOrganizationPage() {
   };
 
   return (
-    <AuthLayout
-      title={org?.name || "Organization"}
-      maxWidth="xl"
-      noCard
-      showTitle={false}
-    >
-      <Container
+    <>
+      <PublicLogoTopBar />
+      <AuthLayout
+        title={org?.name || "Organization"}
         maxWidth="xl"
-        sx={{
-          py: { xs: 5, md: 8 },
-          display: "flex",
-          justifyContent: "center",
-        }}
+        noCard
+        showTitle={false}
       >
-        <Box sx={{ width: "100%", maxWidth: 1200, px: { xs: 2, md: 0 } }}>
+        <Container
+          maxWidth="xl"
+          sx={{
+            py: { xs: 5, md: 8 },
+            display: "flex",
+            justifyContent: "center",
+          }}
+        >
+          <Box sx={{ width: "100%", maxWidth: 1200, px: { xs: 2, md: 0 } }}>
         {loading ? (
           <Stack spacing={3}>
             <Skeleton variant="rectangular" height={280} sx={{ borderRadius: 3 }} />
@@ -215,8 +218,9 @@ export default function PublicOrganizationPage() {
             </Stack>
           </Stack>
         ) : null}
-        </Box>
-      </Container>
-    </AuthLayout>
+          </Box>
+        </Container>
+      </AuthLayout>
+    </>
   );
 }

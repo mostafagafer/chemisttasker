@@ -16,16 +16,26 @@ const tabTitles: Record<string, string> = {
   invoice: 'Invoices',
   calendar: 'Calendar',
   'talent-board': 'Talent Board',
+  availability: 'Availability',
+  'profile-basic-info': 'Basic Info',
+  'profile-identity': 'Identity',
+  'profile-regulatory': 'Regulatory Docs',
+  'profile-skills': 'Skills',
+  'profile-payment': 'Payment',
+  'profile-referees': 'Referees',
+  'profile-bio': 'Bio',
 };
 
 const sidebarItems = [
   { label: 'Home', icon: 'home', route: '/otherstaff/dashboard' },
   { label: 'Shifts', icon: 'calendar-range', route: '/otherstaff/shifts' },
+  { label: 'Availability', icon: 'calendar-clock', route: '/otherstaff/availability' },
   { label: 'Calendar', icon: 'calendar', route: '/otherstaff/calendar' },
   { label: 'Chat', icon: 'message', route: '/otherstaff/chat' },
   { label: 'Hub', icon: 'view-grid', route: '/otherstaff/hub' },
   { label: 'Invoices', icon: 'file-document-multiple', route: '/otherstaff/invoice' },
   { label: 'Talent Board', icon: 'account-search', route: '/otherstaff/talent-board' },
+  { label: 'Profile', icon: 'account-circle', route: '/otherstaff/profile' },
 ];
 
 function OtherStaffSidebar({
@@ -192,8 +202,13 @@ export default function OtherStaffTabs() {
     if (!pathname) return { isDashboard: true, backTarget: null };
     const segments = pathname.split('/').filter(Boolean);
     const isDash = segments[0] === 'otherstaff' && (segments[1] ?? 'dashboard') === 'dashboard';
+    const isProfileSubPage =
+      segments[0] === 'otherstaff' &&
+      ['profile-basic-info', 'profile-identity', 'profile-regulatory', 'profile-skills', 'profile-payment', 'profile-referees', 'profile-bio'].includes(segments[1] ?? '');
     let parent: string | null = null;
-    if (segments.length > 2) {
+    if (isProfileSubPage) {
+      parent = '/otherstaff/profile';
+    } else if (segments.length > 2) {
       parent = `/${segments.slice(0, -1).join('/')}`;
     }
     return { isDashboard: isDash, backTarget: parent };
@@ -241,7 +256,9 @@ export default function OtherStaffTabs() {
                 <IconButton
                   icon="arrow-left"
                   onPress={() => {
-                    if (canGoBack) {
+                    if (backTarget === '/otherstaff/profile') {
+                      router.push('/otherstaff/profile' as any);
+                    } else if (canGoBack) {
                       router.back();
                     } else if (backTarget) {
                       router.push(backTarget as any);
@@ -348,6 +365,13 @@ export default function OtherStaffTabs() {
         <Tabs.Screen name="index" options={{ href: null }} />
         <Tabs.Screen name="availability" options={{ href: null }} />
         <Tabs.Screen name="onboarding" options={{ href: null }} />
+        <Tabs.Screen name="profile-basic-info" options={{ href: null }} />
+        <Tabs.Screen name="profile-identity" options={{ href: null }} />
+        <Tabs.Screen name="profile-regulatory" options={{ href: null }} />
+        <Tabs.Screen name="profile-skills" options={{ href: null }} />
+        <Tabs.Screen name="profile-payment" options={{ href: null }} />
+        <Tabs.Screen name="profile-referees" options={{ href: null }} />
+        <Tabs.Screen name="profile-bio" options={{ href: null }} />
         <Tabs.Screen name="interests" options={{ href: null }} />
         <Tabs.Screen name="learning" options={{ href: null }} />
         <Tabs.Screen name="notifications" options={{ href: null }} />

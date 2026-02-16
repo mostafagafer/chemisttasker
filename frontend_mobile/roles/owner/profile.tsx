@@ -33,41 +33,11 @@ export default function OwnerProfileScreen() {
   const imageMediaTypes = (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
   const menuItems = [
     {
-      title: 'Personal Information',
-      description: 'Update your name, contact details and address',
+      title: 'Profile Detail',
+      description: 'Open owner onboarding profile fields',
       icon: 'account-edit-outline',
-      route: '/owner/onboarding/review',
-    },
-    {
-      title: 'Professional Details',
-      description: 'Manage your business and verification details',
-      icon: 'certificate-outline',
-      route: '/owner/onboarding/review',
-    },
-    {
-      title: 'Availability',
-      description: 'Manage your shifts and schedules',
-      icon: 'calendar-clock',
-      route: '/owner/shifts/index',
-    },
-    {
-      title: 'Interests',
-      description: 'Update your clinical interests and preferences',
-      icon: 'heart-outline',
-      route: '/owner/onboarding/review',
-    },
-    {
-      title: 'Billing & Invoices',
-      description: 'Manage your invoices and payment details',
-      icon: 'file-document-outline',
-      route: '/owner/dashboard',
-    },
-    {
-      title: 'Learning & Development',
-      description: 'Access your training and CPD records',
-      icon: 'school-outline',
-      route: '/owner/dashboard',
-    },
+      route: '/owner/profile-detail',
+    }
   ];
 
   useEffect(() => {

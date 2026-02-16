@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Avatar,
   Button,
+  Card,
   Divider,
   List,
   Portal,
@@ -28,6 +29,13 @@ export default function ExplorerProfileScreen() {
   const [deleting, setDeleting] = useState(false);
   const webBaseUrl = 'https://www.chemisttasker.com.au';
   const imageMediaTypes = (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
+  const menuItems = [
+    { title: 'Basic Info', description: 'Personal and contact details', icon: 'account-edit-outline', route: '/explorer/profile-basic-info' },
+    { title: 'Identity', description: 'Government ID verification', icon: 'card-account-details-outline', route: '/explorer/profile-identity' },
+    { title: 'Interests', description: 'Choose your interests', icon: 'heart-outline', route: '/explorer/profile-interests' },
+    { title: 'Referees', description: 'References and requests', icon: 'account-group-outline', route: '/explorer/profile-referees' },
+    { title: 'Bio', description: 'Short bio and resume', icon: 'file-account-outline', route: '/explorer/profile-bio' },
+  ];
 
   useEffect(() => {
     const photo =
@@ -163,6 +171,23 @@ export default function ExplorerProfileScreen() {
           </Text>
         </View>
 
+        <View style={styles.menuContainer}>
+          {menuItems.map((item, index) => (
+            <Card key={index} style={styles.menuCard} onPress={() => router.push(item.route as any)}>
+              <Card.Content style={styles.menuContent}>
+                <View style={styles.menuIcon}>
+                  <IconButton icon={item.icon} size={24} iconColor="#6366F1" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text variant="titleMedium" style={styles.menuTitle}>{item.title}</Text>
+                  <Text variant="bodySmall" style={styles.menuDesc}>{item.description}</Text>
+                </View>
+                <IconButton icon="chevron-right" size={24} iconColor="#9CA3AF" />
+              </Card.Content>
+            </Card>
+          ))}
+        </View>
+
         <View style={styles.section}>
           <Text variant="titleSmall" style={styles.sectionTitle}>
             Support
@@ -271,6 +296,12 @@ const styles = StyleSheet.create({
   name: { fontWeight: '700', color: '#111827' },
   email: { color: '#6B7280', marginTop: 4 },
   section: { paddingHorizontal: 16, marginTop: 16 },
+  menuContainer: { paddingHorizontal: 16, gap: 10, marginTop: 8 },
+  menuCard: { backgroundColor: '#FFFFFF', borderRadius: 16, elevation: 0, borderWidth: 1, borderColor: '#E5E7EB' },
+  menuContent: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 8, gap: 8 },
+  menuIcon: { width: 48, height: 48, borderRadius: 12, backgroundColor: '#EEF2FF', justifyContent: 'center', alignItems: 'center' },
+  menuTitle: { fontWeight: '600', color: '#111827' },
+  menuDesc: { color: '#6B7280', marginTop: 2 },
   sectionTitle: {
     color: '#6B7280',
     marginBottom: 8,

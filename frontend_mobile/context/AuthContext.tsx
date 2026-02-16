@@ -28,6 +28,7 @@ export type User = {
 interface RegisterData {
   email: string;
   password: string;
+  confirm_password: string;
   first_name?: string;
   last_name?: string;
   role: string;
@@ -203,15 +204,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const register = async (data: RegisterData) => {
     try {
-      await apiClient.post('/users/register/', data);
+      await apiClient.post('/users/register/', data, {
+        headers: {
+          'X-Client-Platform': 'mobile-app',
+        },
+      });
     } catch (error: any) {
       const duplicateEmailMessage =
         'There is already an account registered with this email. Please log in or reset your password.';
       const responseData = error?.response?.data ?? error?.data;
       const emailMsg = responseData?.email?.[0] || responseData?.email;
+      const confirmPasswordMsg =
+        responseData?.confirm_password?.[0] || responseData?.confirm_password;
+      const passwordMsg = responseData?.password?.[0] || responseData?.password;
+      const captchaMsg = responseData?.captcha?.[0] || responseData?.captcha;
+      const detailMsg = responseData?.detail;
+      const termsMsg = responseData?.accepted_terms?.[0] || responseData?.accepted_terms;
       const emailMsgLower = typeof emailMsg === 'string' ? emailMsg.toLowerCase() : '';
       const errorMessage = typeof error?.message === 'string' ? error.message : '';
       const errorMessageLower = errorMessage.toLowerCase();
+      const fallbackFieldMessage =
+        responseData && typeof responseData === 'object'
+          ? Object.entries(responseData)
+            .filter(([key]) => key !== 'email' && key !== 'captcha' && key !== 'accepted_terms')
+            .map(([, value]) => (Array.isArray(value) ? value[0] : value))
+            .find((value) => typeof value === 'string')
+          : undefined;
       const errorMsg =
         (emailMsgLower.includes('unique') ||
           emailMsgLower.includes('already') ||
@@ -219,7 +237,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
           errorMessageLower.includes('already') ||
           errorMessageLower.includes('registered')
           ? duplicateEmailMessage
-          : errorMessage || emailMsg || responseData?.detail || 'Registration failed');
+          : confirmPasswordMsg ||
+            passwordMsg ||
+            captchaMsg ||
+            termsMsg ||
+            emailMsg ||
+            detailMsg ||
+            fallbackFieldMessage ||
+            errorMessage ||
+            'Registration failed');
       throw new Error(errorMsg);
     }
   };

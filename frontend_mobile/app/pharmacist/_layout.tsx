@@ -17,16 +17,26 @@ const tabTitles: Record<string, string> = {
   invoice: 'Invoices',
   calendar: 'Calendar',
   'talent-board': 'Talent Board',
+  availability: 'Availability',
+  'profile-basic-info': 'Basic Info',
+  'profile-identity': 'Identity',
+  'profile-skills': 'Skills',
+  'profile-payment': 'Payment',
+  'profile-referees': 'Referees',
+  'profile-rate': 'Rate',
+  'profile-bio': 'Bio',
 };
 
 const sidebarItems = [
   { label: 'Home', icon: 'home', route: '/pharmacist/dashboard' },
   { label: 'Shifts', icon: 'calendar-range', route: '/pharmacist/shifts' },
+  { label: 'Availability', icon: 'calendar-clock', route: '/pharmacist/availability' },
   { label: 'Calendar', icon: 'calendar', route: '/pharmacist/calendar' },
   { label: 'Chat', icon: 'message', route: '/pharmacist/chat' },
   { label: 'Hub', icon: 'view-grid', route: '/pharmacist/hub' },
   { label: 'Invoices', icon: 'file-document-multiple', route: '/pharmacist/invoice' },
   { label: 'Talent Board', icon: 'account-search', route: '/pharmacist/talent-board' },
+  { label: 'Profile', icon: 'account-circle', route: '/pharmacist/profile' },
 ];
 
 function PharmacistSidebar({
@@ -204,8 +214,13 @@ export default function PharmacistTabs() {
     if (!pathname) return { isDashboard: true, backTarget: null };
     const segments = pathname.split('/').filter(Boolean);
     const isDash = segments[0] === 'pharmacist' && (segments[1] ?? 'dashboard') === 'dashboard';
+    const isProfileSubPage =
+      segments[0] === 'pharmacist' &&
+      ['profile-basic-info', 'profile-identity', 'profile-skills', 'profile-payment', 'profile-referees', 'profile-rate', 'profile-bio'].includes(segments[1] ?? '');
     let parent: string | null = null;
-    if (segments.length > 2) {
+    if (isProfileSubPage) {
+      parent = '/pharmacist/profile';
+    } else if (segments.length > 2) {
       parent = `/${segments.slice(0, -1).join('/')}`;
     }
     return { isDashboard: isDash, backTarget: parent };
@@ -253,7 +268,10 @@ export default function PharmacistTabs() {
                 <IconButton
                   icon="arrow-left"
                   onPress={() => {
-                    if (canGoBack) {
+                    // Force deterministic back path for hidden profile sub-pages.
+                    if (backTarget === '/pharmacist/profile') {
+                      router.push('/pharmacist/profile' as any);
+                    } else if (canGoBack) {
                       router.back();
                     } else if (backTarget) {
                       router.push(backTarget as any);
@@ -362,6 +380,13 @@ export default function PharmacistTabs() {
         <Tabs.Screen name="index" options={{ href: null }} />
         <Tabs.Screen name="availability" options={{ href: null }} />
         <Tabs.Screen name="onboarding" options={{ href: null }} />
+        <Tabs.Screen name="profile-basic-info" options={{ href: null }} />
+        <Tabs.Screen name="profile-identity" options={{ href: null }} />
+        <Tabs.Screen name="profile-skills" options={{ href: null }} />
+        <Tabs.Screen name="profile-payment" options={{ href: null }} />
+        <Tabs.Screen name="profile-referees" options={{ href: null }} />
+        <Tabs.Screen name="profile-rate" options={{ href: null }} />
+        <Tabs.Screen name="profile-bio" options={{ href: null }} />
         <Tabs.Screen name="interests" options={{ href: null }} />
         <Tabs.Screen name="learning" options={{ href: null }} />
         <Tabs.Screen name="notifications" options={{ href: null }} />

@@ -17,6 +17,7 @@ import { API_BASE_URL, API_ENDPOINTS } from '../constants/api';
 import { ORG_ROLES } from '../constants/roles';
 import { useAuth } from '../contexts/AuthContext';
 import AuthLayout from '../layouts/AuthLayout';
+import PublicLogoTopBar from '../components/PublicLogoTopBar';
 import { setRobotsMeta } from '../utils/seo';
 
 const PERSONA_KEY_PREFIX = 'ct-active-persona';
@@ -156,14 +157,16 @@ export default function Login() {
   };
 
   return (
-    <AuthLayout title="Welcome Back">
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
+    <>
+      <PublicLogoTopBar />
+      <AuthLayout title="Welcome Back">
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
 
-      <form onSubmit={handleLogin}>
+        <form onSubmit={handleLogin}>
         <TextField
           fullWidth
           margin="normal"
@@ -213,32 +216,33 @@ export default function Login() {
             {loading ? <CircularProgress size={24} color="inherit" /> : 'Login'}
           </Button>
         </Box>
-      </form>
+        </form>
 
-      <Box mt={2} textAlign="center">
-        <Link component={RouterLink} to="/password-reset" color="#00a99d">
-          Forgot Password?
-        </Link>
-      </Box>
+        <Box mt={2} textAlign="center">
+          <Link component={RouterLink} to="/password-reset" color="#00a99d">
+            Forgot Password?
+          </Link>
+        </Box>
 
-      <Typography variant="body2" mt={3} textAlign="center">
-        Don&apos;t have an account?{' '}
-        <Link component={RouterLink} to="/register" fontWeight="bold" color="#00a99d">
-          Register
-        </Link>
-      </Typography>
+        <Typography variant="body2" mt={3} textAlign="center">
+          Don&apos;t have an account?{' '}
+          <Link component={RouterLink} to="/register" fontWeight="bold" color="#00a99d">
+            Register
+          </Link>
+        </Typography>
 
-      <Typography variant="caption" mt={2} display="block" textAlign="center" color="text.secondary">
-        By using ChemistTasker, you agree to the{" "}
-        <Link component={RouterLink} to="/terms-of-service" color="#00a99d">
-          Terms of Service
-        </Link>{" "}
-        and{" "}
-        <Link component={RouterLink} to="/privacy-policy" color="#00a99d">
-          Privacy Policy
-        </Link>
-        .
-      </Typography>
-    </AuthLayout>
+        <Typography variant="caption" mt={2} display="block" textAlign="center" color="text.secondary">
+          By using ChemistTasker, you agree to the{" "}
+          <Link component={RouterLink} to="/terms-of-service" color="#00a99d">
+            Terms of Service
+          </Link>{" "}
+          and{" "}
+          <Link component={RouterLink} to="/privacy-policy" color="#00a99d">
+            Privacy Policy
+          </Link>
+          .
+        </Typography>
+      </AuthLayout>
+    </>
   );
 }

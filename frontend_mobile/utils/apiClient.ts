@@ -59,18 +59,32 @@ apiClient.interceptors.response.use(
                         refresh: refreshToken,
                     });
 
-                    const { access } = response.data;
+                    const { access, refresh, user } = response.data || {};
                     await secureSet('ACCESS_KEY', access);
+                    // Preserve refresh rotation from backend (SIMPLE_JWT ROTATE_REFRESH_TOKENS=True).
+                    if (refresh) {
+                        await secureSet('REFRESH_KEY', refresh);
+                    }
+                    if (user) {
+                        await AsyncStorage.setItem('user', JSON.stringify(user));
+                    }
 
                     // Retry original request with new token
                     originalRequest.headers.Authorization = `Bearer ${access}`;
                     return apiClient(originalRequest);
                 }
             } catch (refreshError) {
-                // Refresh failed, clear tokens and redirect to login
-                await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
-                await AsyncStorage.removeItem('user');
-                // You can emit an event here to notify the app to navigate to login
+                // Only clear auth on confirmed invalid/expired token responses.
+                const status = (refreshError as any)?.response?.status;
+                const code = (refreshError as any)?.response?.data?.code;
+                const shouldClear =
+                    status === 401 ||
+                    status === 403 ||
+                    (status === 400 && code === 'token_not_valid');
+                if (shouldClear) {
+                    await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
+                    await AsyncStorage.removeItem('user');
+                }
                 return Promise.reject(refreshError);
             }
         }

@@ -167,10 +167,15 @@ export default function OwnerLayout() {
       segments[0] === 'owner' &&
       segments[1] === 'pharmacies' &&
       segments.length >= 3;
+    const isProfileSubPage =
+      segments[0] === 'owner' &&
+      ['profile-detail'].includes(segments[1] ?? '');
 
     // Build parent path for nested routes: /owner/pharmacies/123/staff -> /owner/pharmacies/123
     let parent: string | null = null;
-    if (segments.length > 2) {
+    if (isProfileSubPage) {
+      parent = '/owner/profile';
+    } else if (segments.length > 2) {
       parent = `/${segments.slice(0, -1).join('/')}`;
     }
 
@@ -214,12 +219,14 @@ export default function OwnerLayout() {
                     onPress={() => {
                       if (isPharmacyDetail) {
                         router.push('/owner/pharmacies');
+                      } else if (backTarget === '/owner/profile') {
+                        router.push('/owner/profile' as any);
                       } else if (canGoBack) {
                         router.back();
                       } else if (backTarget) {
                         router.push(backTarget as any);
                       } else {
-                        router.push('/owner/dashboard');
+                        router.push('/owner/profile' as any);
                       }
                     }}
                   />
@@ -339,6 +346,7 @@ export default function OwnerLayout() {
         <Tabs.Screen name="calendar" options={{ href: null }} />
         <Tabs.Screen name="talent-board" options={{ href: null }} />
         <Tabs.Screen name="onboarding" options={{ href: null }} />
+        <Tabs.Screen name="profile-detail" options={{ href: null }} />
       </Tabs>
     </>
   );

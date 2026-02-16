@@ -12,6 +12,7 @@ import {
   Typography,
 } from '@mui/material';
 import ShiftsBoard from './dashboard/sidebar/ShiftsBoard';
+import PublicLogoTopBar from '../components/PublicLogoTopBar';
 import {
   Shift,
   PaginatedResponse,
@@ -227,63 +228,66 @@ export default function PublicJobBoardPage() {
   const handleCloseError = () => setErrorOpen(false);
 
   return (
-    <AuthLayout title="Public Job Board" maxWidth="lg" noCard showTitle={false}>
-      <Box sx={{ px: { xs: 2, lg: 3 }, py: 3, bgcolor: 'grey.50', minHeight: '100vh' }}>
-        {error && (
-          <Typography color="error" sx={{ mb: 1 }}>
+    <>
+      <PublicLogoTopBar />
+      <AuthLayout title="Public Job Board" maxWidth={false} noCard showTitle={false}>
+        <Box sx={{ px: { xs: 2, lg: 3 }, py: 3, bgcolor: 'grey.50', minHeight: '100vh' }}>
+          {error && (
+            <Typography color="error" sx={{ mb: 1 }}>
+              {error}
+            </Typography>
+          )}
+          <ShiftsBoard
+            title="Public Job Board"
+            shifts={shifts}
+            loading={loading}
+            useServerFiltering
+            filters={filters}
+            onFiltersChange={handleFiltersChange}
+            totalCount={totalCount}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            enableSaved={false}
+            hideSaveToggle
+            readOnlyActions
+            disableLocalPersistence
+            roleOptionsOverride={PUBLIC_ROLE_OPTIONS}
+            initialAppliedShiftIds={[]}
+            initialAppliedSlotIds={[]}
+            initialRejectedShiftIds={[]}
+            initialRejectedSlotIds={[]}
+            onApplyAll={() => requireLogin()}
+            onApplySlot={() => requireLogin()}
+            hideCounterOffer
+            onRefresh={() => loadShifts(filters, page)}
+          />
+        </Box>
+
+        <Dialog open={loginDialogOpen} onClose={() => setLoginDialogOpen(false)}>
+          <DialogTitle>Log in to apply</DialogTitle>
+          <DialogContent dividers>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              You need an account to apply or send a counter offer.
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setLoginDialogOpen(false)}>Cancel</Button>
+            <Button component={RouterLink} to="/register" variant="outlined">
+              Create account
+            </Button>
+            <Button component={RouterLink} to="/login" variant="contained">
+              Log in
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Snackbar open={errorOpen} autoHideDuration={4000} onClose={handleCloseError}>
+          <Alert severity="error" onClose={handleCloseError} sx={{ width: '100%' }}>
             {error}
-          </Typography>
-        )}
-        <ShiftsBoard
-          title="Public Job Board"
-          shifts={shifts}
-          loading={loading}
-          useServerFiltering
-          filters={filters}
-          onFiltersChange={handleFiltersChange}
-          totalCount={totalCount}
-          page={page}
-          pageSize={pageSize}
-          onPageChange={setPage}
-          enableSaved={false}
-          hideSaveToggle
-          readOnlyActions
-          disableLocalPersistence
-          roleOptionsOverride={PUBLIC_ROLE_OPTIONS}
-          initialAppliedShiftIds={[]}
-          initialAppliedSlotIds={[]}
-          initialRejectedShiftIds={[]}
-          initialRejectedSlotIds={[]}
-          onApplyAll={() => requireLogin()}
-          onApplySlot={() => requireLogin()}
-          hideCounterOffer
-          onRefresh={() => loadShifts(filters, page)}
-        />
-      </Box>
-
-      <Dialog open={loginDialogOpen} onClose={() => setLoginDialogOpen(false)}>
-        <DialogTitle>Log in to apply</DialogTitle>
-        <DialogContent dividers>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            You need an account to apply or send a counter offer.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setLoginDialogOpen(false)}>Cancel</Button>
-          <Button component={RouterLink} to="/register" variant="outlined">
-            Create account
-          </Button>
-          <Button component={RouterLink} to="/login" variant="contained">
-            Log in
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Snackbar open={errorOpen} autoHideDuration={4000} onClose={handleCloseError}>
-        <Alert severity="error" onClose={handleCloseError} sx={{ width: '100%' }}>
-          {error}
-        </Alert>
-      </Snackbar>
-    </AuthLayout>
+          </Alert>
+        </Snackbar>
+      </AuthLayout>
+    </>
   );
 }

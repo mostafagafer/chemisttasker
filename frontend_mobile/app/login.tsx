@@ -33,7 +33,7 @@ export default function LoginScreen() {
       } else if (userData.role === 'PHARMACIST') {
         router.replace('/pharmacist/dashboard' as never);
       } else if (userData.role === 'OTHER_STAFF') {
-        router.replace('/otherstaff/shifts' as never);
+        router.replace('/otherstaff/dashboard' as never);
       } else if (userData.role === 'EXPLORER') {
         router.replace('/explorer' as never);
       } else if (userData.role === 'ORGANIZATION') {

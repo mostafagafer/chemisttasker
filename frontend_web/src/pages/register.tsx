@@ -19,6 +19,7 @@ import {
 } from "@mui/material";
 import { Visibility, VisibilityOff } from "@mui/icons-material";
 import AuthLayout from "../layouts/AuthLayout"; // Import the new layout
+import PublicLogoTopBar from "../components/PublicLogoTopBar";
 import { API_BASE_URL, API_ENDPOINTS } from "../constants/api";
 import { setRobotsMeta } from "../utils/seo";
 
@@ -121,27 +122,29 @@ export default function Register() {
   };
 
   return (
-    <AuthLayout title="Create Account">
-      {error && (
-        <Alert severity="error" sx={{ mb: 2, width: '100%' }}>
-          {error}
-        </Alert>
-      )}
-      {isDuplicateEmail && (
-        <Typography variant="body2" sx={{ mb: 2 }}>
-          Try{" "}
-          <Link component={RouterLink} to="/login" fontWeight="bold" color="#00a99d">
-            logging in
-          </Link>{" "}
-          or{" "}
-          <Link component={RouterLink} to="/password-reset" fontWeight="bold" color="#00a99d">
-            resetting your password
-          </Link>
-          .
-        </Typography>
-      )}
+    <>
+      <PublicLogoTopBar />
+      <AuthLayout title="Create Account">
+        {error && (
+          <Alert severity="error" sx={{ mb: 2, width: '100%' }}>
+            {error}
+          </Alert>
+        )}
+        {isDuplicateEmail && (
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Try{" "}
+            <Link component={RouterLink} to="/login" fontWeight="bold" color="#00a99d">
+              logging in
+            </Link>{" "}
+            or{" "}
+            <Link component={RouterLink} to="/password-reset" fontWeight="bold" color="#00a99d">
+              resetting your password
+            </Link>
+            .
+          </Typography>
+        )}
 
-      <form onSubmit={handleRegister}>
+        <form onSubmit={handleRegister}>
         {/* ... (all your TextField, ToggleButtonGroup, and other form elements are unchanged) */}
         <TextField fullWidth margin="normal" label="Email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value.toLowerCase() })} autoComplete="username" />
         <TextField fullWidth margin="normal" label="Password" type={showPassword ? "text" : "password"} value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} autoComplete="new-password" InputProps={{ endAdornment: ( <InputAdornment position="end"> <IconButton onClick={() => setShowPassword((show) => !show)} edge="end"> {showPassword ? <VisibilityOff /> : <Visibility />} </IconButton> </InputAdornment> ), }} />
@@ -176,14 +179,15 @@ export default function Register() {
             {loading ? <CircularProgress size={24} color="inherit" /> : "Register"}
           </Button>
         </Box>
-      </form>
+        </form>
 
-      <Typography variant="body2" mt={3} textAlign="center">
-        Already have an account?{" "}
-        <Link component={RouterLink} to="/login" fontWeight="bold" color="#00a99d">
-          Login
-        </Link>
-      </Typography>
-    </AuthLayout>
+        <Typography variant="body2" mt={3} textAlign="center">
+          Already have an account?{" "}
+          <Link component={RouterLink} to="/login" fontWeight="bold" color="#00a99d">
+            Login
+          </Link>
+        </Typography>
+      </AuthLayout>
+    </>
   );
 }

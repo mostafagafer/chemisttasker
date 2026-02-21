@@ -156,9 +156,13 @@ export const resolveShiftNotificationRoute = ({
   const offerId = actionMatch?.offerId ?? parseOfferIdFromPayload(payload);
   const incomingTab = actionMatch?.tab ?? null;
 
+  // Always prioritize the authenticated user's role when provided.
+  // This prevents cross-role deep links (e.g. owner being sent to pharmacist routes)
+  // when backend action URLs contain a mismatched role slug.
+  const normalizedUserRole = normalizeRoleSlug(userRole);
   const roleSlug =
+    normalizedUserRole ??
     actionMatch?.roleSlug ??
-    normalizeRoleSlug(userRole) ??
     null;
 
   const baseRoute = roleSlug ? ROLE_ROUTE_MAP[roleSlug] : null;

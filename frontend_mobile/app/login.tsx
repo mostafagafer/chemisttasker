@@ -56,11 +56,6 @@ export default function LoginScreen() {
           style={styles.logoImage}
           resizeMode="contain"
         />
-        <View style={styles.titleBlock}>
-          <Text variant="bodySmall" style={styles.subtitle}>
-            Pharmacy workforce, organized.
-          </Text>
-        </View>
       </View>
 
       <Text variant="headlineMedium" style={styles.formTitle}>
@@ -143,15 +138,13 @@ const styles = StyleSheet.create({
   logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 12,
-    gap: 10,
+    gap: 12,
   },
   logoImage: {
-    width: 140,
+    width: 160,
     height: 48,
-  },
-  titleBlock: {
-    flex: 1,
   },
   formTitle: {
     marginTop: 8,
@@ -161,9 +154,6 @@ const styles = StyleSheet.create({
   formSubtitle: {
     color: '#4b5563',
     marginBottom: 12,
-  },
-  subtitle: {
-    color: '#666',
   },
   errorContainer: {
     backgroundColor: '#ffebee',

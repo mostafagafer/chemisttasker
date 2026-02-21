@@ -69,7 +69,12 @@ export default function PharmacistOverviewScreen() {
   const [slideAnim] = useState(new Animated.Value(50));
   const [menuVisible, setMenuVisible] = useState(false);
 
+  const normalizedRole = String(user?.role || '').toUpperCase();
+
   const loadDashboard = useCallback(async () => {
+    if (normalizedRole !== 'PHARMACIST') {
+      return;
+    }
     // If not refreshing, we might want to show loading initially
     if (!refreshing) setLoading(true);
     try {
@@ -97,11 +102,15 @@ export default function PharmacistOverviewScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [refreshing, fadeAnim, slideAnim]);
+  }, [normalizedRole, refreshing, fadeAnim, slideAnim]);
 
   useEffect(() => {
+    if (normalizedRole !== 'PHARMACIST') {
+      setLoading(false);
+      return;
+    }
     void loadDashboard();
-  }, [loadDashboard]);
+  }, [loadDashboard, normalizedRole]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

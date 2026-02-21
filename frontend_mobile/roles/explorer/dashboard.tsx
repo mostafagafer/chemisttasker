@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 export default function ExplorerOverviewScreen() {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const normalizedRole = String(user?.role || '').toUpperCase();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -16,6 +17,7 @@ export default function ExplorerOverviewScreen() {
   const [slideAnim] = useState(new Animated.Value(50));
 
   const loadDashboard = useCallback(async () => {
+    if (normalizedRole !== 'EXPLORER') return;
     if (!refreshing) setLoading(true);
     try {
       Animated.parallel([
@@ -28,11 +30,15 @@ export default function ExplorerOverviewScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [refreshing, fadeAnim, slideAnim]);
+  }, [normalizedRole, refreshing, fadeAnim, slideAnim]);
 
   useEffect(() => {
+    if (normalizedRole !== 'EXPLORER') {
+      setLoading(false);
+      return;
+    }
     void loadDashboard();
-  }, [loadDashboard]);
+  }, [loadDashboard, normalizedRole]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

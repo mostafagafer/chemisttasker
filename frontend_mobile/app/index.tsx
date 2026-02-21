@@ -1,11 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
-import { Text, Button } from 'react-native-paper';
+import { ActivityIndicator, Text, Button } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import AuthLayout from '../components/AuthLayout';
+import { useAuth } from '../context/AuthContext';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { user, isLoading } = useAuth();
   const floatAnim = useRef(new Animated.Value(0)).current;
   const tiltAnim = useRef(new Animated.Value(0)).current;
 
@@ -25,8 +27,25 @@ export default function HomeScreen() {
     ).start();
   }, [floatAnim, tiltAnim]);
 
+  useEffect(() => {
+    if (isLoading || !user) return;
+    const role = String(user.role || '').toUpperCase();
+    if (role === 'OWNER') {
+      router.replace('/owner/dashboard' as any);
+    } else if (role === 'PHARMACIST') {
+      router.replace('/pharmacist/dashboard' as any);
+    } else if (role === 'OTHER_STAFF') {
+      router.replace('/otherstaff/dashboard' as any);
+    } else if (role === 'EXPLORER') {
+      router.replace('/explorer/dashboard' as any);
+    } else if (role === 'ORGANIZATION') {
+      router.replace('/organization' as any);
+    }
+  }, [isLoading, user, router]);
+
   const translateY = floatAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -16] });
   const rotate = tiltAnim.interpolate({ inputRange: [0, 1], outputRange: ['-2deg', '2deg'] });
+  const shouldShowAuthActions = !isLoading && !user;
 
   return (
     <AuthLayout title="Welcome" showTitle={false}>
@@ -44,14 +63,21 @@ export default function HomeScreen() {
         </Text>
       </View>
 
-      <View style={styles.actions}>
-        <Button mode="contained" onPress={() => router.push('/login')} style={styles.primaryButton}>
-          Go to Login
-        </Button>
-        <Button mode="text" onPress={() => router.push('/register')}>
-          Create an account
-        </Button>
-      </View>
+      {shouldShowAuthActions ? (
+        <View style={styles.actions}>
+          <Button mode="contained" onPress={() => router.push('/login')} style={styles.primaryButton}>
+            Go to Login
+          </Button>
+          <Button mode="text" onPress={() => router.push('/register')}>
+            Create an account
+          </Button>
+        </View>
+      ) : (
+        <View style={styles.loadingState}>
+          <ActivityIndicator size="small" color="#6366F1" />
+          <Text style={styles.loadingText}>Loading your workspace...</Text>
+        </View>
+      )}
     </AuthLayout>
   );
 }
@@ -77,6 +103,14 @@ const styles = StyleSheet.create({
   actions: {
     marginTop: 12,
     gap: 8,
+  },
+  loadingState: {
+    marginTop: 16,
+    alignItems: 'center',
+    gap: 10,
+  },
+  loadingText: {
+    color: '#6b7280',
   },
   primaryButton: {
     borderRadius: 10,

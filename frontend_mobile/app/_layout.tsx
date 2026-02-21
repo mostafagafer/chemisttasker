@@ -59,11 +59,50 @@ function AuthGate() {
   const segments = useSegments();
   const { user, isLoading } = useAuth();
 
+  const getRoleHome = (role?: string | null) => {
+    const normalized = String(role || '').toUpperCase();
+    switch (normalized) {
+      case 'OWNER':
+        return '/owner/dashboard';
+      case 'PHARMACIST':
+        return '/pharmacist/dashboard';
+      case 'OTHER_STAFF':
+        return '/otherstaff/dashboard';
+      case 'EXPLORER':
+        return '/explorer/dashboard';
+      case 'ORGANIZATION':
+        return '/organization';
+      default:
+        return '/login';
+    }
+  };
+
   useEffect(() => {
     if (isLoading) return;
     const top = segments[0];
     const publicRoutes = new Set(['login', 'register', 'welcome', 'verify-otp', 'index', 'contact']);
     const isPublic = publicRoutes.has(top ?? '');
+    const expectedTopByRole: Record<string, string> = {
+      OWNER: 'owner',
+      PHARMACIST: 'pharmacist',
+      OTHER_STAFF: 'otherstaff',
+      EXPLORER: 'explorer',
+      ORGANIZATION: 'organization',
+    };
+
+    if (user && isPublic) {
+      router.replace(getRoleHome(user.role) as any);
+      return;
+    }
+
+    if (user && top) {
+      const normalizedRole = String(user.role || '').toUpperCase();
+      const expectedTop = expectedTopByRole[normalizedRole];
+      if (expectedTop && top !== expectedTop) {
+        router.replace(getRoleHome(user.role) as any);
+        return;
+      }
+    }
 
     if (!user && !isPublic) {
       router.replace('/login');

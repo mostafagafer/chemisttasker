@@ -70,7 +70,7 @@ function OwnerSidebar({ visible, onDismiss }: { visible: boolean; onDismiss: () 
 
 export default function OwnerLayout() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const pathname = usePathname();
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -112,6 +112,32 @@ export default function OwnerLayout() {
   }, [loadUnread]);
 
   useEffect(() => {
+    if (isLoading) return;
+    if (!user) {
+      router.replace('/login' as any);
+      return;
+    }
+    if (user.role !== 'OWNER') {
+      switch (user.role) {
+        case 'PHARMACIST':
+          router.replace('/pharmacist/dashboard' as any);
+          break;
+        case 'OTHER_STAFF':
+          router.replace('/otherstaff/dashboard' as any);
+          break;
+        case 'EXPLORER':
+          router.replace('/explorer/dashboard' as any);
+          break;
+        case 'ORGANIZATION':
+          router.replace('/organization' as any);
+          break;
+        default:
+          router.replace('/login' as any);
+      }
+    }
+  }, [isLoading, router, user]);
+
+  useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data: any = response?.notification?.request?.content?.data || {};
       const roomId = resolveChatNotificationRoomId({
@@ -127,7 +153,7 @@ export default function OwnerLayout() {
         payload: data,
         userRole: user?.role ?? null,
       });
-      if (calendarRoute) {
+      if (calendarRoute && calendarRoute.startsWith('/owner/')) {
         router.push(calendarRoute as any);
         return;
       }
@@ -136,7 +162,7 @@ export default function OwnerLayout() {
         payload: data,
         userRole: user?.role ?? null,
       });
-      if (route) {
+      if (route && route.startsWith('/owner/')) {
         router.push(route as any);
       }
     });

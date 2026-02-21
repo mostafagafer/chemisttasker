@@ -101,11 +101,8 @@ export default function RegisterScreen() {
           source={require('../assets/images/chemisttasker-logo.png')}
           style={styles.logoImage}
           resizeMode="contain"
+          
         />
-        <View>
-          <Text variant="headlineSmall" style={styles.title}>Create Account</Text>
-          <Text variant="bodySmall" style={styles.subtitle}>Join ChemistTasker today</Text>
-        </View>
       </View>
 
       {error ? (
@@ -244,6 +241,7 @@ const styles = StyleSheet.create({
   logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 12,
     marginBottom: 12,
   },

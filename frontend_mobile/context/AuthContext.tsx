@@ -98,27 +98,69 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const storedRefresh = await secureGet('REFRESH_KEY');
         const storedUser = await AsyncStorage.getItem('user');
 
-        if (!storedAccess || !storedRefresh || !storedUser) {
+        if (!storedRefresh && !storedAccess) {
           await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
           await AsyncStorage.removeItem('user');
           setAccess(null);
           setRefresh(null);
           setUser(null);
-        } else {
+          setIsLoading(false);
+          return;
+        }
+
+        let activeAccess = storedAccess;
+        let activeRefresh = storedRefresh;
+        let resolvedUser: User | null = null;
+
+        if (storedUser) {
           try {
-            const parsed = JSON.parse(storedUser);
-            const normalized = normalizeUser(parsed);
-            setUser(normalized);
-            setAccess(storedAccess);
-            setRefresh(storedRefresh);
-            applyAuthHeader(storedAccess);
+            resolvedUser = normalizeUser(JSON.parse(storedUser));
           } catch {
+            // Keep tokens and recover profile from backend instead of forcing logout.
             await AsyncStorage.removeItem('user');
+          }
+        }
+
+        // If access is missing but refresh exists, restore a new access token.
+        if (!activeAccess && activeRefresh) {
+          try {
+            const refreshResponse = await axios.post('/users/token/refresh/', { refresh: activeRefresh }, {
+              baseURL: process.env.EXPO_PUBLIC_API_URL?.trim(),
+              headers: { 'Content-Type': 'application/json' },
+            });
+            const refreshedAccess = refreshResponse?.data?.access;
+            const rotatedRefresh = refreshResponse?.data?.refresh;
+            if (refreshedAccess) {
+              activeAccess = refreshedAccess;
+              await secureSet('ACCESS_KEY', refreshedAccess);
+            }
+            if (rotatedRefresh) {
+              activeRefresh = rotatedRefresh;
+              await secureSet('REFRESH_KEY', rotatedRefresh);
+            }
+          } catch {
             await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
-            setUser(null);
+            await AsyncStorage.removeItem('user');
             setAccess(null);
             setRefresh(null);
+            setUser(null);
+            setIsLoading(false);
+            return;
           }
+        }
+
+        if (activeAccess) {
+          applyAuthHeader(activeAccess);
+          setAccess(activeAccess);
+        }
+        if (activeRefresh) {
+          setRefresh(activeRefresh);
+        }
+
+        if (resolvedUser) {
+          setUser(resolvedUser);
+        } else {
+          setUser(null);
         }
       } catch {
         await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
@@ -152,7 +194,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const normalizeUser = (u: any): User => {
     if (!u) return u;
     const photo = u.profile_photo_url || u.profile_photo || u.profilePhoto;
-    return { ...u, profile_photo_url: photo, profile_photo: photo };
+    const role = typeof u.role === 'string' ? u.role.toUpperCase() : u.role;
+    return { ...u, role, profile_photo_url: photo, profile_photo: photo };
   };
 
   const fetchOnboardingProfile = async (role?: string, existing?: any) => {
@@ -160,6 +203,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const safeRole = normalizedRole === 'other_staff' ? 'otherstaff' : normalizedRole || 'pharmacist';
     const data = await getOnboarding(safeRole);
     const merged = { ...(existing ?? {}), ...(data as any) };
+    // Do not allow onboarding payloads to change authenticated identity/role.
+    if (existing?.role) merged.role = existing.role;
+    if (existing?.id != null) merged.id = existing.id;
+    if (existing?.email) merged.email = existing.email;
+    if (existing?.username) merged.username = existing.username;
     return normalizeUser(merged);
   };
 

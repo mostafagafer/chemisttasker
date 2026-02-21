@@ -15,6 +15,8 @@ import { getRooms } from "@chemisttasker/shared-core";
 import { type PersonaMode, type AdminLevel } from "@chemisttasker/shared-core";
 import { AdminCapability, ALL_ADMIN_CAPABILITIES } from "../constants/adminCapabilities";
 import { AUTH_TOKENS_CLEARED_EVENT } from "../utils/tokenService";
+import { API_BASE_URL } from "../constants/api";
+import { getRefreshToken, isTokenExpired, setTokens, clearTokens } from "../utils/tokenService";
 
 export interface OrgMembership {
   organization_id: number;
@@ -122,6 +124,47 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [activePersona, setActivePersonaState] = useState<PersonaMode>("staff");
   const [activeAdminAssignmentId, setActiveAdminAssignmentId] = useState<number | null>(null);
 
+  const clearLocalAuthState = useCallback(() => {
+    setAccess(null);
+    setRefresh(null);
+    setUser(null);
+    setActivePersonaState("staff");
+    setActiveAdminAssignmentId(null);
+  }, []);
+
+  const fetchCurrentUser = useCallback(async (accessToken: string): Promise<User | null> => {
+    try {
+      const resp = await fetch(`${API_BASE_URL}/users/me/`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      if (!resp.ok) return null;
+      const data = (await resp.json()) as User;
+      return data;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const refreshAccessToken = useCallback(async (currentRefresh: string): Promise<{ access: string; refresh: string } | null> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/users/token/refresh/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh: currentRefresh }),
+      });
+      if (!response.ok) return null;
+      const data: any = await response.json().catch(() => ({}));
+      if (!data?.access) return null;
+      const nextRefresh = data.refresh ?? currentRefresh;
+      setTokens(data.access, nextRefresh);
+      return { access: data.access, refresh: nextRefresh };
+    } catch {
+      return null;
+    }
+  }, []);
+
   const ownedPharmacyIds = useMemo<Set<number>>(() => {
     const ownerSet = new Set<number>();
     const records = user?.memberships ?? [];
@@ -225,41 +268,67 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const isAdminUser = adminAssignments.length > 0;
 
   useEffect(() => {
-    try {
-      const storedAccess = localStorage.getItem("access");
-      const storedRefresh = localStorage.getItem("refresh");
-      const storedUser = localStorage.getItem("user");
+    const bootstrap = async () => {
+      try {
+        let storedAccess = localStorage.getItem("access");
+        let storedRefresh = getRefreshToken();
+        const storedUser = localStorage.getItem("user");
 
-      if (!storedAccess || !storedRefresh || !storedUser) {
-        localStorage.removeItem("access");
-        localStorage.removeItem("refresh");
-        localStorage.removeItem("user");
-        setAccess(null);
-        setRefresh(null);
-        setUser(null);
-      } else {
-        try {
-          const parsed = JSON.parse(storedUser) as User;
-          setUser(parsed);
-          setAccess(storedAccess);
-          setRefresh(storedRefresh);
-        } catch {
-          localStorage.removeItem("user");
-          setUser(null);
-          setAccess(null);
-          setRefresh(null);
+        if (!storedRefresh) {
+          clearTokens();
+          clearLocalAuthState();
+          setIsLoading(false);
+          return;
         }
+
+        if (!storedAccess || isTokenExpired(storedAccess)) {
+          const refreshed = await refreshAccessToken(storedRefresh);
+          if (!refreshed) {
+            clearTokens();
+            clearLocalAuthState();
+            setIsLoading(false);
+            return;
+          }
+          storedAccess = refreshed.access;
+          storedRefresh = refreshed.refresh;
+        }
+
+        let parsedUser: User | null = null;
+        if (storedUser) {
+          try {
+            parsedUser = JSON.parse(storedUser) as User;
+          } catch {
+            parsedUser = null;
+          }
+        }
+
+        if (!parsedUser && storedAccess) {
+          parsedUser = await fetchCurrentUser(storedAccess);
+          if (parsedUser) {
+            localStorage.setItem("user", JSON.stringify(parsedUser));
+          }
+        }
+
+        if (!parsedUser) {
+          clearTokens();
+          clearLocalAuthState();
+          setIsLoading(false);
+          return;
+        }
+
+        setAccess(storedAccess);
+        setRefresh(storedRefresh);
+        setUser(parsedUser);
+      } catch {
+        clearTokens();
+        clearLocalAuthState();
+      } finally {
+        setIsLoading(false);
       }
-    } catch {
-      localStorage.removeItem("access");
-      localStorage.removeItem("refresh");
-      localStorage.removeItem("user");
-      setAccess(null);
-      setRefresh(null);
-      setUser(null);
-    }
-    setIsLoading(false);
-  }, []);
+    };
+
+    void bootstrap();
+  }, [clearLocalAuthState, fetchCurrentUser, refreshAccessToken]);
 
   useEffect(() => {
     if (user) {
@@ -462,28 +531,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const logout = useCallback(() => {
     const previousUserId = user?.id;
-    setAccess(null);
-    setRefresh(null);
-    setUser(null);
-    setActivePersonaState("staff");
-    setActiveAdminAssignmentId(null);
-    localStorage.removeItem("access");
-    localStorage.removeItem("refresh");
-    localStorage.removeItem("user");
+    clearLocalAuthState();
+    clearTokens();
     if (previousUserId) {
       localStorage.removeItem(personaStorageKey(previousUserId));
     }
-  }, [user?.id]);
+  }, [clearLocalAuthState, user?.id]);
 
   useEffect(() => {
     const handleTokensCleared = () => {
-      logout();
+      const previousUserId = user?.id;
+      clearLocalAuthState();
+      if (previousUserId) {
+        localStorage.removeItem(personaStorageKey(previousUserId));
+      }
     };
     window.addEventListener(AUTH_TOKENS_CLEARED_EVENT, handleTokensCleared);
     return () => {
       window.removeEventListener(AUTH_TOKENS_CLEARED_EVENT, handleTokensCleared);
     };
-  }, [logout]);
+  }, [clearLocalAuthState, user?.id]);
 
   return (
     <AuthContext.Provider

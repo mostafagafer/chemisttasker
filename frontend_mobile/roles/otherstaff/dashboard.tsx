@@ -58,6 +58,7 @@ function formatShiftDate(value?: string | null) {
 export default function OtherStaffOverviewScreen() {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const normalizedRole = String(user?.role || '').toUpperCase();
 
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,6 +67,9 @@ export default function OtherStaffOverviewScreen() {
   const [slideAnim] = useState(new Animated.Value(50));
 
   const loadDashboard = useCallback(async () => {
+    if (normalizedRole !== 'OTHER_STAFF') {
+      return;
+    }
     if (!refreshing) setLoading(true);
     try {
       const result = await getOtherStaffDashboard();
@@ -91,11 +95,15 @@ export default function OtherStaffOverviewScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [refreshing, fadeAnim, slideAnim]);
+  }, [normalizedRole, refreshing, fadeAnim, slideAnim]);
 
   useEffect(() => {
+    if (normalizedRole !== 'OTHER_STAFF') {
+      setLoading(false);
+      return;
+    }
     void loadDashboard();
-  }, [loadDashboard]);
+  }, [loadDashboard, normalizedRole]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

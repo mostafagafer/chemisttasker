@@ -28,7 +28,7 @@ export default function MobileOTPVerify() {
       await axios.post(
         `${API_BASE_URL}${API_ENDPOINTS.mobileRequestOtp}`,
         { mobile_number: mobile },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` } }
+        { withCredentials: true }
       );
       setStatus('We sent a code to your mobile.');
     } catch (err) {
@@ -55,7 +55,7 @@ export default function MobileOTPVerify() {
       await axios.post(
         `${API_BASE_URL}${API_ENDPOINTS.mobileVerifyOtp}`,
         { otp },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` } }
+        { withCredentials: true }
       );
       setStatus('Mobile verified! Redirecting...');
       setTimeout(() => window.location.assign('/login'), 800);
@@ -78,7 +78,7 @@ export default function MobileOTPVerify() {
       await axios.post(
         `${API_BASE_URL}${API_ENDPOINTS.mobileResendOtp}`,
         {},
-        { headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` } }
+        { withCredentials: true }
       );
       setStatus('A new code has been sent to your mobile.');
     } catch (err) {

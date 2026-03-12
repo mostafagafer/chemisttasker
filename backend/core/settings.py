@@ -62,6 +62,7 @@ CORS_ALLOW_HEADERS = [
     'x-client-platform',
 ]
 
+
 # Application definition
 INSTALLED_APPS = [
 
@@ -93,6 +94,7 @@ INSTALLED_APPS = [
     # Realtime
     'channels',
 
+    'billing',
 
 ]
 
@@ -156,8 +158,23 @@ AUTHENTICATION_BACKENDS = [
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_AUTHENTICATION_CLASSES': (
+        'users.authentication.CookieJWTAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    'DEFAULT_THROTTLE_CLASSES': (
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
+    ),
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '1000/day',
+        'user': '5000/day',
+        'otp_verify': '10/minute',
+        'otp_resend': '5/minute',
+        'mobile_otp_request': '10/minute',
+        'mobile_otp_verify': '10/minute',
+        'mobile_otp_resend': '5/minute',
+    },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 50
 }
@@ -196,12 +213,14 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
 DATABASES = {
-    'default': dj_database_url.config(
-        default=env('AZURE_POSTGRESQL_CONNECTIONSTRING'),
-        conn_max_age=600,
-        conn_health_checks=True,
-        ssl_require=True
-    )
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": env("LOCAL_DB_NAME", default="chemisttasker"),
+        "USER": env("LOCAL_DB_USER", default="postgres"),
+        "PASSWORD": env("LOCAL_DB_PASSWORD"),
+        "HOST": env("LOCAL_DB_HOST", default="127.0.0.1"),
+        "PORT": env("LOCAL_DB_PORT", default="5432"),
+    }
 }
 
 
@@ -262,6 +281,13 @@ SIMPLE_JWT = {
     'ALGORITHM': 'HS256',
 }
 
+# HttpOnly JWT cookie settings for web clients
+JWT_AUTH_COOKIE = env("JWT_AUTH_COOKIE", default="ct_access")
+JWT_REFRESH_COOKIE = env("JWT_REFRESH_COOKIE", default="ct_refresh")
+JWT_COOKIE_SECURE = env.bool("JWT_COOKIE_SECURE", default=not DEBUG)
+JWT_COOKIE_SAMESITE = env("JWT_COOKIE_SAMESITE", default="None" if not DEBUG else "Lax")
+JWT_COOKIE_PATH = env("JWT_COOKIE_PATH", default="/")
+
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
@@ -306,12 +332,12 @@ LOGGING = {
         'client_profile': {
             'handlers': ['console'],
             'level': 'DEBUG',
-            'propagate': False, 
+            'propagate': False,
         },
         'users': {
             'handlers': ['console'],
             'level': 'DEBUG',
-            'propagate': False, 
+            'propagate': False,
         },
     }
 }
@@ -345,6 +371,16 @@ MOBILEMESSAGE_USERNAME = env('MOBILEMESSAGE_USERNAME')
 MOBILEMESSAGE_PASSWORD = env('MOBILEMESSAGE_PASSWORD')
 MOBILEMESSAGE_SENDER = env('MOBILEMESSAGE_SENDER')
 
+# Stripe Settings
+STRIPE_SECRET_KEY = env('STRIPE_SECRET_KEY', default='')
+STRIPE_WEBHOOK_SECRET = env('STRIPE_WEBHOOK_SECRET', default='')
+
+# Billing Honeymoon & Free Trial
+# Change BILLING_LIVE_DATE to enable payments. Before this date nobody is charged.
+from datetime import date as _date
+BILLING_LIVE_DATE = _date(2025, 6, 1)   # June 1, 2026 — flip this to go live
+FREE_TRIAL_DAYS   = 30                   # New users get this many days free after live date
+
 
 # ---------------------------------------------------------------------
 # Channels (ASGI) configuration
@@ -367,3 +403,15 @@ CHANNEL_LAYERS = {
         },
     }
 }
+
+# Local/dev fallback: if Redis is not available, websocket connections fail.
+# Defaults:
+# - DEBUG=True  -> in-memory layer (no Redis dependency)
+# - DEBUG=False -> Redis layer
+USE_REDIS_CHANNEL_LAYER = env.bool("USE_REDIS_CHANNEL_LAYER", default=not DEBUG)
+if not USE_REDIS_CHANNEL_LAYER:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        }
+    }

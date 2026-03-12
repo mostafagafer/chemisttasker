@@ -41,7 +41,21 @@ export default function VerifyOTPScreen() {
     }, [resendCooldown]);
 
     const handleOTPChange = (index: number, value: string) => {
-        // Only allow numbers
+        // Handle paste: if a full code is pasted into any box, distribute it
+        const digits = value.replace(/\D/g, '').slice(0, 6);
+        if (digits.length > 1) {
+            const newOtp = [...otp];
+            for (let i = 0; i < 6; i++) {
+                newOtp[i] = digits[i] ?? '';
+            }
+            setOtp(newOtp);
+            // Focus the last filled box (or the last box if all filled)
+            const lastIndex = Math.min(digits.length - 1, 5);
+            inputRefs.current[lastIndex]?.focus();
+            return;
+        }
+
+        // Single character: only allow digits
         if (value && !/^\d$/.test(value)) return;
 
         const newOtp = [...otp];
@@ -74,20 +88,8 @@ export default function VerifyOTPScreen() {
         try {
             await verifyOTP(code);
 
-            // Navigate based on user role - after verification, check onboarding status and navigate accordingly
-            if (user?.role === 'OWNER') {
-                router.replace('/owner/onboarding/step1' as never);
-            } else if (user?.role === 'PHARMACIST') {
-                router.replace('/pharmacist/dashboard' as never);
-            } else if (user?.role === 'OTHER_STAFF') {
-                router.replace('/otherstaff/dashboard' as never);
-            } else if (user?.role === 'EXPLORER') {
-                router.replace('/explorer' as never);
-            } else if (user?.role === 'ORGANIZATION') {
-                router.replace('/organization' as never);
-            } else {
-                router.replace('/login' as never);
-            }
+            // Mirror web flow: after email OTP → go to mobile verification step
+            router.replace('/mobile-verify' as never);
         } catch (err: any) {
             setError(err.message);
             // Clear OTP on error

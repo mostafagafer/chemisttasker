@@ -4,7 +4,7 @@ type IncomingHandler = (payload: any) => void;
 
 export function useLiveMessages(
   roomId: number | null,
-  accessToken: string | null,
+  _accessToken: string | null,
   onMessage: IncomingHandler,
   onUnread: (payload: any) => void
 ) {
@@ -22,12 +22,12 @@ export function useLiveMessages(
   useEffect(() => {
     let isCancelled = false;
     const setupWs = async () => {
-      if (!roomId || !accessToken) return;
+      if (!roomId) return;
       try {
         const base = process.env.EXPO_PUBLIC_WS_URL || process.env.EXPO_PUBLIC_API_URL || '';
         const httpBase = base.endsWith('/api') ? base.slice(0, -4) : base;
         const wsBase = httpBase.replace(/^http/, 'ws');
-        const ws = new WebSocket(`${wsBase}/ws/chat/rooms/${roomId}/?token=${accessToken}`);
+        const ws = new WebSocket(`${wsBase}/ws/chat/rooms/${roomId}/`);
         wsRef.current = ws;
         reconnectAttempts.current = 0;
         ws.onopen = () => {
@@ -73,7 +73,7 @@ export function useLiveMessages(
         wsRef.current = null;
       }
     };
-  }, [roomId, accessToken]);
+  }, [roomId]);
 
   return wsRef;
 }

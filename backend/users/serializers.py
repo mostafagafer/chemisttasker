@@ -2,12 +2,12 @@
 
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
 from rest_framework_simplejwt.tokens      import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
 from client_profile.models import Organization
 from .models import OrganizationMembership, ContactMessage
-import random
+import secrets
 from django.utils import timezone
 from client_profile.models import Pharmacy, Membership as PharmacyMembership
 from client_profile.admin_helpers import admin_assignments_for
@@ -60,13 +60,9 @@ ADMIN_LEVEL_CHOICES = tuple(
 )
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
-    email_duplicate_message = (
-        "There is already an account registered with this email. "
-        "Please log in or reset your password."
-    )
     email = serializers.EmailField(
         required=True,
-        validators=[UniqueValidator(queryset=User.objects.all(), message=email_duplicate_message)]
+        validators=[]
     )
     password = serializers.CharField(write_only=True, min_length=8)
     confirm_password = serializers.CharField(write_only=True)
@@ -89,13 +85,12 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return value
 
     def validate_email(self, value):
-        value = value.strip().lower()
-        if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError(self.email_duplicate_message)
-        return value
+        return value.strip().lower()
 
     def create(self, validated_data):
         validated_data['email'] = validated_data['email'].strip().lower()
+        if User.objects.filter(email__iexact=validated_data['email']).exists():
+            raise serializers.ValidationError("Registration could not be completed with the provided details.")
         accepted_terms = validated_data.pop('accepted_terms')
         user = User.objects.create_user(
             email=validated_data['email'],
@@ -108,7 +103,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         user.save()
 
         # ---- OTP verification ----
-        otp = str(random.randint(100000, 999999))
+        otp = str(secrets.randbelow(900000) + 100000)
         user.otp_code = otp
         user.otp_created_at = timezone.now()
         user.is_otp_verified = False
@@ -318,6 +313,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         ]
 
         # 3) Combined user payload (+ is_mobile_verified added)
+        from billing.utils import is_billing_active, is_in_free_trial
         data['user'] = {
             'id':       self.user.id,
             'username': self.user.username,
@@ -327,73 +323,88 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'admin_assignments': admin_payload,
             'is_pharmacy_admin': bool(admin_payload),
             'is_mobile_verified': bool(getattr(self.user, 'is_mobile_verified', False)),
+            'billing_active': is_billing_active(),
+            'in_free_trial': is_in_free_trial(self.user),
         }
         return data
 
 class CustomTokenRefreshSerializer(TokenRefreshSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
-        refresh = RefreshToken(attrs['refresh'])
-        user    = User.objects.get(id=refresh['user_id'])
+        try:
+            refresh = RefreshToken(attrs['refresh'])
+            user = User.objects.get(id=refresh['user_id'])
+        except (KeyError, TokenError, User.DoesNotExist):
+            raise serializers.ValidationError({'detail': 'Token is invalid or expired.'})
+        except Exception:
+            # Never allow refresh endpoint to 500 on malformed/legacy tokens.
+            raise serializers.ValidationError({'detail': 'Token is invalid or expired.'})
 
-        org_memberships = OrganizationMembership.objects.filter(user=user)
-        org_payload = serialize_org_memberships(org_memberships)
+        try:
+            org_memberships = OrganizationMembership.objects.filter(user=user)
+            org_payload = serialize_org_memberships(org_memberships)
 
-        pharm_memberships = PharmacyMembership.objects.filter(
-            user=user,
-            is_active=True,
-        ).select_related('pharmacy')
+            pharm_memberships = PharmacyMembership.objects.filter(
+                user=user,
+                is_active=True,
+            ).select_related('pharmacy')
 
-        pharm_payload = [
-            {
-                'pharmacy_id':   pm.pharmacy_id,
-                'pharmacy_name': pm.pharmacy.name if pm.pharmacy else None,
-                'role':          pm.role,
+            pharm_payload = [
+                {
+                    'pharmacy_id':   pm.pharmacy_id,
+                    'pharmacy_name': pm.pharmacy.name if pm.pharmacy else None,
+                    'role':          pm.role,
+                }
+                for pm in pharm_memberships
+            ]
+
+            owned_pharmacies = Pharmacy.objects.filter(owner__user=user)
+            owned_payload = [
+                {
+                    'pharmacy_id':   pharmacy.id,
+                    'pharmacy_name': pharmacy.name,
+                    'role':          'OWNER',
+                }
+                for pharmacy in owned_pharmacies
+            ]
+
+            pharmacy_map = {entry['pharmacy_id']: entry for entry in pharm_payload}
+            for entry in owned_payload:
+                pharmacy_map[entry['pharmacy_id']] = entry
+
+            combined_pharm_payload = list(pharmacy_map.values())
+
+            admin_assignments = admin_assignments_for(user).select_related("pharmacy")
+            admin_payload = [
+                {
+                    'id': assignment.id,
+                    'pharmacy_id': assignment.pharmacy_id,
+                    'pharmacy_name': assignment.pharmacy.name if assignment.pharmacy else None,
+                    'admin_level': assignment.admin_level,
+                    'capabilities': sorted(list(assignment.capabilities)),
+                    'staff_role': assignment.staff_role,
+                    'job_title': assignment.job_title,
+                    'is_active': assignment.is_active,
+                }
+                for assignment in admin_assignments
+            ]
+
+            from billing.utils import is_billing_active, is_in_free_trial
+            data['user'] = {
+                'id':       user.id,
+                'username': user.username,
+                'email':    user.email,
+                'role':     user.role,
+                'memberships': org_payload + combined_pharm_payload,
+                'admin_assignments': admin_payload,
+                'is_pharmacy_admin': bool(admin_payload),
+                'is_mobile_verified': bool(getattr(user, 'is_mobile_verified', False)),
+                'billing_active': is_billing_active(),
+                'in_free_trial': is_in_free_trial(user),
             }
-            for pm in pharm_memberships
-        ]
-
-        owned_pharmacies = Pharmacy.objects.filter(owner__user=user)
-        owned_payload = [
-            {
-                'pharmacy_id':   pharmacy.id,
-                'pharmacy_name': pharmacy.name,
-                'role':          'OWNER',
-            }
-            for pharmacy in owned_pharmacies
-        ]
-
-        pharmacy_map = {entry['pharmacy_id']: entry for entry in pharm_payload}
-        for entry in owned_payload:
-            pharmacy_map[entry['pharmacy_id']] = entry
-
-        combined_pharm_payload = list(pharmacy_map.values())
-
-        admin_assignments = admin_assignments_for(user).select_related("pharmacy")
-        admin_payload = [
-            {
-                'id': assignment.id,
-                'pharmacy_id': assignment.pharmacy_id,
-                'pharmacy_name': assignment.pharmacy.name if assignment.pharmacy else None,
-                'admin_level': assignment.admin_level,
-                'capabilities': sorted(list(assignment.capabilities)),
-                'staff_role': assignment.staff_role,
-                'job_title': assignment.job_title,
-                'is_active': assignment.is_active,
-            }
-            for assignment in admin_assignments
-        ]
-
-        data['user'] = {
-            'id':       user.id,
-            'username': user.username,
-            'email':    user.email,
-            'role':     user.role,
-            'memberships': org_payload + combined_pharm_payload,
-            'admin_assignments': admin_payload,
-            'is_pharmacy_admin': bool(admin_payload),
-            'is_mobile_verified': bool(getattr(user, 'is_mobile_verified', False)),
-        }
+        except Exception:
+            # Keep refresh successful even if ancillary user payload construction fails.
+            pass
 
         return data
 

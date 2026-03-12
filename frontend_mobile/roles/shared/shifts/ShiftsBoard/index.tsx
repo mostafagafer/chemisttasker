@@ -73,9 +73,11 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     onRefresh,
     roleOptionsOverride,
     slotFilterMode: slotFilterModeProp,
+    actionDisabledGuard,
     onScroll,
     applyLabel,
     disableSlotActions,
+    disableActionGuards,
     fallbackToAllShiftsWhenEmpty,
     showAllSlots,
 }) => {
@@ -681,11 +683,13 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                     onReviewOffers={(shiftId) => setReviewOfferShiftId(shiftId)}
                     openCounterOffer={openCounterOffer}
                     rejectActionGuard={rejectActionGuard}
+                    actionDisabledGuard={actionDisabledGuard}
                     userRatePreference={userRatePreference}
                     pharmacyRatings={pharmacyRatings}
                     slotFilterMode={effectiveSlotFilterMode}
                     applyLabel={applyLabel}
                     disableSlotActions={disableSlotActions}
+                    disableActionGuards={disableActionGuards}
                 />
             </ScrollView>
 

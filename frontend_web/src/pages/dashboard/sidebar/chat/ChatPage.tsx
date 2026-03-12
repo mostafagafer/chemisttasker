@@ -71,11 +71,10 @@ const useIsMobile = (breakpoint = 768) => {
 const FULL_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 const BACKEND_MEDIA_URL = FULL_API_URL.endsWith('/api') ? FULL_API_URL.slice(0, -4) : FULL_API_URL;
 
-const makeWsUrl = (path: string, token?: string | null) => {
+const makeWsUrl = (path: string) => {
   const base = API_BASE_URL || window.location.origin;
   const url = new URL(path, base);
   url.protocol = url.protocol.replace('http', 'ws');
-  if (token) url.searchParams.set('token', token);
   return url.toString();
 };
 
@@ -100,7 +99,6 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const accessToken = useMemo(() => localStorage.getItem('access'), []);
   const isMobile = useIsMobile();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -330,9 +328,9 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
   useEffect(() => {
     if (wsRef.current) wsRef.current.close();
 
-    if (!activeRoomId || !accessToken) return;
+    if (!activeRoomId || !user) return;
 
-    const ws = new WebSocket(makeWsUrl(`/ws/chat/rooms/${activeRoomId}/`, accessToken));
+    const ws = new WebSocket(makeWsUrl(`/ws/chat/rooms/${activeRoomId}/`));
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -493,7 +491,7 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
       lastTypingSentRef.current = false;
     };
     return () => ws.close();
-  }, [activeRoomId, accessToken, refreshUnreadCount, resolveRoomName, pushToast, user?.id]);
+  }, [activeRoomId, refreshUnreadCount, resolveRoomName, pushToast, user?.id]);
 
 
   useEffect(() => {

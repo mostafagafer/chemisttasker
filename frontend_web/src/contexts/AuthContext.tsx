@@ -16,7 +16,7 @@ import { type PersonaMode, type AdminLevel } from "@chemisttasker/shared-core";
 import { AdminCapability, ALL_ADMIN_CAPABILITIES } from "../constants/adminCapabilities";
 import { AUTH_TOKENS_CLEARED_EVENT } from "../utils/tokenService";
 import { API_BASE_URL } from "../constants/api";
-import { getRefreshToken, isTokenExpired, setTokens, clearTokens } from "../utils/tokenService";
+import { setTokens, clearTokens } from "../utils/tokenService";
 
 export interface OrgMembership {
   organization_id: number;
@@ -57,7 +57,10 @@ export type User = {
   memberships?: Array<OrgMembership | PharmacyMembership>;
   admin_assignments?: AdminAssignment[];
   is_mobile_verified?: boolean;
+  billing_active?: boolean;
+  in_free_trial?: boolean;
 };
+
 
 type AuthContextType = {
   access: string | null;
@@ -87,12 +90,12 @@ const AuthContext = createContext<AuthContextType>({
   token: null,
   refresh: null,
   user: null,
-  login: () => {},
-  logout: () => {},
+  login: () => { },
+  logout: () => { },
   isLoading: true,
-  setUser: () => {},
+  setUser: () => { },
   unreadCount: 0,
-  refreshUnreadCount: () => {},
+  refreshUnreadCount: () => { },
   adminAssignments: [],
   hasCapability: () => false,
   isAdminUser: false,
@@ -100,9 +103,9 @@ const AuthContext = createContext<AuthContextType>({
   activeAdminAssignmentId: null,
   activeAdminAssignment: null,
   activeAdminPharmacyId: null,
-  selectRolePersona: () => {},
-  selectAdminPersona: () => {},
-  setActivePersona: () => {},
+  selectRolePersona: () => { },
+  selectAdminPersona: () => { },
+  setActivePersona: () => { },
 });
 
 type AuthProviderProps = {
@@ -132,12 +135,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setActiveAdminAssignmentId(null);
   }, []);
 
-  const fetchCurrentUser = useCallback(async (accessToken: string): Promise<User | null> => {
+  const fetchCurrentUser = useCallback(async (): Promise<User | null> => {
     try {
       const resp = await fetch(`${API_BASE_URL}/users/me/`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+        credentials: "include",
       });
       if (!resp.ok) return null;
       const data = (await resp.json()) as User;
@@ -147,17 +148,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
-  const refreshAccessToken = useCallback(async (currentRefresh: string): Promise<{ access: string; refresh: string } | null> => {
+  const refreshAccessToken = useCallback(async (): Promise<{ access: string; refresh: string } | null> => {
     try {
       const response = await fetch(`${API_BASE_URL}/users/token/refresh/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh: currentRefresh }),
+        credentials: "include",
+        body: JSON.stringify({}),
       });
       if (!response.ok) return null;
       const data: any = await response.json().catch(() => ({}));
       if (!data?.access) return null;
-      const nextRefresh = data.refresh ?? currentRefresh;
+      const nextRefresh = data.refresh ?? "";
       setTokens(data.access, nextRefresh);
       return { access: data.access, refresh: nextRefresh };
     } catch {
@@ -270,54 +272,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     const bootstrap = async () => {
       try {
-        let storedAccess = localStorage.getItem("access");
-        let storedRefresh = getRefreshToken();
-        const storedUser = localStorage.getItem("user");
-
-        if (!storedRefresh) {
-          clearTokens();
-          clearLocalAuthState();
-          setIsLoading(false);
-          return;
-        }
-
-        if (!storedAccess || isTokenExpired(storedAccess)) {
-          const refreshed = await refreshAccessToken(storedRefresh);
+        let parsedUser: User | null = await fetchCurrentUser();
+        if (!parsedUser) {
+          const refreshed = await refreshAccessToken();
           if (!refreshed) {
             clearTokens();
             clearLocalAuthState();
             setIsLoading(false);
             return;
           }
-          storedAccess = refreshed.access;
-          storedRefresh = refreshed.refresh;
+          setAccess(refreshed.access);
+          setRefresh(refreshed.refresh);
+          parsedUser = await fetchCurrentUser();
         }
-
-        let parsedUser: User | null = null;
-        if (storedUser) {
-          try {
-            parsedUser = JSON.parse(storedUser) as User;
-          } catch {
-            parsedUser = null;
-          }
-        }
-
-        if (!parsedUser && storedAccess) {
-          parsedUser = await fetchCurrentUser(storedAccess);
-          if (parsedUser) {
-            localStorage.setItem("user", JSON.stringify(parsedUser));
-          }
-        }
-
         if (!parsedUser) {
           clearTokens();
           clearLocalAuthState();
           setIsLoading(false);
           return;
         }
-
-        setAccess(storedAccess);
-        setRefresh(storedRefresh);
+        setAccess((prev) => prev || "cookie-session");
+        setRefresh((prev) => prev || "cookie-session");
         setUser(parsedUser);
       } catch {
         clearTokens();
@@ -329,12 +304,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     void bootstrap();
   }, [clearLocalAuthState, fetchCurrentUser, refreshAccessToken]);
-
-  useEffect(() => {
-    if (user) {
-      localStorage.setItem("user", JSON.stringify(user));
-    }
-  }, [user]);
 
   useEffect(() => {
     if (!user) {
@@ -519,18 +488,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
   );
 
   const login = (newAccess: string, newRefresh: string, userInfo: User) => {
+    setTokens(newAccess, newRefresh);
     setAccess(newAccess);
     setRefresh(newRefresh);
     setActivePersonaState("staff");
     setActiveAdminAssignmentId(null);
     setUser(userInfo);
-    localStorage.setItem("access", newAccess);
-    localStorage.setItem("refresh", newRefresh);
-    localStorage.setItem("user", JSON.stringify(userInfo));
   };
 
   const logout = useCallback(() => {
     const previousUserId = user?.id;
+    void fetch(`${API_BASE_URL}/users/logout/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({}),
+    }).catch(() => null);
     clearLocalAuthState();
     clearTokens();
     if (previousUserId) {

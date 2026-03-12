@@ -63,6 +63,8 @@ class User(AbstractUser):
     
     otp_code = models.CharField(max_length=8, blank=True, null=True)
     otp_created_at = models.DateTimeField(blank=True, null=True)
+    otp_failed_attempts = models.PositiveSmallIntegerField(default=0)
+    otp_locked_until = models.DateTimeField(blank=True, null=True)
     is_otp_verified = models.BooleanField(default=False)
     accepted_terms = models.BooleanField(default=False)
     accepted_terms_at = models.DateTimeField(null=True, blank=True)
@@ -70,6 +72,8 @@ class User(AbstractUser):
     mobile_number = models.CharField(max_length=20, blank=True, null=True)
     mobile_otp_code = models.CharField(max_length=6, blank=True, null=True)
     mobile_otp_created_at = models.DateTimeField(blank=True, null=True)
+    mobile_otp_failed_attempts = models.PositiveSmallIntegerField(default=0)
+    mobile_otp_locked_until = models.DateTimeField(blank=True, null=True)
     is_mobile_verified = models.BooleanField(default=False)
 
     deleted_at = models.DateTimeField(blank=True, null=True)

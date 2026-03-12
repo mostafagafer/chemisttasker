@@ -1,7 +1,6 @@
 // utils/apiClient.ts
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { secureGet, secureRemoveMany, secureSet } from './secureStorage';
 
 // Prefer an env-driven base URL so the app can talk to the backend from devices/emulators.
 // Set EXPO_PUBLIC_API_URL for Expo (e.g. http://192.168.1.10:8000/api).
@@ -19,22 +18,16 @@ if (!API_BASE_URL) {
 const apiClient = axios.create({
     baseURL: API_BASE_URL,
     timeout: 15000,
+    withCredentials: true,
     headers: {
         'Content-Type': 'application/json',
     },
 });
 
-// Request interceptor to add auth token
+// Cookie-based auth (HttpOnly JWT cookies)
 apiClient.interceptors.request.use(
     async (config) => {
-        try {
-            const token = await secureGet('ACCESS_KEY');
-            if (token) {
-                config.headers.Authorization = `Bearer ${token}`;
-            }
-        } catch (error) {
-            console.error('Error getting token:', error);
-        }
+        config.withCredentials = true;
         return config;
     },
     (error) => {
@@ -68,8 +61,7 @@ apiClient.interceptors.response.use(
                 return new Promise(function (resolve, reject) {
                     failedQueue.push({ resolve, reject });
                 })
-                    .then((token) => {
-                        originalRequest.headers.Authorization = `Bearer ${token}`;
+                    .then(() => {
                         return apiClient(originalRequest);
                     })
                     .catch((err) => {
@@ -81,48 +73,13 @@ apiClient.interceptors.response.use(
             isRefreshing = true;
 
             try {
-                const refreshToken = await secureGet('REFRESH_KEY');
-                if (refreshToken) {
-                    const response = await axios.post(`${API_BASE_URL}/users/token/refresh/`, {
-                        refresh: refreshToken,
-                    });
-
-                    const { access, refresh, user } = response.data || {};
-                    if (!access) {
-                        throw new Error('Refresh response missing access token');
-                    }
-                    await secureSet('ACCESS_KEY', access);
-                    // Preserve refresh rotation from backend (SIMPLE_JWT ROTATE_REFRESH_TOKENS=True).
-                    if (refresh) {
-                        await secureSet('REFRESH_KEY', refresh);
-                    }
-                    if (user) {
-                        const existingRaw = await AsyncStorage.getItem('user');
-                        let existing: any = null;
-                        try {
-                            existing = existingRaw ? JSON.parse(existingRaw) : null;
-                        } catch {
-                            existing = null;
-                        }
-                        const mergedUser = { ...(existing || {}), ...(user || {}) };
-                        // Keep the existing role stable for this session.
-                        // Refresh payloads should not silently switch app role context.
-                        if (existing?.role) {
-                            mergedUser.role = existing.role;
-                        }
-                        if (typeof mergedUser.role === 'string') {
-                            mergedUser.role = mergedUser.role.toUpperCase();
-                        }
-                        await AsyncStorage.setItem('user', JSON.stringify(mergedUser));
-                        await secureSet('USER_KEY', JSON.stringify(mergedUser));
-                    }
-
-                    apiClient.defaults.headers.common.Authorization = `Bearer ${access}`;
-                    // Retry original request with new token
-                    originalRequest.headers.Authorization = `Bearer ${access}`;
-                    processQueue(null, access);
-                    return apiClient(originalRequest);
-                }
+                await axios.post(
+                    `${API_BASE_URL}/users/token/refresh/`,
+                    {},
+                    { withCredentials: true, headers: { 'Content-Type': 'application/json' } }
+                );
+                processQueue(null, null);
+                return apiClient(originalRequest);
             } catch (refreshError) {
                 processQueue(refreshError, null);
                 // Only clear auth on confirmed invalid/expired token responses.
@@ -133,7 +90,6 @@ apiClient.interceptors.response.use(
                     status === 403 ||
                     (status === 400 && code === 'token_not_valid');
                 if (shouldClear) {
-                    await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY', 'USER_KEY']);
                     await AsyncStorage.removeItem('user');
                 }
                 return Promise.reject(refreshError);

@@ -1,7 +1,7 @@
 // src/utils/apiClient.ts
 import axios, { AxiosError, AxiosResponse } from 'axios';
 import type { InternalAxiosRequestConfig } from 'axios';
-import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './tokenService';
+import { clearTokens } from './tokenService';
 import { API_BASE_URL } from '../constants/api';
 
 const apiClient = axios.create({
@@ -11,17 +11,11 @@ const apiClient = axios.create({
 
 /**
  * REQUEST interceptor
- * - Attach Authorization header if we have an access token.
+ * - Cookie-based auth (HttpOnly JWT cookies). No bearer token in JS storage.
  */
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    const token = getAccessToken();
-    if (token) {
-      config.headers = config.headers ?? {};
-      if (!config.headers.Authorization) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    }
+    config.withCredentials = true;
     return config;
   },
   (error: AxiosError) => Promise.reject(error)
@@ -56,18 +50,8 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
-        const refresh = getRefreshToken();
-        if (refresh) {
-          const resp = await axios.post(`${API_BASE_URL}/users/token/refresh/`, { refresh });
-          const nextAccess = (resp.data as any)?.access;
-          const nextRefresh = (resp.data as any)?.refresh ?? refresh;
-          if (nextAccess) {
-            setTokens(nextAccess, nextRefresh);
-            originalRequest.headers = originalRequest.headers ?? {};
-            originalRequest.headers.Authorization = `Bearer ${nextAccess}`;
-            return apiClient(originalRequest);
-          }
-        }
+        await axios.post(`${API_BASE_URL}/users/token/refresh/`, {}, { withCredentials: true });
+        return apiClient(originalRequest);
       } catch (refreshErr) {
         // fall through to logout behaviour
         console.error('Token refresh failed', refreshErr);

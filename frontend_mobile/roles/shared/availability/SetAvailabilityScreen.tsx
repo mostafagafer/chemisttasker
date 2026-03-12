@@ -271,7 +271,7 @@ export default function SetAvailabilityScreen() {
 
       const response = await fetch(`${API_BASE_URL}/client-profile/${safeRole}/onboarding/me/`, {
         method: 'PATCH',
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        credentials: 'include',
         body: form,
       });
       if (!response.ok) throw new Error('Failed to update location');

@@ -6,6 +6,7 @@ import { useAuth } from '../../../../contexts/AuthContext';
 import OwnerOverviewHome from "./OwnerOverviewHome";
 import OwnerPharmaciesPage from "./OwnerPharmaciesPage";
 import OwnerPharmacyDetailPage from "./OwnerPharmacyDetailPage";
+import OwnerBillingPage from "./OwnerBillingPage";
 import { MembershipDTO, PharmacyAdminDTO, PharmacyDTO } from "./types";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -14,7 +15,7 @@ import {
   fetchPharmacyAdminsService,
 } from "@chemisttasker/shared-core";
 
-type View = "overview" | "pharmacies" | "pharmacy";
+type View = "overview" | "pharmacies" | "pharmacy" | "billing";
 
 export default function OwnerOverviewContainer() {
   const navigate = useNavigate();
@@ -124,8 +125,10 @@ export default function OwnerOverviewContainer() {
     rawViewParam === "pharmacy" && rawPharmacyId
       ? "pharmacy"
       : rawViewParam === "pharmacies"
-      ? "pharmacies"
-      : "overview";
+        ? "pharmacies"
+        : rawViewParam === "billing"
+          ? "billing"
+          : "overview";
   const activePharmacyId = view === "pharmacy" && rawPharmacyId ? rawPharmacyId : null;
 
   const activePharmacy = useMemo(
@@ -160,6 +163,7 @@ export default function OwnerOverviewContainer() {
   const goToInterests = () => navigate(resolvePath("interests"));
   const goToManagePharmacies = () => navigate(resolvePath("manage-pharmacies/my-pharmacies"));
   const goToSettings = () => undefined;
+  const goToBilling = () => setViewParam("billing");
   const goToPharmacyManager = (query: string) =>
     navigate(`${resolvePath("manage-pharmacies/my-pharmacies")}${query}`);
   const handleEditPharmacy = (pharmacy: PharmacyDTO) => {
@@ -193,6 +197,7 @@ export default function OwnerOverviewContainer() {
             onOpenProfile={goToProfile}
             onOpenInterests={goToInterests}
             onOpenSettings={goToSettings}
+            onOpenBilling={goToBilling}
           />
         </>
       )}
@@ -240,6 +245,13 @@ export default function OwnerOverviewContainer() {
             );
           })()}
         </>
+      )}
+
+      {view === "billing" && (
+        <OwnerBillingPage
+          onBack={goHome}
+          totalPharmacies={pharmacies.length}
+        />
       )}
     </Box>
   );

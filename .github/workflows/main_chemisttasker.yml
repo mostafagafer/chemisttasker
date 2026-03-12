@@ -46,6 +46,7 @@ jobs:
           echo "MOBILEMESSAGE_PASSWORD=${{ secrets.MOBILEMESSAGE_PASSWORD }}" >> $GITHUB_ENV
           echo "MOBILEMESSAGE_SENDER=${{ secrets.MOBILEMESSAGE_SENDER }}" >> $GITHUB_ENV
           echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> $GITHUB_ENV
+          echo "STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}" >> $GITHUB_ENV
 
       # No building a venv here. Let Azure (Oryx) build in its environment.
 

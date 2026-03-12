@@ -2,6 +2,7 @@
 from urllib.parse import parse_qs
 from django.contrib.auth.models import AnonymousUser
 from django.db import close_old_connections
+from django.conf import settings
 from asgiref.sync import sync_to_async
 from channels.db import database_sync_to_async
 
@@ -47,6 +48,12 @@ class JWTAuthMiddleware:
         query = parse_qs(scope.get("query_string", b"").decode())
         if "token" in query and query["token"]:
             return query["token"][0].strip()
+        raw_cookies = headers.get(b"cookie", b"").decode()
+        cookie_name = getattr(settings, "JWT_AUTH_COOKIE", "ct_access")
+        for part in raw_cookies.split(";"):
+            item = part.strip()
+            if item.startswith(f"{cookie_name}="):
+                return item.split("=", 1)[1].strip()
         return None
 
 

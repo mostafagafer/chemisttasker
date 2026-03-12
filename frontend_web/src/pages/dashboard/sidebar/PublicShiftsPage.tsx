@@ -366,8 +366,13 @@ export default function PublicShiftsPage({
   const loadOffers = useCallback(async () => {
     setOffersLoading(true);
     try {
-      const data = await fetchShiftOffersService({ status: 'PENDING' });
-      setOffers(data as ShiftOffer[]);
+      const [pending, accepted] = await Promise.all([
+        fetchShiftOffersService({ status: 'PENDING' }),
+        fetchShiftOffersService({ status: 'ACCEPTED' }),
+      ]);
+      const merged = [...(pending as ShiftOffer[]), ...(accepted as ShiftOffer[])];
+      const deduped = Array.from(new Map(merged.map((offer) => [offer.id, offer])).values());
+      setOffers(deduped);
     } catch (err) {
       console.error('Failed to load offers', err);
       showError('Failed to load offers.');
@@ -424,14 +429,18 @@ export default function PublicShiftsPage({
   }, [offersByShift]);
 
   const handleConfirmOfferShift = async (targetShift: Shift) => {
-    const list = offersByShift.get(targetShift.id) ?? [];
+    const list = (offersByShift.get(targetShift.id) ?? []).filter(
+      (offer) => String(offer.status ?? '').toUpperCase() === 'PENDING'
+    );
     if (list.length === 0) return;
     await Promise.all(list.map((offer) => acceptShiftOfferService(offer.id)));
     await loadOffers();
   };
 
   const handleDeclineOfferShift = async (targetShift: Shift) => {
-    const list = offersByShift.get(targetShift.id) ?? [];
+    const list = (offersByShift.get(targetShift.id) ?? []).filter(
+      (offer) => String(offer.status ?? '').toUpperCase() === 'PENDING'
+    );
     if (list.length === 0) return;
     await Promise.all(list.map((offer) => declineShiftOfferService(offer.id)));
     await loadOffers();
@@ -455,7 +464,7 @@ export default function PublicShiftsPage({
               <Typography variant="h6" gutterBottom>
                 Offers
               </Typography>
-              <Typography color="text.secondary">No pending offers yet.</Typography>
+              <Typography color="text.secondary">No offers yet.</Typography>
             </>
           ) : (
             <ShiftsBoard
@@ -474,6 +483,12 @@ export default function PublicShiftsPage({
               disableLocalPersistence
               applyLabel="Confirm"
               disableSlotActions
+              disableActionGuards
+              actionDisabledGuard={(shift) =>
+                !(offersByShift.get(shift.id) ?? []).some(
+                  (offer) => String(offer.status ?? '').toUpperCase() === 'PENDING'
+                )
+              }
               onRefresh={loadOffers}
               fallbackToAllShiftsWhenEmpty
               showAllSlots

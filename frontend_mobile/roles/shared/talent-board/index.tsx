@@ -119,7 +119,7 @@ export default function TalentBoard({
   const loading = externalLoading ?? feed.loading;
   const error = externalError ?? feed.error;
   const reload = feed.reload;
-  const { user, token } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -143,7 +143,7 @@ export default function TalentBoard({
   const ratingFetchRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
-    if (!token) return;
+    if (!user) return;
     const ids = new Set<number>();
     posts.forEach((post) => {
       if (typeof post.authorUserId === 'number') ids.add(post.authorUserId);
@@ -161,7 +161,7 @@ export default function TalentBoard({
         })
         .catch(() => {});
     });
-  }, [posts, token]);
+  }, [posts, user]);
 
   const candidates = useMemo<Candidate[]>(
     () =>
@@ -410,7 +410,7 @@ export default function TalentBoard({
   }, [loadPitchDefaults, pitchOpen]);
 
   const updateOnboardingLocationPrefs = useCallback(async () => {
-    if (!token || !API_BASE_URL) return;
+    if (!API_BASE_URL) return;
     const safeRole = isOtherStaff ? 'otherstaff' : isPharmacist ? 'pharmacist' : 'explorer';
     const form = new FormData();
     form.append('street_address', pitchForm.streetAddress || '');
@@ -420,9 +420,13 @@ export default function TalentBoard({
     form.append('open_to_travel', pitchForm.openToTravel ? 'true' : 'false');
     form.append('travel_states', JSON.stringify(pitchForm.travelStates || []));
     form.append('coverage_radius_km', String(pitchForm.coverageRadiusKm || 0));
-    const response = await fetch(`${API_BASE_URL}/client-profile/${safeRole}/onboarding/me/`, { method: 'PATCH', headers: { Authorization: `Bearer ${token}` }, body: form });
+    const response = await fetch(`${API_BASE_URL}/client-profile/${safeRole}/onboarding/me/`, {
+      method: 'PATCH',
+      credentials: 'include',
+      body: form,
+    });
     if (!response.ok) throw new Error('Failed to update location preferences');
-  }, [isOtherStaff, isPharmacist, pitchForm, token]);
+  }, [isOtherStaff, isPharmacist, pitchForm]);
 
   const handlePitchSave = async () => {
     setPitchSaving(true);

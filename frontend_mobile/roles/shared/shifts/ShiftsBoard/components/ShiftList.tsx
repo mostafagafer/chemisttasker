@@ -81,11 +81,13 @@ type ShiftListProps = {
     onReviewOffers: (shiftId: number) => void;
     openCounterOffer: (shift: Shift, selectedSlots?: Set<number>) => void;
     rejectActionGuard?: (shift: Shift) => boolean;
+    actionDisabledGuard?: (shift: Shift) => boolean;
     userRatePreference?: RatePreference;
     pharmacyRatings: Record<number, { average: number; count: number }>;
     slotFilterMode?: SlotFilterMode;
     applyLabel?: string;
     disableSlotActions?: boolean;
+    disableActionGuards?: boolean;
 };
 
 const ShiftList: React.FC<ShiftListProps> = ({
@@ -118,11 +120,13 @@ const ShiftList: React.FC<ShiftListProps> = ({
     onReviewOffers,
     openCounterOffer,
     rejectActionGuard,
+    actionDisabledGuard,
     userRatePreference,
     pharmacyRatings,
     slotFilterMode,
     applyLabel,
     disableSlotActions,
+    disableActionGuards,
 }) => {
     if (loading) {
         return (
@@ -158,6 +162,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                 const rawSlots = shift.slots ?? [];
                 const allSlots = getUpcomingSlotsForDisplay(rawSlots as ShiftSlot[]);
                 const mode = slotFilterMode ?? 'all';
+                const actionsDisabled = actionDisabledGuard ? actionDisabledGuard(shift) : false;
                 const isShiftApplied = appliedShiftIds.has(shift.id);
                 const isShiftRejected = rejectedShiftIds.has(shift.id);
                 const counterInfo = counterOffers[shift.id];
@@ -236,7 +241,8 @@ const ShiftList: React.FC<ShiftListProps> = ({
                 const isApplied = isShiftApplied || allSlotsApplied;
                 const hasRejectedSlots = allSlots.some((slot) => rejectedSlotIds.has(slot.id));
                 const slotRejected = (slotId: number) => rejectedSlotIds.has(slotId) || isRejectedShift;
-                const shiftActionsDisabled = isShiftApplied || isRejectedShift || hasShiftLevelCounter || hasSlotActions;
+                const interactionLocked = isShiftApplied || isRejectedShift || hasShiftLevelCounter || hasSlotActions;
+                const shiftActionsDisabled = actionsDisabled || (!disableActionGuards && interactionLocked);
                 const allowPartial = getShiftAllowPartial(shift);
                 const urgent = getShiftUrgent(shift);
                 const rateSummary = getRateSummary(shift);

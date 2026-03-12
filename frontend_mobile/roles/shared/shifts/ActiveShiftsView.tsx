@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ScrollView, View, RefreshControl, StyleSheet } from 'react-native';
+import { ScrollView, View, RefreshControl, StyleSheet, Linking } from 'react-native';
 import {
     ActivityIndicator,
     Card,
@@ -15,6 +15,7 @@ import {
     Icon,
 } from 'react-native-paper';
 import { useRouter } from 'expo-router';
+import apiClient from '../../../utils/apiClient';
 import {
     fetchActiveShifts,
     fetchShiftInterests,
@@ -722,6 +723,45 @@ export default function ActiveShiftsView({ onError, onShare }: Props) {
                             <Divider style={{ marginVertical: 8 }} />
                             <Text style={styles.sectionTitle}>Members by tier</Text>
                             {renderMembers(shift)}
+
+                            {(shift as any).paymentStatus === 'PENDING' && (
+                                <View style={{
+                                    marginTop: 12,
+                                    padding: 12,
+                                    backgroundColor: '#FEE2E2',
+                                    borderRadius: 8,
+                                    borderWidth: 1,
+                                    borderColor: '#EF4444',
+                                }}>
+                                    <Text style={{ fontWeight: 'bold', color: '#DC2626', marginBottom: 4 }}>
+                                        Payment Required
+                                    </Text>
+                                    <Text style={{ color: '#374151', marginBottom: 10 }}>
+                                        A candidate confirmed this shift. Complete payment to finalise their booking.
+                                    </Text>
+                                    <Button
+                                        mode="contained"
+                                        buttonColor="#DC2626"
+                                        onPress={async () => {
+                                            try {
+                                                const { data: res } = await apiClient.post(`/billing/charge-fulfillment/${shift.id}/`);
+                                                if (res?.url) {
+                                                    await Linking.openURL(res.url);
+                                                } else if (res?.free) {
+                                                    notify(res?.message || 'Shift finalized without payment.');
+                                                    await loadShifts();
+                                                } else {
+                                                    notify('Payment session was not returned.');
+                                                }
+                                            } catch (err: any) {
+                                                notify(err?.message || 'Failed to initiate payment.');
+                                            }
+                                        }}
+                                    >
+                                        Pay Now
+                                    </Button>
+                                </View>
+                            )}
                         </>
                     ) : null}
                 </Card.Content>

@@ -39,6 +39,7 @@ from client_profile.utils import (
     enforce_public_shift_daily_limit,
     build_shift_counter_offer_context,
     build_shift_offer_context,
+    finalize_shift_offer,
 )
 from client_profile.notifications import mark_notifications_read, broadcast_message_read, broadcast_message_badge
 from django.utils.crypto import get_random_string
@@ -1034,7 +1035,10 @@ class OwnerDashboard(APIView):
 
         # ---- Correct confirmed shifts logic ----
         # Confirmed shifts: at least one assignment
-        confirmed_shifts = shifts_qs.filter(slot_assignments__isnull=False).distinct()
+        confirmed_shifts = shifts_qs.filter(
+            slot_assignments__isnull=False,
+            payment_status__in=['PAID', 'NOT_REQUIRED'],
+        ).distinct()
 
         # Build shift summary boxes
         shift_boxes = []
@@ -2994,13 +2998,33 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             existing_offer.save(update_fields=["status", "updated_at"])
             existing_offer = None
 
+        offered_slot_date = slot_obj.date if slot_obj else None
+        offered_start_time = slot_obj.start_time if slot_obj else None
+        offered_end_time = slot_obj.end_time if slot_obj else None
+        offered_rate = slot_obj.rate if slot_obj else (shift.fixed_rate or shift.max_hourly_rate or shift.min_hourly_rate)
+
         if existing_offer:
+            existing_offer.offered_slot_date = offered_slot_date
+            existing_offer.offered_start_time = offered_start_time
+            existing_offer.offered_end_time = offered_end_time
+            existing_offer.offered_rate = offered_rate
+            existing_offer.save(update_fields=[
+                "offered_slot_date",
+                "offered_start_time",
+                "offered_end_time",
+                "offered_rate",
+                "updated_at",
+            ])
             offer = existing_offer
         else:
             offer = ShiftOffer.objects.create(
                 shift=shift,
                 slot=slot_obj,
                 user=candidate,
+                offered_slot_date=offered_slot_date,
+                offered_start_time=offered_start_time,
+                offered_end_time=offered_end_time,
+                offered_rate=offered_rate,
                 expires_at=now + timedelta(hours=OFFER_EXPIRY_HOURS),
             )
 
@@ -3245,13 +3269,36 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 existing_offer.save(update_fields=["status", "updated_at"])
                 existing_offer = None
 
+            effective_date = offer_slot.slot_date or slot.date
+            effective_start = slot.start_time
+            effective_end = slot.end_time
+            effective_rate = slot.rate
+
             if existing_offer:
+                existing_offer.offered_slot_date = effective_date
+                existing_offer.offered_start_time = effective_start
+                existing_offer.offered_end_time = effective_end
+                existing_offer.offered_rate = effective_rate
+                existing_offer.counter_offer = offer
+                existing_offer.save(update_fields=[
+                    "offered_slot_date",
+                    "offered_start_time",
+                    "offered_end_time",
+                    "offered_rate",
+                    "counter_offer",
+                    "updated_at",
+                ])
                 shift_offer = existing_offer
             else:
                 shift_offer = ShiftOffer.objects.create(
                     shift=shift,
                     slot=slot,
                     user=offer.user,
+                    offered_slot_date=effective_date,
+                    offered_start_time=effective_start,
+                    offered_end_time=effective_end,
+                    offered_rate=effective_rate,
+                    counter_offer=offer,
                     expires_at=now + timedelta(hours=OFFER_EXPIRY_HOURS),
                 )
             created_offers.append(shift_offer)
@@ -4080,6 +4127,7 @@ class ConfirmedShiftViewSet(BaseShiftViewSet):
         qs = qs.filter(
             Q(created_by=user) | Q(pharmacy__in=self._managed_pharmacies(user))
         )
+        qs = qs.filter(payment_status__in=['PAID', 'NOT_REQUIRED'])
 
         qs = qs.annotate(
             slot_count=Count('slots', distinct=True),
@@ -4373,6 +4421,9 @@ class ShiftOfferViewSet(viewsets.ModelViewSet):
         return None
 
     def _first_offer_date(self, shift, offer):
+        offered_date = getattr(offer, "offered_slot_date", None)
+        if offered_date:
+            return offered_date
         try:
             entries = expand_shift_slots(shift)
         except Exception:
@@ -4393,6 +4444,9 @@ class ShiftOfferViewSet(viewsets.ModelViewSet):
             if minimum == maximum:
                 return f"${minimum:.2f}/hr"
             return f"${minimum:.2f}–${maximum:.2f}/hr"
+
+        if offer and getattr(offer, "offered_rate", None) is not None:
+            return f"${Decimal(str(offer.offered_rate)):.2f}/hr"
 
         if offer and getattr(offer, "slot", None) and getattr(offer.slot, "rate", None) is not None:
             return f"${Decimal(str(offer.slot.rate)):.2f}/hr"
@@ -4421,6 +4475,11 @@ class ShiftOfferViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def accept(self, request, pk=None):
+        from billing.utils import (
+            BILLING_STATE_PAYMENT_REQUIRED,
+            get_billing_state,
+        )
+
         offer = self.get_object()
         if offer.user_id != request.user.id:
             return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
@@ -4439,35 +4498,21 @@ class ShiftOfferViewSet(viewsets.ModelViewSet):
 
         assignment_ids = []
         assignment_rates = []
-        slots_to_assign = shift.slots.all() if shift.single_user_only else [slot_obj]
-        with transaction.atomic():
-            for slot in slots_to_assign:
-                for entry in expand_shift_slots(shift):
-                    if entry['slot'].id != slot.id:
-                        continue
-                    slot_date = entry['date']
-                    if ShiftSlotAssignment.objects.filter(slot=slot, slot_date=slot_date).exists():
-                        continue
-                    rate, reason = get_locked_rate_for_slot(
-                        shift=shift,
-                        slot=slot,
-                        user=offer.user,
-                        override_date=slot_date,
-                    )
-                    assn = ShiftSlotAssignment.objects.create(
-                        shift=shift,
-                        slot=slot,
-                        slot_date=slot_date,
-                        user=offer.user,
-                        unit_rate=rate,
-                        rate_reason=reason,
-                        is_rostered=True,
-                    )
-                    assignment_ids.append(assn.id)
-                    assignment_rates.append(assn.unit_rate)
+        billing_state = get_billing_state(shift.pharmacy.owner.user if getattr(shift.pharmacy, "owner", None) else request.user)
+        requires_payment = billing_state == BILLING_STATE_PAYMENT_REQUIRED
 
-            offer.status = ShiftOffer.Status.ACCEPTED
-            offer.save(update_fields=['status', 'updated_at'])
+        with transaction.atomic():
+            if requires_payment:
+                offer.status = ShiftOffer.Status.ACCEPTED_AWAITING_PAYMENT
+                offer.save(update_fields=['status', 'updated_at'])
+                if shift.payment_status != 'PENDING':
+                    shift.payment_status = 'PENDING'
+                    shift.save(update_fields=['payment_status'])
+            else:
+                if shift.payment_status != 'PAID':
+                    shift.payment_status = 'PAID'
+                    shift.save(update_fields=['payment_status'])
+                assignment_ids, assignment_rates = finalize_shift_offer(offer)
 
         pharmacy_display = shift.pharmacy.name
         if getattr(shift, "post_anonymously", False):
@@ -4508,18 +4553,20 @@ class ShiftOfferViewSet(viewsets.ModelViewSet):
                 "shift_date": shift_date,
                 "shift_link": shift_link,
                 "rate": rate_label,
+                "billing_state": billing_state,
+                "payment_required": requires_payment,
             }
             owner_notification = {
                 "title": f"Worker confirmed: {pharmacy_display}",
-                "body": f"{worker_name} confirmed your shift offer.",
+                "body": f"{worker_name} confirmed your shift offer." + (" Payment is required to finalize." if requires_payment else ""),
                 "action_url": shift_link,
-                "payload": {"shift_id": shift.id, "offer_id": offer.id, "status": "ACCEPTED"},
+                "payload": {"shift_id": shift.id, "offer_id": offer.id, "status": offer.status, "payment_required": requires_payment, "billing_state": billing_state},
             }
             if getattr(owner_user, "id", None):
                 owner_notification["user_ids"] = [owner_user.id]
             async_task(
                 'users.tasks.send_async_email',
-                subject=f"Worker confirmed shift offer at {pharmacy_display}",
+                subject=f"Worker confirmed shift offer at {pharmacy_display}" + (" - Action Required" if requires_payment else ""),
                 recipient_list=[owner_user.email],
                 template_name="emails/owner_worker_confirmed.html",
                 context=owner_ctx,
@@ -4527,7 +4574,14 @@ class ShiftOfferViewSet(viewsets.ModelViewSet):
                 notification=owner_notification,
             )
 
-        return Response({'detail': 'Offer accepted.', 'assignment_ids': assignment_ids}, status=status.HTTP_200_OK)
+        return Response({
+            'detail': 'Offer accepted.',
+            'assignment_ids': assignment_ids,
+            'status': offer.status,
+            'payment_status': shift.payment_status,
+            'requires_payment': requires_payment,
+            'billing_state': billing_state,
+        }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'])
     def decline(self, request, pk=None):
@@ -4889,14 +4943,13 @@ class PublicOrganizationDetailView(APIView):
 class SharedShiftDetailView(APIView):
     """
     Provides a read-only, public view for a single shared shift,
-    fetched either by its public ID or a secure share token.
+    fetched by a secure share token.
     """
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, *args, **kwargs):
         shift = None
         token = request.query_params.get('token')
-        shift_id = request.query_params.get('id')
         base_qs = Shift.objects.annotate(
             slot_count=Count('slots', distinct=True),
             assigned_count=Count('slots__assignments', distinct=True),
@@ -4907,13 +4960,8 @@ class SharedShiftDetailView(APIView):
                 shift = base_qs.get(share_token=token)
             except (Shift.DoesNotExist, ValueError):
                 raise NotFound("This share link is invalid or has expired.")
-        elif shift_id:
-            try:
-                shift = base_qs.get(pk=shift_id, visibility='PLATFORM') #
-            except Shift.DoesNotExist:
-                raise NotFound("This shift is not public or could not be found.")
         else:
-            return Response({"error": "An ID or token is required."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "A share token is required."}, status=status.HTTP_400_BAD_REQUEST)
 
         tz_name = getattr(shift.pharmacy, 'timezone', None) or getattr(settings, 'TIME_ZONE', None) or 'UTC'
         try:
@@ -6097,6 +6145,8 @@ class MyConfirmedShiftsViewSet(BaseShiftViewSet):
         qs = super().get_queryset().filter(
             slot_assignments__user=user
         ).filter(
+            payment_status__in=['PAID', 'NOT_REQUIRED']
+        ).filter(
             # at least one slot still in progress
             Q(slots__date__gt=today) |
             Q(slots__date=today, slots__end_time__gte=now.time())
@@ -6681,8 +6731,41 @@ def preview_invoice_lines(request, shift_id):
 
 
 from django.http import HttpResponse, Http404
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def invoice_pdf_view(request, invoice_id):
-    invoice = Invoice.objects.get(pk=invoice_id)
+    invoice = get_object_or_404(Invoice, pk=invoice_id)
+
+    can_access = invoice.user_id == request.user.id
+    if not can_access and invoice.pharmacy_id:
+        can_access = Membership.objects.filter(
+            user=request.user,
+            pharmacy_id=invoice.pharmacy_id,
+            is_active=True,
+        ).exists()
+
+    if not can_access and invoice.pharmacy_id:
+        pharmacy_org_id = invoice.pharmacy.organization_id
+        org_membership = (
+            OrganizationMembership.objects.filter(
+                user=request.user,
+                organization_id=pharmacy_org_id,
+            )
+            .prefetch_related("pharmacies")
+            .first()
+        )
+        if org_membership:
+            can_access = invoice.pharmacy_id in membership_visible_pharmacy_ids(org_membership)
+
+    if not can_access and invoice.pharmacy_id:
+        can_access = Pharmacy.objects.filter(
+            id=invoice.pharmacy_id,
+            owner__user=request.user,
+        ).exists()
+
+    if not can_access:
+        raise Http404("Invoice not found")
+
     pdf_bytes = render_invoice_to_pdf(invoice)
     response = HttpResponse(pdf_bytes, content_type="application/pdf")
     response['Content-Disposition'] = f'inline; filename="invoice_{invoice.id}.pdf"'
@@ -7186,6 +7269,13 @@ class ConversationViewSet(mixins.ListModelMixin,
         # Case A: Pharmacy community chat (one per pharmacy)
         if pharmacy_id:
             pharmacy = get_object_or_404(Pharmacy, pk=pharmacy_id)
+            
+            requester_membership = Membership.objects.filter(user=user, pharmacy=pharmacy, is_active=True).first()
+            is_owner = getattr(pharmacy.owner, 'user', None) == user
+            
+            if not (requester_membership or is_owner):
+                return Response({"detail": "Not authorized to access this pharmacy's community chat."}, status=status.HTTP_403_FORBIDDEN)
+
             conv, created = Conversation.objects.get_or_create(
                 pharmacy=pharmacy,
                 type=Conversation.Type.GROUP,
@@ -7194,10 +7284,10 @@ class ConversationViewSet(mixins.ListModelMixin,
                     'created_by': user,
                 },
             )
-            # Ensure requester is a participant if they have a membership in this pharmacy
-            requester_membership = Membership.objects.filter(user=user, pharmacy=pharmacy, is_active=True).first()
+            # Ensure requester is a participant if they have a membership
             if requester_membership:
                 Participant.objects.get_or_create(conversation=conv, membership=requester_membership, defaults={'is_admin': True})
+            
             ser = ConversationCreateSerializer(conv, context={'request': request})
             return Response(ser.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
@@ -7207,6 +7297,13 @@ class ConversationViewSet(mixins.ListModelMixin,
             # Only allow updates on non-pharmacy groups here
             if conv.pharmacy_id:
                 return Response({"detail": "Use pharmacy_id to manage community chats."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Ensure user is creator or an admin participant
+            is_creator = getattr(conv.created_by, 'id', None) == request.user.id
+            is_admin = Participant.objects.filter(conversation=conv, membership__user=request.user, is_admin=True).exists()
+            if not (is_creator or is_admin):
+                return Response({"detail": "Not authorized to modify this group."}, status=status.HTTP_403_FORBIDDEN)
+
             serializer = ConversationCreateSerializer(
                 conv,
                 data={'title': title or conv.title, 'participants': participant_ids},
@@ -7564,6 +7661,11 @@ class MessageReactionView(APIView):
 
     def post(self, request, message_id):
         message = get_object_or_404(Message, pk=message_id)
+
+        # SECURITY FIX: Ensure the user is actually a participant in the conversation
+        if not Participant.objects.filter(conversation=message.conversation, membership__user=request.user).exists():
+            return Response({'error': 'Not authorized to react to messages in this conversation.'}, status=status.HTTP_403_FORBIDDEN)
+
         reaction_char = request.data.get('reaction')
         
         valid_reactions = [r[0] for r in MessageReaction.REACTION_CHOICES]

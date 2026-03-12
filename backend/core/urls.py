@@ -11,6 +11,7 @@ urlpatterns = [
     path('sitemap.xml', sitemap_web, name='sitemap-web'),
     path('api/users/', include('users.urls')),
     path('api/client-profile/', include(('client_profile.urls', 'client_profile'), namespace='client_profile')),
+    path('api/billing/', include('billing.urls', namespace='billing')),
     path('api/account/', DeleteAccountView.as_view(), name='delete-account'),
 
     # API Schema

@@ -255,5 +255,5 @@ cd frontend_web
 npm run dev:5175
 
 cd frontend_mobile
-set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.7
+set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.2
 npx expo start --dev-client --lan --clear

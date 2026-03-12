@@ -5,7 +5,6 @@ import { login as sharedLogin, getOnboarding } from '@chemisttasker/shared-core'
 import apiClient from '../utils/apiClient';
 import { registerForPushNotificationsAsync, registerDeviceTokenWithBackend } from '../utils/pushNotifications';
 import * as Device from 'expo-device';
-import { secureGet, secureRemoveMany, secureSet } from '../utils/secureStorage';
 
 // --- Types ---
 export interface OrgMembership {
@@ -23,7 +22,10 @@ export type User = {
   profile_photo?: string;
   profile_photo_url?: string;
   memberships?: OrgMembership[];
+  billing_active?: boolean;
+  in_free_trial?: boolean;
 };
+
 
 interface RegisterData {
   email: string;
@@ -80,95 +82,50 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [triedPhotoRefresh, setTriedPhotoRefresh] = useState(false);
   const [registeredPush, setRegisteredPush] = useState(false);
 
-  const applyAuthHeader = (token?: string | null) => {
-    if (token) {
-      apiClient.defaults.headers.common.Authorization = `Bearer ${token}`;
-      axios.defaults.headers.common.Authorization = `Bearer ${token}`;
-    } else {
-      delete apiClient.defaults.headers.common.Authorization;
-      delete axios.defaults.headers.common.Authorization;
-    }
-  };
-
-  // Load tokens and user from AsyncStorage at app startup
+  // Load user from cookie session at app startup
   useEffect(() => {
     const loadStoredAuth = async () => {
       try {
-        const storedAccess = await secureGet('ACCESS_KEY');
-        const storedRefresh = await secureGet('REFRESH_KEY');
-        const storedUser = await AsyncStorage.getItem('user');
+        const meResponse = await axios.get('/users/me/', {
+          baseURL: process.env.EXPO_PUBLIC_API_URL?.trim(),
+          withCredentials: true,
+        }).catch(() => null);
 
-        if (!storedRefresh && !storedAccess) {
-          await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
-          await AsyncStorage.removeItem('user');
-          setAccess(null);
-          setRefresh(null);
-          setUser(null);
+        if (meResponse?.data) {
+          const currentUser = normalizeUser(meResponse.data);
+          setUser(currentUser);
+          setAccess('cookie-session');
+          setRefresh('cookie-session');
           setIsLoading(false);
           return;
         }
 
-        let activeAccess = storedAccess;
-        let activeRefresh = storedRefresh;
-        let resolvedUser: User | null = null;
+        const refreshResponse = await axios.post('/users/token/refresh/', {}, {
+          baseURL: process.env.EXPO_PUBLIC_API_URL?.trim(),
+          withCredentials: true,
+          headers: { 'Content-Type': 'application/json' },
+        }).catch(() => null);
 
-        if (storedUser) {
-          try {
-            resolvedUser = normalizeUser(JSON.parse(storedUser));
-          } catch {
-            // Keep tokens and recover profile from backend instead of forcing logout.
-            await AsyncStorage.removeItem('user');
-          }
-        }
-
-        // If access is missing but refresh exists, restore a new access token.
-        if (!activeAccess && activeRefresh) {
-          try {
-            const refreshResponse = await axios.post('/users/token/refresh/', { refresh: activeRefresh }, {
-              baseURL: process.env.EXPO_PUBLIC_API_URL?.trim(),
-              headers: { 'Content-Type': 'application/json' },
-            });
-            const refreshedAccess = refreshResponse?.data?.access;
-            const rotatedRefresh = refreshResponse?.data?.refresh;
-            if (refreshedAccess) {
-              activeAccess = refreshedAccess;
-              await secureSet('ACCESS_KEY', refreshedAccess);
-            }
-            if (rotatedRefresh) {
-              activeRefresh = rotatedRefresh;
-              await secureSet('REFRESH_KEY', rotatedRefresh);
-            }
-          } catch {
-            await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
-            await AsyncStorage.removeItem('user');
-            setAccess(null);
-            setRefresh(null);
-            setUser(null);
+        if (refreshResponse?.data?.access) {
+          setAccess(refreshResponse.data.access);
+          setRefresh(refreshResponse.data.refresh || 'cookie-session');
+          const retryMe = await axios.get('/users/me/', {
+            baseURL: process.env.EXPO_PUBLIC_API_URL?.trim(),
+            withCredentials: true,
+          }).catch(() => null);
+          if (retryMe?.data) {
+            setUser(normalizeUser(retryMe.data));
             setIsLoading(false);
             return;
           }
         }
-
-        if (activeAccess) {
-          applyAuthHeader(activeAccess);
-          setAccess(activeAccess);
-        }
-        if (activeRefresh) {
-          setRefresh(activeRefresh);
-        }
-
-        if (resolvedUser) {
-          setUser(resolvedUser);
-        } else {
-          setUser(null);
-        }
       } catch {
-        await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
-        await AsyncStorage.removeItem('user');
-        setAccess(null);
-        setRefresh(null);
-        setUser(null);
+        // handled below
       }
+      await AsyncStorage.removeItem('user').catch(() => null);
+      setAccess(null);
+      setRefresh(null);
+      setUser(null);
       setIsLoading(false);
     };
     loadStoredAuth();
@@ -176,7 +133,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     const setupPush = async () => {
-      if (!access || !user || registeredPush) return;
+      if (!user || registeredPush) return;
       try {
         const token = await registerForPushNotificationsAsync();
         if (token) {
@@ -212,21 +169,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const login = async (newAccess: string, newRefresh: string, userInfo: User) => {
-    setAccess(newAccess);
-    setRefresh(newRefresh);
-    await secureSet('ACCESS_KEY', newAccess);
-    await secureSet('REFRESH_KEY', newRefresh);
-    applyAuthHeader(newAccess);
+    setAccess(newAccess || 'cookie-session');
+    setRefresh(newRefresh || 'cookie-session');
 
     const baseUser = normalizeUser(userInfo);
     setUser(baseUser);
-    await AsyncStorage.setItem('user', JSON.stringify(baseUser));
 
     // Hydrate with onboarding profile if available (adds photo, phone, etc.)
     try {
       const hydrated = await fetchOnboardingProfile(baseUser.role, baseUser);
       setUser(hydrated);
-      await AsyncStorage.setItem('user', JSON.stringify(hydrated));
     } catch (error) {
       const msg = (error as any)?.message || error;
       console.debug('Onboarding profile fetch skipped:', msg);
@@ -235,18 +187,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const loginWithCredentials = async (email: string, password: string) => {
     try {
-      const response: any = await sharedLogin({ email, password });
-      const tokens = response.tokens || {};
-      const newAccess = tokens.access || response.access;
-      const newRefresh = tokens.refresh || response.refresh;
-      const userData = response.user || response.userData || response.profile;
-      if (!newAccess || !newRefresh || !userData) {
+      const response: any = await apiClient.post('/users/login/', { email, password }, { withCredentials: true });
+      const payload = response?.data ?? response;
+      const userData = payload.user || payload.userData || payload.profile;
+      const newAccess = payload.access || 'cookie-session';
+      const newRefresh = payload.refresh || 'cookie-session';
+      if (!userData) {
         throw new Error('Unexpected login response');
       }
       await login(newAccess, newRefresh, userData);
       return userData;
-    } catch (error: any) {
-      throw new Error(error?.message || 'Login failed');
+    } catch (directError: any) {
+      try {
+        // Fallback to shared-core login shape
+        const response: any = await sharedLogin({ email, password });
+        const tokens = response.tokens || {};
+        const newAccess = tokens.access || response.access;
+        const newRefresh = tokens.refresh || response.refresh;
+        const userData = response.user || response.userData || response.profile;
+        if (!newAccess || !newRefresh || !userData) {
+          throw new Error(directError?.message || 'Unexpected login response');
+        }
+        await login(newAccess, newRefresh, userData);
+        return userData;
+      } catch (error: any) {
+        throw new Error(error?.message || directError?.message || 'Login failed');
+      }
     }
   };
 
@@ -286,24 +252,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
           errorMessageLower.includes('registered')
           ? duplicateEmailMessage
           : confirmPasswordMsg ||
-            passwordMsg ||
-            captchaMsg ||
-            termsMsg ||
-            emailMsg ||
-            detailMsg ||
-            fallbackFieldMessage ||
-            errorMessage ||
-            'Registration failed');
+          passwordMsg ||
+          captchaMsg ||
+          termsMsg ||
+          emailMsg ||
+          detailMsg ||
+          fallbackFieldMessage ||
+          errorMessage ||
+          'Registration failed');
       throw new Error(errorMsg);
     }
   };
 
   const verifyOTP = async (code: string) => {
     try {
-      const response = await apiClient.post('/users/verify-otp/', { otp: code });
+      const response = await apiClient.post('/users/verify-otp/', { email: user?.email, otp: code });
+      // Backend returns access + refresh tokens alongside the user (mirror of web OTPVerify.tsx)
+      const newAccess: string | undefined = response.data.access;
+      const newRefresh: string | undefined = response.data.refresh;
       const updatedUser = normalizeUser(response.data.user);
+
+      if (newAccess) {
+        setAccess(newAccess);
+      }
+      if (newRefresh) {
+        setRefresh(newRefresh);
+      }
+
       setUser(updatedUser);
-      await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'OTP verification failed');
     }
@@ -311,7 +287,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const resendOTP = async () => {
     try {
-      await apiClient.post('/users/resend-otp/');
+      // Backend ResendOTPView looks up user by email from request body (same as web)
+      await apiClient.post('/users/resend-otp/', { email: user?.email });
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'Failed to resend OTP');
     }
@@ -321,7 +298,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       const hydrated = await fetchOnboardingProfile(user?.role, user);
       setUser(hydrated as User);
-      await AsyncStorage.setItem('user', JSON.stringify(hydrated));
     } catch (error) {
       const msg = (error as any)?.message || error;
       console.debug('Error refreshing user (non-fatal):', msg);
@@ -340,12 +316,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [access, user, isRefreshingProfile, triedPhotoRefresh]);
 
   const logout = async () => {
+    await axios.post('/users/logout/', {}, {
+      baseURL: process.env.EXPO_PUBLIC_API_URL?.trim(),
+      withCredentials: true,
+      headers: { 'Content-Type': 'application/json' },
+    }).catch(() => null);
     setAccess(null);
     setRefresh(null);
     setUser(null);
     setRegisteredPush(false);
-    applyAuthHeader(null);
-    await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']);
     await AsyncStorage.removeItem('user');
   };
 

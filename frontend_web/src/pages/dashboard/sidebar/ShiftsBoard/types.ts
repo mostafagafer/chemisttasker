@@ -89,6 +89,7 @@ export type ShiftsBoardProps = {
   actionDisabledGuard?: (shift: Shift) => boolean;
   applyLabel?: string;
   disableSlotActions?: boolean;
+  disableActionGuards?: boolean;
 };
 
 export type SortKey = 'shiftDate' | 'postedDate' | 'rate' | 'distance';

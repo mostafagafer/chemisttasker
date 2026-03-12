@@ -80,7 +80,7 @@ function AuthGate() {
   useEffect(() => {
     if (isLoading) return;
     const top = segments[0];
-    const publicRoutes = new Set(['login', 'register', 'welcome', 'verify-otp', 'index', 'contact']);
+    const publicRoutes = new Set(['login', 'register', 'welcome', 'verify-otp', 'forgot-password', 'reset-password', 'mobile-verify', 'index', 'contact']);
     const isPublic = publicRoutes.has(top ?? '');
     const expectedTopByRole: Record<string, string> = {
       OWNER: 'owner',
@@ -121,9 +121,9 @@ export default function RootLayout() {
           <PaperProvider theme={theme}>
             <AuthProvider>
               <WorkspaceProvider>
-              <AuthGate />
-              <OfflineBanner />
-              <Stack
+                <AuthGate />
+                <OfflineBanner />
+                <Stack
                   screenOptions={{
                     headerShown: false,
                     gestureEnabled: true,

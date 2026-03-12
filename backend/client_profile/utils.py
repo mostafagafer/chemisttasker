@@ -1,17 +1,19 @@
 from django.conf import settings
 import re
 from datetime import datetime, date, time
+from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django_q.tasks import async_task
 import difflib
 from django.utils import timezone
 from django.core.signing import TimestampSigner
 from urllib.parse import urlencode
+from django.db import transaction
 from django.db.models import Q
 from rest_framework.exceptions import ValidationError
 
-from client_profile.models import Shift
-from client_profile.services import expand_shift_slots
+from client_profile.models import Shift, ShiftOffer, ShiftSlotAssignment
+from client_profile.services import expand_shift_slots, get_locked_rate_for_slot
 from client_profile.admin_helpers import is_admin_of
 
 MAX_PUBLIC_SHIFTS_PER_DAY = 10
@@ -193,17 +195,27 @@ def build_shift_offer_context(shift, offer, recipient=None, *, ignore_slot_filte
         suburb = getattr(shift.pharmacy, "suburb", None)
         pharmacy_display = f"Shift in {suburb}" if suburb else "Anonymous Pharmacy"
 
-    slot_entries = expand_shift_slots(shift)
-    if getattr(offer, "slot_id", None) and not ignore_slot_filter:
-        slot_entries = [e for e in slot_entries if e.get("slot") and e["slot"].id == offer.slot_id]
-
     slot_lines = []
-    for entry in slot_entries or []:
-        date_text = _format_slot_date(entry.get("date"))
-        start_text = _format_slot_time(entry.get("start_time"))
-        end_text = _format_slot_time(entry.get("end_time"))
-        if date_text and start_text and end_text:
-            slot_lines.append(f"{date_text} — {start_text} to {end_text}")
+    offered_date = getattr(offer, "offered_slot_date", None)
+    offered_start = getattr(offer, "offered_start_time", None)
+    offered_end = getattr(offer, "offered_end_time", None)
+    if offered_date and offered_start and offered_end:
+        date_text = _format_slot_date(offered_date)
+        start_text = _format_slot_time(offered_start)
+        end_text = _format_slot_time(offered_end)
+        slot_lines.append(f"{date_text} — {start_text} to {end_text}")
+
+    if not slot_lines:
+        slot_entries = expand_shift_slots(shift)
+        if getattr(offer, "slot_id", None) and not ignore_slot_filter:
+            slot_entries = [e for e in slot_entries if e.get("slot") and e["slot"].id == offer.slot_id]
+
+        for entry in slot_entries or []:
+            date_text = _format_slot_date(entry.get("date"))
+            start_text = _format_slot_time(entry.get("start_time"))
+            end_text = _format_slot_time(entry.get("end_time"))
+            if date_text and start_text and end_text:
+                slot_lines.append(f"{date_text} — {start_text} to {end_text}")
 
     slot_summary = slot_lines[0] if slot_lines else None
     max_slots_in_email = 6
@@ -232,6 +244,7 @@ def build_shift_offer_context(shift, offer, recipient=None, *, ignore_slot_filte
         "slots_display": slots_display,
         "slots_extra_count": slots_extra_count,
         "expires_at": getattr(offer, "expires_at", None),
+        "offered_rate": getattr(offer, "offered_rate", None),
     })
     return base_ctx
 
@@ -290,6 +303,62 @@ def clean_email(email):
     # Remove LTR/RTL, bidi, zero-width space, and all whitespace
     # \u200e (LTR), \u200f (RTL), \u202a-\u202e (bidi), \u200b (zero-width space), \s (any space)
     return re.sub(r'[\u200e\u200f\u202a-\u202e\u200b\s]', '', email)
+
+
+def finalize_shift_offer(offer: ShiftOffer):
+    """
+    Finalize a worker-confirmed offer by creating slot assignments exactly once.
+    Safe to call multiple times (idempotent for already assigned slots).
+    """
+    shift = offer.shift
+    slot_obj = offer.slot
+    if not shift.single_user_only and slot_obj is None:
+        raise ValidationError({"detail": "Offer is missing slot selection."})
+
+    assignment_ids = []
+    assignment_rates = []
+    slots_to_assign = shift.slots.all() if shift.single_user_only else [slot_obj]
+
+    with transaction.atomic():
+        for slot in slots_to_assign:
+            for entry in expand_shift_slots(shift):
+                if entry["slot"].id != slot.id:
+                    continue
+                slot_date = entry["date"]
+                if ShiftSlotAssignment.objects.filter(slot=slot, slot_date=slot_date).exists():
+                    continue
+
+                rate, reason = get_locked_rate_for_slot(
+                    shift=shift,
+                    slot=slot,
+                    user=offer.user,
+                    override_date=slot_date,
+                )
+                if getattr(offer, "offered_rate", None) is not None:
+                    rate = Decimal(str(offer.offered_rate))
+                    reason = {
+                        "type": "Offer",
+                        "source": "ShiftOffer",
+                        "offer_id": offer.id,
+                    }
+
+                assn = ShiftSlotAssignment.objects.create(
+                    shift=shift,
+                    slot=slot,
+                    slot_date=slot_date,
+                    user=offer.user,
+                    unit_rate=rate,
+                    rate_reason=reason,
+                    is_rostered=True,
+                )
+                assignment_ids.append(assn.id)
+                assignment_rates.append(assn.unit_rate)
+
+        if offer.status != ShiftOffer.Status.ACCEPTED:
+            offer.status = ShiftOffer.Status.ACCEPTED
+            offer.save(update_fields=["status", "updated_at"])
+
+    return assignment_ids, assignment_rates
 
 def get_candidate_role(obj) -> str:
     """

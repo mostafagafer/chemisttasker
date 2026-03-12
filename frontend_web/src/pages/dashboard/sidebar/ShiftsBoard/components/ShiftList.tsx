@@ -108,6 +108,7 @@ type ShiftListProps = {
   showAllSlots?: boolean;
   applyLabel?: string;
   disableSlotActions?: boolean;
+  disableActionGuards?: boolean;
 };
 
 const ShiftList: React.FC<ShiftListProps> = ({
@@ -147,6 +148,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
   showAllSlots,
   applyLabel,
   disableSlotActions,
+  disableActionGuards,
 }) => (
   <Stack spacing={2}>
     {loading && (
@@ -258,7 +260,8 @@ const ShiftList: React.FC<ShiftListProps> = ({
       const isApplied = isShiftApplied || allSlotsApplied;
       const hasRejectedSlots = allSlots.some((slot) => rejectedSlotIds.has(slot.id));
       const slotRejected = (slotId: number) => rejectedSlotIds.has(slotId) || isRejectedShift;
-      const shiftActionsDisabled = actionsDisabled || isShiftApplied || isRejectedShift || hasShiftLevelCounter || hasSlotActions;
+      const interactionLocked = isShiftApplied || isRejectedShift || hasShiftLevelCounter || hasSlotActions;
+      const shiftActionsDisabled = actionsDisabled || (!disableActionGuards && interactionLocked);
       const allowPartial = getShiftAllowPartial(shift);
       const urgent = getShiftUrgent(shift);
       const rateSummary = getRateSummary(shift);

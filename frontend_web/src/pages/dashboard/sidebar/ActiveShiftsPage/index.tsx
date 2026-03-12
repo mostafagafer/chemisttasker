@@ -25,6 +25,7 @@ import {
     CalendarToday as CalendarDays,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import apiClient from '../../../../utils/apiClient';
 import {
     Shift,
     ShiftInterest,
@@ -740,6 +741,9 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                     </Typography>
                                 </Box>
                             )}
+                            {(shift as any).paymentStatus === 'PENDING' && (
+                                <Chip label="Payment Required" color="error" size="small" />
+                            )}
                         </Stack>
                     }
                     action={
@@ -816,12 +820,12 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                         <>
                             <Divider sx={{ my: 2 }} />
 
-                                <EscalationStepper
-                                    shift={shift}
-                                    currentLevel={shiftLevel}
-                                    selectedLevel={selectedLevel}
-                                    onSelectLevel={(levelKey) => handleLevelChange(shift, levelKey)}
-                                    onEscalate={async (_s, _levelKey) => {
+                            <EscalationStepper
+                                shift={shift}
+                                currentLevel={shiftLevel}
+                                selectedLevel={selectedLevel}
+                                onSelectLevel={(levelKey) => handleLevelChange(shift, levelKey)}
+                                onEscalate={async (_s, _levelKey) => {
                                     const success = await handleEscalate(shift.id);
                                     if (!success) return;
                                     setSelectedLevelByShift(prev => {
@@ -830,11 +834,55 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                         return next;
                                     });
                                     await loadShifts();
-                                    }}
-                                    escalating={actionLoading[`escalate_${shift.id}`]}
-                                    labelOverrides={labelOverrides}
-                                    showPrivateFirst={dedicated}
-                                />
+                                }}
+                                escalating={actionLoading[`escalate_${shift.id}`]}
+                                labelOverrides={labelOverrides}
+                                showPrivateFirst={dedicated}
+                            />
+
+                            {(shift as any).paymentStatus === 'PENDING' && (
+                                <Box sx={{ mt: 3, p: 2, bgcolor: 'error.50', borderRadius: 1, border: '1px solid', borderColor: 'error.main' }}>
+                                    <Typography variant="h6" color="error.main" gutterBottom>
+                                        Payment Required
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ mb: 2 }}>
+                                        A candidate has accepted the shift, but payment is required to finalize the assignment.
+                                    </Typography>
+                                    <Box>
+                                        <button
+                                            style={{
+                                                padding: '8px 16px',
+                                                backgroundColor: '#d32f2f',
+                                                color: 'white',
+                                                border: 'none',
+                                                borderRadius: '4px',
+                                                cursor: 'pointer',
+                                                fontWeight: 'bold',
+                                                fontFamily: 'inherit',
+                                            }}
+                                            onClick={async (e) => {
+                                                e.stopPropagation();
+                                                try {
+                                                    const { data: res } = await apiClient.post(`/billing/charge-fulfillment/${shift.id}/`);
+                                                    if (res?.url) {
+                                                        window.location.href = res.url;
+                                                    } else if (res?.free) {
+                                                        showSnackbar(res?.message || 'Shift finalized without payment.');
+                                                        await loadShifts();
+                                                    } else {
+                                                        showSnackbar('Payment session was not returned.');
+                                                    }
+                                                } catch (err) {
+                                                    console.error(err);
+                                                    showSnackbar('Failed to initiate payment.');
+                                                }
+                                            }}
+                                        >
+                                            Pay Now
+                                        </button>
+                                    </Box>
+                                </Box>
+                            )}
 
                             <Divider sx={{ my: 2 }} />
 
@@ -1085,4 +1133,3 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
 };
 
 export default ActiveShiftsPage;
-

@@ -85,6 +85,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
   actionDisabledGuard,
   applyLabel,
   disableSlotActions,
+  disableActionGuards,
 }) => {
   const slotFilterMode: SlotFilterMode = slotFilterModeProp ?? 'all';
   const auth = useAuth();
@@ -684,6 +685,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
             showAllSlots={showAllSlots}
             applyLabel={applyLabel}
             disableSlotActions={disableSlotActions}
+            disableActionGuards={disableActionGuards}
           />
         </Box>
       </Box>

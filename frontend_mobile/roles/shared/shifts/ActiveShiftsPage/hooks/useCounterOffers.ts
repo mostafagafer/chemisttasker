@@ -4,7 +4,6 @@ import {
     rejectShiftCounterOfferService,
 } from '@chemisttasker/shared-core';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { secureGet, secureRemoveMany, secureSet } from '../../../../../utils/secureStorage';
 
 export function useCounterOffers() {
     const [counterOffersByShift, setCounterOffersByShift] = useState<Record<number, any[]>>({});
@@ -24,32 +23,23 @@ export function useCounterOffers() {
 
     const getAccessWithRefresh = useCallback(async () => {
         const baseURL = process.env.EXPO_PUBLIC_API_URL?.trim() || '';
-        const existing = await secureGet('ACCESS_KEY').catch(() => null);
-        if (existing) return existing;
-
-        const refresh = await secureGet('REFRESH_KEY').catch(() => null);
-        if (!refresh) return null;
-
         try {
             const response = await fetch(`${baseURL}/users/token/refresh/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ refresh }),
+                credentials: 'include',
+                body: JSON.stringify({}),
             });
             if (!response.ok) {
                 throw new Error(`Refresh failed with status ${response.status}`);
             }
             const data = await response.json().catch(() => ({}));
             const nextAccess = data.access;
-            const nextRefresh = data.refresh ?? refresh;
             if (nextAccess) {
-                await secureSet('ACCESS_KEY', nextAccess);
-                await secureSet('REFRESH_KEY', nextRefresh);
                 return nextAccess;
             }
         } catch (error) {
             console.error('Failed to refresh token for counter offer accept', error);
-            await secureRemoveMany(['ACCESS_KEY', 'REFRESH_KEY']).catch(() => null);
             await AsyncStorage.removeItem('user').catch(() => null);
         }
 
@@ -75,11 +65,8 @@ export function useCounterOffers() {
             try {
                 const resolvedSlotId = payload.slotId ?? resolveOfferSlotId(payload.offer);
                 const baseURL = process.env.EXPO_PUBLIC_API_URL?.trim() || '';
-                const token = await getAccessWithRefresh();
+                await getAccessWithRefresh();
                 const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-                if (token) {
-                    headers.Authorization = `Bearer ${token}`;
-                }
                 if (__DEV__) {
                     console.log('[ActiveShifts] acceptShiftCounterOfferService', {
                         shiftId: payload.shiftId,
@@ -94,6 +81,7 @@ export function useCounterOffers() {
                     {
                         method: 'POST',
                         headers,
+                        credentials: 'include',
                         body: resolvedSlotId != null ? JSON.stringify({ slot_id: resolvedSlotId }) : undefined,
                     }
                 );

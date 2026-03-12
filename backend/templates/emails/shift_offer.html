@@ -44,6 +44,9 @@
             {% endif %}
         </div>
         {% endif %}
+        {% if offered_rate %}
+        <p><strong>Rate:</strong> ${{ offered_rate }}/hr</p>
+        {% endif %}
         {% if expires_at %}
         <p><strong>Confirm by:</strong> {{ expires_at }}</p>
         {% endif %}

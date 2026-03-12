@@ -51,7 +51,8 @@ export default function Login() {
     try {
       const { data } = await axios.post(
         `${API_BASE_URL}${API_ENDPOINTS.login}`,
-        { email: email.toLowerCase(), password }
+        { email: email.toLowerCase(), password },
+        { withCredentials: true }
       );
       const { access, refresh, user: userInfo } = data;
       if (!access || !refresh) {

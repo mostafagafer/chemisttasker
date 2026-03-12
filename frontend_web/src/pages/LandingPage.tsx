@@ -103,6 +103,7 @@ function LandingPage() {
               <img src={logoBanner} alt="ChemistTaskerRx Logo" style={{ height: '48px', width: 'auto' }} />
             </a>
             <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'flex' }, justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+              <Button href="/pricing" sx={{ color: 'text.primary', fontWeight: 500 }}>Pricing</Button>
               <Button onClick={() => handleNavClick('#how-it-works')} sx={{ color: 'text.primary', fontWeight: 500 }}>How It Works</Button>
               <Button onClick={() => handleNavClick('#for-who')} sx={{ color: 'text.primary', fontWeight: 500 }}>For Who?</Button>
               <Button onClick={() => handleNavClick('#contact')} sx={{ color: 'text.primary', fontWeight: 500 }}>Contact</Button>
@@ -117,6 +118,7 @@ function LandingPage() {
                 keepMounted transformOrigin={{ vertical: 'top', horizontal: 'left' }}
                 open={Boolean(anchorElNav)} onClose={handleCloseNavMenu}
                 sx={{ display: { xs: 'block', md: 'none' } }}>
+                <MenuItem component="a" href="/pricing"><Typography>Pricing</Typography></MenuItem>
                 <MenuItem onClick={() => handleNavClick('#how-it-works')}><Typography>How It Works</Typography></MenuItem>
                 <MenuItem onClick={() => handleNavClick('#for-who')}><Typography>For Who?</Typography></MenuItem>
                 <MenuItem onClick={() => handleNavClick('#contact')}><Typography>Contact</Typography></MenuItem>
@@ -339,21 +341,21 @@ const ownerSteps: Step[] = [
 ];
 
 const pharmacistSteps: Step[] = [
-    {
-      title: "Find & Manage Shifts",
-      description: "Set your availability, apply for shifts that suit you, and see your entire roster in one place.",
-      videoId: "LKcxI3VFW0Q"
-    },
-    {
-      title: "Seamless Invoicing",
-      description: "Handle all your billing and payments easily with instant, automated invoices.",
-      videoId: "LKcxI3VFW0Q"
-    },
-    {
-      title: "Pitch Yourself",
-      description: "Make yourself visible among pharmacy professionals—showcase your strengths, build your profile, and get noticed for the best shifts.",
-      videoId: "PITCH_VIDEO_ID"
-    },
+  {
+    title: "Find & Manage Shifts",
+    description: "Set your availability, apply for shifts that suit you, and see your entire roster in one place.",
+    videoId: "LKcxI3VFW0Q"
+  },
+  {
+    title: "Seamless Invoicing",
+    description: "Handle all your billing and payments easily with instant, automated invoices.",
+    videoId: "LKcxI3VFW0Q"
+  },
+  {
+    title: "Pitch Yourself",
+    description: "Make yourself visible among pharmacy professionals—showcase your strengths, build your profile, and get noticed for the best shifts.",
+    videoId: "PITCH_VIDEO_ID"
+  },
 ];
 
 const HowItWorksSplitSection: React.FC = () => (
@@ -364,17 +366,17 @@ const HowItWorksSplitSection: React.FC = () => (
           How It Works
         </Typography>
       </Box>
-        <Box
-          sx={{
-            display: 'flex',
-            // On medium (md) screens and up, arrange them in a row
-            flexDirection: { xs: 'column', md: 'row' },
-            // Increase the gap on medium screens
-            gap: { xs: 8, md: 12 },
-            justifyContent: 'center',
-            alignItems: { xs: 'center', md: 'flex-start' },
-          }}
-        >
+      <Box
+        sx={{
+          display: 'flex',
+          // On medium (md) screens and up, arrange them in a row
+          flexDirection: { xs: 'column', md: 'row' },
+          // Increase the gap on medium screens
+          gap: { xs: 8, md: 12 },
+          justifyContent: 'center',
+          alignItems: { xs: 'center', md: 'flex-start' },
+        }}
+      >
 
         <Box sx={{ width: 340, minWidth: 320, display: 'flex', justifyContent: 'center' }}>
           <Box>
@@ -403,7 +405,7 @@ const StepsCarousel: React.FC<{ steps: Step[] }> = ({ steps }) => {
   const [videoOpenIndex, setVideoOpenIndex] = useState<number | null>(null);
 
   const anglePerSlide = 360 / steps.length;
-  
+
   // CORRECTED: Using a smaller, more stable radius to prevent layout issues.
   const radius = 210;
 

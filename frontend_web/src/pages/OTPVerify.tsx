@@ -12,9 +12,11 @@ import {
 } from '@mui/material';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants/api';
 import AuthLayout from '../layouts/AuthLayout'; // Import the new layout
+import { useAuth } from '../contexts/AuthContext';
 
 export default function OTPVerify() {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const location = useLocation();
   // --- All logic is unchanged ---
   const emailFromState = location.state?.email || '';
@@ -30,9 +32,14 @@ export default function OTPVerify() {
     setStatus('');
     setLoading(true);
     try {
-      const { data } = await axios.post(`${API_BASE_URL}${API_ENDPOINTS.verifyOtp}`, { email, otp });
-      if (data?.access) localStorage.setItem('access_token', data.access);
-      if (data?.refresh) localStorage.setItem('refresh_token', data.refresh);
+      const { data } = await axios.post(
+        `${API_BASE_URL}${API_ENDPOINTS.verifyOtp}`,
+        { email, otp },
+        { withCredentials: true }
+      );
+      if (data?.access && data?.refresh && data?.user) {
+        login(data.access, data.refresh, data.user);
+      }
       setStatus('Verification successful! Redirecting...');
       setTimeout(() => navigate('/mobile-verify'), 800);
 
@@ -52,7 +59,7 @@ export default function OTPVerify() {
     setStatus('');
     setLoading(true);
     try {
-      await axios.post(`${API_BASE_URL}${API_ENDPOINTS.resendOtp}`, { email });
+      await axios.post(`${API_BASE_URL}${API_ENDPOINTS.resendOtp}`, { email }, { withCredentials: true });
       setStatus('A new code has been sent to your email.');
     } catch (err) {
       setError('Could not resend code. Please try again later.');

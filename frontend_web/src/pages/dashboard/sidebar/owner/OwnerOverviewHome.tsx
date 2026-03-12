@@ -18,6 +18,7 @@ import AppsIcon from "@mui/icons-material/Apps";
 import PeopleIcon from "@mui/icons-material/People";
 import SettingsIcon from "@mui/icons-material/Settings";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import CreditCardIcon from "@mui/icons-material/CreditCard";
 import { alpha } from "@mui/material/styles";
 
 type QuickAction = {
@@ -41,6 +42,7 @@ export default function OwnerOverviewHome({
   onOpenProfile,
   onOpenInterests,
   onOpenSettings,
+  onOpenBilling,
 }: {
   totalPharmacies: number;
   onOpenManage: () => void;
@@ -50,6 +52,7 @@ export default function OwnerOverviewHome({
   onOpenProfile: () => void;
   onOpenInterests: () => void;
   onOpenSettings: () => void;
+  onOpenBilling: () => void;
 }) {
   const theme = useTheme();
   const primary = theme.palette.primary.main;
@@ -96,6 +99,12 @@ export default function OwnerOverviewHome({
       description: "Hours, rates and configurations",
       icon: <SettingsIcon />,
       onClick: onOpenSettings,
+    },
+    {
+      title: "Billing & Subscription",
+      description: "Manage subscription and payments",
+      icon: <CreditCardIcon />,
+      onClick: onOpenBilling,
     },
   ];
 

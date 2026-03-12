@@ -41,7 +41,6 @@ const SharedShiftLandingPage: React.FC = () => {
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
 
   const token = searchParams.get('token');
-  const id = searchParams.get('id');
 
   const mapSharedShift = useCallback((raw: any): Shift => {
     const pharmacy = raw.pharmacy_detail || raw.pharmacyDetail || {};
@@ -149,7 +148,7 @@ const SharedShiftLandingPage: React.FC = () => {
     const rawDescription = shift.description ? `${descriptionParts}. ${shift.description}` : descriptionParts;
     const description = rawDescription.length > 280 ? `${rawDescription.slice(0, 277)}...` : rawDescription;
 
-    const canonicalUrl = `${origin}/shifts/link?id=${shift.id}`;
+    const canonicalUrl = token ? `${origin}/shifts/link?token=${encodeURIComponent(token)}` : `${origin}/shifts/link`;
     const isClosed = Boolean((shift as any).isClosed ?? (shift as any).is_closed);
     if (isClosed) {
       setRobotsMeta('noindex,follow');
@@ -224,8 +223,6 @@ const SharedShiftLandingPage: React.FC = () => {
             // Avoid sending literal "null"/"undefined" tokens; only include the param when it is real.
             const params: Record<string, string> = {};
             if (token) params.token = token;
-            if (id) params.id = id;
-
             const response: any = await getViewSharedShift(params);
             const fetchedShift = response?.data ?? response;
             const mappedShift = mapSharedShift(fetchedShift);
@@ -247,15 +244,15 @@ const SharedShiftLandingPage: React.FC = () => {
         }
     };
 
-    if (!token && !id) {
-        setError("No shift specified. A link must contain a shift ID or a share token.");
+    if (!token) {
+        setError("No shift specified. A link must contain a share token.");
         setLoading(false);
     } else {
         fetchShift();
     }
 
   // FIX: The dependency array is simplified to not include the non-existent 'authLoading'.
-  }, [id, token, user, navigate]);
+  }, [token, user, navigate]);
 
 
   // FIX: The skeleton loader condition is simplified.
@@ -332,8 +329,8 @@ const SharedShiftLandingPage: React.FC = () => {
         fallbackToAllShiftsWhenEmpty
         showAllSlots={isClosed}
         onRefresh={() => {
-            if (!token && !id) return;
-            return getViewSharedShift({ ...(token ? { token } : {}), ...(id ? { id } : {}) })
+            if (!token) return;
+            return getViewSharedShift({ token })
               .then((response: any) => {
                 const fetchedShift = response?.data ?? response;
                 setShift(mapSharedShift(fetchedShift));

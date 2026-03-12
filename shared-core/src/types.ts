@@ -710,6 +710,7 @@ export interface ShiftApi {
     max_annual_salary?: string | null;
     super_percent?: string | null;
     payment_preference?: string | null;
+    payment_status?: string | null;
     workload_tags?: string[];
     must_have?: string[];
     nice_to_have?: string[];

@@ -462,15 +462,31 @@ type MessageSummary = {
   unread: number;
 };
 
+const isChatNotificationPayload = (payload: any): boolean => {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+  return Boolean(
+    payload.conversation_id ??
+      payload.conversationId ??
+      payload.roomId ??
+      payload.room_id ??
+      payload.chat_room_id
+  );
+};
+
+const isMessageNotification = (notification: NotificationItem): boolean => {
+  const type = String(notification?.type || "").toLowerCase();
+  if (type === "message") {
+    return true;
+  }
+  return isChatNotificationPayload(notification?.payload);
+};
+
 export default function TopBarActions() {
   const theme = useTheme();
   const { mode, toggleColorMode } = useColorMode();
-  const { user, token, refreshUnreadCount, adminAssignments, activePersona, activeAdminAssignment, selectRolePersona, selectAdminPersona, isAdminUser } = useAuth();
-  // Prefer the live token from context, but fall back to persisted access in case the component renders before auth finishes hydrating.
-  const wsAuthToken = React.useMemo(
-    () => token || localStorage.getItem("access") || "",
-    [token]
-  );
+  const { user, refreshUnreadCount, adminAssignments, activePersona, activeAdminAssignment, selectRolePersona, selectAdminPersona, isAdminUser } = useAuth();
 
   const isJwtValid = React.useCallback((jwt: string) => {
     try {
@@ -742,7 +758,7 @@ export default function TopBarActions() {
   }, [messageSummaries]);
 
   React.useEffect(() => {
-    if (!wsAuthToken) {
+    if (!user) {
       setNotifications([]);
       setUnreadNotifications(0);
       setNotificationsLoading(false);
@@ -753,16 +769,12 @@ export default function TopBarActions() {
     fetchNotifications()
       .then((response) => {
         if (cancelled) return;
-        const list: NotificationItem[] = Array.isArray(response?.results)
+        const rawList: NotificationItem[] = Array.isArray(response?.results)
           ? response.results
           : [];
+        const list = rawList.filter((item) => !isMessageNotification(item));
         setNotifications(list);
-        const unreadCount =
-          typeof response?.unread === "number"
-            ? response.unread
-            : typeof response?.countUnread === "number"
-            ? response.countUnread
-            : list.filter((item) => !item.readAt).length;
+        const unreadCount = list.filter((item) => !item.readAt).length;
         setUnreadNotifications(unreadCount);
       })
       .catch((error) => {
@@ -779,10 +791,10 @@ export default function TopBarActions() {
     return () => {
       cancelled = true;
     };
-  }, [wsAuthToken]);
+  }, [user]);
 
   React.useEffect(() => {
-    if (!wsAuthToken) {
+    if (!user) {
       setMessageSummaries({});
       return;
     }
@@ -838,21 +850,21 @@ export default function TopBarActions() {
     return () => {
       cancelled = true;
     };
-  }, [wsAuthToken, refreshUnreadCount]);
+  }, [user, refreshUnreadCount]);
 
   const wsUrl = React.useMemo(() => {
-    if (!wsAuthToken || !isJwtValid(wsAuthToken)) return null;
+    if (!user) return null;
     try {
       const apiBase = (API_BASE_URL as string | undefined) ?? window.location.origin;
       const resolved = new URL(apiBase, window.location.origin);
       const wsProtocol = resolved.protocol === "https:" ? "wss:" : "ws:";
-      return `${wsProtocol}//${resolved.host}/ws/notifications/?token=${encodeURIComponent(wsAuthToken)}`;
+      return `${wsProtocol}//${resolved.host}/ws/notifications/`;
     } catch {
       const { protocol, host } = window.location;
       const wsProtocol = protocol === "https:" ? "wss:" : "ws:";
-      return `${wsProtocol}//${host}/ws/notifications/?token=${encodeURIComponent(wsAuthToken)}`;
+      return `${wsProtocol}//${host}/ws/notifications/`;
     }
-  }, [wsAuthToken, isJwtValid]);
+  }, [user]);
 
   React.useEffect(() => {
     if (!wsUrl) {
@@ -866,16 +878,19 @@ export default function TopBarActions() {
         const payload = JSON.parse(event.data);
         switch (payload.type) {
           case "notification.counter":
-            if (typeof payload.unread === "number") {
-              setUnreadNotifications(payload.unread);
-            }
+            // Backend counter includes message notifications.
+            // Web bell excludes chat notifications, so keep local filtered count source-of-truth.
             break;
           case "notification.created":
             if (payload.notification) {
+              const incoming = payload.notification as NotificationItem;
+              if (isMessageNotification(incoming)) {
+                break;
+              }
               try {
                 window.dispatchEvent(
                   new CustomEvent("shift-slot-activity", {
-                    detail: payload.notification,
+                    detail: incoming,
                   })
                 );
               } catch {
@@ -883,8 +898,8 @@ export default function TopBarActions() {
               }
               setNotifications((prev) => {
                 const next = [
-                  payload.notification as NotificationItem,
-                  ...prev.filter((item) => item.id !== payload.notification.id),
+                  incoming,
+                  ...prev.filter((item) => item.id !== incoming.id),
                 ].slice(0, 25);
                 setUnreadNotifications(next.filter((item) => !item.readAt).length);
                 return next;
@@ -893,10 +908,19 @@ export default function TopBarActions() {
             break;
           case "notification.updated":
             if (payload.notification) {
+              const incoming = payload.notification as NotificationItem;
+              if (isMessageNotification(incoming)) {
+                setNotifications((prev) => {
+                  const next = prev.filter((item) => item.id !== incoming.id);
+                  setUnreadNotifications(next.filter((item) => !item.readAt).length);
+                  return next;
+                });
+                break;
+              }
               setNotifications((prev) => {
                 const next = prev.map((item) =>
-                  item.id === payload.notification.id
-                    ? (payload.notification as NotificationItem)
+                  item.id === incoming.id
+                    ? incoming
                     : item
                 );
                 setUnreadNotifications(next.filter((item) => !item.readAt).length);

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import {  StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { Text, TextInput, Button, Surface } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { passwordReset } from '@chemisttasker/shared-core';
@@ -23,8 +23,8 @@ export default function ForgotPasswordScreen() {
     try {
       await passwordReset(email);
       setMessage('If an account exists, a reset link has been sent to your email.');
-    } catch (err: any) {
-      setError(err?.message || 'Failed to request password reset');
+    } catch {
+      setError('Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }

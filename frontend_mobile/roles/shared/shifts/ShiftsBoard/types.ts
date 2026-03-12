@@ -88,9 +88,11 @@ export type ShiftsBoardProps = {
     onActiveTabChange?: (tab: 'browse' | 'saved' | 'interested' | 'rejected') => void;
     roleOptionsOverride?: string[];
     slotFilterMode?: SlotFilterMode;
+    actionDisabledGuard?: (shift: Shift) => boolean;
     onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
     applyLabel?: string;
     disableSlotActions?: boolean;
+    disableActionGuards?: boolean;
     fallbackToAllShiftsWhenEmpty?: boolean;
     showAllSlots?: boolean;
 };

@@ -10,6 +10,8 @@ Dates:
 {% endfor %}
 {% if slots_extra_count %}+ {{ slots_extra_count }} more{% endif %}
 {% endif %}
+{% if offered_rate %}Rate: ${{ offered_rate }}/hr
+{% endif %}
 
 {% if expires_at %}Confirm by: {{ expires_at }}{% endif %}
 

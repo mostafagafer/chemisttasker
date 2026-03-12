@@ -3685,6 +3685,7 @@ class ShiftSerializer(serializers.ModelSerializer):
             'role_label', 'ui_is_negotiable', 'ui_is_flexible_time', 'ui_allow_partial',
             'ui_location_city', 'ui_location_state', 'ui_address_line', 'ui_distance_km', 'ui_is_urgent',
             'notify_pharmacy_staff', 'notify_favorite_staff', 'notify_chain_members',
+            'payment_status',
         ]
         read_only_fields = [
             'id', 'created_by', 'escalation_level',
@@ -4432,6 +4433,10 @@ class ShiftSerializer(serializers.ModelSerializer):
                         shift=shift,
                         slot=None,
                         user=dedicated_user,
+                        offered_slot_date=None,
+                        offered_start_time=None,
+                        offered_end_time=None,
+                        offered_rate=shift.fixed_rate or shift.max_hourly_rate or shift.min_hourly_rate,
                         expires_at=now + timedelta(hours=OFFER_EXPIRY_HOURS),
                     ))
                 else:
@@ -4440,6 +4445,10 @@ class ShiftSerializer(serializers.ModelSerializer):
                             shift=shift,
                             slot=slot,
                             user=dedicated_user,
+                            offered_slot_date=slot.date,
+                            offered_start_time=slot.start_time,
+                            offered_end_time=slot.end_time,
+                            offered_rate=slot.rate,
                             expires_at=now + timedelta(hours=OFFER_EXPIRY_HOURS),
                         ))
 
@@ -4802,6 +4811,10 @@ class ShiftOfferSerializer(serializers.ModelSerializer):
             'slot_detail',
             'user',
             'status',
+            'offered_slot_date',
+            'offered_start_time',
+            'offered_end_time',
+            'offered_rate',
             'expires_at',
             'created_at',
             'updated_at',
@@ -4814,6 +4827,10 @@ class ShiftOfferSerializer(serializers.ModelSerializer):
             'slot_detail',
             'user',
             'status',
+            'offered_slot_date',
+            'offered_start_time',
+            'offered_end_time',
+            'offered_rate',
             'expires_at',
             'created_at',
             'updated_at',

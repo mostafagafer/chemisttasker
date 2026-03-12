@@ -21,6 +21,8 @@ urlpatterns = [
     path('register/', RegisterView.as_view()),
     path('login/', CustomLoginView.as_view(), name='custom_token_obtain_pair'),
     path('token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('logout/', LogoutView.as_view(), name='logout'),
+    path('me/', CurrentUserView.as_view(), name='me'),
     path('password-reset-confirm/',PasswordResetConfirmAPIView.as_view(), name='password_reset_confirm_api'),
     path('password-reset/', PasswordResetRequestAPIView.as_view(), name='password-reset-request'),
     path('contact/', ContactMessageCreateView.as_view(), name='contact-us'),

@@ -190,7 +190,13 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
         self.user_id = user.id
         self.group_name = USER_GROUP_FMT.format(user_id=self.user_id)
         if self.channel_layer:
-            await self.channel_layer.group_add(self.group_name, self.channel_name)
+            try:
+                await self.channel_layer.group_add(self.group_name, self.channel_name)
+            except Exception:
+                # Keep the socket alive in local/dev even if Redis is unavailable.
+                # The client can still poll REST endpoints for unread counts.
+                log.exception("Notification websocket group_add failed for user=%s", self.user_id)
+                self.channel_layer = None
         await self.accept()
         await self.send_json({"type": "ready"})
 

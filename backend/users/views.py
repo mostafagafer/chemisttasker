@@ -8,6 +8,7 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.crypto import get_random_string
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.throttling import ScopedRateThrottle
 from .models import OrganizationMembership, ContactMessage
 from client_profile.admin_helpers import admin_assignments_for
 from client_profile.models import Membership, Pharmacy
@@ -27,8 +28,9 @@ from users.tasks import send_async_email
 from users.utils import get_frontend_onboarding_url, build_org_invite_context
 from datetime import timedelta
 from django.utils import timezone
-import random
+import secrets
 import logging
+from rest_framework.exceptions import ValidationError
 from django.db import transaction
 from django.contrib.sessions.models import Session
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
@@ -43,6 +45,152 @@ User = get_user_model()
 import requests
 from requests.auth import HTTPBasicAuth
 from django.db.models import Q
+
+OTP_MAX_FAILED_ATTEMPTS = 5
+OTP_LOCKOUT_MINUTES = 15
+
+
+def _get_lockout_response(locked_until):
+    remaining = int(max((locked_until - timezone.now()).total_seconds(), 0))
+    return Response(
+        {
+            "detail": "Too many failed attempts. Try again later.",
+            "locked_until": locked_until,
+            "retry_after_seconds": remaining,
+        },
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+
+
+def _register_email_otp_failure(user):
+    user.otp_failed_attempts = int(user.otp_failed_attempts or 0) + 1
+    if user.otp_failed_attempts >= OTP_MAX_FAILED_ATTEMPTS:
+        user.otp_locked_until = timezone.now() + timedelta(minutes=OTP_LOCKOUT_MINUTES)
+        user.save(update_fields=["otp_failed_attempts", "otp_locked_until"])
+        return True
+    user.save(update_fields=["otp_failed_attempts"])
+    return False
+
+
+def _reset_email_otp_security_state(user):
+    user.otp_failed_attempts = 0
+    user.otp_locked_until = None
+
+
+def _register_mobile_otp_failure(user):
+    user.mobile_otp_failed_attempts = int(user.mobile_otp_failed_attempts or 0) + 1
+    if user.mobile_otp_failed_attempts >= OTP_MAX_FAILED_ATTEMPTS:
+        user.mobile_otp_locked_until = timezone.now() + timedelta(minutes=OTP_LOCKOUT_MINUTES)
+        user.save(update_fields=["mobile_otp_failed_attempts", "mobile_otp_locked_until"])
+        return True
+    user.save(update_fields=["mobile_otp_failed_attempts"])
+    return False
+
+
+def _reset_mobile_otp_security_state(user):
+    user.mobile_otp_failed_attempts = 0
+    user.mobile_otp_locked_until = None
+
+
+def _cookie_kwargs():
+    return {
+        "httponly": True,
+        "secure": bool(getattr(settings, "JWT_COOKIE_SECURE", not settings.DEBUG)),
+        "samesite": getattr(settings, "JWT_COOKIE_SAMESITE", "None" if not settings.DEBUG else "Lax"),
+        "path": getattr(settings, "JWT_COOKIE_PATH", "/"),
+    }
+
+
+def _set_auth_cookies(response, *, access_token, refresh_token):
+    response.set_cookie(
+        getattr(settings, "JWT_AUTH_COOKIE", "ct_access"),
+        access_token,
+        max_age=int(settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds()),
+        **_cookie_kwargs(),
+    )
+    response.set_cookie(
+        getattr(settings, "JWT_REFRESH_COOKIE", "ct_refresh"),
+        refresh_token,
+        max_age=int(settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()),
+        **_cookie_kwargs(),
+    )
+
+
+def _clear_auth_cookies(response):
+    cookie_kwargs = _cookie_kwargs()
+    cookie_kwargs.pop("max_age", None)
+    response.delete_cookie(getattr(settings, "JWT_AUTH_COOKIE", "ct_access"), path=cookie_kwargs["path"])
+    response.delete_cookie(getattr(settings, "JWT_REFRESH_COOKIE", "ct_refresh"), path=cookie_kwargs["path"])
+
+
+def _build_authenticated_user_payload(user):
+    org_memberships = OrganizationMembership.objects.filter(user=user)
+    org_payload = [
+        {
+            "organization_id": membership.organization_id,
+            "organization_name": membership.organization.name,
+            "role": membership.role,
+            "region": membership.region,
+            "pharmacies": [{"id": p.id, "name": p.name} for p in membership.pharmacies.all()],
+            "capabilities": sorted(list(membership_capabilities(membership))),
+        }
+        for membership in org_memberships
+    ]
+
+    pharm_memberships = Membership.objects.filter(
+        user=user,
+        is_active=True,
+    ).select_related("pharmacy")
+    pharm_payload = [
+        {
+            "pharmacy_id": pm.pharmacy_id,
+            "pharmacy_name": pm.pharmacy.name if pm.pharmacy else None,
+            "role": pm.role,
+        }
+        for pm in pharm_memberships
+    ]
+    owned_pharmacies = Pharmacy.objects.filter(owner__user=user)
+    for pharmacy in owned_pharmacies:
+        pharm_payload.append(
+            {
+                "pharmacy_id": pharmacy.id,
+                "pharmacy_name": pharmacy.name,
+                "role": "OWNER",
+            }
+        )
+    deduped_pharmacy_memberships = list(
+        {entry["pharmacy_id"]: entry for entry in pharm_payload}.values()
+    )
+
+    admin_assignments = admin_assignments_for(user).select_related("pharmacy")
+    admin_payload = [
+        {
+            "id": assignment.id,
+            "pharmacy_id": assignment.pharmacy_id,
+            "pharmacy_name": assignment.pharmacy.name if assignment.pharmacy else None,
+            "admin_level": assignment.admin_level,
+            "capabilities": sorted(list(assignment.capabilities)),
+            "staff_role": assignment.staff_role,
+            "job_title": assignment.job_title,
+            "is_active": assignment.is_active,
+        }
+        for assignment in admin_assignments
+    ]
+
+    from billing.utils import is_billing_active, is_in_free_trial
+
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "role": user.role,
+        "memberships": org_payload + deduped_pharmacy_memberships,
+        "admin_assignments": admin_payload,
+        "is_pharmacy_admin": bool(admin_payload),
+        "is_mobile_verified": bool(getattr(user, "is_mobile_verified", False)),
+        "billing_active": is_billing_active(),
+        "in_free_trial": is_in_free_trial(user),
+    }
 
 
 def verify_recaptcha(token):
@@ -182,6 +330,9 @@ class RegisterView(generics.CreateAPIView):
 
 class VerifyOTPView(APIView):
     OTP_EXPIRY_MINUTES = 10
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "otp_verify"
 
     def post(self, request):
         email = request.data.get("email", "").strip().lower()
@@ -191,18 +342,25 @@ class VerifyOTPView(APIView):
         if not user or not otp:
             return Response({"detail": "Invalid credentials."}, status=400)
 
+        if user.otp_locked_until and timezone.now() < user.otp_locked_until:
+            return _get_lockout_response(user.otp_locked_until)
+
         # --- Check if OTP is expired ---
         if not user.otp_created_at or (timezone.now() - user.otp_created_at > timedelta(minutes=self.OTP_EXPIRY_MINUTES)):
             return Response({"detail": "OTP has expired. Please request a new code."}, status=400)
 
         # --- Check if OTP matches ---
         if user.otp_code != otp:
+            just_locked = _register_email_otp_failure(user)
+            if just_locked:
+                return _get_lockout_response(user.otp_locked_until)
             return Response({"detail": "Incorrect OTP."}, status=400)
 
         # --- Success: verify user and clear OTP ---
         user.is_otp_verified = True
         user.otp_code = None
         user.otp_created_at = None
+        _reset_email_otp_security_state(user)
         user.save()
 
         # --- Send welcome email (kept exactly as you have) ---
@@ -269,7 +427,7 @@ class VerifyOTPView(APIView):
             for assignment in admin_assignments
         ]
 
-        return Response({
+        response = Response({
             "refresh": str(refresh),
             "access": str(refresh.access_token),
             "user": {
@@ -285,39 +443,40 @@ class VerifyOTPView(APIView):
                 "is_mobile_verified": bool(getattr(user, "is_mobile_verified", False)),
             }
         }, status=200)
+        _set_auth_cookies(response, access_token=str(refresh.access_token), refresh_token=str(refresh))
+        return response
 
 class ResendOTPView(APIView):
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "otp_resend"
+
     def post(self, request):
         email = request.data.get("email", "").strip().lower()
         user = User.objects.filter(email__iexact=email).first()
-        if not user:
-            return Response({"detail": "No account with this email."}, status=400)
+        if user and not user.is_otp_verified:
+            otp = str(secrets.randbelow(900000) + 100000)
+            user.otp_code = otp
+            user.otp_created_at = timezone.now()
+            _reset_email_otp_security_state(user)
+            user.save()
 
-        # Only allow resending if not verified
-        if user.is_otp_verified:
-            return Response({"detail": "User already verified."}, status=400)
+            context = {"otp": otp, "user": user}
+            send_async_email(
+                subject="Your ChemistTasker Verification Code",
+                recipient_list=[user.email],
+                template_name="emails/otp_email.html",
+                context=context,
+                text_template="emails/otp_email.txt",
+            )
 
-        # Generate new OTP
-        otp = str(random.randint(100000, 999999))
-        user.otp_code = otp
-        user.otp_created_at = timezone.now()
-        user.save()
-
-        # Send OTP email (same as initial registration)
-        context = {"otp": otp, "user": user}
-        send_async_email(
-            subject="Your ChemistTasker Verification Code",
-            recipient_list=[user.email],
-            template_name="emails/otp_email.html",
-            context=context,
-            text_template="emails/otp_email.txt",  # if using text version
+        return Response(
+            {"detail": "If this email is eligible, a verification code has been sent."},
+            status=200,
         )
-
-        return Response({"detail": "A new OTP has been sent to your email."}, status=200)
 
 # --- views.py (excerpt): mobile OTP flow ---
 
-import random
 from datetime import timedelta
 from django.utils import timezone
 from django.conf import settings
@@ -333,7 +492,7 @@ from rest_framework.response import Response
 # Helpers
 def generate_otp() -> str:
     """Return a 6-digit OTP as a string."""
-    return f"{random.randint(100000, 999999)}"
+    return f"{secrets.randbelow(900000) + 100000}"
 
 
 def normalize_au_mobile(raw: str) -> str:
@@ -361,6 +520,8 @@ class RequestMobileOTPView(APIView):
     Step 1: User submits mobile number; system generates and sends OTP via SMS.
     """
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "mobile_otp_request"
 
     def post(self, request):
         user = request.user
@@ -386,6 +547,7 @@ class RequestMobileOTPView(APIView):
         user.mobile_otp_code = otp_code
         user.mobile_otp_created_at = timezone.now()
         user.is_mobile_verified = False
+        _reset_mobile_otp_security_state(user)
         user.save()
 
         # Send SMS
@@ -421,10 +583,15 @@ class VerifyMobileOTPView(APIView):
     Step 2: User submits OTP to verify mobile.
     """
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "mobile_otp_verify"
 
     def post(self, request):
         user = request.user
         otp = request.data.get("otp")
+
+        if user.mobile_otp_locked_until and timezone.now() < user.mobile_otp_locked_until:
+            return _get_lockout_response(user.mobile_otp_locked_until)
 
         if not valid_otp_format(otp):
             return Response({"error": "Invalid OTP format"}, status=status.HTTP_400_BAD_REQUEST)
@@ -435,12 +602,16 @@ class VerifyMobileOTPView(APIView):
                             status=status.HTTP_400_BAD_REQUEST)
 
         if otp != user.mobile_otp_code:
+            just_locked = _register_mobile_otp_failure(user)
+            if just_locked:
+                return _get_lockout_response(user.mobile_otp_locked_until)
             return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Success: mark verified, clear code & (optionally) timestamp
         user.is_mobile_verified = True
         user.mobile_otp_code = None
         user.mobile_otp_created_at = None
+        _reset_mobile_otp_security_state(user)
         user.save()
 
         return Response({"detail": "Mobile number verified successfully"}, status=status.HTTP_200_OK)
@@ -451,6 +622,8 @@ class ResendMobileOTPView(APIView):
     Step 3: User requests a resend of mobile OTP.
     """
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "mobile_otp_resend"
 
     def post(self, request):
         user = request.user
@@ -473,6 +646,7 @@ class ResendMobileOTPView(APIView):
         user.mobile_otp_code = otp_code
         user.mobile_otp_created_at = timezone.now()
         user.is_mobile_verified = False
+        _reset_mobile_otp_security_state(user)
         user.save()
 
         # Send SMS
@@ -506,8 +680,60 @@ class ResendMobileOTPView(APIView):
 class CustomLoginView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code >= 400:
+            return response
+        access = response.data.get("access")
+        refresh = response.data.get("refresh")
+        if access and refresh:
+            _set_auth_cookies(response, access_token=access, refresh_token=refresh)
+        return response
+
 class CustomTokenRefreshView(TokenRefreshView):
     serializer_class = CustomTokenRefreshSerializer
+
+    def post(self, request, *args, **kwargs):
+        mutable_data = request.data.copy()
+        if not mutable_data.get("refresh"):
+            cookie_refresh = request.COOKIES.get(getattr(settings, "JWT_REFRESH_COOKIE", "ct_refresh"))
+            if cookie_refresh:
+                mutable_data["refresh"] = cookie_refresh
+        if not mutable_data.get("refresh"):
+            return Response({"detail": "Token is invalid or expired."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        serializer = self.get_serializer(data=mutable_data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except ValidationError:
+            return Response({"detail": "Token is invalid or expired."}, status=status.HTTP_401_UNAUTHORIZED)
+        except Exception:
+            logging.getLogger(__name__).exception("Unexpected refresh failure")
+            return Response({"detail": "Token is invalid or expired."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        response = Response(serializer.validated_data, status=status.HTTP_200_OK)
+
+        access = serializer.validated_data.get("access")
+        refresh = serializer.validated_data.get("refresh")
+        if access and refresh:
+            _set_auth_cookies(response, access_token=access, refresh_token=refresh)
+        return response
+
+
+class LogoutView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        response = Response({"detail": "Logged out successfully."}, status=200)
+        _clear_auth_cookies(response)
+        return response
+
+
+class CurrentUserView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        return Response(_build_authenticated_user_payload(request.user), status=200)
 
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -516,7 +742,7 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = User.objects.all()
     serializer_class = UserProfileSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAdminUser]
     filter_backends = [filters.SearchFilter]
     search_fields = ['email', 'username']
 

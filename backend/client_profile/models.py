@@ -1196,6 +1196,13 @@ class Shift(models.Model):
         ('LOCUM', 'Locum'),
     ]
 
+    PAYMENT_STATUS_CHOICES = (
+        ('NOT_REQUIRED', 'Not Required'),
+        ('PENDING', 'Pending Payment'),
+        ('PAID', 'Paid'),
+    )
+    payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='NOT_REQUIRED')
+
     pharmacy = models.ForeignKey(
         'Pharmacy',
         on_delete=models.CASCADE,
@@ -1580,6 +1587,7 @@ class ShiftCounterOffer(models.Model):
 class ShiftOffer(models.Model):
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"
+        ACCEPTED_AWAITING_PAYMENT = "ACCEPTED_AWAITING_PAYMENT", "Accepted Awaiting Payment"
         ACCEPTED = "ACCEPTED", "Accepted"
         DECLINED = "DECLINED", "Declined"
         EXPIRED = "EXPIRED", "Expired"
@@ -1601,7 +1609,18 @@ class ShiftOffer(models.Model):
         on_delete=models.CASCADE,
         related_name="shift_offers"
     )
-    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.PENDING)
+    offered_slot_date = models.DateField(null=True, blank=True)
+    offered_start_time = models.TimeField(null=True, blank=True)
+    offered_end_time = models.TimeField(null=True, blank=True)
+    offered_rate = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    counter_offer = models.ForeignKey(
+        "ShiftCounterOffer",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="generated_shift_offers",
+    )
     expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -1,9 +1,8 @@
 // src/utils/tokenService.ts
 
-const ACCESS_TOKEN_KEY = 'access';
-const REFRESH_TOKEN_KEY = 'refresh';
-const USER_KEY = 'user'; // <-- ADD THIS LINE
 export const AUTH_TOKENS_CLEARED_EVENT = 'auth:tokens-cleared';
+let accessToken: string | null = null;
+let refreshToken: string | null = null;
 
 const decodeJwtPayload = (token: string): { exp?: number } | null => {
   try {
@@ -26,21 +25,20 @@ export function isTokenExpired(token: string, leewaySeconds = 30): boolean {
 }
 
 export function getAccessToken(): string | null {
-  return localStorage.getItem(ACCESS_TOKEN_KEY);
+  return accessToken;
 }
 
 export function getRefreshToken(): string | null {
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
+  return refreshToken;
 }
 
 export function setTokens(access: string, refresh: string) {
-  localStorage.setItem(ACCESS_TOKEN_KEY, access);
-  localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
+  accessToken = access;
+  refreshToken = refresh;
 }
 
 export function clearTokens() {
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
-  localStorage.removeItem(USER_KEY); // <-- ENSURE THIS CLEARS THE USER AS WELL!
+  accessToken = null;
+  refreshToken = null;
   window.dispatchEvent(new Event(AUTH_TOKENS_CLEARED_EVENT));
 }

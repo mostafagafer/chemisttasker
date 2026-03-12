@@ -15,7 +15,7 @@ function getApiConfig() {
     return config;
 }
 async function fetchApi(endpoint, options = {}) {
-    const { baseURL, getToken } = getApiConfig();
+    const { baseURL, getToken, credentials = 'include' } = getApiConfig();
     const includeAuth = !options.skipAuth;
     // Remove the marker so it isn't sent as a header
     if ('skipAuth' in options) {
@@ -40,6 +40,7 @@ async function fetchApi(endpoint, options = {}) {
     const response = await fetch(`${baseURL}${endpoint}`, {
         ...options,
         headers,
+        credentials,
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
@@ -70,7 +71,7 @@ function buildQuery(params) {
     return query ? `?${query}` : '';
 }
 async function fetchWithAuth(url, options = {}) {
-    const { baseURL, getToken } = getApiConfig();
+    const { baseURL, getToken, credentials = 'include' } = getApiConfig();
     const token = await getToken();
     const headers = {};
     if (options.headers) {
@@ -83,7 +84,7 @@ async function fetchWithAuth(url, options = {}) {
         headers['Content-Type'] = headers['Content-Type'] ?? 'application/json';
     }
     const target = url.startsWith('http') ? url : `${baseURL}${url}`;
-    const response = await fetch(target, { ...options, headers });
+    const response = await fetch(target, { ...options, headers, credentials });
     if (!response.ok) {
         const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
         throw new Error(error.detail || `HTTP ${response.status}`);
@@ -1866,35 +1867,35 @@ export async function fetchPharmacyGroupMembers(pharmacyId) {
     const data = await fetchApi(`/client-profile/memberships/?pharmacy=${pharmacyId}`);
     return asList(data)
         .map(member => mapOptionFromSource({
-        membershipId: member.id,
-        userId: member.user,
-        fullName: member.user_details?.full_name ??
-            `${member.user_details?.first_name ?? ''} ${member.user_details?.last_name ?? ''}`.trim(),
-        email: member.user_details?.email ?? null,
-        role: member.role ?? null,
-        employmentType: member.employment_type ?? null,
-        pharmacyId: pharmacyId,
-        pharmacyName: member.pharmacy_name ?? null,
-        jobTitle: member.job_title ?? null,
-        profilePhotoUrl: member.user_details?.profile_photo_url ?? null,
-    }));
+            membershipId: member.id,
+            userId: member.user,
+            fullName: member.user_details?.full_name ??
+                `${member.user_details?.first_name ?? ''} ${member.user_details?.last_name ?? ''}`.trim(),
+            email: member.user_details?.email ?? null,
+            role: member.role ?? null,
+            employmentType: member.employment_type ?? null,
+            pharmacyId: pharmacyId,
+            pharmacyName: member.pharmacy_name ?? null,
+            jobTitle: member.job_title ?? null,
+            profilePhotoUrl: member.user_details?.profile_photo_url ?? null,
+        }));
 }
 export async function fetchOrganizationGroupMembers(organizationId) {
     const data = await getHubGroups({ organization_id: organizationId, include_pharmacy_members: true });
     return asList(data)
         .flatMap(group => group.members ?? [])
         .map(member => mapOptionFromSource({
-        membershipId: member.membership_id,
-        userId: member.member?.userDetails.id ?? null,
-        fullName: member.member?.userDetails.firstName && member.member?.userDetails.lastName
-            ? `${member.member.userDetails.firstName} ${member.member.userDetails.lastName}`
-            : member.member?.userDetails.email ?? 'Member',
-        email: member.member?.userDetails.email ?? null,
-        role: member.member?.role ?? null,
-        employmentType: member.member?.employmentType ?? null,
-        pharmacyId: member.pharmacy_id ?? null,
-        pharmacyName: member.pharmacy_name ?? null,
-        jobTitle: member.job_title ?? null,
+            membershipId: member.membership_id,
+            userId: member.member?.userDetails.id ?? null,
+            fullName: member.member?.userDetails.firstName && member.member?.userDetails.lastName
+                ? `${member.member.userDetails.firstName} ${member.member.userDetails.lastName}`
+                : member.member?.userDetails.email ?? 'Member',
+            email: member.member?.userDetails.email ?? null,
+            role: member.member?.role ?? null,
+            employmentType: member.member?.employmentType ?? null,
+            pharmacyId: member.pharmacy_id ?? null,
+            pharmacyName: member.pharmacy_name ?? null,
+            jobTitle: member.job_title ?? null,
         }));
 }
 // Organization members: org staff + all pharmacy members under the org.
@@ -2435,3 +2436,27 @@ export async function fetchCalendarFeed(params: CalendarEventFilters) {
     };
 }
 
+// ============ BILLING ============
+
+export function createSubscriptionCheckout(payload: { staffCount: number; paymentMethod: 'card' | 'invoice' }) {
+    return fetchApi('/billing/subscribe/', {
+        method: 'POST',
+        body: JSON.stringify({
+            staff_count: payload.staffCount,
+            payment_method: payload.paymentMethod
+        })
+    });
+}
+
+export function chargeShiftFulfillment(shiftId: number) {
+    return fetchApi(`/billing/charge-fulfillment/${shiftId}/`, {
+        method: 'POST'
+    });
+}
+
+export function chargeShiftPenalty(shiftId: number, payload: { hours: number }) {
+    return fetchApi(`/billing/charge-penalty/${shiftId}/`, {
+        method: 'POST',
+        body: JSON.stringify({ hours: payload.hours })
+    });
+}

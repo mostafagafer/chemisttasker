@@ -8,6 +8,7 @@ class UserAdmin(admin.ModelAdmin):
     list_filter = ('role', 'is_active')
     search_fields = ('email', 'username')
     ordering = ('-date_joined',)
+    exclude = ('groups', 'user_permissions')
 
 
 @admin.register(OrganizationMembership)

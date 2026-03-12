@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { Outlet, Navigate } from 'react-router-dom';
 import { WorkspaceProvider } from './contexts/WorkspaceContext'; // Add this import
+import { ToastProvider } from './contexts/ToastContext';
 import { initSharedCoreApi } from './config/api';
 import './index.css';
 
@@ -9,6 +10,7 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 
 import App from './App';
 import LandingPage from './pages/LandingPage';
+import PricingPage from './pages/PricingPage';
 import Login from './pages/login';
 import Register from './pages/register';
 import OTPVerify from './pages/OTPVerify';
@@ -103,6 +105,7 @@ const router = createBrowserRouter([
     Component: App,
     children: [
       { index: true, element: <LandingPage /> },
+      { path: 'pricing', element: <PricingPage /> },
       { path: 'login', element: <Login /> },
       { path: 'otp-verify', element: <OTPVerify /> },
       { path: 'mobile-verify', element: <MobileOTPVerify /> },
@@ -213,6 +216,7 @@ const router = createBrowserRouter([
               { path: ':id', element: <AdminPosterShiftDetailPage /> },
             ],
           },
+          { path: 'chat', element: <ChatPage /> },
           { path: 'calendar', element: <PharmacyCalendarPage /> },
           { path: 'logout', element: <LogoutPage /> },
         ],
@@ -426,7 +430,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     {/* AuthProvider must wrap RouterProvider */}
     <AuthProvider>
       <WorkspaceProvider> {/* Add this wrapper */}
-        <RouterProvider router={router} />
+        <ToastProvider>
+          <RouterProvider router={router} />
+        </ToastProvider>
       </WorkspaceProvider> {/* Close wrapper */}
     </AuthProvider>
   </React.StrictMode>

@@ -32,6 +32,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://www.chemisttasker.com.au",
     # 'http://localhost:5173'
 ]
+CORS_ALLOW_CREDENTIALS = True
 
 
 FRONTEND_BASE_URL = "https://www.chemisttasker.com.au"

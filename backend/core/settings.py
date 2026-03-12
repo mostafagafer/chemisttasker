@@ -212,16 +212,28 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": env("LOCAL_DB_NAME", default="chemisttasker"),
-        "USER": env("LOCAL_DB_USER", default="postgres"),
-        "PASSWORD": env("LOCAL_DB_PASSWORD"),
-        "HOST": env("LOCAL_DB_HOST", default="127.0.0.1"),
-        "PORT": env("LOCAL_DB_PORT", default="5432"),
+AZURE_DB_URL = env("AZURE_POSTGRESQL_CONNECTIONSTRING", default="")
+USE_AZURE_DB = env.bool("USE_AZURE_DB", default=False)
+
+if USE_AZURE_DB and AZURE_DB_URL:
+    DATABASES = {
+        "default": dj_database_url.parse(
+            AZURE_DB_URL,
+            conn_max_age=600,
+            ssl_require=True,
+        )
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": env("LOCAL_DB_NAME", default="chemisttasker"),
+            "USER": env("LOCAL_DB_USER", default="postgres"),
+            "PASSWORD": env("LOCAL_DB_PASSWORD", default=""),
+            "HOST": env("LOCAL_DB_HOST", default="127.0.0.1"),
+            "PORT": env("LOCAL_DB_PORT", default="5432"),
+        }
+    }
 
 
 # Password validation

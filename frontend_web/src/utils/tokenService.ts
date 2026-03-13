@@ -1,6 +1,7 @@
 // src/utils/tokenService.ts
 import axios from 'axios';
 import { API_BASE_URL } from '../constants/api';
+import { storageGetItem, storageSetItem, storageRemoveItem } from '@chemisttasker/shared-core';
 
 export const AUTH_TOKENS_CLEARED_EVENT = 'auth:tokens-cleared';
 let accessToken: string | null = null;
@@ -27,6 +28,13 @@ export function isTokenExpired(token: string, leewaySeconds = 30): boolean {
   return Date.now() + leewaySeconds * 1000 >= expiresAtMs;
 }
 
+export async function restoreTokensFromStorage(): Promise<void> {
+  const access = await storageGetItem('ct_access');
+  const refresh = await storageGetItem('ct_refresh');
+  accessToken = access || null;
+  refreshToken = refresh || null;
+}
+
 export function getAccessToken(): string | null {
   return accessToken;
 }
@@ -38,14 +46,20 @@ export function getRefreshToken(): string | null {
 export function setTokens(access: string, refresh: string) {
   accessToken = access;
   refreshToken = refresh;
+  // Fire and forget storage writes because localStorage backing the web adapter is synchronous anyways
+  storageSetItem('ct_access', access);
+  storageSetItem('ct_refresh', refresh);
 }
 
 export function clearTokens() {
   accessToken = null;
   refreshToken = null;
+  storageRemoveItem('ct_access');
+  storageRemoveItem('ct_refresh');
   window.dispatchEvent(new Event(AUTH_TOKENS_CLEARED_EVENT));
 }
 
+// Kept name for backwards compatibility but logic explicitly sends refresh token
 export async function refreshCookieSession(force = false): Promise<{ access: string; refresh: string } | null> {
   if (!force && accessToken && !isTokenExpired(accessToken)) {
     return { access: accessToken, refresh: refreshToken ?? '' };
@@ -57,11 +71,15 @@ export async function refreshCookieSession(force = false): Promise<{ access: str
 
   refreshPromise = (async () => {
     try {
+      if (!refreshToken) {
+        clearTokens();
+        return null;
+      }
+
       const response = await axios.post(
         `${API_BASE_URL}/users/token/refresh/`,
-        {},
+        { refresh: refreshToken },
         {
-          withCredentials: true,
           headers: { 'Content-Type': 'application/json' },
         }
       );
@@ -82,4 +100,22 @@ export async function refreshCookieSession(force = false): Promise<{ access: str
   })();
 
   return refreshPromise;
+}
+
+export async function fetchWsTicket(): Promise<string | null> {
+  const token = getAccessToken();
+  if (!token) return null;
+  try {
+    const response = await axios.post(
+      `${API_BASE_URL}/users/ws-ticket/`,
+      {},
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+    return response.data?.ticket || null;
+  } catch (error) {
+    console.error('Failed to fetch WS ticket:', error);
+    return null;
+  }
 }

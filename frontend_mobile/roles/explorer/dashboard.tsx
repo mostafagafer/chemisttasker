@@ -7,7 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
 
 export default function ExplorerOverviewScreen() {
-  const { user, logout } = useAuth();
+  const { access, user, logout, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const normalizedRole = String(user?.role || '').toUpperCase();
 
@@ -17,7 +17,7 @@ export default function ExplorerOverviewScreen() {
   const [slideAnim] = useState(new Animated.Value(50));
 
   const loadDashboard = useCallback(async () => {
-    if (normalizedRole !== 'EXPLORER') return;
+    if (normalizedRole !== 'EXPLORER' || !access) return;
     if (!refreshing) setLoading(true);
     try {
       Animated.parallel([
@@ -30,15 +30,22 @@ export default function ExplorerOverviewScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [normalizedRole, refreshing, fadeAnim, slideAnim]);
+  }, [normalizedRole, access, refreshing, fadeAnim, slideAnim]);
 
   useEffect(() => {
+    if (authLoading) {
+      return;
+    }
     if (normalizedRole !== 'EXPLORER') {
       setLoading(false);
       return;
     }
+    if (!access) {
+      setLoading(true);
+      return;
+    }
     void loadDashboard();
-  }, [loadDashboard, normalizedRole]);
+  }, [loadDashboard, normalizedRole, access, authLoading]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

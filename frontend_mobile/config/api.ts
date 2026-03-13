@@ -1,43 +1,7 @@
 import { configureApi, configureStorage } from '@chemisttasker/shared-core';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isSecureKey, secureGet, secureRemove, secureRemoveMany, secureSet } from '../utils/secureStorage';
-let refreshPromise: Promise<string | null> | null = null;
-
-async function getAccessWithRefresh(baseURL: string): Promise<string | null> {
-  if (refreshPromise) {
-    return refreshPromise;
-  }
-
-  refreshPromise = (async () => {
-    try {
-      const response = await fetch(`${baseURL}/users/token/refresh/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({}),
-      });
-      if (response.status === 400 || response.status === 401) {
-        return null;
-      }
-      if (!response.ok) {
-        throw new Error(`Refresh failed with status ${response.status}`);
-      }
-      const data = await response.json().catch(() => ({}));
-      const nextAccess = data.access;
-      if (!nextAccess) {
-        throw new Error('Refresh response missing access token');
-      }
-      return nextAccess as string;
-    } catch {
-      await AsyncStorage.removeItem('user').catch(() => null);
-      return null;
-    } finally {
-      refreshPromise = null;
-    }
-  })();
-
-  return refreshPromise;
-}
+import { getValidAccessToken } from '../utils/authSession';
 
 // Configure shared-core to use mobile storage and API endpoint
 configureStorage({
@@ -53,8 +17,8 @@ if (!baseURL) {
 }
 configureApi({
   baseURL,
-  credentials: 'include',
+  credentials: 'same-origin',
   getToken: async () => {
-    return await getAccessWithRefresh(baseURL);
+    return await getValidAccessToken(baseURL);
   },
 });

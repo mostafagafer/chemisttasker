@@ -14,9 +14,8 @@ import {
 import { getRooms } from "@chemisttasker/shared-core";
 import { type PersonaMode, type AdminLevel } from "@chemisttasker/shared-core";
 import { AdminCapability, ALL_ADMIN_CAPABILITIES } from "../constants/adminCapabilities";
-import { AUTH_TOKENS_CLEARED_EVENT } from "../utils/tokenService";
 import { API_BASE_URL } from "../constants/api";
-import { setTokens, clearTokens, refreshCookieSession } from "../utils/tokenService";
+import { setTokens, clearTokens, refreshCookieSession, restoreTokensFromStorage, getAccessToken, getRefreshToken, isTokenExpired, AUTH_TOKENS_CLEARED_EVENT } from "../utils/tokenService";
 
 export interface OrgMembership {
   organization_id: number;
@@ -36,7 +35,6 @@ export interface PharmacyMembership {
   pharmacy_name?: string | null;
   role: string;
 }
-
 
 export interface AdminAssignment {
   id?: number;
@@ -61,7 +59,6 @@ export type User = {
   in_free_trial?: boolean;
 };
 
-
 type AuthContextType = {
   access: string | null;
   token: string | null;
@@ -85,7 +82,7 @@ type AuthContextType = {
   setActivePersona: (persona: PersonaMode) => void;
 };
 
-const AuthContext = createContext<AuthContextType>({
+export const AuthContext = createContext<AuthContextType>({
   access: null,
   token: null,
   refresh: null,
@@ -137,8 +134,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const fetchCurrentUser = useCallback(async (): Promise<User | null> => {
     try {
+      const token = getAccessToken();
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
       const resp = await fetch(`${API_BASE_URL}/users/me/`, {
-        credentials: "include",
+        headers,
       });
       if (!resp.ok) return null;
       const data = (await resp.json()) as User;
@@ -253,27 +256,33 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     const bootstrap = async () => {
       try {
-        let parsedUser: User | null = await fetchCurrentUser();
-        if (!parsedUser) {
-          const refreshed = await refreshCookieSession(true);
-          if (!refreshed) {
-            clearTokens();
-            clearLocalAuthState();
-            setIsLoading(false);
-            return;
-          }
-          setAccess(refreshed.access);
-          setRefresh(refreshed.refresh);
+        await restoreTokensFromStorage();
+        let parsedUser: User | null = null;
+
+        const currentAccess = getAccessToken();
+        if (currentAccess && !isTokenExpired(currentAccess)) {
           parsedUser = await fetchCurrentUser();
         }
+
+        if (!parsedUser) {
+          const currentRefresh = getRefreshToken();
+          if (currentRefresh) {
+            const refreshed = await refreshCookieSession(true);
+            if (refreshed) {
+              parsedUser = await fetchCurrentUser();
+            }
+          }
+        }
+
         if (!parsedUser) {
           clearTokens();
           clearLocalAuthState();
           setIsLoading(false);
           return;
         }
-        setAccess((prev) => prev || "cookie-session");
-        setRefresh((prev) => prev || "cookie-session");
+
+        setAccess(getAccessToken());
+        setRefresh(getRefreshToken());
         setUser(parsedUser);
       } catch {
         clearTokens();
@@ -285,7 +294,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     void bootstrap();
   }, [clearLocalAuthState, fetchCurrentUser]);
-
   useEffect(() => {
     if (!user) {
       setActivePersonaState("staff");

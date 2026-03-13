@@ -800,6 +800,30 @@ class PasswordResetRequestAPIView(APIView):
         return Response({'detail': 'If this email exists, a reset link has been sent.'})
 
 
+import secrets
+from django.utils import timezone
+from datetime import timedelta
+from .models import WebSocketTicket
+
+class WsTicketView(APIView):
+    """
+    Generates a short-lived, single-use ticket for WebSocket authentication.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        # Generate a secure 64-character token
+        ticket_str = secrets.token_urlsafe(48)[:64]
+        
+        # Save it to the database
+        WebSocketTicket.objects.create(
+            user=request.user,
+            ticket=ticket_str
+        )
+        
+        return Response({'ticket': ticket_str})
+
+
 class ContactMessageCreateView(generics.CreateAPIView):
     serializer_class = ContactMessageCreateSerializer
     permission_classes = [permissions.AllowAny]

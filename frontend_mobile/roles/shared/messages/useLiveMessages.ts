@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { markRoomAsRead } from '@chemisttasker/shared-core';
+import { fetchWsTicket } from '../../../utils/apiClient';
+
 type IncomingHandler = (payload: any) => void;
 
 export function useLiveMessages(
@@ -18,16 +20,27 @@ export function useLiveMessages(
     onMessageRef.current = onMessage;
     onUnreadRef.current = onUnread;
   }, [onMessage, onUnread]);
-  
+
   useEffect(() => {
     let isCancelled = false;
     const setupWs = async () => {
       if (!roomId) return;
       try {
+        const ticket = await fetchWsTicket();
+        if (isCancelled || !ticket) return;
+
         const base = process.env.EXPO_PUBLIC_WS_URL || process.env.EXPO_PUBLIC_API_URL || '';
         const httpBase = base.endsWith('/api') ? base.slice(0, -4) : base;
         const wsBase = httpBase.replace(/^http/, 'ws');
-        const ws = new WebSocket(`${wsBase}/ws/chat/rooms/${roomId}/`);
+
+        let wsUrl = `${wsBase}/ws/chat/rooms/${roomId}/`;
+        if (wsUrl.includes('?')) {
+          wsUrl += `&ticket=${encodeURIComponent(ticket)}`;
+        } else {
+          wsUrl += `?ticket=${encodeURIComponent(ticket)}`;
+        }
+
+        const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
         reconnectAttempts.current = 0;
         ws.onopen = () => {

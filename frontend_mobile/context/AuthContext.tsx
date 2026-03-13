@@ -1,10 +1,10 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import axios from 'axios';
 import { login as sharedLogin, getOnboarding } from '@chemisttasker/shared-core';
 import apiClient from '../utils/apiClient';
 import { registerForPushNotificationsAsync, registerDeviceTokenWithBackend } from '../utils/pushNotifications';
 import * as Device from 'expo-device';
+import { clearStoredSession, getValidAccessToken, primeInMemorySession, readStoredSession, writeStoredSession } from '../utils/authSession';
 
 // --- Types ---
 export interface OrgMembership {
@@ -81,48 +81,65 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isRefreshingProfile, setIsRefreshingProfile] = useState(false);
   const [triedPhotoRefresh, setTriedPhotoRefresh] = useState(false);
   const [registeredPush, setRegisteredPush] = useState(false);
+  const authMutationIdRef = useRef(0);
 
   // Load user from cookie session at app startup
   useEffect(() => {
     const loadStoredAuth = async () => {
+      const bootstrapId = authMutationIdRef.current;
       try {
-        const meResponse = await axios.get('/users/me/', {
-          baseURL: process.env.EXPO_PUBLIC_API_URL?.trim(),
-          withCredentials: true,
-        }).catch(() => null);
+        const baseURL = process.env.EXPO_PUBLIC_API_URL?.trim();
+        const session = await readStoredSession();
+        const nextAccess = session?.access || session?.tokens?.access || null;
+        const nextRefresh = session?.refresh || session?.tokens?.refresh || null;
+        const nextUser = session?.user ? normalizeUser(session.user) : null;
+        primeInMemorySession(session);
 
-        if (meResponse?.data) {
-          const currentUser = normalizeUser(meResponse.data);
-          setUser(currentUser);
-          setAccess('cookie-session');
-          setRefresh('cookie-session');
-          setIsLoading(false);
-          return;
+        if (nextUser) {
+          setUser(nextUser);
         }
+        setAccess(nextAccess);
+        setRefresh(nextRefresh);
 
-        const refreshResponse = await axios.post('/users/token/refresh/', {}, {
-          baseURL: process.env.EXPO_PUBLIC_API_URL?.trim(),
-          withCredentials: true,
-          headers: { 'Content-Type': 'application/json' },
-        }).catch(() => null);
-
-        if (refreshResponse?.data?.access) {
-          setAccess(refreshResponse.data.access);
-          setRefresh(refreshResponse.data.refresh || 'cookie-session');
-          const retryMe = await axios.get('/users/me/', {
-            baseURL: process.env.EXPO_PUBLIC_API_URL?.trim(),
-            withCredentials: true,
-          }).catch(() => null);
-          if (retryMe?.data) {
-            setUser(normalizeUser(retryMe.data));
-            setIsLoading(false);
-            return;
+        if (baseURL) {
+          const token = await getValidAccessToken(baseURL);
+          if (token) {
+            const meResponse = await apiClient.get('/users/me/').catch(() => null);
+            if (meResponse?.data) {
+              const currentUser = normalizeUser(meResponse.data);
+              const refreshedSession = await readStoredSession();
+              setAccess(refreshedSession?.access || refreshedSession?.tokens?.access || token);
+              setRefresh(refreshedSession?.refresh || refreshedSession?.tokens?.refresh || nextRefresh);
+              setUser(currentUser);
+              await writeStoredSession({
+                access: refreshedSession?.access || refreshedSession?.tokens?.access || token,
+                refresh: refreshedSession?.refresh || refreshedSession?.tokens?.refresh || nextRefresh,
+                user: currentUser,
+              });
+              setIsLoading(false);
+              return;
+            }
           }
         }
       } catch {
         // handled below
       }
-      await AsyncStorage.removeItem('user').catch(() => null);
+
+      const latestSession = await readStoredSession();
+      const latestAccess = latestSession?.access || latestSession?.tokens?.access || null;
+      const latestRefresh = latestSession?.refresh || latestSession?.tokens?.refresh || null;
+      const latestUser = latestSession?.user ? normalizeUser(latestSession.user) : null;
+
+      if (authMutationIdRef.current !== bootstrapId && (latestAccess || latestRefresh || latestUser)) {
+        primeInMemorySession(latestSession);
+        setAccess(latestAccess);
+        setRefresh(latestRefresh);
+        setUser(latestUser);
+        setIsLoading(false);
+        return;
+      }
+
+      await clearStoredSession();
       setAccess(null);
       setRefresh(null);
       setUser(null);
@@ -169,16 +186,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const login = async (newAccess: string, newRefresh: string, userInfo: User) => {
+    authMutationIdRef.current += 1;
     setAccess(newAccess || 'cookie-session');
     setRefresh(newRefresh || 'cookie-session');
 
     const baseUser = normalizeUser(userInfo);
     setUser(baseUser);
+    await writeStoredSession({
+      access: newAccess || null,
+      refresh: newRefresh || null,
+      user: baseUser,
+    });
 
     // Hydrate with onboarding profile if available (adds photo, phone, etc.)
     try {
       const hydrated = await fetchOnboardingProfile(baseUser.role, baseUser);
       setUser(hydrated);
+      await writeStoredSession({
+        access: newAccess || null,
+        refresh: newRefresh || null,
+        user: hydrated,
+      });
     } catch (error) {
       const msg = (error as any)?.message || error;
       console.debug('Onboarding profile fetch skipped:', msg);
@@ -280,6 +308,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       setUser(updatedUser);
+      await writeStoredSession({
+        access: newAccess || access,
+        refresh: newRefresh || refresh,
+        user: updatedUser,
+      });
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'OTP verification failed');
     }
@@ -316,6 +349,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [access, user, isRefreshingProfile, triedPhotoRefresh]);
 
   const logout = async () => {
+    authMutationIdRef.current += 1;
     await axios.post('/users/logout/', {}, {
       baseURL: process.env.EXPO_PUBLIC_API_URL?.trim(),
       withCredentials: true,
@@ -325,7 +359,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setRefresh(null);
     setUser(null);
     setRegisteredPush(false);
-    await AsyncStorage.removeItem('user');
+    await clearStoredSession();
   };
 
   const hasCapability = (capability: string, pharmacyId?: number | string | null) => {

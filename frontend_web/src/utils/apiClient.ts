@@ -1,7 +1,7 @@
 // src/utils/apiClient.ts
 import axios, { AxiosError, AxiosResponse } from 'axios';
 import type { InternalAxiosRequestConfig } from 'axios';
-import { clearTokens, refreshCookieSession } from './tokenService';
+import { clearTokens, refreshCookieSession, getAccessToken } from './tokenService';
 import { API_BASE_URL } from '../constants/api';
 
 const apiClient = axios.create({
@@ -11,11 +11,15 @@ const apiClient = axios.create({
 
 /**
  * REQUEST interceptor
- * - Cookie-based auth (HttpOnly JWT cookies). No bearer token in JS storage.
+ * - Injects the JWT Bearer token from localStorage.
  */
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     config.withCredentials = true;
+    const token = getAccessToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error: AxiosError) => Promise.reject(error)

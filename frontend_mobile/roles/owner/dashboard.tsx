@@ -31,7 +31,7 @@ type OwnerProfile = {
 
 export default function OwnerDashboard() {
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { access, user, logout, isLoading: authLoading } = useAuth();
   const normalizedRole = String(user?.role || '').toUpperCase();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [ownerProfile, setOwnerProfile] = useState<OwnerProfile | null>(null);
@@ -67,7 +67,7 @@ export default function OwnerDashboard() {
   }, []);
 
   const fetchData = useCallback(async () => {
-    if (normalizedRole !== 'OWNER') return;
+    if (normalizedRole !== 'OWNER' || !access) return;
     setRefreshing(true);
     try {
       const [shiftsRes, profileRes] = await Promise.all([
@@ -106,15 +106,22 @@ export default function OwnerDashboard() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [normalizedRole, fadeAnim, slideAnim]);
+  }, [normalizedRole, access, fadeAnim, slideAnim]);
 
   useEffect(() => {
+    if (authLoading) {
+      return;
+    }
     if (normalizedRole !== 'OWNER') {
       setLoading(false);
       return;
     }
+    if (!access) {
+      setLoading(true);
+      return;
+    }
     void fetchData();
-  }, [fetchData, normalizedRole]);
+  }, [fetchData, normalizedRole, access, authLoading]);
 
   const quickActions = useMemo(
     () => [

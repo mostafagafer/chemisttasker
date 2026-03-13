@@ -6,7 +6,11 @@ import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { resolveChatNotificationRoomId, resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
+import {
+  resolveCalendarNotificationRoute,
+  resolveChatNotificationRoomId,
+  resolveShiftNotificationRoute,
+} from '@/utils/notificationNavigation';
 
 type Notification = {
   id: number;
@@ -123,6 +127,16 @@ export default function NotificationsScreen() {
     });
     if (route) {
       router.push(route as any);
+      return;
+    }
+    const calendarRoute = resolveCalendarNotificationRoute({
+      actionUrl: item.actionUrl,
+      payload: item.payload,
+      userRole: user?.role ?? null,
+    });
+    if (calendarRoute) {
+      router.push(calendarRoute as any);
+      return;
     }
   };
 
@@ -175,23 +189,6 @@ export default function NotificationsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <IconButton
-          icon="arrow-left"
-          onPress={() => router.back()}
-          accessibilityLabel="Go back"
-          accessibilityRole="button"
-        />
-        <Text variant="headlineSmall" style={styles.headerTitle}>
-          Notifications
-        </Text>
-        {notifications.filter((n: Notification) => !n.readAt).length > 0 && (
-          <Badge style={styles.headerBadge}>
-            {`${notifications.filter((n: Notification) => !n.readAt).length} new`}
-          </Badge>
-        )}
-      </View>
-
       {loading ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#6366F1" />
@@ -223,20 +220,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  headerTitle: {
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  headerBadge: {
-    backgroundColor: '#6366F1',
   },
   centerContainer: {
     flex: 1,

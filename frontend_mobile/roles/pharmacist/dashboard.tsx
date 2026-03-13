@@ -58,7 +58,7 @@ function formatShiftDate(value?: string | null) {
 }
 
 export default function PharmacistOverviewScreen() {
-  const { user, logout } = useAuth();
+  const { access, user, logout, isLoading: authLoading } = useAuth();
   const { workspace, setWorkspace } = useWorkspace();
   const router = useRouter();
 
@@ -72,7 +72,7 @@ export default function PharmacistOverviewScreen() {
   const normalizedRole = String(user?.role || '').toUpperCase();
 
   const loadDashboard = useCallback(async () => {
-    if (normalizedRole !== 'PHARMACIST') {
+    if (normalizedRole !== 'PHARMACIST' || !access) {
       return;
     }
     // If not refreshing, we might want to show loading initially
@@ -102,15 +102,22 @@ export default function PharmacistOverviewScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [normalizedRole, refreshing, fadeAnim, slideAnim]);
+  }, [normalizedRole, access, refreshing, fadeAnim, slideAnim]);
 
   useEffect(() => {
+    if (authLoading) {
+      return;
+    }
     if (normalizedRole !== 'PHARMACIST') {
       setLoading(false);
       return;
     }
+    if (!access) {
+      setLoading(true);
+      return;
+    }
     void loadDashboard();
-  }, [loadDashboard, normalizedRole]);
+  }, [loadDashboard, normalizedRole, access, authLoading]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

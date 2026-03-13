@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import apiClient from './apiClient';
 import { EventEmitter } from 'eventemitter3';
+import { Platform } from 'react-native';
 
 const inAppEmitter = new EventEmitter();
 const IN_APP_UNREAD_BUMP_EVENT = 'in-app-unread-bump';
@@ -36,6 +37,10 @@ const getProjectId = () => {
 };
 
 export async function registerForPushNotificationsAsync() {
+  if (Platform.OS === 'web') {
+    return null;
+  }
+
   if (!Device.isDevice) {
     return null;
   }

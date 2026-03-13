@@ -1,6 +1,6 @@
 // utils/apiClient.ts
 import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearStoredSession, getValidAccessToken, refreshAccessToken } from './authSession';
 
 // Prefer an env-driven base URL so the app can talk to the backend from devices/emulators.
 // Set EXPO_PUBLIC_API_URL for Expo (e.g. http://192.168.1.10:8000/api).
@@ -24,10 +24,20 @@ const apiClient = axios.create({
     },
 });
 
-// Cookie-based auth (HttpOnly JWT cookies)
+// Cookie-based auth fallback AND Bearer token injection
 apiClient.interceptors.request.use(
     async (config) => {
         config.withCredentials = true;
+        try {
+            const token = await getValidAccessToken(API_BASE_URL);
+            if (token) {
+                config.headers.Authorization = `Bearer ${token}`;
+            } else {
+                delete config.headers.Authorization;
+            }
+        } catch (e) {
+            // Ignore storage errors
+        }
         return config;
     },
     (error) => {
@@ -73,25 +83,17 @@ apiClient.interceptors.response.use(
             isRefreshing = true;
 
             try {
-                await axios.post(
-                    `${API_BASE_URL}/users/token/refresh/`,
-                    {},
-                    { withCredentials: true, headers: { 'Content-Type': 'application/json' } }
-                );
+                const nextToken = await refreshAccessToken(API_BASE_URL);
+                if (!nextToken) {
+                    throw new Error('Refresh failed');
+                }
+                originalRequest.headers = originalRequest.headers || {};
+                originalRequest.headers.Authorization = `Bearer ${nextToken}`;
                 processQueue(null, null);
                 return apiClient(originalRequest);
             } catch (refreshError) {
                 processQueue(refreshError, null);
-                // Only clear auth on confirmed invalid/expired token responses.
-                const status = (refreshError as any)?.response?.status;
-                const code = (refreshError as any)?.response?.data?.code;
-                const shouldClear =
-                    status === 401 ||
-                    status === 403 ||
-                    (status === 400 && code === 'token_not_valid');
-                if (shouldClear) {
-                    await AsyncStorage.removeItem('user');
-                }
+                await clearStoredSession();
                 return Promise.reject(refreshError);
             } finally {
                 isRefreshing = false;
@@ -101,5 +103,21 @@ apiClient.interceptors.response.use(
         return Promise.reject(error);
     }
 );
+
+export const clearLocalAuthData = async () => {
+    isRefreshing = false;
+    failedQueue = [];
+    await clearStoredSession();
+};
+
+export async function fetchWsTicket(): Promise<string | null> {
+    try {
+        const response = await apiClient.post('/users/ws-ticket/');
+        return response.data?.ticket ?? null;
+    } catch (e) {
+        console.warn('Failed to fetch ws ticket', e);
+        return null;
+    }
+}
 
 export default apiClient;

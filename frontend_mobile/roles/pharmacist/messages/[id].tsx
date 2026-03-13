@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getRoomMessages, sendRoomMessage, markRoomAsRead } from '@chemisttasker/shared-core';
 import { useAuth } from '../../../context/AuthContext';
+import { fetchWsTicket } from '../../../utils/apiClient';
 
 interface MessageDisplay {
   id: number;
@@ -68,19 +69,31 @@ export default function PharmacistMessageDetailScreen() {
 
     // WebSocket live updates
     const roomId = parseRoomId();
+    let isCancelled = false;
     const setupWs = async () => {
       if (!roomId) return;
       try {
+        const ticket = await fetchWsTicket();
+        if (isCancelled || !ticket) return;
+
         const base = process.env.EXPO_PUBLIC_API_URL || '';
         const httpBase = base.endsWith('/api') ? base.slice(0, -4) : base || 'http://localhost:8000';
         const wsBase = httpBase.replace(/^http/, 'ws');
-        const ws = new WebSocket(`${wsBase}/ws/chat/rooms/${roomId}/`);
+
+        let wsUrl = `${wsBase}/ws/chat/rooms/${roomId}/`;
+        if (wsUrl.includes('?')) {
+          wsUrl += `&ticket=${encodeURIComponent(ticket)}`;
+        } else {
+          wsUrl += `?ticket=${encodeURIComponent(ticket)}`;
+        }
+
+        const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
         reconnectAttempts.current = 0;
         ws.onmessage = (event) => {
           try {
             const payload = JSON.parse(event.data);
-            if (payload?.type === 'chat.message') {
+            if (payload?.type === 'chat.message' || payload?.type === 'message.created') {
               const msg = payload.message || payload;
               const mapped: MessageDisplay = {
                 id: msg.id ?? `${Date.now()}`,
@@ -101,9 +114,10 @@ export default function PharmacistMessageDetailScreen() {
           reconnectAttempts.current = attempt;
           const delay = Math.min(30000, 1000 * 2 ** attempt);
           setTimeout(() => {
-            if (wsRef.current === ws) {
+            if (wsRef.current === ws && !isCancelled) {
               wsRef.current = null;
               void fetchMessages();
+              void setupWs();
             }
           }, delay);
         };
@@ -115,10 +129,11 @@ export default function PharmacistMessageDetailScreen() {
 
     // fallback polling
     pollRef.current = setInterval(() => {
-      fetchMessages().catch(() => {});
+      if (!isCancelled) fetchMessages().catch(() => { });
     }, 5000) as unknown as number;
 
     return () => {
+      isCancelled = true;
       if (pollRef.current) clearInterval(pollRef.current as unknown as number);
       if (wsRef.current) {
         wsRef.current.close();

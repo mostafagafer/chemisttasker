@@ -192,7 +192,7 @@ and regenerate it once again
 
 copy these lines:
 """
-cd shared-core
+cd c:\code\chemisttasker\shared-core
 rmdir /s /q node_modules
 rmdir /s /q dist
 del /f /q package-lock.json
@@ -203,7 +203,7 @@ npm run build
 npm pack
 
 
-cd ..\frontend_mobile
+cd c:\code\chemisttasker\frontend_mobile
 rmdir /s /q node_modules
 rmdir /s /q .expo
 del /f /q package-lock.json
@@ -212,7 +212,7 @@ copy /Y ..\shared-core\chemisttasker-shared-core-1.0.0.tgz .\
 
 npm install --include=dev
 
-cd ..\frontend_web
+cd c:\code\chemisttasker\frontend_web
 rmdir /s /q node_modules
 rmdir /s /q dist
 del /f /q package-lock.json

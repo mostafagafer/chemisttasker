@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState, FC, useCallback, SyntheticEvent }
 import { Box, CircularProgress, Typography, Snackbar, Button } from '@mui/material';
 import Alert, { AlertColor } from '@mui/material/Alert';
 import ChatIcon from '@mui/icons-material/Chat';
-import { API_BASE_URL } from '../../../../constants/api';
-import { useAuth } from '../../../../contexts/AuthContext';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { useSearchParams } from 'react-router-dom';
-
+import { API_BASE_URL } from '../../../../constants/api';
+import { fetchWsTicket } from '../../../../utils/tokenService';
+import { useAuth } from '../../../../contexts/AuthContext';
 import { ChatRoom, ChatMessage, MemberCache, CachedMember } from './types';
 import { ChatSidebar } from './ChatSidebar';
 import { ConversationPanel } from './ConversationPanel';
@@ -68,13 +68,15 @@ const useIsMobile = (breakpoint = 768) => {
   return isMobile;
 };
 
-const FULL_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-const BACKEND_MEDIA_URL = FULL_API_URL.endsWith('/api') ? FULL_API_URL.slice(0, -4) : FULL_API_URL;
+const BACKEND_MEDIA_URL = API_BASE_URL.endsWith('/api') ? API_BASE_URL.slice(0, -4) : API_BASE_URL;
 
-const makeWsUrl = (path: string) => {
+const makeWsTicketUrl = (path: string, ticket: string) => {
   const base = API_BASE_URL || window.location.origin;
   const url = new URL(path, base);
   url.protocol = url.protocol.replace('http', 'ws');
+  if (ticket) {
+    url.searchParams.set('ticket', ticket);
+  }
   return url.toString();
 };
 
@@ -83,7 +85,7 @@ type ChatPageProps = {
 };
 
 const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
-  const { user, refreshUnreadCount, isAdminUser } = useAuth(); 
+  const { user, refreshUnreadCount, isAdminUser } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
@@ -93,7 +95,7 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
   const [activeRoomId, setActiveRoomId] = useState<number | null>(null);
   const [messagesMap, setMessagesMap] = useState<Record<number, RoomMessagesState>>({});
   const [myMembershipIdInActiveRoom, setMyMembershipIdInActiveRoom] = useState<number | null>(null);
-  
+
   // --- FIX: Explicit loading states ---
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -285,10 +287,10 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
     });
 
     if (messagesMap[activeRoomId]) {
-      markRoomAsReadService(activeRoomId).catch(() => {});
+      markRoomAsReadService(activeRoomId).catch(() => { });
       return;
     };
-    
+
     const run = async () => {
       setIsLoadingMessages(true); // <-- FIX: Set loading ON
       try {
@@ -309,7 +311,7 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
             hasMore: Boolean(next),
           },
         }));
-      } catch (e) { 
+      } catch (e) {
         console.error('fetch messages error', e);
       } finally {
         setIsLoadingMessages(false); // <-- FIX: Set loading OFF
@@ -326,171 +328,184 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
   }, [rooms, activeRoomId]);
 
   useEffect(() => {
+    let isCancelled = false;
     if (wsRef.current) wsRef.current.close();
-
     if (!activeRoomId || !user) return;
 
-    const ws = new WebSocket(makeWsUrl(`/ws/chat/rooms/${activeRoomId}/`));
-    wsRef.current = ws;
+    const setupWs = async () => {
+      const ticket = await fetchWsTicket();
+      if (isCancelled || !ticket) return;
 
-    ws.onopen = () => {
-      markRoomAsReadService(activeRoomId)
-        .then((newLastRead) => {
-          setRooms((prev) =>
-            prev.map((r) =>
-              r.id === activeRoomId ? { ...r, unread_count: 0, my_last_read_at: newLastRead ?? null } : r,
-            ),
-          );
-          refreshUnreadCount();
-        })
-        .catch(() => {});
-    };
+      const ws = new WebSocket(makeWsTicketUrl(`/ws/chat/rooms/${activeRoomId}/`, ticket));
+      wsRef.current = ws;
 
-    ws.onmessage = (evt) => {
-      try {
-        const payload = JSON.parse(evt.data);
-        if (payload.type === 'ready' && payload.membership) {
-          // Only set once; avoid triggering websocket re-creations
-          setMyMembershipIdInActiveRoom(prev => prev ?? payload.membership);
-          return;
-        }
-        if (payload.type === 'message.created') {
-          const newMsg: ChatMessage = payload.message;
-          if (newMsg.attachment_url && newMsg.attachment_url.startsWith('/')) {
-            newMsg.attachment_url = `${BACKEND_MEDIA_URL}${newMsg.attachment_url}`;
-          }
-          let toastRoomName: string | null = null;
-          setMessagesMap(prevMap => {
-            const current = prevMap[newMsg.conversation]?.messages || [];
-            if (current.some(m => m.id === newMsg.id)) return prevMap;
-            const currentRoomState = prevMap[newMsg.conversation] || { messages: [], hasMore: false, nextUrl: null };
-            return {
-              ...prevMap,
-              [newMsg.conversation]: { ...currentRoomState, messages: [...current, newMsg] },
-            };
-          });
-          setRooms(prevRooms => {
-            if (!prevRooms.some(r => r.id === newMsg.conversation)) {
-              return prevRooms;
-            }
-            const updatedRooms = prevRooms.map(r => {
-              if (r.id === newMsg.conversation) {
-                const isUnread = newMsg.conversation !== activeRoomId;
-                return {
-                  ...r,
-                  last_message: { id: newMsg.id, body: newMsg.body, created_at: newMsg.created_at, sender: newMsg.sender?.id ?? 0 },
-                  unread_count: isUnread ? (r.unread_count || 0) + 1 : 0,
-                  updated_at: newMsg.created_at,
-                };
-              }
-              return r;
-            });
-            const sorted = [...updatedRooms].sort((a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf());
-            if (newMsg.conversation !== activeRoomId) {
-              const targetRoom = sorted.find(r => r.id === newMsg.conversation);
-              toastRoomName = resolveRoomName(targetRoom);
-            }
-            return sorted;
-          });
-          if (newMsg.conversation !== activeRoomId) {
+      ws.onopen = () => {
+        markRoomAsReadService(activeRoomId)
+          .then((newLastRead) => {
+            if (isCancelled) return;
+            setRooms((prev) =>
+              prev.map((r) =>
+                r.id === activeRoomId ? { ...r, unread_count: 0, my_last_read_at: newLastRead ?? null } : r,
+              ),
+            );
             refreshUnreadCount();
-            if (toastRoomName) {
-              pushToast(`New message in ${toastRoomName}`, 'info', newMsg.conversation);
-            }
+          })
+          .catch(() => { });
+      };
+
+      ws.onmessage = (evt) => {
+        try {
+          const payload = JSON.parse(evt.data);
+          if (payload.type === 'ready' && payload.membership) {
+            // Only set once; avoid triggering websocket re-creations
+            setMyMembershipIdInActiveRoom(prev => prev ?? payload.membership);
+            return;
           }
-          return;
-        }
-        if (payload.type === 'message.updated') {
-          const updatedMsg: ChatMessage = payload.message;
-          setMessagesMap(prevMap => {
-            const roomState = prevMap[updatedMsg.conversation];
-            if (!roomState) return prevMap;
-            const updatedMessages = roomState.messages.map(m => m.id === updatedMsg.id ? updatedMsg : m);
-            return { ...prevMap, [updatedMsg.conversation]: { ...roomState, messages: updatedMessages } };
-          });
-          return;
-        }
-        if (payload.type === 'message.deleted') {
-          const { message_id } = payload;
-          setMessagesMap(prevMap => {
-            let targetRoomId: number | null = null;
-            for (const roomId in prevMap) {
-              if (prevMap[roomId].messages.some(m => m.id === message_id)) {
-                targetRoomId = parseInt(roomId);
-                break;
+          if (payload.type === 'message.created') {
+            const newMsg: ChatMessage = payload.message;
+            if (newMsg.attachment_url && newMsg.attachment_url.startsWith('/')) {
+              newMsg.attachment_url = `${BACKEND_MEDIA_URL}${newMsg.attachment_url}`;
+            }
+            let toastRoomName: string | null = null;
+            setMessagesMap(prevMap => {
+              const current = prevMap[newMsg.conversation]?.messages || [];
+              if (current.some(m => m.id === newMsg.id)) return prevMap;
+              const currentRoomState = prevMap[newMsg.conversation] || { messages: [], hasMore: false, nextUrl: null };
+              return {
+                ...prevMap,
+                [newMsg.conversation]: { ...currentRoomState, messages: [...current, newMsg] },
+              };
+            });
+            setRooms(prevRooms => {
+              if (!prevRooms.some(r => r.id === newMsg.conversation)) {
+                return prevRooms;
+              }
+              const updatedRooms = prevRooms.map(r => {
+                if (r.id === newMsg.conversation) {
+                  const isUnread = newMsg.conversation !== activeRoomId;
+                  return {
+                    ...r,
+                    last_message: { id: newMsg.id, body: newMsg.body, created_at: newMsg.created_at, sender: newMsg.sender?.id ?? 0 },
+                    unread_count: isUnread ? (r.unread_count || 0) + 1 : 0,
+                    updated_at: newMsg.created_at,
+                  };
+                }
+                return r;
+              });
+              const sorted = [...updatedRooms].sort((a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf());
+              if (newMsg.conversation !== activeRoomId) {
+                const targetRoom = sorted.find(r => r.id === newMsg.conversation);
+                toastRoomName = resolveRoomName(targetRoom);
+              }
+              return sorted;
+            });
+            if (newMsg.conversation !== activeRoomId) {
+              refreshUnreadCount();
+              if (toastRoomName) {
+                pushToast(`New message in ${toastRoomName}`, 'info', newMsg.conversation);
               }
             }
-            if (!targetRoomId) return prevMap;
-            const roomState = prevMap[targetRoomId];
-            const updatedMessages = roomState.messages.map(m => 
-              m.id === message_id ? { ...m, is_deleted: true } : m
-            );
-            return { ...prevMap, [targetRoomId]: { ...roomState, messages: updatedMessages } };
-          });
-          return;
-        }
-        if (payload.type === 'reaction.updated') {
-          const { message_id, reactions } = payload;
-          setMessagesMap(prevMap => {
-            let targetRoomId: number | null = null;
-            for (const roomId in prevMap) {
-              if (prevMap[roomId].messages.some(m => m.id === message_id)) {
-                targetRoomId = parseInt(roomId);
-                break;
-              }
-            }
-            if (!targetRoomId) return prevMap;
-            const roomState = prevMap[targetRoomId];
-            const updatedMessages = roomState.messages.map(m =>
-              m.id === message_id ? { ...m, reactions: reactions } : m
-            );
-            return {
-              ...prevMap,
-              [targetRoomId]: { ...roomState, messages: updatedMessages }
-            };
-          });
-          return;
-        }
-        if (payload.type === 'typing') {
-          const roomId =
-            payload.conversation_id ??
-            payload.conversation ??
-            payload.room_id ??
-            null;
-          if (typeof roomId === 'number') {
-            if (payload.user_id && user?.id && Number(payload.user_id) === Number(user.id)) {
-              return;
-            }
-            const name = (payload.name || '').trim();
-            setTypingState(prev => {
-              const existing = prev[roomId] ?? [];
-              const nextSet = new Set(existing);
-              if (payload.is_typing) {
-                if (name) nextSet.add(name);
-              } else {
-                if (name) {
-                  nextSet.delete(name);
-                } else {
-                  nextSet.clear();
+            return;
+          }
+          if (payload.type === 'message.updated') {
+            const updatedMsg: ChatMessage = payload.message;
+            setMessagesMap(prevMap => {
+              const roomState = prevMap[updatedMsg.conversation];
+              if (!roomState) return prevMap;
+              const updatedMessages = roomState.messages.map(m => m.id === updatedMsg.id ? updatedMsg : m);
+              return { ...prevMap, [updatedMsg.conversation]: { ...roomState, messages: updatedMessages } };
+            });
+            return;
+          }
+          if (payload.type === 'message.deleted') {
+            const { message_id } = payload;
+            setMessagesMap(prevMap => {
+              let targetRoomId: number | null = null;
+              for (const roomId in prevMap) {
+                if (prevMap[roomId].messages.some(m => m.id === message_id)) {
+                  targetRoomId = parseInt(roomId);
+                  break;
                 }
               }
-              const nextNames = Array.from(nextSet);
-              if (nextNames.length === 0) {
-                const { [roomId]: _omit, ...rest } = prev;
-                return rest;
-              }
-              return { ...prev, [roomId]: nextNames };
+              if (!targetRoomId) return prevMap;
+              const roomState = prevMap[targetRoomId];
+              const updatedMessages = roomState.messages.map(m =>
+                m.id === message_id ? { ...m, is_deleted: true } : m
+              );
+              return { ...prevMap, [targetRoomId]: { ...roomState, messages: updatedMessages } };
             });
+            return;
           }
-          return;
-        }
-      } catch (e) { console.error('ws onmessage error', e); }
+          if (payload.type === 'reaction.updated') {
+            const { message_id, reactions } = payload;
+            setMessagesMap(prevMap => {
+              let targetRoomId: number | null = null;
+              for (const roomId in prevMap) {
+                if (prevMap[roomId].messages.some(m => m.id === message_id)) {
+                  targetRoomId = parseInt(roomId);
+                  break;
+                }
+              }
+              if (!targetRoomId) return prevMap;
+              const roomState = prevMap[targetRoomId];
+              const updatedMessages = roomState.messages.map(m =>
+                m.id === message_id ? { ...m, reactions: reactions } : m
+              );
+              return {
+                ...prevMap,
+                [targetRoomId]: { ...roomState, messages: updatedMessages }
+              };
+            });
+            return;
+          }
+          if (payload.type === 'typing') {
+            const roomId =
+              payload.conversation_id ??
+              payload.conversation ??
+              payload.room_id ??
+              null;
+            if (typeof roomId === 'number') {
+              if (payload.user_id && user?.id && Number(payload.user_id) === Number(user.id)) {
+                return;
+              }
+              const name = (payload.name || '').trim();
+              setTypingState(prev => {
+                const existing = prev[roomId] ?? [];
+                const nextSet = new Set(existing);
+                if (payload.is_typing) {
+                  if (name) nextSet.add(name);
+                } else {
+                  if (name) {
+                    nextSet.delete(name);
+                  } else {
+                    nextSet.clear();
+                  }
+                }
+                const nextNames = Array.from(nextSet);
+                if (nextNames.length === 0) {
+                  const { [roomId]: _omit, ...rest } = prev;
+                  return rest;
+                }
+                return { ...prev, [roomId]: nextNames };
+              });
+            }
+            return;
+          }
+        } catch (e) { console.error('ws onmessage error', e); }
+      };
+      ws.onerror = (_err) => { };
+      ws.onclose = () => {
+        lastTypingSentRef.current = false;
+      };
+
     };
-    ws.onerror = (_err) => {};
-    ws.onclose = () => {
-      lastTypingSentRef.current = false;
+
+    setupWs();
+
+    return () => {
+      isCancelled = true;
+      if (wsRef.current) wsRef.current.close();
     };
-    return () => ws.close();
   }, [activeRoomId, refreshUnreadCount, resolveRoomName, pushToast, user?.id]);
 
 
@@ -518,7 +533,7 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
         .finally(() => {
           searchParams.delete('startDmWithUser');
           setSearchParams(searchParams);
-      });
+        });
     }
   }, [searchParams, setSearchParams]);
 
@@ -585,15 +600,15 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
           : msg,
       );
       setMessagesMap(prev => {
-          const currentRoom = prev[activeRoomId];
-          return {
-              ...prev,
-              [activeRoomId]: {
-                  messages: [...mappedMessages, ...currentRoom.messages],
-                  nextUrl: next ?? null,
-                  hasMore: Boolean(next),
-              }
-          };
+        const currentRoom = prev[activeRoomId];
+        return {
+          ...prev,
+          [activeRoomId]: {
+            messages: [...mappedMessages, ...currentRoom.messages],
+            nextUrl: next ?? null,
+            hasMore: Boolean(next),
+          }
+        };
       });
     } catch (e) {
       console.error("Failed to load more messages", e);
@@ -605,50 +620,50 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
   const handleStartDm = async (partnerMembershipId: number, partnerPharmacyId: number) => {
     const partnerDetails = memberCache[partnerPharmacyId]?.[partnerMembershipId]?.details;
     if (!partnerDetails || !user) {
-        pushToast('Could not find user details to start chat.', 'error');
-        return;
+      pushToast('Could not find user details to start chat.', 'error');
+      return;
     }
     const partnerUserId = partnerDetails.id;
 
-      setParticipantCache(prev => {
-    if (prev[partnerMembershipId]) return prev;
-    const entry = memberCache[partnerPharmacyId]?.[partnerMembershipId];
-    if (!entry) return prev;
-    return { ...prev, [partnerMembershipId]: { ...entry } };
-  });
+    setParticipantCache(prev => {
+      if (prev[partnerMembershipId]) return prev;
+      const entry = memberCache[partnerPharmacyId]?.[partnerMembershipId];
+      if (!entry) return prev;
+      return { ...prev, [partnerMembershipId]: { ...entry } };
+    });
 
     const findExistingDm = (targetUserId: number) => {
-        for (const room of rooms) {
-            if (room.type === 'DM' && room.participant_ids.length === 2) {
-                const myMem = myMemberships.find(m => room.participant_ids.includes(m.id));
-                const partnerMemId = room.participant_ids.find(id => id !== myMem?.id);
+      for (const room of rooms) {
+        if (room.type === 'DM' && room.participant_ids.length === 2) {
+          const myMem = myMemberships.find(m => room.participant_ids.includes(m.id));
+          const partnerMemId = room.participant_ids.find(id => id !== myMem?.id);
 
-                if (partnerMemId && participantCache[partnerMemId]) {
-                    const partnerInRoom = participantCache[partnerMemId].details;
-                    if (partnerInRoom.id === targetUserId) {
-                        return room;
-                    }
-                }
+          if (partnerMemId && participantCache[partnerMemId]) {
+            const partnerInRoom = participantCache[partnerMemId].details;
+            if (partnerInRoom.id === targetUserId) {
+              return room;
             }
+          }
         }
-        return null;
+      }
+      return null;
     };
 
     const existingRoom = findExistingDm(partnerUserId);
 
     if (existingRoom) {
-        setActiveRoomId(existingRoom.id);
+      setActiveRoomId(existingRoom.id);
     } else {
-    try {
+      try {
         const room = await startDirectMessageByMembership(partnerMembershipId, null);
         handleSaveRoom(room);
         setActiveRoomId(room.id);
         pushToast(`Direct message with ${resolveRoomName(room)} ready`, 'success', room.id);
-    } catch (e) {
+      } catch (e) {
         console.error('Failed to get or create DM', e);
         const message = e instanceof Error ? e.message : 'Could not start the chat.';
         pushToast(message, 'error');
-    }
+      }
     }
   };
 
@@ -665,7 +680,7 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
     },
     [participantCache, memberCache],
   );
-  
+
   const handleSelectRoom = async (d: { type: 'dm' | 'group'; id: number } | { type: 'pharmacy'; id: number }) => {
     if ('type' in d && d.type === 'pharmacy') {
       const existing = rooms.find(r => r.type === 'GROUP' && r.pharmacy === d.id);
@@ -740,7 +755,7 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
       console.error('Failed to send reaction', e);
     }
   };
-  
+
   const handleTogglePin = async (roomId: number, target: 'conversation' | 'message', messageId?: number) => {
     try {
       // API expects snake_case for message_id
@@ -795,30 +810,30 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
     setIsModalOpen(true);
   };
 
-const handleDeleteChat = async (roomId: number, roomName: string) => {
-  const target = rooms.find(r => r.id === roomId);
-  if (!target) return;
+  const handleDeleteChat = async (roomId: number, roomName: string) => {
+    const target = rooms.find(r => r.id === roomId);
+    if (!target) return;
 
-  const isDm = target.type === 'DM';
-  const question = isDm
-    ? `Delete this direct message with "${roomName}" for you? The other person will keep the conversation.`
-    : `Are you sure you want to delete the chat "${roomName}" for everyone? This cannot be undone.`;
+    const isDm = target.type === 'DM';
+    const question = isDm
+      ? `Delete this direct message with "${roomName}" for you? The other person will keep the conversation.`
+      : `Are you sure you want to delete the chat "${roomName}" for everyone? This cannot be undone.`;
 
-  if (!window.confirm(question)) return;
+    if (!window.confirm(question)) return;
 
-  try {
-    await deleteRoomService(roomId);
+    try {
+      await deleteRoomService(roomId);
 
-    setRooms(prevRooms => prevRooms.filter(r => r.id !== roomId));
-    if (activeRoomId === roomId) {
-      setActiveRoomId(null);
+      setRooms(prevRooms => prevRooms.filter(r => r.id !== roomId));
+      if (activeRoomId === roomId) {
+        setActiveRoomId(null);
+      }
+      pushToast(`${roomName} deleted`, 'success');
+    } catch (e) {
+      console.error('Failed to delete chat', e);
+      pushToast('Failed to delete chat.', 'error');
     }
-    pushToast(`${roomName} deleted`, 'success');
-  } catch (e) {
-    console.error('Failed to delete chat', e);
-    pushToast('Failed to delete chat.', 'error');
-  }
-};
+  };
 
 
   const handleSaveRoom = (savedRoom: ChatRoom) => {
@@ -833,17 +848,17 @@ const handleDeleteChat = async (roomId: number, roomName: string) => {
       creatorId && !(savedRoom as any).created_by_user_id ? { ...(savedRoom as any), created_by_user_id: creatorId } : savedRoom;
 
     setRooms(prevRooms => {
-        const roomExists = prevRooms.some(room => room.id === enrichedRoom.id);
-        if (roomExists) {
-            const updatedRooms = prevRooms.map(r => (r.id === enrichedRoom.id ? enrichedRoom : r));
-            return [...updatedRooms].sort((a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf());
-        }
-        const newRooms = [enrichedRoom, ...prevRooms];
-        return newRooms.sort((a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf());
+      const roomExists = prevRooms.some(room => room.id === enrichedRoom.id);
+      if (roomExists) {
+        const updatedRooms = prevRooms.map(r => (r.id === enrichedRoom.id ? enrichedRoom : r));
+        return [...updatedRooms].sort((a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf());
+      }
+      const newRooms = [enrichedRoom, ...prevRooms];
+      return newRooms.sort((a, b) => dayjs.utc(b.updated_at || 0).valueOf() - dayjs.utc(a.updated_at || 0).valueOf());
     });
     setActiveRoomId(enrichedRoom.id);
   };
-  
+
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setTimeout(() => setEditingRoom(null), 300);
@@ -856,7 +871,7 @@ const handleDeleteChat = async (roomId: number, roomName: string) => {
   const showConversation = isMobile ? !!activeRoomId : true;
   const rootClassName = `chatpage-root ${isMobile && activeRoomId ? 'mobile-conversation-active' : ''} ${isSidebarCollapsed ? 'sidebar-collapsed-view' : ''}`;
 
-  if (isLoading) { return ( <Box className="chatpage-loading"><CircularProgress /></Box> ); }
+  if (isLoading) { return (<Box className="chatpage-loading"><CircularProgress /></Box>); }
 
   return (
     <Box className={rootClassName}>
@@ -867,8 +882,8 @@ const handleDeleteChat = async (roomId: number, roomName: string) => {
         activeRoomId={activeRoomId}
         onSelectRoom={handleSelectRoom}
         participantCache={participantCache}
-        memberCache={memberCache}              
-        isCollapsed={isSidebarCollapsed} 
+        memberCache={memberCache}
+        isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed(prev => !prev)}
         onNewChat={() => setIsModalOpen(true)}
         onEdit={handleOpenEditModal}
@@ -885,7 +900,7 @@ const handleDeleteChat = async (roomId: number, roomName: string) => {
           return arr && arr.length ? arr[arr.length - 1] : undefined;
         }}
       />
-      
+
       {showConversation ? (
         activeRoom ? (
           <ConversationPanel
@@ -901,12 +916,12 @@ const handleDeleteChat = async (roomId: number, roomName: string) => {
             onSendAttachment={handleSendAttachment}
             isLoadingMessages={isLoadingMessages} // <-- FIX: Use explicit loading state
             onStartDm={(partnerMembershipId) => {
-                for (const pharmId in memberCache) {
-                    if (memberCache[pharmId][partnerMembershipId]) {
-                        handleStartDm(partnerMembershipId, Number(pharmId));
-                        return;
-                    }
+              for (const pharmId in memberCache) {
+                if (memberCache[pharmId][partnerMembershipId]) {
+                  handleStartDm(partnerMembershipId, Number(pharmId));
+                  return;
                 }
+              }
             }}
             hasMore={activeRoomMessagesState.hasMore}
             isLoadingMore={isLoadingMore}

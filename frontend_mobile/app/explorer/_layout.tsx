@@ -142,7 +142,7 @@ export default function ExplorerTabs() {
     } catch {
       // ignore errors; navigate anyway
     } finally {
-      router.push('/notifications' as any);
+      router.push('/explorer/notifications' as any);
     }
   }, [router]);
 

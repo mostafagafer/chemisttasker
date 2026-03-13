@@ -181,7 +181,7 @@ export default function OwnerLayout() {
     } catch {
       // ignore errors; navigate anyway
     } finally {
-      router.push('/notifications' as any);
+      router.push('/owner/notifications' as any);
     }
   }, [router]);
 

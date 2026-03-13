@@ -168,7 +168,7 @@ export default function OtherStaffTabs() {
     } catch {
       // ignore errors; navigate anyway
     } finally {
-      router.push('/notifications' as any);
+      router.push('/otherstaff/notifications' as any);
     }
   }, [router]);
 
@@ -288,7 +288,7 @@ export default function OtherStaffTabs() {
               </View>
             ) : (
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <TouchableOpacity onPress={() => router.push('/notifications' as any)} style={{ marginHorizontal: 4 }}>
+                <TouchableOpacity onPress={() => router.push('/otherstaff/notifications' as any)} style={{ marginHorizontal: 4 }}>
                   <View>
                     <IconButton icon="bell-outline" />
                     {unreadCount > 0 && <View style={styles.badgeDot} />}

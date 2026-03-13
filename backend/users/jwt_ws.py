@@ -1,4 +1,3 @@
-# users/jwt_ws.py
 from urllib.parse import parse_qs
 from django.contrib.auth.models import AnonymousUser
 from django.db import close_old_connections
@@ -8,15 +7,16 @@ from channels.db import database_sync_to_async
 
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, AuthenticationFailed
-
+from users.models import WebSocketTicket
 
 class JWTAuthMiddleware:
     """
     ASGI middleware for Channels that authenticates WebSocket connections
-    using SimpleJWT access tokens.
+    using SimpleJWT access tokens or ephemeral tickets.
 
       - Authorization: Bearer <token>
-      - ?token=<token>
+      - ?ticket=<ticket>
+      - ?token=<token> (deprecated)
     """
     def __init__(self, inner):
         self.inner = inner
@@ -26,28 +26,49 @@ class JWTAuthMiddleware:
         scope = dict(scope)
         scope["user"] = AnonymousUser()
 
-        token = self._get_token_from_scope(scope)
+        query = parse_qs(scope.get("query_string", b"").decode())
+        
+        # 1. Try Ticket Auth First (New Secure Method)
+        ticket_str = query.get("ticket", [None])[0]
+        if ticket_str:
+            user = await self._get_user_from_ticket(ticket_str)
+            if user:
+                scope["user"] = user
+                return await self.inner(scope, receive, send)
+
+        # 2. Fallback to standard token auth (for backwards compatibility just in case)
+        token = self._get_token_from_scope(scope, query)
         if token:
             try:
-                # Best practice before DB use
                 close_old_connections()
                 validated = await sync_to_async(self.jwt_auth.get_validated_token, thread_sensitive=True)(token)
                 user = await database_sync_to_async(self.jwt_auth.get_user)(validated)
                 scope["user"] = user
             except (InvalidToken, AuthenticationFailed):
-                # keep AnonymousUser
                 pass
 
         return await self.inner(scope, receive, send)
 
-    def _get_token_from_scope(self, scope):
+    @database_sync_to_async
+    def _get_user_from_ticket(self, ticket_str):
+        close_old_connections()
+        try:
+            ticket_obj = WebSocketTicket.objects.select_related('user').get(ticket=ticket_str)
+            user = ticket_obj.user
+            # Delete the ticket instantly so it can only be used once
+            ticket_obj.delete()
+            return user
+        except WebSocketTicket.DoesNotExist:
+            return None
+
+    def _get_token_from_scope(self, scope, query):
         headers = dict(scope.get("headers", []))
         auth = headers.get(b"authorization", b"").decode()
         if auth.lower().startswith("bearer "):
             return auth.split(" ", 1)[1].strip()
-        query = parse_qs(scope.get("query_string", b"").decode())
         if "token" in query and query["token"]:
             return query["token"][0].strip()
+        # Deprecated: Reading from cookies
         raw_cookies = headers.get(b"cookie", b"").decode()
         cookie_name = getattr(settings, "JWT_AUTH_COOKIE", "ct_access")
         for part in raw_cookies.split(";"):

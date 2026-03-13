@@ -23,6 +23,7 @@ import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import { alpha, useTheme } from "@mui/material/styles";
 import useMediaQuery from "@mui/material/useMediaQuery";
+import { fetchWsTicket } from "../utils/tokenService";
 import NotificationsNoneOutlinedIcon from "@mui/icons-material/NotificationsNoneOutlined";
 import ChatBubbleOutlineOutlinedIcon from "@mui/icons-material/ChatBubbleOutlineOutlined";
 import SearchIcon from "@mui/icons-material/Search";
@@ -50,19 +51,19 @@ type SearchOption = {
 
 type PersonaMenuOption =
   | {
-      key: string;
-      kind: "ROLE";
-      role: "PHARMACIST" | "OTHER_STAFF";
-      label: string;
-      helper?: string;
-    }
+    key: string;
+    kind: "ROLE";
+    role: "PHARMACIST" | "OTHER_STAFF";
+    label: string;
+    helper?: string;
+  }
   | {
-      key: string;
-      kind: "ADMIN";
-      assignmentId: number;
-      label: string;
-      helper?: string;
-    };
+    key: string;
+    kind: "ADMIN";
+    assignmentId: number;
+    label: string;
+    helper?: string;
+  };
 
 const STAFF_ROLE_LABELS: Record<"PHARMACIST" | "OTHER_STAFF", string> = {
   PHARMACIST: "Pharmacist",
@@ -85,340 +86,340 @@ const ADMIN_STAFF_ROLE_LABELS: Record<string, string> = {
 };
 
 const ownerOptions: SearchOption[] = [
-    { label: "Overview", path: "/dashboard/owner/overview", keywords: ["home", "dashboard", "summary"] },
-    {
-      label: "Manage Pharmacies",
-      path: "/dashboard/owner/manage-pharmacies",
-      keywords: ["pharmacies", "stores", "management"],
-      description: "Browse and edit your pharmacy locations",
-    },
-    {
-      label: "Claim Requests",
-      path: "/dashboard/owner/manage-pharmacies?claim=open",
-      keywords: ["claim", "requests", "organization"],
-    },
-    {
-      label: "My Chain",
-      path: "/dashboard/owner/manage-pharmacies/my-chain",
-      keywords: ["chain", "group", "network"],
-    },
-    {
-      label: "Internal Roster",
-      path: "/dashboard/owner/manage-pharmacies/roster",
-      keywords: ["schedule", "roster", "staffing"],
-    },
-    {
-      label: "Post a Shift",
-      path: "/dashboard/owner/post-shift",
-      keywords: ["create shift", "new shift", "shift posting"],
-    },
-    {
-      label: "Public Shifts",
-      path: "/dashboard/owner/shifts/public",
-      keywords: ["public shifts", "available shifts"],
-    },
-    {
-      label: "Community Shifts",
-      path: "/dashboard/owner/shifts/community",
-      keywords: ["community", "shared shifts"],
-    },
-    {
-      label: "Active Shifts",
-      path: "/dashboard/owner/shift-center/active",
-      keywords: ["active shifts", "current shifts"],
-    },
-    {
-      label: "Confirmed Shifts",
-      path: "/dashboard/owner/shift-center/confirmed",
-      keywords: ["confirmed", "booked shifts"],
-    },
-    {
-      label: "Shift History",
-      path: "/dashboard/owner/shift-center/history",
-      keywords: ["past shifts", "history"],
-    },
-    {
-      label: "Profile & Onboarding",
-      path: "/dashboard/owner/onboarding",
-      keywords: ["profile", "onboarding", "setup"],
-    },
-    {
-      label: "Chat",
-      path: "/dashboard/owner/chat",
-      keywords: ["messages", "inbox", "communication"],
-    },
-    {
-      label: "Explore Interests",
-      path: "/dashboard/owner/interests",
-      keywords: ["interests", "explore", "resources"],
-    },
-    {
-      label: "Learning Materials",
-      path: "/dashboard/owner/learning",
-      keywords: ["learning", "training", "education"],
-    },
-    {
-      label: "Logout",
-      path: "/dashboard/owner/logout",
-      keywords: ["sign out", "log out"],
-    },
-  ];
+  { label: "Overview", path: "/dashboard/owner/overview", keywords: ["home", "dashboard", "summary"] },
+  {
+    label: "Manage Pharmacies",
+    path: "/dashboard/owner/manage-pharmacies",
+    keywords: ["pharmacies", "stores", "management"],
+    description: "Browse and edit your pharmacy locations",
+  },
+  {
+    label: "Claim Requests",
+    path: "/dashboard/owner/manage-pharmacies?claim=open",
+    keywords: ["claim", "requests", "organization"],
+  },
+  {
+    label: "My Chain",
+    path: "/dashboard/owner/manage-pharmacies/my-chain",
+    keywords: ["chain", "group", "network"],
+  },
+  {
+    label: "Internal Roster",
+    path: "/dashboard/owner/manage-pharmacies/roster",
+    keywords: ["schedule", "roster", "staffing"],
+  },
+  {
+    label: "Post a Shift",
+    path: "/dashboard/owner/post-shift",
+    keywords: ["create shift", "new shift", "shift posting"],
+  },
+  {
+    label: "Public Shifts",
+    path: "/dashboard/owner/shifts/public",
+    keywords: ["public shifts", "available shifts"],
+  },
+  {
+    label: "Community Shifts",
+    path: "/dashboard/owner/shifts/community",
+    keywords: ["community", "shared shifts"],
+  },
+  {
+    label: "Active Shifts",
+    path: "/dashboard/owner/shift-center/active",
+    keywords: ["active shifts", "current shifts"],
+  },
+  {
+    label: "Confirmed Shifts",
+    path: "/dashboard/owner/shift-center/confirmed",
+    keywords: ["confirmed", "booked shifts"],
+  },
+  {
+    label: "Shift History",
+    path: "/dashboard/owner/shift-center/history",
+    keywords: ["past shifts", "history"],
+  },
+  {
+    label: "Profile & Onboarding",
+    path: "/dashboard/owner/onboarding",
+    keywords: ["profile", "onboarding", "setup"],
+  },
+  {
+    label: "Chat",
+    path: "/dashboard/owner/chat",
+    keywords: ["messages", "inbox", "communication"],
+  },
+  {
+    label: "Explore Interests",
+    path: "/dashboard/owner/interests",
+    keywords: ["interests", "explore", "resources"],
+  },
+  {
+    label: "Learning Materials",
+    path: "/dashboard/owner/learning",
+    keywords: ["learning", "training", "education"],
+  },
+  {
+    label: "Logout",
+    path: "/dashboard/owner/logout",
+    keywords: ["sign out", "log out"],
+  },
+];
 
 const organizationOptions: SearchOption[] = [
-    { label: "Overview", path: "/dashboard/organization/overview", keywords: ["home", "dashboard", "summary"] },
-    {
-      label: "Invite Staff",
-      path: "/dashboard/organization/invite",
-      keywords: ["invite", "staff", "team"],
-    },
-    {
-      label: "Claim Pharmacies",
-      path: "/dashboard/organization/manage-pharmacies?claim=open",
-      keywords: ["claim", "pharmacies", "organization"],
-    },
-    {
-      label: "Manage Pharmacies",
-      path: "/dashboard/organization/manage-pharmacies",
-      keywords: ["manage", "pharmacies", "stores"],
-    },
-    {
-      label: "My Pharmacies",
-      path: "/dashboard/organization/manage-pharmacies/my-pharmacies",
-      keywords: ["locations", "branches", "pharmacy list"],
-    },
-    {
-      label: "My Chain",
-      path: "/dashboard/organization/manage-pharmacies/my-chain",
-      keywords: ["chain", "group", "network"],
-    },
-    {
-      label: "Internal Roster",
-      path: "/dashboard/organization/manage-pharmacies/roster",
-      keywords: ["roster", "schedule", "staffing"],
-    },
-    {
-      label: "Post a Shift",
-      path: "/dashboard/organization/post-shift",
-      keywords: ["create shift", "new shift"],
-    },
-    {
-      label: "Public Shifts",
-      path: "/dashboard/organization/shifts/public",
-      keywords: ["public shifts", "availability"],
-    },
-    {
-      label: "Community Shifts",
-      path: "/dashboard/organization/shifts/community",
-      keywords: ["community", "shared"],
-    },
-    {
-      label: "Active Shifts",
-      path: "/dashboard/organization/shift-center/active",
-      keywords: ["active shifts", "current"],
-    },
-    {
-      label: "Confirmed Shifts",
-      path: "/dashboard/organization/shift-center/confirmed",
-      keywords: ["confirmed", "booked"],
-    },
-    {
-      label: "Shift History",
-      path: "/dashboard/organization/shift-center/history",
-      keywords: ["history", "past shifts"],
-    },
-    {
-      label: "Chat",
-      path: "/dashboard/organization/chat",
-      keywords: ["messages", "inbox"],
-    },
-    {
-      label: "Explore Interests",
-      path: "/dashboard/organization/interests",
-      keywords: ["interests", "resources"],
-    },
-    {
-      label: "Learning Materials",
-      path: "/dashboard/organization/learning",
-      keywords: ["learning", "training"],
-    },
-    {
-      label: "Logout",
-      path: "/dashboard/organization/logout",
-      keywords: ["sign out", "log out"],
-    },
-  ];
+  { label: "Overview", path: "/dashboard/organization/overview", keywords: ["home", "dashboard", "summary"] },
+  {
+    label: "Invite Staff",
+    path: "/dashboard/organization/invite",
+    keywords: ["invite", "staff", "team"],
+  },
+  {
+    label: "Claim Pharmacies",
+    path: "/dashboard/organization/manage-pharmacies?claim=open",
+    keywords: ["claim", "pharmacies", "organization"],
+  },
+  {
+    label: "Manage Pharmacies",
+    path: "/dashboard/organization/manage-pharmacies",
+    keywords: ["manage", "pharmacies", "stores"],
+  },
+  {
+    label: "My Pharmacies",
+    path: "/dashboard/organization/manage-pharmacies/my-pharmacies",
+    keywords: ["locations", "branches", "pharmacy list"],
+  },
+  {
+    label: "My Chain",
+    path: "/dashboard/organization/manage-pharmacies/my-chain",
+    keywords: ["chain", "group", "network"],
+  },
+  {
+    label: "Internal Roster",
+    path: "/dashboard/organization/manage-pharmacies/roster",
+    keywords: ["roster", "schedule", "staffing"],
+  },
+  {
+    label: "Post a Shift",
+    path: "/dashboard/organization/post-shift",
+    keywords: ["create shift", "new shift"],
+  },
+  {
+    label: "Public Shifts",
+    path: "/dashboard/organization/shifts/public",
+    keywords: ["public shifts", "availability"],
+  },
+  {
+    label: "Community Shifts",
+    path: "/dashboard/organization/shifts/community",
+    keywords: ["community", "shared"],
+  },
+  {
+    label: "Active Shifts",
+    path: "/dashboard/organization/shift-center/active",
+    keywords: ["active shifts", "current"],
+  },
+  {
+    label: "Confirmed Shifts",
+    path: "/dashboard/organization/shift-center/confirmed",
+    keywords: ["confirmed", "booked"],
+  },
+  {
+    label: "Shift History",
+    path: "/dashboard/organization/shift-center/history",
+    keywords: ["history", "past shifts"],
+  },
+  {
+    label: "Chat",
+    path: "/dashboard/organization/chat",
+    keywords: ["messages", "inbox"],
+  },
+  {
+    label: "Explore Interests",
+    path: "/dashboard/organization/interests",
+    keywords: ["interests", "resources"],
+  },
+  {
+    label: "Learning Materials",
+    path: "/dashboard/organization/learning",
+    keywords: ["learning", "training"],
+  },
+  {
+    label: "Logout",
+    path: "/dashboard/organization/logout",
+    keywords: ["sign out", "log out"],
+  },
+];
 
 const pharmacistOptions: SearchOption[] = [
-    { label: "Overview", path: "/dashboard/pharmacist/overview", keywords: ["home", "dashboard", "summary"] },
-    {
-      label: "Public Shifts",
-      path: "/dashboard/pharmacist/shifts/public",
-      keywords: ["public shifts", "available shifts"],
-    },
-    {
-      label: "Community Shifts",
-      path: "/dashboard/pharmacist/shifts/community",
-      keywords: ["community", "platform shifts"],
-    },
-    {
-      label: "My Confirmed Shifts",
-      path: "/dashboard/pharmacist/shifts/confirmed",
-      keywords: ["confirmed", "booked shifts"],
-    },
-    {
-      label: "My Shift History",
-      path: "/dashboard/pharmacist/shifts/history",
-      keywords: ["past shifts", "history"],
-    },
-    {
-      label: "My Roster",
-      path: "/dashboard/pharmacist/shifts/roster",
-      keywords: ["roster", "schedule", "internal"],
-    },
-    {
-      label: "Profile & Onboarding",
-      path: "/dashboard/pharmacist/onboarding",
-      keywords: ["profile", "onboarding", "setup"],
-    },
-    {
-      label: "Set Availability",
-      path: "/dashboard/pharmacist/availability",
-      keywords: ["availability", "calendar", "schedule"],
-    },
-    {
-      label: "Invoices",
-      path: "/dashboard/pharmacist/invoice",
-      keywords: ["invoice", "billing", "payments"],
-    },
-    {
-      label: "Create Invoice",
-      path: "/dashboard/pharmacist/invoice/new",
-      keywords: ["invoice", "new invoice", "billing"],
-    },
-    {
-      label: "Chat",
-      path: "/dashboard/pharmacist/chat",
-      keywords: ["messages", "inbox", "communication"],
-    },
-    {
-      label: "Explore Interests",
-      path: "/dashboard/pharmacist/interests",
-      keywords: ["interests", "explore", "resources"],
-    },
-    {
-      label: "Learning Materials",
-      path: "/dashboard/pharmacist/learning",
-      keywords: ["learning", "training", "education"],
-    },
-    {
-      label: "Logout",
-      path: "/dashboard/pharmacist/logout",
-      keywords: ["sign out", "log out"],
-    },
-  ];
+  { label: "Overview", path: "/dashboard/pharmacist/overview", keywords: ["home", "dashboard", "summary"] },
+  {
+    label: "Public Shifts",
+    path: "/dashboard/pharmacist/shifts/public",
+    keywords: ["public shifts", "available shifts"],
+  },
+  {
+    label: "Community Shifts",
+    path: "/dashboard/pharmacist/shifts/community",
+    keywords: ["community", "platform shifts"],
+  },
+  {
+    label: "My Confirmed Shifts",
+    path: "/dashboard/pharmacist/shifts/confirmed",
+    keywords: ["confirmed", "booked shifts"],
+  },
+  {
+    label: "My Shift History",
+    path: "/dashboard/pharmacist/shifts/history",
+    keywords: ["past shifts", "history"],
+  },
+  {
+    label: "My Roster",
+    path: "/dashboard/pharmacist/shifts/roster",
+    keywords: ["roster", "schedule", "internal"],
+  },
+  {
+    label: "Profile & Onboarding",
+    path: "/dashboard/pharmacist/onboarding",
+    keywords: ["profile", "onboarding", "setup"],
+  },
+  {
+    label: "Set Availability",
+    path: "/dashboard/pharmacist/availability",
+    keywords: ["availability", "calendar", "schedule"],
+  },
+  {
+    label: "Invoices",
+    path: "/dashboard/pharmacist/invoice",
+    keywords: ["invoice", "billing", "payments"],
+  },
+  {
+    label: "Create Invoice",
+    path: "/dashboard/pharmacist/invoice/new",
+    keywords: ["invoice", "new invoice", "billing"],
+  },
+  {
+    label: "Chat",
+    path: "/dashboard/pharmacist/chat",
+    keywords: ["messages", "inbox", "communication"],
+  },
+  {
+    label: "Explore Interests",
+    path: "/dashboard/pharmacist/interests",
+    keywords: ["interests", "explore", "resources"],
+  },
+  {
+    label: "Learning Materials",
+    path: "/dashboard/pharmacist/learning",
+    keywords: ["learning", "training", "education"],
+  },
+  {
+    label: "Logout",
+    path: "/dashboard/pharmacist/logout",
+    keywords: ["sign out", "log out"],
+  },
+];
 
 const otherStaffOptions: SearchOption[] = [
-    { label: "Overview", path: "/dashboard/otherstaff/overview", keywords: ["home", "dashboard", "summary"] },
-    {
-      label: "Public Shifts",
-      path: "/dashboard/otherstaff/shifts/public",
-      keywords: ["public shifts", "available"],
-    },
-    {
-      label: "Community Shifts",
-      path: "/dashboard/otherstaff/shifts/community",
-      keywords: ["community", "platform shifts"],
-    },
-    {
-      label: "My Confirmed Shifts",
-      path: "/dashboard/otherstaff/shifts/confirmed",
-      keywords: ["confirmed", "booked shifts"],
-    },
-    {
-      label: "My Shift History",
-      path: "/dashboard/otherstaff/shifts/history",
-      keywords: ["past shifts", "history"],
-    },
-    {
-      label: "My Roster",
-      path: "/dashboard/otherstaff/shifts/roster",
-      keywords: ["roster", "schedule"],
-    },
-    {
-      label: "Profile & Onboarding",
-      path: "/dashboard/otherstaff/onboarding",
-      keywords: ["profile", "onboarding"],
-    },
-    {
-      label: "Set Availability",
-      path: "/dashboard/otherstaff/availability",
-      keywords: ["availability", "calendar"],
-    },
-    {
-      label: "Invoices",
-      path: "/dashboard/otherstaff/invoice",
-      keywords: ["invoice", "billing"],
-    },
-    {
-      label: "Chat",
-      path: "/dashboard/otherstaff/chat",
-      keywords: ["messages", "inbox"],
-    },
-    {
-      label: "Explore Interests",
-      path: "/dashboard/otherstaff/interests",
-      keywords: ["interests", "resources"],
-    },
-    {
-      label: "Learning Materials",
-      path: "/dashboard/otherstaff/learning",
-      keywords: ["learning", "training"],
-    },
-    {
-      label: "Logout",
-      path: "/dashboard/otherstaff/logout",
-      keywords: ["sign out", "log out"],
-    },
-  ];
+  { label: "Overview", path: "/dashboard/otherstaff/overview", keywords: ["home", "dashboard", "summary"] },
+  {
+    label: "Public Shifts",
+    path: "/dashboard/otherstaff/shifts/public",
+    keywords: ["public shifts", "available"],
+  },
+  {
+    label: "Community Shifts",
+    path: "/dashboard/otherstaff/shifts/community",
+    keywords: ["community", "platform shifts"],
+  },
+  {
+    label: "My Confirmed Shifts",
+    path: "/dashboard/otherstaff/shifts/confirmed",
+    keywords: ["confirmed", "booked shifts"],
+  },
+  {
+    label: "My Shift History",
+    path: "/dashboard/otherstaff/shifts/history",
+    keywords: ["past shifts", "history"],
+  },
+  {
+    label: "My Roster",
+    path: "/dashboard/otherstaff/shifts/roster",
+    keywords: ["roster", "schedule"],
+  },
+  {
+    label: "Profile & Onboarding",
+    path: "/dashboard/otherstaff/onboarding",
+    keywords: ["profile", "onboarding"],
+  },
+  {
+    label: "Set Availability",
+    path: "/dashboard/otherstaff/availability",
+    keywords: ["availability", "calendar"],
+  },
+  {
+    label: "Invoices",
+    path: "/dashboard/otherstaff/invoice",
+    keywords: ["invoice", "billing"],
+  },
+  {
+    label: "Chat",
+    path: "/dashboard/otherstaff/chat",
+    keywords: ["messages", "inbox"],
+  },
+  {
+    label: "Explore Interests",
+    path: "/dashboard/otherstaff/interests",
+    keywords: ["interests", "resources"],
+  },
+  {
+    label: "Learning Materials",
+    path: "/dashboard/otherstaff/learning",
+    keywords: ["learning", "training"],
+  },
+  {
+    label: "Logout",
+    path: "/dashboard/otherstaff/logout",
+    keywords: ["sign out", "log out"],
+  },
+];
 
 const explorerOptions: SearchOption[] = [
-    { label: "Overview", path: "/dashboard/explorer/overview", keywords: ["home", "dashboard", "summary"] },
-    {
-      label: "Profile & Onboarding",
-      path: "/dashboard/explorer/onboarding",
-      keywords: ["profile", "onboarding"],
-    },
-    {
-      label: "Public Shifts",
-      path: "/dashboard/explorer/shifts/public",
-      keywords: ["public shifts", "browse"],
-    },
-    {
-      label: "Community Shifts",
-      path: "/dashboard/explorer/shifts/community",
-      keywords: ["community", "platform shifts"],
-    },
-    {
-      label: "Chat",
-      path: "/dashboard/explorer/chat",
-      keywords: ["messages", "inbox"],
-    },
-    {
-      label: "Explore Interests",
-      path: "/dashboard/explorer/interests",
-      keywords: ["interests", "resources"],
-    },
-    {
-      label: "Learning Materials",
-      path: "/dashboard/explorer/learning",
-      keywords: ["learning", "training"],
-    },
-    {
-      label: "Logout",
-      path: "/dashboard/explorer/logout",
-      keywords: ["sign out", "log out"],
-    },
-  ];
+  { label: "Overview", path: "/dashboard/explorer/overview", keywords: ["home", "dashboard", "summary"] },
+  {
+    label: "Profile & Onboarding",
+    path: "/dashboard/explorer/onboarding",
+    keywords: ["profile", "onboarding"],
+  },
+  {
+    label: "Public Shifts",
+    path: "/dashboard/explorer/shifts/public",
+    keywords: ["public shifts", "browse"],
+  },
+  {
+    label: "Community Shifts",
+    path: "/dashboard/explorer/shifts/community",
+    keywords: ["community", "platform shifts"],
+  },
+  {
+    label: "Chat",
+    path: "/dashboard/explorer/chat",
+    keywords: ["messages", "inbox"],
+  },
+  {
+    label: "Explore Interests",
+    path: "/dashboard/explorer/interests",
+    keywords: ["interests", "resources"],
+  },
+  {
+    label: "Learning Materials",
+    path: "/dashboard/explorer/learning",
+    keywords: ["learning", "training"],
+  },
+  {
+    label: "Logout",
+    path: "/dashboard/explorer/logout",
+    keywords: ["sign out", "log out"],
+  },
+];
 
 const defaultOptions: SearchOption[] = Array.from(
   new Map(
@@ -468,10 +469,10 @@ const isChatNotificationPayload = (payload: any): boolean => {
   }
   return Boolean(
     payload.conversation_id ??
-      payload.conversationId ??
-      payload.roomId ??
-      payload.room_id ??
-      payload.chat_room_id
+    payload.conversationId ??
+    payload.roomId ??
+    payload.room_id ??
+    payload.chat_room_id
   );
 };
 
@@ -488,19 +489,7 @@ export default function TopBarActions() {
   const { mode, toggleColorMode } = useColorMode();
   const { user, refreshUnreadCount, adminAssignments, activePersona, activeAdminAssignment, selectRolePersona, selectAdminPersona, isAdminUser } = useAuth();
 
-  const isJwtValid = React.useCallback((jwt: string) => {
-    try {
-      const [, payload] = jwt.split(".");
-      if (!payload) return false;
-      const decoded = JSON.parse(atob(payload));
-      const exp = decoded?.exp;
-      if (!exp || typeof exp !== "number") return false;
-      const now = Date.now() / 1000;
-      return exp - now > 30; // allow a small buffer
-    } catch {
-      return false;
-    }
-  }, []);
+
   const navigate = useNavigate();
   const downSm = useMediaQuery(theme.breakpoints.down("sm"));
   const [query, setQuery] = React.useState("");
@@ -628,8 +617,8 @@ export default function TopBarActions() {
         const targetPath = option.role === 'PHARMACIST'
           ? '/dashboard/pharmacist/overview'
           : option.role === 'OTHER_STAFF'
-          ? '/dashboard/otherstaff/overview'
-          : '/dashboard/explorer/overview';
+            ? '/dashboard/otherstaff/overview'
+            : '/dashboard/explorer/overview';
         navigate(targetPath);
       } else {
         selectAdminPersona(option.assignmentId);
@@ -843,8 +832,7 @@ export default function TopBarActions() {
       })
       .catch((error) => {
         if (cancelled) return;
-        console.error("Failed to load chat rooms", error);
-        setMessageSummaries({});
+        console.error("WebSocket error:", error);
       });
 
     return () => {
@@ -852,144 +840,158 @@ export default function TopBarActions() {
     };
   }, [user, refreshUnreadCount]);
 
-  const wsUrl = React.useMemo(() => {
-    if (!user) return null;
-    try {
-      const apiBase = (API_BASE_URL as string | undefined) ?? window.location.origin;
-      const resolved = new URL(apiBase, window.location.origin);
-      const wsProtocol = resolved.protocol === "https:" ? "wss:" : "ws:";
-      return `${wsProtocol}//${resolved.host}/ws/notifications/`;
-    } catch {
-      const { protocol, host } = window.location;
-      const wsProtocol = protocol === "https:" ? "wss:" : "ws:";
-      return `${wsProtocol}//${host}/ws/notifications/`;
-    }
-  }, [user]);
-
   React.useEffect(() => {
-    if (!wsUrl) {
-      return;
-    }
-    const socket = new WebSocket(wsUrl);
-    wsRef.current = socket;
+    if (!user) return;
 
-    socket.onmessage = (event) => {
+    let isCancelled = false;
+
+    const connectWs = async () => {
+      const ticket = await fetchWsTicket();
+      if (isCancelled || !ticket) return;
+
+      let wsUrl = "";
       try {
-        const payload = JSON.parse(event.data);
-        switch (payload.type) {
-          case "notification.counter":
-            // Backend counter includes message notifications.
-            // Web bell excludes chat notifications, so keep local filtered count source-of-truth.
-            break;
-          case "notification.created":
-            if (payload.notification) {
-              const incoming = payload.notification as NotificationItem;
-              if (isMessageNotification(incoming)) {
-                break;
-              }
-              try {
-                window.dispatchEvent(
-                  new CustomEvent("shift-slot-activity", {
-                    detail: incoming,
-                  })
-                );
-              } catch {
-                // ignore custom event failures
-              }
-              setNotifications((prev) => {
-                const next = [
-                  incoming,
-                  ...prev.filter((item) => item.id !== incoming.id),
-                ].slice(0, 25);
-                setUnreadNotifications(next.filter((item) => !item.readAt).length);
-                return next;
-              });
-            }
-            break;
-          case "notification.updated":
-            if (payload.notification) {
-              const incoming = payload.notification as NotificationItem;
-              if (isMessageNotification(incoming)) {
+        const apiBase = (API_BASE_URL as string | undefined) ?? window.location.origin;
+        const resolved = new URL(apiBase, window.location.origin);
+        const wsProtocol = resolved.protocol === "https:" ? "wss:" : "ws:";
+        const url = new URL(`${wsProtocol}//${resolved.host}/ws/notifications/`);
+        url.searchParams.set("ticket", ticket);
+        wsUrl = url.toString();
+      } catch {
+        const { protocol, host } = window.location;
+        const wsProtocol = protocol === "https:" ? "wss:" : "ws:";
+        const url = new URL(`${wsProtocol}//${host}/ws/notifications/`);
+        url.searchParams.set("ticket", ticket);
+        wsUrl = url.toString();
+      }
+
+      const socket = new WebSocket(wsUrl);
+      wsRef.current = socket;
+
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          switch (payload.type) {
+            case "notification.counter":
+              // Backend counter includes message notifications.
+              // Web bell excludes chat notifications, so keep local filtered count source-of-truth.
+              break;
+            case "notification.created":
+              if (payload.notification) {
+                const incoming = payload.notification as NotificationItem;
+                if (isMessageNotification(incoming)) {
+                  break;
+                }
+                try {
+                  window.dispatchEvent(
+                    new CustomEvent("shift-slot-activity", {
+                      detail: incoming,
+                    })
+                  );
+                } catch {
+                  // ignore custom event failures
+                }
                 setNotifications((prev) => {
-                  const next = prev.filter((item) => item.id !== incoming.id);
+                  const next = [
+                    incoming,
+                    ...prev.filter((item) => item.id !== incoming.id),
+                  ].slice(0, 25);
                   setUnreadNotifications(next.filter((item) => !item.readAt).length);
                   return next;
                 });
-                break;
               }
-              setNotifications((prev) => {
-                const next = prev.map((item) =>
-                  item.id === incoming.id
-                    ? incoming
-                    : item
-                );
-                setUnreadNotifications(next.filter((item) => !item.readAt).length);
-                return next;
-              });
-            }
-            break;
-          case "message.badge":
-            if (payload.conversation_id) {
-              setMessageSummaries((prev) => {
-                const next = { ...prev };
-                const existing = next[payload.conversation_id] || {
-                  conversation_id: payload.conversation_id,
-                  conversation_title: "",
-                  sender_name: "",
-                  body_preview: "",
-                  unread: 0,
-                };
-                next[payload.conversation_id] = {
-                  ...existing,
-                  conversation_title:
-                    payload.conversation_title ?? existing.conversation_title,
-                  sender_name: payload.sender_name ?? existing.sender_name,
-                  body_preview: payload.body_preview ?? existing.body_preview,
-                  unread: typeof payload.unread === "number" ? payload.unread : existing.unread,
-                };
-                return next;
-              });
-              refreshUnreadCount();
-            }
-            break;
-          case "message.read":
-            if (payload.conversation_id) {
-              setMessageSummaries((prev) => {
-                const next = { ...prev };
-                if (next[payload.conversation_id]) {
-                  next[payload.conversation_id] = {
-                    ...next[payload.conversation_id],
+              break;
+            case "notification.updated":
+              if (payload.notification) {
+                const incoming = payload.notification as NotificationItem;
+                if (isMessageNotification(incoming)) {
+                  setNotifications((prev) => {
+                    const next = prev.filter((item) => item.id !== incoming.id);
+                    setUnreadNotifications(next.filter((item) => !item.readAt).length);
+                    return next;
+                  });
+                  break;
+                }
+                setNotifications((prev) => {
+                  const next = prev.map((item) =>
+                    item.id === incoming.id
+                      ? incoming
+                      : item
+                  );
+                  setUnreadNotifications(next.filter((item) => !item.readAt).length);
+                  return next;
+                });
+              }
+              break;
+            case "message.badge":
+              if (payload.conversation_id) {
+                setMessageSummaries((prev) => {
+                  const next = { ...prev };
+                  const existing = next[payload.conversation_id] || {
+                    conversation_id: payload.conversation_id,
+                    conversation_title: "",
+                    sender_name: "",
+                    body_preview: "",
                     unread: 0,
                   };
-                }
-                return next;
-              });
-              refreshUnreadCount();
-            }
-            break;
-          default:
-            break;
+                  next[payload.conversation_id] = {
+                    ...existing,
+                    conversation_title:
+                      payload.conversation_title ?? existing.conversation_title,
+                    sender_name: payload.sender_name ?? existing.sender_name,
+                    body_preview: payload.body_preview ?? existing.body_preview,
+                    unread: typeof payload.unread === "number" ? payload.unread : existing.unread,
+                  };
+                  return next;
+                });
+                refreshUnreadCount();
+              }
+              break;
+            case "message.read":
+              if (payload.conversation_id) {
+                setMessageSummaries((prev) => {
+                  const next = { ...prev };
+                  if (next[payload.conversation_id]) {
+                    next[payload.conversation_id] = {
+                      ...next[payload.conversation_id],
+                      unread: 0,
+                    };
+                  }
+                  return next;
+                });
+                refreshUnreadCount();
+              }
+              break;
+            default:
+              break;
+          }
+        } catch (error) {
+          console.error("Failed to process websocket message", error);
         }
-      } catch (error) {
-        console.error("Failed to process websocket message", error);
-      }
+      };
+
+      socket.onerror = (error) => {
+        // Avoid noisy logs when the ticket is stale/invalid.
+        console.warn("Notifications websocket error", error);
+      };
+
+      socket.onclose = () => {
+        if (wsRef.current === socket) {
+          wsRef.current = null;
+        }
+      };
     };
 
-    socket.onerror = (error) => {
-      // Avoid noisy logs when the token is stale/invalid; we'll retry after next token change.
-      console.warn("Notifications websocket error", error);
-    };
+    connectWs();
 
-    socket.onclose = () => {
-      if (wsRef.current === socket) {
+    return () => {
+      isCancelled = true;
+      if (wsRef.current) {
+        wsRef.current.close();
         wsRef.current = null;
       }
     };
-
-    return () => {
-      socket.close();
-    };
-  }, [wsUrl, refreshUnreadCount]);
+  }, [user, refreshUnreadCount]);
 
   const handleOpenNotifications = (event: React.MouseEvent<HTMLElement>) => {
     setNotificationAnchor(event.currentTarget);
@@ -1047,10 +1049,10 @@ export default function TopBarActions() {
           role === "PHARMACIST"
             ? "pharmacist"
             : role === "OTHER_STAFF"
-            ? "otherstaff"
-            : role === "EXPLORER"
-            ? "explorer"
-            : null;
+              ? "otherstaff"
+              : role === "EXPLORER"
+                ? "explorer"
+                : null;
         if (rolePath) {
           const params = new URLSearchParams();
           params.set("tab", "accepted");
@@ -1371,8 +1373,8 @@ export default function TopBarActions() {
               const title = msg.sender_name
                 ? `${msg.sender_name} messaged you`
                 : msg.conversation_title
-                ? `New messages in ${msg.conversation_title}`
-                : "New messages";
+                  ? `New messages in ${msg.conversation_title}`
+                  : "New messages";
               const preview = msg.body_preview || "Open chat to read";
               return (
                 <React.Fragment key={msg.conversation_id}>

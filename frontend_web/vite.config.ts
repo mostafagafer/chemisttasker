@@ -11,7 +11,25 @@ export default defineConfig(({ command }) => {
 
     server: {
       host: 'localhost',
-      strictPort: true,   
+      strictPort: true,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:8000',
+          changeOrigin: true,
+          secure: false,
+        },
+        '/ws': {
+          target: 'ws://localhost:8000',
+          ws: true,
+          changeOrigin: true,
+          secure: false,
+        },
+        '/media': {
+          target: 'http://localhost:8000',
+          changeOrigin: true,
+          secure: false,
+        },
+      },
     },
 
     build: {

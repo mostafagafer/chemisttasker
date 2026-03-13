@@ -1,5 +1,6 @@
 import axios, { AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants/api';
+import { refreshCookieSession } from '../utils/tokenService';
 
 interface RetryConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
@@ -41,9 +42,11 @@ api.interceptors.response.use(
       }
       isRefreshing = true;
       return new Promise<AxiosResponse>((resolve, reject) => {
-        axios
-          .post(`${API_BASE_URL}${API_ENDPOINTS.refresh}`, {}, { withCredentials: true })
-          .then(() => {
+        refreshCookieSession(true)
+          .then((refreshed) => {
+            if (!refreshed?.access) {
+              throw new Error('Refresh failed');
+            }
             processQueue(null);
             resolve(api(original));
           })

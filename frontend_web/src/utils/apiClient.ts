@@ -1,7 +1,7 @@
 // src/utils/apiClient.ts
 import axios, { AxiosError, AxiosResponse } from 'axios';
 import type { InternalAxiosRequestConfig } from 'axios';
-import { clearTokens } from './tokenService';
+import { clearTokens, refreshCookieSession } from './tokenService';
 import { API_BASE_URL } from '../constants/api';
 
 const apiClient = axios.create({
@@ -50,7 +50,10 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
-        await axios.post(`${API_BASE_URL}/users/token/refresh/`, {}, { withCredentials: true });
+        const refreshed = await refreshCookieSession(true);
+        if (!refreshed?.access) {
+          throw new Error('Refresh failed');
+        }
         return apiClient(originalRequest);
       } catch (refreshErr) {
         // fall through to logout behaviour

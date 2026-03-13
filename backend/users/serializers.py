@@ -330,15 +330,16 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 class CustomTokenRefreshSerializer(TokenRefreshSerializer):
     def validate(self, attrs):
-        data = super().validate(attrs)
         try:
-            refresh = RefreshToken(attrs['refresh'])
-            user = User.objects.get(id=refresh['user_id'])
+            original_refresh = RefreshToken(attrs['refresh'])
+            user = User.objects.get(id=original_refresh['user_id'])
         except (KeyError, TokenError, User.DoesNotExist):
             raise serializers.ValidationError({'detail': 'Token is invalid or expired.'})
         except Exception:
             # Never allow refresh endpoint to 500 on malformed/legacy tokens.
             raise serializers.ValidationError({'detail': 'Token is invalid or expired.'})
+
+        data = super().validate(attrs)
 
         try:
             org_memberships = OrganizationMembership.objects.filter(user=user)

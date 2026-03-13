@@ -16,7 +16,7 @@ import { type PersonaMode, type AdminLevel } from "@chemisttasker/shared-core";
 import { AdminCapability, ALL_ADMIN_CAPABILITIES } from "../constants/adminCapabilities";
 import { AUTH_TOKENS_CLEARED_EVENT } from "../utils/tokenService";
 import { API_BASE_URL } from "../constants/api";
-import { setTokens, clearTokens } from "../utils/tokenService";
+import { setTokens, clearTokens, refreshCookieSession } from "../utils/tokenService";
 
 export interface OrgMembership {
   organization_id: number;
@@ -148,25 +148,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
-  const refreshAccessToken = useCallback(async (): Promise<{ access: string; refresh: string } | null> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/users/token/refresh/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({}),
-      });
-      if (!response.ok) return null;
-      const data: any = await response.json().catch(() => ({}));
-      if (!data?.access) return null;
-      const nextRefresh = data.refresh ?? "";
-      setTokens(data.access, nextRefresh);
-      return { access: data.access, refresh: nextRefresh };
-    } catch {
-      return null;
-    }
-  }, []);
-
   const ownedPharmacyIds = useMemo<Set<number>>(() => {
     const ownerSet = new Set<number>();
     const records = user?.memberships ?? [];
@@ -274,7 +255,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       try {
         let parsedUser: User | null = await fetchCurrentUser();
         if (!parsedUser) {
-          const refreshed = await refreshAccessToken();
+          const refreshed = await refreshCookieSession(true);
           if (!refreshed) {
             clearTokens();
             clearLocalAuthState();
@@ -303,7 +284,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
 
     void bootstrap();
-  }, [clearLocalAuthState, fetchCurrentUser, refreshAccessToken]);
+  }, [clearLocalAuthState, fetchCurrentUser]);
 
   useEffect(() => {
     if (!user) {

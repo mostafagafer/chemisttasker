@@ -1,8 +1,11 @@
 // src/utils/tokenService.ts
+import axios from 'axios';
+import { API_BASE_URL } from '../constants/api';
 
 export const AUTH_TOKENS_CLEARED_EVENT = 'auth:tokens-cleared';
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
+let refreshPromise: Promise<{ access: string; refresh: string } | null> | null = null;
 
 const decodeJwtPayload = (token: string): { exp?: number } | null => {
   try {
@@ -41,4 +44,42 @@ export function clearTokens() {
   accessToken = null;
   refreshToken = null;
   window.dispatchEvent(new Event(AUTH_TOKENS_CLEARED_EVENT));
+}
+
+export async function refreshCookieSession(force = false): Promise<{ access: string; refresh: string } | null> {
+  if (!force && accessToken && !isTokenExpired(accessToken)) {
+    return { access: accessToken, refresh: refreshToken ?? '' };
+  }
+
+  if (refreshPromise) {
+    return refreshPromise;
+  }
+
+  refreshPromise = (async () => {
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/users/token/refresh/`,
+        {},
+        {
+          withCredentials: true,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+      const data = response?.data ?? {};
+      if (!data.access) {
+        clearTokens();
+        return null;
+      }
+      const nextRefresh = data.refresh ?? refreshToken ?? '';
+      setTokens(data.access, nextRefresh);
+      return { access: data.access, refresh: nextRefresh };
+    } catch {
+      clearTokens();
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
 }

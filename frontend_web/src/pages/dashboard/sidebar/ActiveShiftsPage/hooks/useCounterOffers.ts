@@ -5,8 +5,7 @@ import {
 } from '@chemisttasker/shared-core';
 import {
     getAccessToken,
-    getRefreshToken,
-    setTokens,
+    refreshCookieSession,
     clearTokens,
 } from '../../../../../utils/tokenService';
 
@@ -27,29 +26,12 @@ export function useCounterOffers() {
     }, []);
 
     const getAccessWithRefresh = useCallback(async () => {
-        const baseURL = import.meta.env.VITE_API_URL as string;
         const existing = getAccessToken();
         if (existing) return existing;
 
-        const refresh = getRefreshToken();
-        if (!refresh) return null;
-
         try {
-            const response = await fetch(`${baseURL}/users/token/refresh/`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ refresh }),
-            });
-            if (!response.ok) {
-                throw new Error(`Refresh failed with status ${response.status}`);
-            }
-            const data = await response.json().catch(() => ({}));
-            const nextAccess = data.access;
-            const nextRefresh = data.refresh ?? refresh;
-            if (nextAccess) {
-                setTokens(nextAccess, nextRefresh);
-                return nextAccess;
-            }
+            const refreshed = await refreshCookieSession(true);
+            return refreshed?.access ?? null;
         } catch (error) {
             console.error('Failed to refresh token for counter offer accept', error);
             clearTokens();

@@ -1,5 +1,12 @@
 import { API_ENDPOINTS as SHARED_ENDPOINTS } from '@chemisttasker/shared-core';
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+const rawApiBaseUrl = import.meta.env.VITE_API_URL || '';
+const useLocalProxy =
+  import.meta.env.DEV &&
+  /^http:\/\/(localhost|127\.0\.0\.1):8000\/api\/?$/.test(rawApiBaseUrl);
+
+export const API_BASE_URL = useLocalProxy
+  ? `${window.location.origin}/api`
+  : rawApiBaseUrl;
 
 export const API_ENDPOINTS = SHARED_ENDPOINTS;

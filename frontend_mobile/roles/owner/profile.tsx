@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getOnboarding, deleteAccount, updateOnboardingForm } from '@chemisttasker/shared-core';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
+import apiClient from '../../utils/apiClient';
 
 interface UserProfile {
   id: number;
@@ -29,6 +30,12 @@ export default function OwnerProfileScreen() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteText, setDeleteText] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [subscriptionSummary, setSubscriptionSummary] = useState<{
+    active: boolean;
+    status: string;
+    staffCount: number;
+    extraSeatCount: number;
+  } | null>(null);
   const webBaseUrl = 'https://www.chemisttasker.com.au';
   const imageMediaTypes = (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
   const menuItems = [
@@ -42,6 +49,20 @@ export default function OwnerProfileScreen() {
 
   useEffect(() => {
     fetchProfile();
+  }, []);
+
+  useEffect(() => {
+    apiClient
+      .get('/billing/subscription/')
+      .then(({ data }) => {
+        setSubscriptionSummary({
+          active: !!data?.active,
+          status: data?.status || 'inactive',
+          staffCount: data?.staffCount ?? 5,
+          extraSeatCount: data?.extraSeatCount ?? 0,
+        });
+      })
+      .catch(() => setSubscriptionSummary(null));
   }, []);
 
   const fetchProfile = async () => {
@@ -255,6 +276,26 @@ export default function OwnerProfileScreen() {
               }}
             />
           </Surface>
+        </View>
+
+        <View style={styles.section}>
+          <Text variant="titleSmall" style={styles.sectionTitle}>Billing</Text>
+          <Card style={styles.menuCard} onPress={() => router.push('/owner/subscription-seats' as any)}>
+            <Card.Content style={styles.menuContent}>
+              <View style={styles.menuIcon}>
+                <IconButton icon="credit-card-outline" size={24} iconColor="#6366F1" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="titleMedium" style={styles.menuTitle}>Subscription and seats</Text>
+                <Text variant="bodySmall" style={styles.menuDesc}>
+                  {subscriptionSummary?.active
+                    ? `Active with ${subscriptionSummary.staffCount} seats (${subscriptionSummary.extraSeatCount} extra).`
+                    : 'Open subscription first, then manage extra seats here.'}
+                </Text>
+              </View>
+              <IconButton icon="chevron-right" size={24} iconColor="#9CA3AF" />
+            </Card.Content>
+          </Card>
         </View>
 
         <View style={styles.logoutContainer}>

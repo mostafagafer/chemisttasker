@@ -848,7 +848,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                     <Typography variant="body2" sx={{ mb: 2 }}>
                                         A candidate has accepted the shift, but payment is required to finalize the assignment.
                                     </Typography>
-                                    <Box>
+                                    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                                         <button
                                             style={{
                                                 padding: '8px 16px',
@@ -1052,7 +1052,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                 idx === 0 || (prev && isDedicatedShift(prev) !== isDedicated);
                             return (
                                 <React.Fragment key={shift.id}>
-                                    {showSectionHeader && (
+                                    {showSectionHeader && isDedicated && (
                                         <Box sx={{ px: 1, pt: idx === 0 ? 0 : 2 }}>
                                             <Typography variant="overline" color="text.secondary">
                                                 {isDedicated ? 'Direct / Private Offers' : 'Active Shifts'}

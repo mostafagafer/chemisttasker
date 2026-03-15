@@ -5,7 +5,9 @@ import {
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import { useNavigate } from 'react-router-dom';
 import logoBanner from '../assets/logo-banner.jpg';
+import { useAuth } from '../contexts/AuthContext';
 import { setCanonical, setPageMeta, setSocialMeta } from '../utils/seo';
 
 // --- Constants ---
@@ -17,6 +19,12 @@ const PAGE_ROUTES = {
     privacyPolicy: '/privacy-policy',
     termsOfService: '/terms-of-service',
 };
+
+const orgFeatures = [
+    'Centralized pharmacy management across one organization',
+    'Invite and coordinate multiple admins and internal teams',
+    'Organization shift operations, chat, and pharmacy hub workflows',
+];
 
 // --- Theme and Global Styles ---
 const theme = createTheme({
@@ -65,6 +73,8 @@ const PricingCard = styled(Card)(() => ({
 
 function PricingPage() {
     const [anchorElNav, setAnchorElNav] = useState<null | HTMLElement>(null);
+    const navigate = useNavigate();
+    const { user } = useAuth();
 
     useEffect(() => {
         const title = 'Pricing | ChemistTasker';
@@ -78,6 +88,19 @@ function PricingPage() {
 
     const handleOpenNavMenu = (event: React.MouseEvent<HTMLElement>) => setAnchorElNav(event.currentTarget);
     const handleCloseNavMenu = () => setAnchorElNav(null);
+    const handleOwnerSubscribe = () => {
+        if (!user) {
+            navigate(PAGE_ROUTES.register);
+            return;
+        }
+
+        if (user.role === 'OWNER') {
+            navigate('/dashboard/owner/overview?view=billing');
+            return;
+        }
+
+        navigate('/dashboard');
+    };
 
     return (
         <ThemeProvider theme={theme}>
@@ -120,7 +143,7 @@ function PricingPage() {
                             Clear, transparent pricing
                         </Typography>
                         <Typography variant="h6" color="text.secondary" sx={{ fontWeight: 400, mb: 4, px: { xs: 2, md: 8 } }}>
-                            No hidden fees. Designed specifically for pharmacy owners. Staff and workers use ChemistTasker for free.
+                            No hidden fees. Built for pharmacy owners and growing organizations. Staff and workers use ChemistTasker for free.
                         </Typography>
                     </Container>
                 </Box>
@@ -131,7 +154,7 @@ function PricingPage() {
                         <Grid container spacing={4} justifyContent="center" alignItems="stretch">
 
                             {/* Pay As You Go */}
-                            <Grid size={{ xs: 12, md: 5 }}>
+                            <Grid size={{ xs: 12, md: 4 }}>
                                 <PricingCard>
                                     <CardContent sx={{ p: { xs: 4, md: 5 } }}>
                                         <Typography variant="h4" color="text.primary" gutterBottom>
@@ -178,7 +201,7 @@ function PricingPage() {
                             </Grid>
 
                             {/* Subscriber Pro */}
-                            <Grid size={{ xs: 12, md: 5 }}>
+                            <Grid size={{ xs: 12, md: 4 }}>
                                 <PricingCard sx={{ border: '2px solid #00a99d' }}>
                                     {/* Badge */}
                                     <Box sx={{
@@ -227,11 +250,51 @@ function PricingPage() {
 
                                         <CtaButton
                                             fullWidth
-                                            href={PAGE_ROUTES.register}
+                                            onClick={handleOwnerSubscribe}
                                             sx={{ py: 1.5, borderRadius: 2 }}
                                         >
                                             Subscribe & Save
                                         </CtaButton>
+                                    </CardContent>
+                                </PricingCard>
+                            </Grid>
+
+                            <Grid size={{ xs: 12, md: 4 }}>
+                                <PricingCard>
+                                    <CardContent sx={{ p: { xs: 4, md: 5 } }}>
+                                        <Typography variant="h4" color="text.primary" gutterBottom>
+                                            Organization
+                                        </Typography>
+                                        <Typography variant="body1" color="text.secondary" sx={{ mb: 4, minHeight: '48px' }}>
+                                            For groups managing multiple pharmacies, teams, and shared staffing operations.
+                                        </Typography>
+
+                                        <Typography variant="h3" sx={{ mb: 1 }}>
+                                            Contact us
+                                        </Typography>
+
+                                        <Box sx={{ mt: 4, mb: 4 }}>
+                                            <Divider sx={{ mb: 3 }} />
+                                            <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 2 }}>
+                                                Best for:
+                                            </Typography>
+                                            {orgFeatures.map((feature) => (
+                                                <Box key={feature} sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                                                    <CheckCircleIcon sx={{ color: 'primary.main', mr: 2 }} />
+                                                    <Typography>{feature}</Typography>
+                                                </Box>
+                                            ))}
+                                        </Box>
+
+                                        <Button
+                                            variant="outlined"
+                                            color="primary"
+                                            fullWidth
+                                            href="/pricing/organization"
+                                            sx={{ py: 1.5, borderRadius: 2, fontWeight: 'bold' }}
+                                        >
+                                            Contact Us
+                                        </Button>
                                     </CardContent>
                                 </PricingCard>
                             </Grid>

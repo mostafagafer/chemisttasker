@@ -163,7 +163,6 @@ export default function OwnerOverviewContainer() {
   const goToInterests = () => navigate(resolvePath("interests"));
   const goToManagePharmacies = () => navigate(resolvePath("manage-pharmacies/my-pharmacies"));
   const goToSettings = () => undefined;
-  const goToBilling = () => setViewParam("billing");
   const goToPharmacyManager = (query: string) =>
     navigate(`${resolvePath("manage-pharmacies/my-pharmacies")}${query}`);
   const handleEditPharmacy = (pharmacy: PharmacyDTO) => {
@@ -197,7 +196,6 @@ export default function OwnerOverviewContainer() {
             onOpenProfile={goToProfile}
             onOpenInterests={goToInterests}
             onOpenSettings={goToSettings}
-            onOpenBilling={goToBilling}
           />
         </>
       )}

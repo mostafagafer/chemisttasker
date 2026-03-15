@@ -4477,7 +4477,7 @@ class ShiftOfferViewSet(viewsets.ModelViewSet):
     def accept(self, request, pk=None):
         from billing.utils import (
             BILLING_STATE_PAYMENT_REQUIRED,
-            get_billing_state,
+            get_billing_state_for_pharmacy,
         )
 
         offer = self.get_object()
@@ -4498,7 +4498,7 @@ class ShiftOfferViewSet(viewsets.ModelViewSet):
 
         assignment_ids = []
         assignment_rates = []
-        billing_state = get_billing_state(shift.pharmacy.owner.user if getattr(shift.pharmacy, "owner", None) else request.user)
+        billing_state = get_billing_state_for_pharmacy(shift.pharmacy, acting_user=request.user)
         requires_payment = billing_state == BILLING_STATE_PAYMENT_REQUIRED
 
         with transaction.atomic():

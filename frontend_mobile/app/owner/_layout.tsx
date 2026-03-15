@@ -17,6 +17,7 @@ const tabTitles: Record<string, string> = {
   notifications: 'Notifications',
   calendar: 'Calendar',
   'talent-board': 'Talent Board',
+  'subscription-seats': 'Subscription',
 };
 
 const sidebarItems = [
@@ -195,7 +196,7 @@ export default function OwnerLayout() {
       segments.length >= 3;
     const isProfileSubPage =
       segments[0] === 'owner' &&
-      ['profile-detail'].includes(segments[1] ?? '');
+      ['profile-detail', 'subscription-seats'].includes(segments[1] ?? '');
 
     // Build parent path for nested routes: /owner/pharmacies/123/staff -> /owner/pharmacies/123
     let parent: string | null = null;
@@ -373,6 +374,7 @@ export default function OwnerLayout() {
         <Tabs.Screen name="talent-board" options={{ href: null }} />
         <Tabs.Screen name="onboarding" options={{ href: null }} />
         <Tabs.Screen name="profile-detail" options={{ href: null }} />
+        <Tabs.Screen name="subscription-seats" options={{ href: null }} />
       </Tabs>
     </>
   );

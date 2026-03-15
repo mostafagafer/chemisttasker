@@ -14,15 +14,18 @@ import {
   FormControlLabel,
   InputAdornment,
   Chip,
+  Stack,
 } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
+import CreditCardIcon from '@mui/icons-material/CreditCard';
 import { API_BASE_URL } from '../../constants/api';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { useNavigate } from 'react-router-dom';
 import ProfilePhotoUploader from '../../components/profilePhoto/ProfilePhotoUploader';
 import AccountDeletionSection from '../../components/AccountDeletionSection';
+import apiClient from '../../utils/apiClient';
 
 interface FormData {
   username: string;
@@ -63,6 +66,12 @@ export default function OwnerOnboarding() {
   const [profilePhotoFile, setProfilePhotoFile] = useState<File | null>(null);
   const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(null);
   const [profilePhotoCleared, setProfilePhotoCleared] = useState(false);
+  const [subscriptionSummary, setSubscriptionSummary] = useState<{
+    active: boolean;
+    status: string;
+    staffCount: number;
+    extraSeatCount: number;
+  } | null>(null);
 
   useEffect(() => {
     getOnboardingDetail(roleKey)
@@ -93,6 +102,22 @@ export default function OwnerOnboarding() {
       })
       .finally(() => setLoading(false));
   }, [roleKey]);
+
+  useEffect(() => {
+    apiClient
+      .get('/billing/subscription/')
+      .then(({ data }) => {
+        setSubscriptionSummary({
+          active: !!data.active,
+          status: data.status || 'inactive',
+          staffCount: data.staffCount ?? 5,
+          extraSeatCount: data.extraSeatCount ?? 0,
+        });
+      })
+      .catch(() => {
+        setSubscriptionSummary(null);
+      });
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -307,7 +332,33 @@ const handleSubmit = async (e: React.FormEvent) => {
           </Box>
         </Box>
 
-        <AccountDeletionSection />
+        <Paper variant="outlined" sx={{ mt: 4, p: 3, borderRadius: 3 }}>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', md: 'center' }} justifyContent="space-between">
+            <Box>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                <CreditCardIcon color="primary" />
+                <Typography variant="h6" fontWeight={700}>
+                  Subscription and seats
+                </Typography>
+              </Stack>
+              <Typography variant="body2" color="text.secondary">
+                {subscriptionSummary?.active
+                  ? `Active subscription with ${subscriptionSummary.staffCount} total seats (${subscriptionSummary.extraSeatCount} extra).`
+                  : 'No active subscription yet. Once active, you can manage extra seats here.'}
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              onClick={() => navigate('/dashboard/owner/overview?view=billing&mode=seats')}
+            >
+              {subscriptionSummary?.active ? 'Manage seats' : 'Open subscription'}
+            </Button>
+          </Stack>
+        </Paper>
+
+        <Box sx={{ mt: 4 }}>
+          <AccountDeletionSection />
+        </Box>
       </Paper>
     </Container>
   );

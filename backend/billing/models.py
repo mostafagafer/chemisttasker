@@ -3,24 +3,65 @@ from django.contrib.auth import get_user_model
 
 User = get_user_model()
 
+
 class OwnerSubscription(models.Model):
     STATUS_CHOICES = (
         ('active', 'Active'),
         ('inactive', 'Inactive'),
         ('canceled', 'Canceled'),
     )
-    
-    owner = models.OneToOneField(User, on_delete=models.CASCADE, related_name='subscription')
+
+    owner = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='subscription',
+        blank=True,
+        null=True,
+    )
+    organization = models.OneToOneField(
+        'client_profile.Organization',
+        on_delete=models.CASCADE,
+        related_name='subscription',
+        blank=True,
+        null=True,
+    )
+    billing_contact = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name='billing_contacts',
+        blank=True,
+        null=True,
+    )
     stripe_customer_id = models.CharField(max_length=255, blank=True, null=True)
     stripe_subscription_id = models.CharField(max_length=255, blank=True, null=True)
+    stripe_extra_seat_subscription_id = models.CharField(max_length=255, blank=True, null=True)
     status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='inactive')
     staff_count = models.IntegerField(default=5)
     current_period_end = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    (models.Q(owner__isnull=False) & models.Q(organization__isnull=True))
+                    | (models.Q(owner__isnull=True) & models.Q(organization__isnull=False))
+                ),
+                name='billing_subscription_single_account_owner_or_org',
+            ),
+        ]
+
+    @property
+    def account_label(self):
+        if self.organization_id:
+            return self.organization.name
+        if self.owner_id:
+            return self.owner.email
+        return 'Unknown billing account'
+
     def __str__(self):
-        return f"{self.owner.email} - {self.status} ({self.staff_count} staff)"
+        return f"{self.account_label} - {self.status} ({self.staff_count} staff)"
 
 class ShiftPayment(models.Model):
     PAYMENT_TYPE_CHOICES = (

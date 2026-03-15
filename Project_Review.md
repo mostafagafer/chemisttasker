@@ -32,3 +32,70 @@ The **Escalation Logic** found in `ActiveShiftsPage` and `EscalationStepper` is 
 
 ## Conclusion
 The codebase backs up the marketing claims. It is not a prototype; it has the structural integrity of a production-grade system ready for scaling.
+
+
+## Prompt
+Implement overdue unpaid accepted-shift enforcement for ChemistTasker.
+
+Current behavior:
+- When a worker accepts an offer and payment is required, the code sets:
+  - `ShiftOffer.status = ACCEPTED_AWAITING_PAYMENT`
+  - `Shift.payment_status = PENDING`
+- If payment is later completed, billing webhook finalizes the offer and sets the shift to paid.
+- There is already manual cancellation penalty logic in `backend/billing/views.py` via `charge_penalty(request, shift_id)`.
+- There is currently no automatic handling when the shift start time passes and payment was never made.
+- As a result, shifts can remain stuck in overdue unpaid state forever.
+
+What I want:
+1. Add backend logic to detect overdue unpaid accepted shifts.
+2. Define and implement a clear state transition for:
+   - shift payment still pending
+   - accepted offer awaiting payment
+   - shift start time has passed
+3. Reuse the existing cancellation-penalty concept where appropriate, but do not force automatic charging without a clear trigger.
+4. Make the behavior safe, explicit, and auditable.
+
+Expected solution shape:
+1. Add a scheduled backend task/job that runs periodically and finds shifts/offers where:
+   - `Shift.payment_status == 'PENDING'`
+   - at least one related `ShiftOffer.status == 'ACCEPTED_AWAITING_PAYMENT'`
+   - the relevant shift start datetime has already passed
+2. Decide and implement the overdue rule. Recommended default:
+   - mark the accepted-awaiting-payment offer as expired/failed due to non-payment
+   - keep a clear overdue marker on the shift, or introduce a state that indicates payment deadline missed
+   - do not silently finalize or ignore it
+3. If penalty should be collectible after overdue:
+   - make the system expose/use the existing `charge_penalty` flow
+   - do not automatically charge a card unless the business rule explicitly says so
+4. Prevent easy escape hatches like deleting a shift to avoid consequence, or at least identify and document current delete behavior.
+5. Keep the implementation role-aware:
+   - owner
+   - organization admin
+   - pharmacy admin
+   The system must not hardcode owner-only assumptions.
+
+Also do this:
+1. Review the current delete/cancel shift path and explain whether deleting an overdue unpaid shift is currently possible.
+2. Review where the overdue-payment action should appear in the UI.
+3. Recommend the best UI placement in plain English, based on the current active shift pages and billing flow.
+
+Constraints:
+1. Keep changes consistent with the existing billing model already in this codebase.
+2. Avoid logging sensitive Stripe payloads or secrets.
+3. Preserve current working subscription and shift payment flows.
+4. If model changes are needed, add migrations.
+5. Verify with `manage.py check`.
+
+Files likely involved:
+- `backend/billing/views.py`
+- `backend/billing/models.py`
+- `backend/client_profile/views.py`
+- `backend/client_profile/models.py`
+- any task/scheduler files already used in this project for periodic jobs
+
+Deliverables:
+1. backend overdue-payment enforcement
+2. clear state transitions
+3. review of delete behavior
+4. recommendation for UI placement of overdue penalty/payment handling
+5. concise summary of what changed and any remaining edge cases

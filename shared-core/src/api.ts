@@ -2448,6 +2448,21 @@ export function createSubscriptionCheckout(payload: { staffCount: number; paymen
     });
 }
 
+export function getCurrentSubscription(pharmacyId?: number) {
+    const query = pharmacyId ? `?pharmacy_id=${pharmacyId}` : '';
+    return fetchApi(`/billing/subscription/${query}`);
+}
+
+export function updateSubscriptionSeats(payload: { staffCount: number; pharmacyId?: number }) {
+    return fetchApi('/billing/subscription/seats/', {
+        method: 'POST',
+        body: JSON.stringify({
+            staff_count: payload.staffCount,
+            pharmacy_id: payload.pharmacyId
+        })
+    });
+}
+
 export function chargeShiftFulfillment(shiftId: number) {
     return fetchApi(`/billing/charge-fulfillment/${shiftId}/`, {
         method: 'POST'

@@ -2,12 +2,13 @@
 // Mobile implementation aligned with web logic and hooks
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Linking } from 'react-native';
 import { Text, Button, IconButton, Snackbar, ActivityIndicator, Card, Divider, Chip } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { subscribeShiftSlotActivity } from '@/utils/pushNotifications';
+import apiClient from '@/utils/apiClient';
 import {
     Shift,
     ShiftInterest,
@@ -852,6 +853,40 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
 
                                         <Divider style={styles.divider} />
 
+                                        {(shift as any).paymentStatus === 'PENDING' && (
+                                            <View style={styles.paymentRequiredBox}>
+                                                <Text style={styles.paymentRequiredTitle}>
+                                                    Payment Required
+                                                </Text>
+                                                <Text style={styles.paymentRequiredText}>
+                                                    A candidate confirmed this shift. Complete payment to finalise their booking.
+                                                </Text>
+                                                <Button
+                                                    mode="contained"
+                                                    buttonColor={customTheme.colors.error}
+                                                    onPress={async () => {
+                                                        try {
+                                                            const { data: res } = await apiClient.post(`/billing/charge-fulfillment/${shift.id}/`, {
+                                                                platform: 'mobile',
+                                                            });
+                                                            if (res?.url) {
+                                                                await Linking.openURL(res.url);
+                                                            } else if (res?.free) {
+                                                                showSnackbar(res?.message || 'Shift finalized without payment.');
+                                                                await loadShifts();
+                                                            } else {
+                                                                showSnackbar('Payment session was not returned.');
+                                                            }
+                                                        } catch (err: any) {
+                                                            showSnackbar(err?.message || 'Failed to initiate payment.');
+                                                        }
+                                                    }}
+                                                >
+                                                    Pay Now
+                                                </Button>
+                                            </View>
+                                        )}
+
                                         <View style={styles.sectionHeader}>
                                             <Divider style={styles.sectionDivider} />
                                             <Chip mode="outlined" style={styles.sectionChip}>
@@ -1093,6 +1128,25 @@ const styles = StyleSheet.create({
     descriptionText: {
         color: customTheme.colors.text,
         fontSize: 13,
+        lineHeight: 18,
+    },
+    paymentRequiredBox: {
+        marginBottom: customTheme.spacing.md,
+        padding: customTheme.spacing.md,
+        backgroundColor: customTheme.colors.errorLight,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: customTheme.colors.error,
+        gap: customTheme.spacing.sm,
+    },
+    paymentRequiredTitle: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: customTheme.colors.error,
+    },
+    paymentRequiredText: {
+        fontSize: 13,
+        color: customTheme.colors.text,
         lineHeight: 18,
     },
     sectionHeader: {

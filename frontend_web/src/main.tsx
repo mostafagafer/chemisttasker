@@ -11,6 +11,7 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import App from './App';
 import LandingPage from './pages/LandingPage';
 import PricingPage from './pages/PricingPage';
+import OrganizationPricingPage from './pages/OrganizationPricingPage';
 import Login from './pages/login';
 import Register from './pages/register';
 import OTPVerify from './pages/OTPVerify';
@@ -20,6 +21,7 @@ import TermsOfServicePage from './pages/TermsOfServicePage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import NotFoundPage from './pages/NotFoundPage';
 import MobileOTPVerify from './pages/MobileOTPVerify';
+import MobileCheckoutReturnPage from './pages/MobileCheckoutReturnPage';
 import AccountDeletionPage from './pages/AccountDeletionPage';
 
 import PublicJobBoardPage from './pages/PublicJobBoardPage';
@@ -106,9 +108,11 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <LandingPage /> },
       { path: 'pricing', element: <PricingPage /> },
+      { path: 'pricing/organization', element: <OrganizationPricingPage /> },
       { path: 'login', element: <Login /> },
       { path: 'otp-verify', element: <OTPVerify /> },
       { path: 'mobile-verify', element: <MobileOTPVerify /> },
+      { path: 'mobile-checkout-return', element: <MobileCheckoutReturnPage /> },
       { path: 'register', element: <Register /> },
       { path: 'password-reset', element: <PasswordResetRequestPage /> },
       { path: '/terms-of-service', element: <TermsOfServicePage /> },

@@ -245,6 +245,9 @@ cd backend
 venv\scripts\activate
 python manage.py qcluster
 
+cd backend
+stripe listen --events checkout.session.completed,invoice.paid,customer.subscription.deleted --forward-to localhost:8000/api/billing/webhook/
+
 cd frontend_web
 npm run dev:5173
 
@@ -255,5 +258,5 @@ cd frontend_web
 npm run dev:5175
 
 cd frontend_mobile
-set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.2
+set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.7
 npx expo start --dev-client --lan --clear

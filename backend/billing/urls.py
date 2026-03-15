@@ -4,7 +4,9 @@ from . import views
 app_name = 'billing'
 
 urlpatterns = [
+    path('subscription/', views.current_subscription, name='current_subscription'),
     path('subscribe/', views.create_subscription_checkout, name='subscribe'),
+    path('subscription/seats/', views.update_subscription_seats, name='update_subscription_seats'),
     path('charge-fulfillment/<int:shift_id>/', views.charge_shift_fulfillment, name='charge_fulfillment'),
     path('charge-penalty/<int:shift_id>/', views.charge_penalty, name='charge_penalty'),
     

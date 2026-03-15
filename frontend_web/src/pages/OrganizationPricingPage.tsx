@@ -10,6 +10,8 @@ import StorefrontIcon from '@mui/icons-material/Storefront';
 import HubIcon from '@mui/icons-material/Hub';
 import logoBanner from '../assets/logo-banner.jpg';
 import PublicContactFormSection from '../components/PublicContactFormSection';
+import { useAuth } from '../contexts/AuthContext';
+import { resolveDashboardPath } from '../utils/dashboardPath';
 import { setCanonical, setPageMeta, setSocialMeta } from '../utils/seo';
 
 const theme = createTheme({
@@ -79,6 +81,8 @@ const featureGroups = [
 
 export default function OrganizationPricingPage() {
   const [anchorElNav, setAnchorElNav] = useState<null | HTMLElement>(null);
+  const { user } = useAuth();
+  const dashboardHref = resolveDashboardPath(user?.role);
 
   useEffect(() => {
     const title = 'Organization Pricing | ChemistTasker';
@@ -104,8 +108,16 @@ export default function OrganizationPricingPage() {
             </a>
             <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'flex' }, justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
               <Button href="/pricing" sx={{ color: 'text.primary', fontWeight: 500 }}>Pricing</Button>
-              <Button href={PAGE_ROUTES.login} sx={{ color: 'text.primary', fontWeight: 500 }}>Login</Button>
-              <CtaButton href={PAGE_ROUTES.register} variant="contained" size="small" sx={{ px: 2.5, py: 1 }}>Sign Up</CtaButton>
+              {user ? (
+                <CtaButton href={dashboardHref} variant="contained" size="small" sx={{ px: 2.5, py: 1 }}>
+                  Go to Dashboard
+                </CtaButton>
+              ) : (
+                <>
+                  <Button href={PAGE_ROUTES.login} sx={{ color: 'text.primary', fontWeight: 500 }}>Login</Button>
+                  <CtaButton href={PAGE_ROUTES.register} variant="contained" size="small" sx={{ px: 2.5, py: 1 }}>Sign Up</CtaButton>
+                </>
+              )}
             </Box>
             <Box sx={{ flexGrow: 1, display: { xs: 'flex', md: 'none' }, justifyContent: 'flex-end' }}>
               <IconButton size="large" onClick={handleOpenNavMenu} color="inherit">
@@ -121,10 +133,16 @@ export default function OrganizationPricingPage() {
                 sx={{ display: { xs: 'block', md: 'none' } }}
               >
                 <MenuItem component="a" href="/pricing"><Typography>Pricing</Typography></MenuItem>
-                <MenuItem component="a" href={PAGE_ROUTES.login}><Typography>Login</Typography></MenuItem>
-                <MenuItem component="a" href={PAGE_ROUTES.register}>
-                  <CtaButton variant="contained" fullWidth>Sign Up</CtaButton>
-                </MenuItem>
+                {user ? (
+                  <MenuItem component="a" href={dashboardHref}><Typography>Go to Dashboard</Typography></MenuItem>
+                ) : (
+                  <>
+                    <MenuItem component="a" href={PAGE_ROUTES.login}><Typography>Login</Typography></MenuItem>
+                    <MenuItem component="a" href={PAGE_ROUTES.register}>
+                      <CtaButton variant="contained" fullWidth>Sign Up</CtaButton>
+                    </MenuItem>
+                  </>
+                )}
               </Menu>
             </Box>
           </Toolbar>

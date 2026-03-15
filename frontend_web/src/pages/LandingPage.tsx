@@ -1,12 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  AppBar, Box, Button, Container, CssBaseline, IconButton, Menu, MenuItem, ThemeProvider,
+  AppBar, Box, Button, Container, IconButton, Menu, MenuItem, ThemeProvider,
   Toolbar, Typography, createTheme, styled, Modal, Link, TextField, Snackbar, Alert
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import * as THREE from 'three';
 import YouTube from 'react-youtube';
 import logoBanner from '../assets/logo-banner.jpg';
+import appStoreBadge from '../assets/app-store-badge.svg';
+import googlePlayBadge from '../assets/google-play-badge.svg';
+import AuthLayout from '../layouts/AuthLayout';
+import { useAuth } from '../contexts/AuthContext';
+import { resolveDashboardPath } from '../utils/dashboardPath';
 import { setCanonical, setPageMeta, setSocialMeta } from '../utils/seo';
 import { contactSupport } from '@chemisttasker/shared-core';
 
@@ -18,6 +23,8 @@ const PAGE_ROUTES = {
   publicTalentBoard: '/talent/public-board',
   privacyPolicy: '/privacy-policy',
   termsOfService: '/terms-of-service',
+  googlePlay: 'https://play.google.com/store/apps/details?id=com.chemisttasker.app',
+  appStore: 'https://apps.apple.com/sb/app/chemisttasker/id6759088580',
 };
 
 // --- Theme and Global Styles ---
@@ -65,8 +72,18 @@ const FeatureCard = styled(Box)({
   },
 });
 
+const ElevatedSectionShell = styled(Box)({
+  backgroundColor: 'rgba(255,255,255,0.88)',
+  backdropFilter: 'blur(12px)',
+  border: '1px solid rgba(226,232,240,0.95)',
+  borderRadius: '2rem',
+  boxShadow: '0 24px 60px rgba(15, 23, 42, 0.10)',
+});
+
 function LandingPage() {
   const [anchorElNav, setAnchorElNav] = useState<null | HTMLElement>(null);
+  const { user } = useAuth();
+  const dashboardHref = resolveDashboardPath(user?.role);
 
   useEffect(() => {
     const title = 'ChemistTasker | Pharmacy Workforce Platform';
@@ -94,66 +111,84 @@ function LandingPage() {
   };
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <AppBar position="sticky" sx={{ bgcolor: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(10px)', boxShadow: 'none', borderBottom: '1px solid #e2e8f0' }}>
-        <Container maxWidth="xl">
-          <Toolbar disableGutters sx={{ justifyContent: 'space-between' }}>
-            <a href="/" style={{ display: 'flex', alignItems: 'center' }}>
-              <img src={logoBanner} alt="ChemistTaskerRx Logo" style={{ height: '48px', width: 'auto' }} />
-            </a>
-            <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'flex' }, justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
-              <Button href="/pricing" sx={{ color: 'text.primary', fontWeight: 500 }}>Pricing</Button>
-              <Button onClick={() => handleNavClick('#how-it-works')} sx={{ color: 'text.primary', fontWeight: 500 }}>How It Works</Button>
-              <Button onClick={() => handleNavClick('#for-who')} sx={{ color: 'text.primary', fontWeight: 500 }}>For Who?</Button>
-              <Button onClick={() => handleNavClick('#contact')} sx={{ color: 'text.primary', fontWeight: 500 }}>Contact</Button>
-              <Button href={PAGE_ROUTES.login} sx={{ color: 'text.primary', fontWeight: 500 }}>Login</Button>
-              <CtaButton href={PAGE_ROUTES.register} variant="contained" size="small" sx={{ px: 2.5, py: 1 }}>Sign Up</CtaButton>
-            </Box>
-            <Box sx={{ flexGrow: 1, display: { xs: 'flex', md: 'none' }, justifyContent: 'flex-end' }}>
-              <IconButton size="large" onClick={handleOpenNavMenu} color="inherit">
-                <MenuIcon sx={{ color: 'text.primary' }} />
-              </IconButton>
-              <Menu anchorEl={anchorElNav} anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-                keepMounted transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-                open={Boolean(anchorElNav)} onClose={handleCloseNavMenu}
-                sx={{ display: { xs: 'block', md: 'none' } }}>
-                <MenuItem component="a" href="/pricing"><Typography>Pricing</Typography></MenuItem>
-                <MenuItem onClick={() => handleNavClick('#how-it-works')}><Typography>How It Works</Typography></MenuItem>
-                <MenuItem onClick={() => handleNavClick('#for-who')}><Typography>For Who?</Typography></MenuItem>
-                <MenuItem onClick={() => handleNavClick('#contact')}><Typography>Contact</Typography></MenuItem>
-                <MenuItem component="a" href={PAGE_ROUTES.login}><Typography>Login</Typography></MenuItem>
-                <MenuItem component="a" href={PAGE_ROUTES.register}>
-                  <CtaButton variant="contained" fullWidth>Sign Up</CtaButton>
-                </MenuItem>
-              </Menu>
-            </Box>
-          </Toolbar>
-        </Container>
-      </AppBar>
+    <AuthLayout title="ChemistTasker" maxWidth={false} noCard showTitle={false}>
+      <ThemeProvider theme={theme}>
+        <Box sx={{ width: '100%' }}>
+          <AppBar position="sticky" sx={{ bgcolor: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(10px)', boxShadow: 'none', borderBottom: '1px solid #e2e8f0' }}>
+            <Container maxWidth="xl">
+              <Toolbar disableGutters sx={{ justifyContent: 'space-between' }}>
+                <a href="/" style={{ display: 'flex', alignItems: 'center' }}>
+                  <img src={logoBanner} alt="ChemistTaskerRx Logo" style={{ height: '48px', width: 'auto' }} />
+                </a>
+                <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'flex' }, justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+                  <Button href="/pricing" sx={{ color: 'text.primary', fontWeight: 500 }}>Pricing</Button>
+                  <Button onClick={() => handleNavClick('#how-it-works')} sx={{ color: 'text.primary', fontWeight: 500 }}>How It Works</Button>
+                  <Button onClick={() => handleNavClick('#for-who')} sx={{ color: 'text.primary', fontWeight: 500 }}>For Who?</Button>
+                  <Button onClick={() => handleNavClick('#contact')} sx={{ color: 'text.primary', fontWeight: 500 }}>Contact</Button>
+                  {user ? (
+                    <CtaButton href={dashboardHref} variant="contained" size="small" sx={{ px: 2.5, py: 1 }}>
+                      Go to Dashboard
+                    </CtaButton>
+                  ) : (
+                    <>
+                      <Button href={PAGE_ROUTES.login} sx={{ color: 'text.primary', fontWeight: 500 }}>Login</Button>
+                      <CtaButton href={PAGE_ROUTES.register} variant="contained" size="small" sx={{ px: 2.5, py: 1 }}>Sign Up</CtaButton>
+                    </>
+                  )}
+                </Box>
+                <Box sx={{ flexGrow: 1, display: { xs: 'flex', md: 'none' }, justifyContent: 'flex-end' }}>
+                  <IconButton size="large" onClick={handleOpenNavMenu} color="inherit">
+                    <MenuIcon sx={{ color: 'text.primary' }} />
+                  </IconButton>
+                  <Menu anchorEl={anchorElNav} anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                    keepMounted transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                    open={Boolean(anchorElNav)} onClose={handleCloseNavMenu}
+                    sx={{ display: { xs: 'block', md: 'none' } }}>
+                    <MenuItem component="a" href="/pricing"><Typography>Pricing</Typography></MenuItem>
+                    <MenuItem onClick={() => handleNavClick('#how-it-works')}><Typography>How It Works</Typography></MenuItem>
+                    <MenuItem onClick={() => handleNavClick('#for-who')}><Typography>For Who?</Typography></MenuItem>
+                    <MenuItem onClick={() => handleNavClick('#contact')}><Typography>Contact</Typography></MenuItem>
+                    {user ? (
+                      <MenuItem component="a" href={dashboardHref}><Typography>Go to Dashboard</Typography></MenuItem>
+                    ) : (
+                      <>
+                        <MenuItem component="a" href={PAGE_ROUTES.login}><Typography>Login</Typography></MenuItem>
+                        <MenuItem component="a" href={PAGE_ROUTES.register}>
+                          <CtaButton variant="contained" fullWidth>Sign Up</CtaButton>
+                        </MenuItem>
+                      </>
+                    )}
+                  </Menu>
+                </Box>
+              </Toolbar>
+            </Container>
+          </AppBar>
 
-      <main>
-        <HeroSection />
-        <HowItWorksSplitSection />
-        <ForWhoSection />
-        <ContactSection />
-        <FinalCTASection />
-      </main>
+          <main>
+            <HeroSection />
+            <HowItWorksSplitSection />
+            <ForWhoSection />
+            <ContactSection />
+            <FinalCTASection />
+            <MobileAppsSection />
+          </main>
 
-      <Box component="footer" sx={{ bgcolor: '#e9ecef', py: 4, textAlign: 'center' }}>
-        <Typography variant="body2" color="text.secondary">
-          &copy; {new Date().getFullYear()} CHEMISTTASKER PTY LTD. All rights reserved.
-        </Typography>
-        <Box sx={{ mt: 1 }}>
-          <Link href={PAGE_ROUTES.termsOfService} color="text.secondary" underline="hover" sx={{ mx: 1 }}>
-            Terms of Service
-          </Link>
-          <Link href={PAGE_ROUTES.privacyPolicy} color="text.secondary" underline="hover" sx={{ mx: 1 }}>
-            Privacy Policy
-          </Link>
+          <Box component="footer" sx={{ bgcolor: '#e9ecef', py: 4, textAlign: 'center' }}>
+            <Typography variant="body2" color="text.secondary">
+              &copy; {new Date().getFullYear()} CHEMISTTASKER PTY LTD. All rights reserved.
+            </Typography>
+            <Box sx={{ mt: 1 }}>
+              <Link href={PAGE_ROUTES.termsOfService} color="text.secondary" underline="hover" sx={{ mx: 1 }}>
+                Terms of Service
+              </Link>
+              <Link href={PAGE_ROUTES.privacyPolicy} color="text.secondary" underline="hover" sx={{ mx: 1 }}>
+                Privacy Policy
+              </Link>
+            </Box>
+          </Box>
         </Box>
-      </Box>
-    </ThemeProvider>
+      </ThemeProvider>
+    </AuthLayout>
   );
 }
 
@@ -249,7 +284,7 @@ const HeroSection: React.FC = () => {
         display: 'flex',
         alignItems: 'center',
         overflow: 'hidden',
-        bgcolor: 'background.paper',
+        bgcolor: 'transparent',
       }}
     >
       <Box
@@ -314,6 +349,79 @@ const HeroSection: React.FC = () => {
   );
 };
 
+const storeBadgeLinkSx = {
+  display: 'inline-flex',
+  transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+  borderRadius: '12px',
+  '&:hover': {
+    transform: 'translateY(-2px)',
+    boxShadow: '0 12px 24px rgba(15, 23, 42, 0.16)',
+  },
+};
+
+const storeBadgeImageSx = {
+  display: 'block',
+  height: 40,
+  width: 'auto',
+};
+
+const MobileAppsSection: React.FC = () => (
+  <Box component="section" sx={{ py: { xs: 8, md: 10 }, bgcolor: 'transparent' }}>
+    <Container>
+      <ElevatedSectionShell
+        sx={{
+          px: { xs: 3, md: 5 },
+          py: { xs: 5, md: 6 },
+          maxWidth: '48rem',
+          mx: 'auto',
+          textAlign: 'center',
+        }}
+      >
+        <Typography variant="overline" sx={{ letterSpacing: '0.2em', color: 'primary.main' }}>
+          MOBILE APP
+        </Typography>
+        <Typography variant="h2" component="h2" sx={{ mt: 1, fontSize: { xs: '2rem', md: '2.6rem' } }}>
+          Take ChemistTasker with you
+        </Typography>
+        <Typography color="text.primary" sx={{ mt: 2, maxWidth: 620, mx: 'auto' }}>
+          Download the ChemistTasker mobile app for faster shift updates, easier scheduling, and on-the-go access to your pharmacy workflow.
+        </Typography>
+        <Box
+          sx={{
+            mt: 4,
+            display: 'flex',
+            flexDirection: { xs: 'column', sm: 'row' },
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: 2,
+          }}
+        >
+          <Box
+            component="a"
+            href={PAGE_ROUTES.googlePlay}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Download ChemistTasker on Google Play"
+            sx={storeBadgeLinkSx}
+          >
+            <Box component="img" src={googlePlayBadge} alt="Get it on Google Play" sx={storeBadgeImageSx} />
+          </Box>
+          <Box
+            component="a"
+            href={PAGE_ROUTES.appStore}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Download ChemistTasker on the App Store"
+            sx={storeBadgeLinkSx}
+          >
+            <Box component="img" src={appStoreBadge} alt="Download on the App Store" sx={storeBadgeImageSx} />
+          </Box>
+        </Box>
+      </ElevatedSectionShell>
+    </Container>
+  </Box>
+);
+
 // --- How It Works Split Section (carousel/rotation+video for both roles) ---
 
 interface Step {
@@ -359,8 +467,9 @@ const pharmacistSteps: Step[] = [
 ];
 
 const HowItWorksSplitSection: React.FC = () => (
-  <Box id="how-it-works" component="section" sx={{ py: { xs: 8, md: 12 }, bgcolor: 'background.paper' }}>
+  <Box id="how-it-works" component="section" sx={{ py: { xs: 8, md: 12 }, bgcolor: 'transparent' }}>
     <Container>
+      <ElevatedSectionShell sx={{ px: { xs: 3, md: 5 }, py: { xs: 5, md: 6 } }}>
       <Box sx={{ textAlign: 'center', mb: 8 }}>
         <Typography variant="h2" component="h2">
           How It Works
@@ -395,6 +504,7 @@ const HowItWorksSplitSection: React.FC = () => (
           </Box>
         </Box>
       </Box>
+      </ElevatedSectionShell>
     </Container>
   </Box>
 );
@@ -529,7 +639,7 @@ const StepsCarousel: React.FC<{ steps: Step[] }> = ({ steps }) => {
 
 // --- For Who Section ---
 const ForWhoSection: React.FC = () => (
-  <Box id="for-who" component="section" sx={{ py: { xs: 10, md: 12 } }}>
+  <Box id="for-who" component="section" sx={{ py: { xs: 10, md: 12 }, bgcolor: 'transparent' }}>
     <Container>
       <Box sx={{ textAlign: 'center', mb: 8 }}>
         <Typography variant="h2" component="h2">An Ecosystem For Every Pharmacy Role</Typography>
@@ -605,8 +715,9 @@ const ContactSection: React.FC = () => {
   };
 
   return (
-    <Box id="contact" component="section" sx={{ py: { xs: 10, md: 12 }, bgcolor: '#f4f7fb' }}>
+    <Box id="contact" component="section" sx={{ py: { xs: 10, md: 12 }, bgcolor: 'transparent' }}>
       <Container>
+        <ElevatedSectionShell sx={{ px: { xs: 3, md: 5 }, py: { xs: 5, md: 6 } }}>
         <Box sx={{ textAlign: 'center', mb: 6 }}>
           <Typography variant="h2" component="h2">Contact Us</Typography>
           <Typography color="text.primary" sx={{ mt: 2, maxWidth: '42rem', mx: 'auto' }}>
@@ -641,6 +752,7 @@ const ContactSection: React.FC = () => {
             {toast.message}
           </Alert>
         </Snackbar>
+        </ElevatedSectionShell>
       </Container>
     </Box>
   );
@@ -648,9 +760,9 @@ const ContactSection: React.FC = () => {
 
 // --- Final CTA Section ---
 const FinalCTASection: React.FC = () => (
-  <Box component="section" sx={{ py: { xs: 10, md: 16 }, bgcolor: 'background.paper' }}>
+  <Box component="section" sx={{ py: { xs: 10, md: 16 }, bgcolor: 'transparent' }}>
     <Container sx={{ textAlign: 'center' }}>
-      <Box sx={{ maxWidth: '48rem', mx: 'auto' }}>
+      <ElevatedSectionShell sx={{ maxWidth: '48rem', mx: 'auto', px: { xs: 3, md: 5 }, py: { xs: 5, md: 6 } }}>
         <Typography variant="h2" component="h2" sx={{ fontSize: { xs: '2.25rem', md: '3rem' }, mb: 3 }}>
           Join the Future of Pharmacy Work.
         </Typography>
@@ -660,7 +772,7 @@ const FinalCTASection: React.FC = () => (
         <CtaButton href={PAGE_ROUTES.publicTalentBoard} sx={{ px: 5, py: 2, fontSize: '1.25rem' }}>
           Find Talent
         </CtaButton>
-      </Box>
+      </ElevatedSectionShell>
     </Container>
   </Box>
 );

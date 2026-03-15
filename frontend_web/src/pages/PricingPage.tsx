@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import {
-    AppBar, Box, Button, Container, CssBaseline, IconButton, Menu, MenuItem, ThemeProvider,
+    AppBar, Box, Button, Container, IconButton, Menu, MenuItem, ThemeProvider,
     Toolbar, Typography, createTheme, styled, Link, Card, CardContent, Divider, Grid
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { useNavigate } from 'react-router-dom';
 import logoBanner from '../assets/logo-banner.jpg';
+import AuthLayout from '../layouts/AuthLayout';
 import { useAuth } from '../contexts/AuthContext';
+import { resolveDashboardPath } from '../utils/dashboardPath';
 import { setCanonical, setPageMeta, setSocialMeta } from '../utils/seo';
 
 // --- Constants ---
@@ -75,6 +77,7 @@ function PricingPage() {
     const [anchorElNav, setAnchorElNav] = useState<null | HTMLElement>(null);
     const navigate = useNavigate();
     const { user } = useAuth();
+    const dashboardHref = resolveDashboardPath(user?.role);
 
     useEffect(() => {
         const title = 'Pricing | ChemistTasker';
@@ -103,8 +106,9 @@ function PricingPage() {
     };
 
     return (
+        <AuthLayout title="Pricing" maxWidth={false} noCard showTitle={false}>
         <ThemeProvider theme={theme}>
-            <CssBaseline />
+            <Box sx={{ width: '100%' }}>
             <AppBar position="sticky" sx={{ bgcolor: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(10px)', boxShadow: 'none', borderBottom: '1px solid #e2e8f0' }}>
                 <Container maxWidth="xl">
                     <Toolbar disableGutters sx={{ justifyContent: 'space-between' }}>
@@ -113,8 +117,16 @@ function PricingPage() {
                         </a>
                         <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'flex' }, justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
                             <Button href="/" sx={{ color: 'text.primary', fontWeight: 500 }}>Home</Button>
-                            <Button href={PAGE_ROUTES.login} sx={{ color: 'text.primary', fontWeight: 500 }}>Login</Button>
-                            <CtaButton href={PAGE_ROUTES.register} variant="contained" size="small" sx={{ px: 2.5, py: 1 }}>Sign Up</CtaButton>
+                            {user ? (
+                                <CtaButton href={dashboardHref} variant="contained" size="small" sx={{ px: 2.5, py: 1 }}>
+                                    Go to Dashboard
+                                </CtaButton>
+                            ) : (
+                                <>
+                                    <Button href={PAGE_ROUTES.login} sx={{ color: 'text.primary', fontWeight: 500 }}>Login</Button>
+                                    <CtaButton href={PAGE_ROUTES.register} variant="contained" size="small" sx={{ px: 2.5, py: 1 }}>Sign Up</CtaButton>
+                                </>
+                            )}
                         </Box>
                         <Box sx={{ flexGrow: 1, display: { xs: 'flex', md: 'none' }, justifyContent: 'flex-end' }}>
                             <IconButton size="large" onClick={handleOpenNavMenu} color="inherit">
@@ -125,10 +137,16 @@ function PricingPage() {
                                 open={Boolean(anchorElNav)} onClose={handleCloseNavMenu}
                                 sx={{ display: { xs: 'block', md: 'none' } }}>
                                 <MenuItem component="a" href="/"><Typography>Home</Typography></MenuItem>
-                                <MenuItem component="a" href={PAGE_ROUTES.login}><Typography>Login</Typography></MenuItem>
-                                <MenuItem component="a" href={PAGE_ROUTES.register}>
-                                    <CtaButton variant="contained" fullWidth>Sign Up</CtaButton>
-                                </MenuItem>
+                                {user ? (
+                                    <MenuItem component="a" href={dashboardHref}><Typography>Go to Dashboard</Typography></MenuItem>
+                                ) : (
+                                    <>
+                                        <MenuItem component="a" href={PAGE_ROUTES.login}><Typography>Login</Typography></MenuItem>
+                                        <MenuItem component="a" href={PAGE_ROUTES.register}>
+                                            <CtaButton variant="contained" fullWidth>Sign Up</CtaButton>
+                                        </MenuItem>
+                                    </>
+                                )}
                             </Menu>
                         </Box>
                     </Toolbar>
@@ -137,7 +155,7 @@ function PricingPage() {
 
             <main>
                 {/* Pricing Header */}
-                <Box sx={{ pt: { xs: 8, md: 12 }, pb: { xs: 6, md: 10 }, bgcolor: '#f4f7fb', textAlign: 'center' }}>
+                <Box sx={{ pt: { xs: 8, md: 12 }, pb: { xs: 6, md: 10 }, bgcolor: 'transparent', textAlign: 'center' }}>
                     <Container maxWidth="md">
                         <Typography variant="h1" sx={{ fontSize: { xs: '2.5rem', md: '3.5rem' }, mb: 3 }}>
                             Clear, transparent pricing
@@ -149,7 +167,7 @@ function PricingPage() {
                 </Box>
 
                 {/* Pricing Cards Section */}
-                <Box sx={{ py: 8, bgcolor: 'background.default' }}>
+                <Box sx={{ py: 8, bgcolor: 'transparent' }}>
                     <Container maxWidth="lg">
                         <Grid container spacing={4} justifyContent="center" alignItems="stretch">
 
@@ -304,7 +322,7 @@ function PricingPage() {
                 </Box>
 
                 {/* Cancellation section */}
-                <Box sx={{ py: 10, bgcolor: '#ffffff' }}>
+                <Box sx={{ py: 10, bgcolor: 'transparent' }}>
                     <Container maxWidth="md" sx={{ textAlign: 'center' }}>
                         <Typography variant="h3" sx={{ mb: 4 }}>Fair Cancellation Policies</Typography>
                         <Typography color="text.secondary" sx={{ fontSize: '1.1rem', mb: 4 }}>
@@ -349,7 +367,9 @@ function PricingPage() {
                     </Link>
                 </Box>
             </Box>
+            </Box>
         </ThemeProvider>
+        </AuthLayout>
     );
 }
 

@@ -1,12 +1,15 @@
-import { AppBar, Box, Container, Toolbar } from "@mui/material";
+import { Box, Container, Toolbar } from "@mui/material";
 import logoBanner from "../assets/logo-banner.jpg";
 
 export default function PublicLogoTopBar() {
   return (
-    <AppBar
-      position="sticky"
+    <Box
+      component="header"
       sx={{
-        bgcolor: "rgba(255,255,255,0.8)",
+        position: "sticky",
+        top: 0,
+        zIndex: 1100,
+        backgroundColor: "rgba(255,255,255,0.92)",
         backdropFilter: "blur(10px)",
         boxShadow: "none",
         borderBottom: "1px solid #e2e8f0",
@@ -24,7 +27,6 @@ export default function PublicLogoTopBar() {
           <Box />
         </Toolbar>
       </Container>
-    </AppBar>
+    </Box>
   );
 }
-

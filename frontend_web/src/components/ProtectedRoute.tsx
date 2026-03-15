@@ -3,6 +3,7 @@ import React from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { ORG_ROLES } from "../constants/roles";
+import { resolveDashboardPath } from "../utils/dashboardPath";
 
 type ProtectedRouteProps = {
   children: React.ReactElement;
@@ -17,27 +18,6 @@ export default function ProtectedRoute({
 }: ProtectedRouteProps) {
   const { token, user, isLoading, isAdminUser } = useAuth();
   const location = useLocation();
-
-  const resolveDashboardPath = (role?: string | null) => {
-    switch (role) {
-      case "ORG_ADMIN":
-      case "ORG_STAFF":
-      case "ORG_OWNER":
-      case "CHIEF_ADMIN":
-      case "REGION_ADMIN":
-        return "/dashboard/organization/overview";
-      case "OWNER":
-        return "/dashboard/owner/overview";
-      case "PHARMACIST":
-        return "/dashboard/pharmacist/overview";
-      case "OTHER_STAFF":
-        return "/dashboard/otherstaff/overview";
-      case "EXPLORER":
-        return "/dashboard/explorer/overview";
-      default:
-        return "/";
-    }
-  };
 
   if (isLoading) {
     return <div>Loading authentication...</div>;

@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import axios from 'axios';
 import {
   TextField,
   Button,
@@ -10,8 +9,8 @@ import {
   Link,
   Typography,
 } from '@mui/material';
-import { API_BASE_URL, API_ENDPOINTS } from '../constants/api';
 import AuthLayout from '../layouts/AuthLayout';
+import apiClient from '../utils/apiClient';
 
 export default function MobileOTPVerify() {
   const [mobile, setMobile]   = useState('');
@@ -25,22 +24,11 @@ export default function MobileOTPVerify() {
     setStatus('');
     setLoading(true);
     try {
-      await axios.post(
-        `${API_BASE_URL}${API_ENDPOINTS.mobileRequestOtp}`,
-        { mobile_number: mobile },
-        { withCredentials: true }
-      );
+      await apiClient.post('/users/mobile/request-otp/', { mobile_number: mobile });
       setStatus('We sent a code to your mobile.');
     } catch (err) {
-      if (axios.isAxiosError(err)) {
-        setError(
-          err.response?.data?.error ||
-          err.response?.data?.detail ||
-          'Failed to send code.'
-        );
-      } else {
-        setError('An unexpected error occurred. Please try again.');
-      }
+      const anyErr = err as any;
+      setError(anyErr?.response?.data?.error || anyErr?.response?.data?.detail || 'Failed to send code.');
     } finally {
       setLoading(false);
     }
@@ -52,19 +40,12 @@ export default function MobileOTPVerify() {
     setStatus('');
     setLoading(true);
     try {
-      await axios.post(
-        `${API_BASE_URL}${API_ENDPOINTS.mobileVerifyOtp}`,
-        { otp },
-        { withCredentials: true }
-      );
+      await apiClient.post('/users/mobile/verify-otp/', { otp });
       setStatus('Mobile verified! Redirecting...');
       setTimeout(() => window.location.assign('/login'), 800);
     } catch (err) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || err.response?.data?.detail || 'Verification failed.');
-      } else {
-        setError('An unexpected error occurred. Please try again.');
-      }
+      const anyErr = err as any;
+      setError(anyErr?.response?.data?.error || anyErr?.response?.data?.detail || 'Verification failed.');
     } finally {
       setLoading(false);
     }
@@ -75,18 +56,11 @@ export default function MobileOTPVerify() {
     setStatus('');
     setLoading(true);
     try {
-      await axios.post(
-        `${API_BASE_URL}${API_ENDPOINTS.mobileResendOtp}`,
-        {},
-        { withCredentials: true }
-      );
+      await apiClient.post('/users/mobile/resend-otp/', {});
       setStatus('A new code has been sent to your mobile.');
     } catch (err) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || err.response?.data?.detail || 'Could not resend code.');
-      } else {
-        setError('An unexpected error occurred. Please try again.');
-      }
+      const anyErr = err as any;
+      setError(anyErr?.response?.data?.error || anyErr?.response?.data?.detail || 'Could not resend code.');
     } finally {
       setLoading(false);
     }
@@ -104,7 +78,7 @@ export default function MobileOTPVerify() {
           label="Mobile Number"
           value={mobile}
           onChange={(e) => setMobile(e.target.value)}
-          placeholder="e.g., 0412 345 678 or 61412345678"
+          placeholder="e.g., 041x xxx xxx"
           required
         />
 

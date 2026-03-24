@@ -46,6 +46,7 @@ import RosterWorkerPage from './pages/dashboard/sidebar/RosterWorkerPage';
 
 
 import ProtectedRoute from './components/ProtectedRoute';
+import OwnerDashboardGate from './components/OwnerDashboardGate';
 import OwnerDashboardWrapper from './layouts/ownerDashboard';
 import AdminOverview from './pages/dashboard/admin/AdminOverview';
 import AdminManagePharmaciesPage from './pages/dashboard/admin/AdminManagePharmaciesPage';
@@ -101,6 +102,8 @@ import { AuthProvider } from './contexts/AuthContext';
 import PharmacistOnboardingV2Layout from './pages/onboarding/onboarding_pharmacist/PharmacistOnboardingV2Layout';
 import OtherStaffOnboardingV2Layout from './pages/onboarding/onboarding_staff/OtherStaffOnboardingV2Layout';
 import ExplorerOnboardingV2Layout from './pages/onboarding/onboarding_explorer/ExplorerOnboardingV2Layout';
+import OwnerSetupOnboardingPage from './pages/setup/OwnerSetupOnboardingPage';
+import OwnerSetupPharmaciesPage from './pages/setup/OwnerSetupPharmaciesPage';
 
 const router = createBrowserRouter([
   {
@@ -236,6 +239,22 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: 'setup/owner/onboarding',
+        element: (
+          <ProtectedRoute requiredRole="OWNER">
+            <OwnerSetupOnboardingPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'setup/owner/pharmacies',
+        element: (
+          <ProtectedRoute requiredRole="OWNER">
+            <OwnerSetupPharmaciesPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
         path: 'onboarding/pharmacist',
         element: (
           <ProtectedRoute requiredRole="PHARMACIST">
@@ -265,7 +284,9 @@ const router = createBrowserRouter([
         path: 'dashboard/owner',
         Component: () => (
           <ProtectedRoute requiredRole="OWNER">
-            <OwnerDashboardWrapper />
+            <OwnerDashboardGate>
+              <OwnerDashboardWrapper />
+            </OwnerDashboardGate>
           </ProtectedRoute>
         ),
         children: [

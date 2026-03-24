@@ -37,13 +37,25 @@ def _label_for_admin_level(level: str | None) -> str:
 
 
 def get_frontend_onboarding_url(user):
-    if user.role == 'OTHER_STAFF':
-        role_slug = 'otherstaff'
-    elif user.role == 'ORG_STAFF':
-        role_slug = 'organization'
-    else:
-        role_slug = (user.role or 'owner').lower()
-    return f"{settings.FRONTEND_BASE_URL}/onboarding/{role_slug}/"
+    base = (getattr(settings, "FRONTEND_BASE_URL", "") or "http://localhost:5173").rstrip("/")
+    role = (getattr(user, "role", "") or "").upper()
+
+    if role == "OWNER":
+        return f"{base}/dashboard/owner/onboarding"
+    if role == "PHARMACIST":
+        return f"{base}/dashboard/pharmacist/onboarding"
+    if role == "OTHER_STAFF":
+        return f"{base}/dashboard/otherstaff/onboarding"
+    if role == "EXPLORER":
+        return f"{base}/dashboard/explorer/onboarding"
+    if role in {"ORG_STAFF", "ORG_ADMIN", "CHIEF_ADMIN", "REGION_ADMIN", "ORGANIZATION"}:
+        return f"{base}/dashboard/organization/overview"
+    return f"{base}/dashboard/"
+
+
+def get_frontend_owner_pharmacies_url() -> str:
+    base = (getattr(settings, "FRONTEND_BASE_URL", "") or "http://localhost:5173").rstrip("/")
+    return f"{base}/dashboard/owner/manage-pharmacies/my-pharmacies"
 
 
 def build_org_invite_context(

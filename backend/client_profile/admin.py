@@ -1,5 +1,56 @@
 from django.contrib import admin
+from django import forms
+from django.core.exceptions import ValidationError
 from .models import *
+
+
+class OwnerOnboardingAdminForm(forms.ModelForm):
+    phone_number = forms.CharField(required=False)
+
+    class Meta:
+        model = OwnerOnboarding
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["phone_number"].help_text = "Uses the linked user's mobile number."
+        user = getattr(self.instance, "user", None)
+        if user and getattr(user, "mobile_number", None):
+            self.fields["phone_number"].initial = user.mobile_number
+        elif self.instance and getattr(self.instance, "phone_number", None):
+            self.fields["phone_number"].initial = self.instance.phone_number
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        phone_number = self.cleaned_data.get("phone_number", "")
+        user = getattr(instance, "user", None)
+
+        if user:
+            user.mobile_number = phone_number or None
+            if commit:
+                user.save(update_fields=["mobile_number"])
+
+        instance.phone_number = phone_number or (getattr(user, "mobile_number", None) or "")
+
+        if commit:
+            instance.save()
+            self.save_m2m()
+
+        return instance
+
+    def clean_phone_number(self):
+        phone_number = (self.cleaned_data.get("phone_number") or "").strip()
+        user = getattr(self.instance, "user", None)
+        return phone_number or getattr(user, "mobile_number", None) or getattr(self.instance, "phone_number", None) or ""
+
+    def clean(self):
+        cleaned_data = super().clean()
+        phone_number = cleaned_data.get("phone_number")
+        if not phone_number:
+            raise ValidationError({
+                "phone_number": "This user does not have a saved mobile number yet. Verify or enter the mobile number first."
+            })
+        return cleaned_data
 
 
 @admin.register(Organization)
@@ -12,8 +63,9 @@ class OrganizationAdmin(admin.ModelAdmin):
 
 @admin.register(OwnerOnboarding)
 class OwnerOnboardingAdmin(admin.ModelAdmin):
+    form = OwnerOnboardingAdminForm
     list_display = [
-        'user', 'role', 'chain_pharmacy', 'verified',
+        'user', 'role', 'chain_pharmacy', 'number_of_pharmacies', 'verified',
         'submitted_for_verification', 'organization', 'ahpra_verified', 'ahpra_verification_note',
         'ahpra_first_registration_date', 'ahpra_years_since_first_registration'
     ]
@@ -26,7 +78,7 @@ class OwnerOnboardingAdmin(admin.ModelAdmin):
         'phone_number', 'organization__name'
     ]
     fields = [
-        'user', 'phone_number', 'role', 'chain_pharmacy',
+        'user', 'phone_number', 'role', 'chain_pharmacy', 'number_of_pharmacies',
         'ahpra_number', 'ahpra_first_registration_date', 'ahpra_years_since_first_registration',
         'ahpra_verified', 'verified', 'submitted_for_verification', 'organization'
     ]
@@ -36,6 +88,11 @@ class OwnerOnboardingAdmin(admin.ModelAdmin):
     def ahpra_years_since_first_registration(self, obj):
         return obj.ahpra_years_since_first_registration
     def save_model(self, request, obj, form, change):
+        obj.phone_number = (
+            form.cleaned_data.get("phone_number")
+            or getattr(obj.user, "mobile_number", None)
+            or obj.phone_number
+        )
         obj.full_clean()
         super().save_model(request, obj, form, change)
 
@@ -204,12 +261,14 @@ class PharmacyModelAdmin(admin.ModelAdmin):
         'verified',
         'abn',
         'state',
+        'email',
     )
     list_filter = (
         'verified',
         'owner',
         'organization',
         'state',
+        'email',
     )
     search_fields = (
         'name',
@@ -226,6 +285,7 @@ class PharmacyModelAdmin(admin.ModelAdmin):
                 'organization',
                 'verified',
                 'abn',
+                'email',
             ),
         }),
     )

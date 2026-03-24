@@ -291,7 +291,7 @@ const activeLevelField = useMemo(() => {
               label="Mobile Number"
               value={mobile}
               onChange={(e) => setMobile(e.target.value)}
-              placeholder="e.g., 0412 345 678 or 61412345678"
+              placeholder="e.g., 041x xxx xxx"
               required
             />
 

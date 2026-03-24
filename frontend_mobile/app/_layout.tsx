@@ -9,6 +9,7 @@ import { WorkspaceProvider } from '../context/WorkspaceContext';
 import { theme } from '../constants/theme';
 import OfflineBanner from '../components/OfflineBanner';
 import '../config/api'; // Configure shared-core on app load
+import { getOwnerSetupStatus, ownerSetupPaths } from '../utils/ownerSetup';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -80,8 +81,10 @@ function AuthGate() {
   useEffect(() => {
     if (isLoading) return;
     const top = segments[0];
+    const second = segments[1];
     const publicRoutes = new Set(['login', 'register', 'welcome', 'verify-otp', 'forgot-password', 'reset-password', 'mobile-verify', 'index', 'contact']);
     const isPublic = publicRoutes.has(top ?? '');
+    const isOwnerSetupRoute = top === 'setup' && second === 'owner';
     const expectedTopByRole: Record<string, string> = {
       OWNER: 'owner',
       PHARMACIST: 'pharmacist',
@@ -90,23 +93,73 @@ function AuthGate() {
       ORGANIZATION: 'organization',
     };
 
-    if (user && isPublic) {
-      router.replace(getRoleHome(user.role) as any);
-      return;
-    }
+    let active = true;
+    const runGate = async () => {
+      if (user && isPublic) {
+        if (String(user.role || '').toUpperCase() === 'OWNER') {
+          const status = await getOwnerSetupStatus();
+          if (active) {
+            router.replace((status.nextPath || ownerSetupPaths.dashboard) as any);
+          }
+          return;
+        }
 
-    if (user && top) {
-      const normalizedRole = String(user.role || '').toUpperCase();
-      const expectedTop = expectedTopByRole[normalizedRole];
-      if (expectedTop && top !== expectedTop) {
         router.replace(getRoleHome(user.role) as any);
         return;
       }
-    }
 
-    if (!user && !isPublic) {
-      router.replace('/login');
-    }
+      if (user && top) {
+        const normalizedRole = String(user.role || '').toUpperCase();
+
+        if (normalizedRole === 'OWNER') {
+          const status = await getOwnerSetupStatus();
+          if (!active) return;
+
+          if (isOwnerSetupRoute) {
+            if (status.nextPath && status.nextPath !== `/${segments.join('/')}`) {
+              router.replace(status.nextPath as any);
+              return;
+            }
+            if (!status.nextPath) {
+              router.replace(ownerSetupPaths.dashboard as any);
+            }
+            return;
+          }
+
+          if (top !== 'owner') {
+            router.replace((status.nextPath || ownerSetupPaths.dashboard) as any);
+            return;
+          }
+
+          if (status.nextPath) {
+            router.replace(status.nextPath as any);
+            return;
+          }
+
+          return;
+        }
+
+        if (top === 'setup') {
+          router.replace(getRoleHome(user.role) as any);
+          return;
+        }
+
+        const expectedTop = expectedTopByRole[normalizedRole];
+        if (expectedTop && top !== expectedTop) {
+          router.replace(getRoleHome(user.role) as any);
+          return;
+        }
+      }
+
+      if (!user && !isPublic) {
+        router.replace('/login');
+      }
+    };
+
+    void runGate();
+    return () => {
+      active = false;
+    };
   }, [isLoading, segments, router, user]);
 
   return null;

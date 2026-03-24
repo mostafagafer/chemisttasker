@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { ActivityIndicator, Text } from 'react-native-paper';
-import { getPharmacyById, fetchMembershipsByPharmacy, fetchPharmacyAdminsService, PharmacyDTO, MembershipDTO, PharmacyAdminDTO } from '@chemisttasker/shared-core';
+import { getPharmacyById, fetchMembershipsByPharmacy, fetchPharmacyAdminsService, PharmacyDTO, MembershipDTO, PharmacyAdminDTO, updatePharmacy } from '@chemisttasker/shared-core';
 import PharmacyDetailView from '@/roles/shared/pharmacies/PharmacyDetailView';
 
 export default function PharmacyDetailsScreen() {
@@ -15,6 +15,8 @@ export default function PharmacyDetailsScreen() {
   const [admins, setAdmins] = useState<PharmacyAdminDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [autoPublishSaving, setAutoPublishSaving] = useState(false);
+  const [autoPublishError, setAutoPublishError] = useState('');
 
   const loadData = async () => {
     if (!id) return;
@@ -73,6 +75,22 @@ export default function PharmacyDetailsScreen() {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><Text>{error || 'Pharmacy not found'}</Text></View>;
   }
 
+  const handleToggleAutoPublishWorkerRequests = async (nextValue: boolean) => {
+    if (!pharmacy) return;
+    setAutoPublishSaving(true);
+    setAutoPublishError('');
+    try {
+      const updated = await updatePharmacy(String(pharmacy.id), {
+        auto_publish_worker_requests: nextValue,
+      } as any);
+      setPharmacy(updated as any);
+    } catch (e: any) {
+      setAutoPublishError(e?.response?.data?.detail || e?.message || 'Failed to update publishing preference');
+    } finally {
+      setAutoPublishSaving(false);
+    }
+  };
+
   return (
     <PharmacyDetailView
       pharmacy={pharmacy}
@@ -81,6 +99,10 @@ export default function PharmacyDetailsScreen() {
       onMembershipsChanged={loadData}
       onAdminsChanged={loadData}
       loading={loading}
+      autoPublishWorkerRequests={Boolean((pharmacy as any).auto_publish_worker_requests)}
+      onToggleAutoPublishWorkerRequests={handleToggleAutoPublishWorkerRequests}
+      autoPublishSaving={autoPublishSaving}
+      autoPublishError={autoPublishError}
     />
   );
 }

@@ -310,7 +310,7 @@ export default function PharmacistOnboardingForm() {
         onChange={handleChange}
         required
         InputProps={{
-          startAdornment: <InputAdornment position="start">PHA000</InputAdornment>,
+          startAdornment: <InputAdornment position="start">PHA</InputAdornment>,
         }}
       />
     </Box>,

@@ -160,7 +160,7 @@ export default function PharmacistBasicInfoScreen() {
           label="AHPRA Number"
           value={form.ahpra_number || ''}
           onChangeText={(v) => setField('ahpra_number', v)}
-          left={<TextInput.Affix text="PHA000" />}
+          left={<TextInput.Affix text="PHA" />}
         />
         <TextInput
           mode="outlined"

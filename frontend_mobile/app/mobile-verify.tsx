@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { Pressable, StyleSheet, TextInput as RNTextInput, View } from 'react-native';
 import { Text, TextInput, Button, Surface } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import {
@@ -19,6 +19,7 @@ export default function MobileVerifyScreen() {
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState('');
     const [error, setError] = useState('');
+    const otpInputRef = useRef<RNTextInput | null>(null);
 
     const getRoleHome = (role?: string | null): string => {
         const normalized = String(role || '').toUpperCase();
@@ -83,6 +84,11 @@ export default function MobileVerifyScreen() {
         }
     };
 
+    const handleOtpChange = (value: string) => {
+        const digits = value.replace(/\D/g, '').slice(0, 6);
+        setOtp(digits);
+    };
+
     return (
         <AuthLayout title="Mobile Verification">
             {error ? (
@@ -104,7 +110,7 @@ export default function MobileVerifyScreen() {
                 mode="outlined"
                 style={styles.input}
                 keyboardType="phone-pad"
-                placeholder="e.g. 0412 345 678"
+                placeholder="e.g. 041x xxx xxx"
             />
 
             <Button
@@ -118,20 +124,34 @@ export default function MobileVerifyScreen() {
                 Send Code
             </Button>
 
-            <TextInput
-                label="Enter OTP Code"
+            <RNTextInput
+                ref={otpInputRef}
                 value={otp}
-                onChangeText={setOtp}
-                mode="outlined"
-                style={styles.input}
+                onChangeText={handleOtpChange}
                 keyboardType="number-pad"
+                maxLength={6}
+                textContentType="oneTimeCode"
+                autoComplete="sms-otp"
+                style={styles.hiddenInput}
             />
+
+            <Pressable style={styles.otpContainer} onPress={() => otpInputRef.current?.focus()}>
+                {Array.from({ length: 6 }, (_, index) => {
+                    const digit = otp[index] ?? '';
+                    const isActive = index === otp.length && otp.length < 6;
+                    return (
+                        <View key={index} style={[styles.otpBox, isActive ? styles.otpBoxActive : null]}>
+                            <Text style={styles.otpDigit}>{digit}</Text>
+                        </View>
+                    );
+                })}
+            </Pressable>
 
             <Button
                 mode="contained"
                 onPress={handleVerify}
                 loading={loading}
-                disabled={loading || !otp}
+                disabled={loading || otp.length !== 6}
                 style={styles.button}
                 contentStyle={styles.buttonContent}
             >
@@ -161,6 +181,35 @@ export default function MobileVerifyScreen() {
 const styles = StyleSheet.create({
     input: {
         backgroundColor: '#fff',
+    },
+    hiddenInput: {
+        position: 'absolute',
+        opacity: 0,
+        width: 1,
+        height: 1,
+    },
+    otpContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginVertical: 16,
+        gap: 8,
+    },
+    otpBox: {
+        flex: 1,
+        minHeight: 56,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#d0d7de',
+        backgroundColor: '#fff',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    otpBoxActive: {
+        borderColor: '#7c3aed',
+    },
+    otpDigit: {
+        fontSize: 24,
+        fontWeight: 'bold',
     },
     button: {
         marginTop: 4,

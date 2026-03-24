@@ -220,6 +220,30 @@ def _send_owner_claim_email(claim):
     }
     async_task("users.tasks.send_async_email", **email_kwargs)
 
+def _send_pharmacy_created_email(pharmacy, created_by_user, organization=None):
+    pharmacy_email = clean_email(getattr(pharmacy, "email", "") or "")
+    if not pharmacy_email:
+        return
+
+    if organization and getattr(organization, "name", None):
+        creator_name = organization.name
+    else:
+        creator_name = created_by_user.get_full_name() or created_by_user.email or created_by_user.username or "A ChemistTasker user"
+
+    context = {
+        "pharmacy_name": pharmacy.name,
+        "creator_name": creator_name,
+        "contact_email": "info@chemisttasker.com.au",
+    }
+    async_task(
+        "users.tasks.send_async_email",
+        subject=f"{pharmacy.name} was added to ChemistTasker",
+        recipient_list=[pharmacy_email],
+        template_name="emails/pharmacy_created_notification.html",
+        text_template="emails/pharmacy_created_notification.txt",
+        context=context,
+    )
+
 def _notify_org_of_claim_response(claim):
     admins = OrganizationMembership.objects.filter(
         organization_id=claim.organization_id,
@@ -680,6 +704,7 @@ class OwnerOnboardingV2MeView(generics.RetrieveUpdateAPIView):
                 "phone_number": "",
                 "role": OwnerOnboarding.ROLE_CHOICES[0][0],
                 "chain_pharmacy": False,
+                "number_of_pharmacies": 1,
             },
         )
         return obj
@@ -1344,6 +1369,13 @@ class PharmacyViewSet(viewsets.ModelViewSet):
                     'is_active': True,
                     'created_by': user,
                 },
+            )
+            transaction.on_commit(
+                lambda: _send_pharmacy_created_email(
+                    pharmacy=pharmacy,
+                    created_by_user=user,
+                    organization=organization,
+                )
             )
 
     def perform_update(self, serializer):

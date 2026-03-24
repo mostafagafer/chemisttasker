@@ -1,0 +1,11 @@
+{{ pharmacy_name }} was added to ChemistTasker
+
+Hello,
+
+This pharmacy, {{ pharmacy_name }}, was added by {{ creator_name }} in ChemistTasker so it can manage and publish shifts.
+
+If this was not created by you or approved by your team, please respond to this email as soon as possible so we can take action.
+
+You can also contact us directly at {{ contact_email }}.
+
+The ChemistTasker Team

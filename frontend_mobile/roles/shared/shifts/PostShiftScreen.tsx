@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Linking } from 'react-native';
 import {
     Text,
     TextInput,
@@ -31,6 +31,7 @@ const WORKLOAD_TAGS = ['Sole Pharmacist', 'High Script Load', 'Webster Packs'];
 const PRIMARY = '#7c3aed';
 const PRIMARY_LIGHT = '#F3E8FF';
 const PRIMARY_TEXT = '#2D1B69';
+const GOVERNMENT_AWARD_GUIDE_URL = 'https://calculate.fairwork.gov.au/payguides/fairwork/ma000012/pdf';
 
 const BASE_STEP_ORDER = ['details', 'skills', 'visibility'] as const;
 type StepKey = 'details' | 'skills' | 'visibility' | 'timetable' | 'payrate';
@@ -236,21 +237,19 @@ export default function PostShiftScreen() {
     );
 
     useEffect(() => {
-        if (!selectedPharmacy) return;
+        if (!selectedPharmacy || editingId) return;
         const normalize = (val: any) => (val === undefined || val === null || val === '' ? '' : String(val));
         const defaultRateType = (selectedPharmacy as any).default_rate_type || (selectedPharmacy as any).defaultRateType || 'FLEXIBLE';
 
-        setRateType((prev) => {
-            const next = prev || defaultRateType;
-            return next === 'FIXED' ? 'FLEXIBLE' : next;
-        });
-        setRateWeekday((prev) => prev || normalize((selectedPharmacy as any).rate_weekday ?? (selectedPharmacy as any).rateWeekday));
-        setRateSaturday((prev) => prev || normalize((selectedPharmacy as any).rate_saturday ?? (selectedPharmacy as any).rateSaturday));
-        setRateSunday((prev) => prev || normalize((selectedPharmacy as any).rate_sunday ?? (selectedPharmacy as any).rateSunday));
-        setRatePublicHoliday((prev) => prev || normalize((selectedPharmacy as any).rate_public_holiday ?? (selectedPharmacy as any).ratePublicHoliday));
-        setRateEarlyMorning((prev) => prev || normalize((selectedPharmacy as any).rate_early_morning ?? (selectedPharmacy as any).rateEarlyMorning));
-        setRateLateNight((prev) => prev || normalize((selectedPharmacy as any).rate_late_night ?? (selectedPharmacy as any).rateLateNight));
-    }, [selectedPharmacy]);
+        setRateType(defaultRateType);
+        setFixedRate(normalize((selectedPharmacy as any).default_fixed_rate ?? (selectedPharmacy as any).defaultFixedRate));
+        setRateWeekday(normalize((selectedPharmacy as any).rate_weekday ?? (selectedPharmacy as any).rateWeekday));
+        setRateSaturday(normalize((selectedPharmacy as any).rate_saturday ?? (selectedPharmacy as any).rateSaturday));
+        setRateSunday(normalize((selectedPharmacy as any).rate_sunday ?? (selectedPharmacy as any).rateSunday));
+        setRatePublicHoliday(normalize((selectedPharmacy as any).rate_public_holiday ?? (selectedPharmacy as any).ratePublicHoliday));
+        setRateEarlyMorning(normalize((selectedPharmacy as any).rate_early_morning ?? (selectedPharmacy as any).rateEarlyMorning));
+        setRateLateNight(normalize((selectedPharmacy as any).rate_late_night ?? (selectedPharmacy as any).rateLateNight));
+    }, [selectedPharmacy, editingId]);
 
     // Ensure initial audience stays within allowed tiers
     useEffect(() => {
@@ -738,7 +737,7 @@ export default function PostShiftScreen() {
                 payload.rate_early_morning = rateEarlyMorning || null;
                 payload.rate_late_night = rateLateNight || null;
                 if (rateType === 'FIXED' && fixedRate) {
-                    payload.hourly_rate = Number(fixedRate);
+                    payload.fixed_rate = Number(fixedRate);
                 }
             } else {
                 if (ownerBonus) {
@@ -1187,7 +1186,10 @@ export default function PostShiftScreen() {
                     </>
                 ) : (
                     <>
-                        <Text style={styles.helper}>Rate is set by government award</Text>
+                        <TouchableOpacity onPress={() => Linking.openURL(GOVERNMENT_AWARD_GUIDE_URL)}>
+                            <Text style={styles.helper}>Rate is set by government award</Text>
+                            <Text style={styles.helper}>published 6 February 2026</Text>
+                        </TouchableOpacity>
                         <Text style={[styles.label, { marginTop: 16 }]}>Payment Type</Text>
                         <View style={styles.pills}>
                             {(['ABN', 'TFN'] as const).map((pref) => {

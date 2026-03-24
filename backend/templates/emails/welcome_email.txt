@@ -1,11 +1,18 @@
-👋 Welcome, {{ first_name|default:email }}!
+Welcome to ChemistTasker, {{ first_name|default:email }}!
 
-We’re thrilled to have you join the ChemistTasker family! 🚀
+We are excited to have you with us.
+Your account is ready, and the next step is to complete the setup for your role:
 
-To get started, just complete your onboarding here:
 {{ onboarding_link }}
 
-If you need anything, our team is always happy to help.
-Wishing you an awesome day! 🌈✨
+{% if role == "OWNER" %}
+As a pharmacy owner, one of the best first steps is to open your pharmacy management area and add or review your pharmacies.
+This is where you can list your pharmacies, keep your locations organised, and prepare everything for staffing, compliance, and roster management.
 
-— The ChemistTasker Team 💚
+Open My Pharmacies:
+{{ owner_pharmacies_link }}
+{% endif %}
+
+If you need any help, our team is here for you.
+
+The ChemistTasker Team

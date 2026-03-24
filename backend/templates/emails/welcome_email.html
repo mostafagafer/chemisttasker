@@ -10,35 +10,68 @@
         .btn {
             display: inline-block;
             background: #23b59c;
-            color: #fff;
+            color: #fff !important;
             padding: 12px 28px;
             text-decoration: none;
             border-radius: 8px;
             font-weight: bold;
-            font-size: 1.15rem;
+            font-size: 1.05rem;
             margin: 16px 0;
             box-shadow: 0 1px 3px #e0e0e0;
-            transition: background 0.2s;
         }
-        .btn:hover { background: #199982; }
-        .emoji { font-size: 1.25rem; }
+        .btn-secondary {
+            display: inline-block;
+            background: #eef7f5;
+            color: #116a5d !important;
+            padding: 12px 20px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            margin: 8px 0 0;
+            border: 1px solid #cfe9e3;
+        }
+        .card {
+            background: #f7fbfa;
+            border: 1px solid #d9ece7;
+            border-radius: 12px;
+            padding: 16px;
+            margin: 18px 0;
+        }
+        .emoji { font-size: 1.1rem; }
+        p { line-height: 1.6; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="wave">👋🌟</div>
-        <h2>Welcome! 🎉</h2>
+        <div class="wave">Hello</div>
+        <h2>Welcome to ChemistTasker!</h2>
 
         <p>
-            We’re so excited you joined the <b>ChemistTasker</b> family!<br>
-            Ready to start your journey? Just click the button below and complete your onboarding in less than two minutes!
+            We are excited to have you with us, <b>{{ first_name|default:email }}</b>.
+            Your account is ready, and the next step is to complete the setup for your role so you can start using ChemistTasker smoothly.
         </p>
-        <a class="btn" href="{{ onboarding_link }}">Complete Your Onboarding</a>
+
+        <a class="btn" href="{{ onboarding_link }}">Complete Your Setup</a>
+
+        {% if role == "OWNER" %}
+        <div class="card">
+            <p style="margin-top: 0;">
+                As a pharmacy owner, one of the best first steps is to open your pharmacy management area and add or review your pharmacies.
+            </p>
+            <p style="margin-bottom: 0;">
+                This is where you can list your pharmacies, keep your locations organised, and prepare everything for staffing, compliance, and roster management.
+            </p>
+        </div>
+
+        <a class="btn-secondary" href="{{ owner_pharmacies_link }}">Open My Pharmacies</a>
+        {% endif %}
+
         <p>
-            If you need any help, our team is always here for you.<br>
-            Wishing you an awesome day!✨<br>
+            If you need any help, our team is here for you.
+            We are looking forward to helping you get started.
         </p>
-        <p class="emoji">— The ChemistTasker Team 💚</p>
+
+        <p class="emoji">The ChemistTasker Team</p>
     </div>
 </body>
 </html>

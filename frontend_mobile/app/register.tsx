@@ -86,7 +86,7 @@ export default function RegisterScreen() {
         role: formData.role,
         accepted_terms: formData.accepted_terms,
       });
-      router.replace('/verify-otp');
+      router.replace({ pathname: '/verify-otp', params: { email: formData.email } } as any);
     } catch (err: any) {
       setError(err.message);
     } finally {

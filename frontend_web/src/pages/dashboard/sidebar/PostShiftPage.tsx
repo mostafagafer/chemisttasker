@@ -78,6 +78,7 @@ interface CalendarEvent {
 
 type CalendarViewOption = 'month' | 'week' | 'day';
 const CALENDAR_VIEWS: CalendarViewOption[] = ['month', 'week', 'day'];
+const GOVERNMENT_AWARD_GUIDE_URL = 'https://calculate.fairwork.gov.au/payguides/fairwork/ma000012/pdf';
 
 interface CalendarSlotSelection {
   start: Date;
@@ -332,7 +333,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
           setNiceToHave(detail.niceToHave ?? []);
           setVisibility(detail.visibility ?? 'FULL_PART_TIME');
           const incomingRateType = detail.rateType ?? '';
-          setRateType(incomingRateType === 'FIXED' ? 'FLEXIBLE' : (incomingRateType || 'FLEXIBLE'));
+          setRateType(incomingRateType || 'FLEXIBLE');
           setPaymentPreference(detail.paymentPreference ?? (detail as any).payment_preference ?? '');
           setFlexibleTiming(Boolean((detail as any).flexibleTiming ?? (detail as any).flexible_timing));
           setSingleUserOnly(Boolean(detail.singleUserOnly));
@@ -494,22 +495,19 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
   }, [showNotifyPharmacyStaff, showNotifyFavoriteStaff, showNotifyChainMembers]);
 
   useEffect(() => {
-    if (!selectedPharmacy) return;
+    if (!selectedPharmacy || editingShiftId) return;
     const normalize = (val: any) =>
       val === undefined || val === null || val === '' ? '' : String(val);
 
     const defaultRateType = (selectedPharmacy as any).default_rate_type || (selectedPharmacy as any).defaultRateType || 'FLEXIBLE';
-    setRateType((prev) => {
-      const next = prev || defaultRateType;
-      return next === 'FIXED' ? 'FLEXIBLE' : next;
-    });
-    setRateWeekday((prev) => prev || normalize((selectedPharmacy as any).rate_weekday ?? (selectedPharmacy as any).rateWeekday));
-    setRateSaturday((prev) => prev || normalize((selectedPharmacy as any).rate_saturday ?? (selectedPharmacy as any).rateSaturday));
-    setRateSunday((prev) => prev || normalize((selectedPharmacy as any).rate_sunday ?? (selectedPharmacy as any).rateSunday));
-    setRatePublicHoliday((prev) => prev || normalize((selectedPharmacy as any).rate_public_holiday ?? (selectedPharmacy as any).ratePublicHoliday));
-    setRateEarlyMorning((prev) => prev || normalize((selectedPharmacy as any).rate_early_morning ?? (selectedPharmacy as any).rateEarlyMorning));
-    setRateLateNight((prev) => prev || normalize((selectedPharmacy as any).rate_late_night ?? (selectedPharmacy as any).rateLateNight));
-  }, [selectedPharmacy]);
+    setRateType(defaultRateType);
+    setRateWeekday(normalize((selectedPharmacy as any).rate_weekday ?? (selectedPharmacy as any).rateWeekday));
+    setRateSaturday(normalize((selectedPharmacy as any).rate_saturday ?? (selectedPharmacy as any).rateSaturday));
+    setRateSunday(normalize((selectedPharmacy as any).rate_sunday ?? (selectedPharmacy as any).rateSunday));
+    setRatePublicHoliday(normalize((selectedPharmacy as any).rate_public_holiday ?? (selectedPharmacy as any).ratePublicHoliday));
+    setRateEarlyMorning(normalize((selectedPharmacy as any).rate_early_morning ?? (selectedPharmacy as any).rateEarlyMorning));
+    setRateLateNight(normalize((selectedPharmacy as any).rate_late_night ?? (selectedPharmacy as any).rateLateNight));
+  }, [selectedPharmacy, editingShiftId]);
 
   const showSnackbar = (msg: string, severity: 'success' | 'error' = 'success') => setSnackbar({ open: true, message: msg, severity });
   const formatErrorMessage = (err: any): string => {
@@ -2071,9 +2069,18 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
               align="center"
               sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}
             >
-              Rate is set by government award
+              <Box component="span">
+                Rate is set by government award
+                <br />
+                published 6 February 2026
+              </Box>
               <Tooltip title="View pay guide">
-                <IconButton size="small" href="#" target="_blank">
+                <IconButton
+                  size="small"
+                  href={GOVERNMENT_AWARD_GUIDE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
                   <InfoIcon fontSize="small" />
                 </IconButton>
               </Tooltip>

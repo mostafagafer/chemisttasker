@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, Link as RouterLink } from 'react-router-dom';
+import { useNavigate, Link as RouterLink, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import {
   Typography,
@@ -18,12 +18,15 @@ import { ORG_ROLES } from '../constants/roles';
 import { useAuth } from '../contexts/AuthContext';
 import AuthLayout from '../layouts/AuthLayout';
 import PublicLogoTopBar from '../components/PublicLogoTopBar';
+import { resolveDashboardPath } from '../utils/dashboardPath';
+import { getOwnerSetupStatus } from '../utils/ownerSetup';
 import { setRobotsMeta } from '../utils/seo';
 
 const PERSONA_KEY_PREFIX = 'ct-active-persona';
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
 
   useEffect(() => {
@@ -32,7 +35,7 @@ export default function Login() {
   }, []);
 
   // All your state and logic functions are unchanged
-  const [email, setEmail]       = useState('');
+  const [email, setEmail]       = useState(location.state?.email || '');
   const [password, setPassword] = useState('');
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
@@ -61,6 +64,19 @@ export default function Login() {
 
       login(access, refresh, userInfo);
 
+      if (!userInfo?.is_mobile_verified) {
+        navigate('/mobile-verify');
+        return;
+      }
+
+      if (userInfo?.role === 'OWNER') {
+        const ownerSetup = await getOwnerSetupStatus();
+        if (ownerSetup.nextPath) {
+          navigate(ownerSetup.nextPath);
+          return;
+        }
+      }
+
       const isOrgMember = Array.isArray(userInfo?.memberships)
         ? userInfo.memberships.some((m: any) => m?.role && ORG_ROLES.includes(m.role))
         : false;
@@ -69,23 +85,6 @@ export default function Login() {
         navigate('/dashboard/organization/overview');
         return;
       }
-
-      const resolveStaffPath = (role: string | undefined | null) => {
-        switch (role) {
-          case 'OWNER':
-            return '/dashboard/owner/overview';
-          case 'PHARMACIST':
-            return '/dashboard/pharmacist/overview';
-          case 'OTHER_STAFF':
-            return '/dashboard/otherstaff/overview';
-          case 'ORG_STAFF':
-            return '/dashboard/organization/overview';
-          case 'EXPLORER':
-            return '/dashboard/explorer/overview';
-          default:
-            return '/';
-        }
-      };
 
       const personaKey =
         typeof userInfo?.id === 'number'
@@ -128,7 +127,7 @@ export default function Login() {
       }
 
       if (!redirectPath) {
-        redirectPath = resolveStaffPath(userInfo.role);
+        redirectPath = resolveDashboardPath(userInfo.role);
       }
 
       navigate(redirectPath);

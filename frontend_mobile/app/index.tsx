@@ -4,6 +4,7 @@ import { ActivityIndicator, Text, Button } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import AuthLayout from '../components/AuthLayout';
 import { useAuth } from '../context/AuthContext';
+import { getOwnerSetupStatus } from '../utils/ownerSetup';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -29,18 +30,28 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (isLoading || !user) return;
-    const role = String(user.role || '').toUpperCase();
-    if (role === 'OWNER') {
-      router.replace('/owner/dashboard' as any);
-    } else if (role === 'PHARMACIST') {
-      router.replace('/pharmacist/dashboard' as any);
-    } else if (role === 'OTHER_STAFF') {
-      router.replace('/otherstaff/dashboard' as any);
-    } else if (role === 'EXPLORER') {
-      router.replace('/explorer/dashboard' as any);
-    } else if (role === 'ORGANIZATION') {
-      router.replace('/organization' as any);
-    }
+    let active = true;
+    const routeUser = async () => {
+      const role = String(user.role || '').toUpperCase();
+      if (role === 'OWNER') {
+        const setupStatus = await getOwnerSetupStatus();
+        if (active) {
+          router.replace((setupStatus.nextPath || '/owner/dashboard') as any);
+        }
+      } else if (role === 'PHARMACIST') {
+        router.replace('/pharmacist/dashboard' as any);
+      } else if (role === 'OTHER_STAFF') {
+        router.replace('/otherstaff/dashboard' as any);
+      } else if (role === 'EXPLORER') {
+        router.replace('/explorer/dashboard' as any);
+      } else if (role === 'ORGANIZATION') {
+        router.replace('/organization' as any);
+      }
+    };
+    void routeUser();
+    return () => {
+      active = false;
+    };
   }, [isLoading, user, router]);
 
   const translateY = floatAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -16] });

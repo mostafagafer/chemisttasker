@@ -74,7 +74,7 @@ export default function OwnerOnboardingStep1() {
                                 mode="outlined"
                                 style={styles.input}
                                 keyboardType="phone-pad"
-                                placeholder="e.g., 0412 345 678"
+                                placeholder="e.g., 041x xxx xxx"
                                 left={<TextInput.Icon icon="phone" />}
                             />
 

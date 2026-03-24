@@ -73,6 +73,7 @@ class OwnerOnboarding(models.Model):
     phone_number    = models.CharField(max_length=20)
     role            = models.CharField(max_length=20, choices=ROLE_CHOICES)
     chain_pharmacy  = models.BooleanField(default=False)
+    number_of_pharmacies = models.PositiveIntegerField(default=1)
     profile_photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)
 
     # Regulatory Info for pharmacists only

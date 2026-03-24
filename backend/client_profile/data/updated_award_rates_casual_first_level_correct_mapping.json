@@ -1,0 +1,112 @@
+{
+  "ASSISTANT": {
+    "LEVEL_1": {
+      "casual": {
+        "weekday": 33.19,
+        "saturday": 39.83,
+        "sunday": 46.46,
+        "public_holiday": 66.38,
+        "early_morning": {
+          "weekday": 46.46,
+          "saturday": 59.74,
+          "sunday": 59.74,
+          "public_holiday": 66.38
+        },
+        "late_night": {
+          "weekday": 46.46,
+          "saturday": 53.1,
+          "sunday": 59.74,
+          "public_holiday": 66.38
+        }
+      }
+    }
+  },  
+  "TECHNICIAN": {
+    "LEVEL_1": {
+      "casual": {
+        "weekday": 33.19,
+        "saturday": 39.83,
+        "sunday": 46.46,
+        "public_holiday": 66.38,
+        "early_morning": {
+          "weekday": 46.46,
+          "saturday": 59.74,
+          "sunday": 59.74,
+          "public_holiday": 66.38
+        },
+        "late_night": {
+          "weekday": 46.46,
+          "saturday": 53.1,
+          "sunday": 59.74,
+          "public_holiday": 66.38
+        }
+      }
+    }
+  },
+  "STUDENT": {
+    "YEAR_1": {
+      "casual": {
+        "weekday": 33.19,
+        "saturday": 39.83,
+        "sunday": 46.46,
+        "public_holiday": 66.38,
+        "early_morning": {
+          "weekday": 46.46,
+          "saturday": 59.74,
+          "sunday": 59.74,
+          "public_holiday": 66.38
+        },
+        "late_night": {
+          "weekday": 46.46,
+          "saturday": 53.1,
+          "sunday": 59.74,
+          "public_holiday": 66.38
+        }
+      }
+    }
+  },
+  "INTERN": {
+    "FIRST_HALF": {
+      "casual": {
+        "weekday": 38.81,
+        "saturday": 46.58,
+        "sunday": 54.34,
+        "public_holiday": 77.63,
+        "early_morning": {
+          "weekday": 54.34,
+          "saturday": 69.86,
+          "sunday": 69.86,
+          "public_holiday": 77.63
+        },
+        "late_night": {
+          "weekday": 54.34,
+          "saturday": 62.1,
+          "sunday": 69.86,
+          "public_holiday": 77.63
+        }
+      }
+    }
+  },
+  "PHARMACIST": {
+    "PHARMACIST": {
+      "casual": {
+        "weekday": 47.68,
+        "saturday": 57.21,
+        "sunday": 66.75,
+        "public_holiday": 95.35,
+        "early_morning": {
+          "weekday": 66.75,
+          "saturday": 85.82,
+          "sunday": 85.82,
+          "public_holiday": 95.35
+        },
+        "late_night": {
+          "weekday": 66.75,
+          "saturday": 76.28,
+          "sunday": 85.82,
+          "public_holiday": 95.35
+        }
+      }
+    }
+  }
+}

@@ -223,7 +223,19 @@ const RATE_TYPES = [
 ] as const;
 const PHARMACY_CACHE_KEY = "pharmacyPage.cache.v2";
 
-export default function PharmacyPage() {
+type PharmacyPageProps = {
+  standalone?: boolean;
+  onNeedsOnboardingPath?: string;
+  onCompletePath?: string;
+  targetPharmacyCount?: number;
+};
+
+export default function PharmacyPage({
+  standalone = false,
+  onNeedsOnboardingPath = "/onboarding/owner",
+  onCompletePath = "/dashboard/owner/overview",
+  targetPharmacyCount = 1,
+}: PharmacyPageProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, isAdminUser, activePersona, activeAdminPharmacyId, activeAdminAssignment } = useAuth();
@@ -371,6 +383,9 @@ export default function PharmacyPage() {
 
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarState, setSnackbarState] = useState<{ message: string; severity: "success" | "error" | "info" } | null>(null);
+  const [additionalPharmacyPromptOpen, setAdditionalPharmacyPromptOpen] = useState(false);
+  const [autoPublishSaving, setAutoPublishSaving] = useState(false);
+  const [autoPublishError, setAutoPublishError] = useState("");
 
   const abnDigits = abn.replace(/\D/g, "");
   const abnInvalid = abnDigits.length > 0 && abnDigits.length !== 11;
@@ -421,6 +436,361 @@ export default function PharmacyPage() {
     const accepted = ownerClaims.filter((item) => item.status === "ACCEPTED").length;
     return { pending, accepted };
   }, [ownerClaims]);
+
+  const normalizedTargetPharmacyCount = Math.max(1, targetPharmacyCount || 1);
+
+  const renderPharmacyFormSections = () => (
+    <>
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+      <Tabs
+        value={tabIndex}
+        onChange={(_, i) => setTabIndex(i)}
+        centered
+        sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}
+      >
+        {tabLabels.map((label) => (
+          <Tab key={label} label={label} />
+        ))}
+      </Tabs>
+
+      {tabIndex === 0 && (
+        <Box sx={{ p: 2 }}>
+          {isLoaded && !googlePlaceId && (
+            <Autocomplete
+              onLoad={(ref) => (autocompleteRef.current = ref)}
+              onPlaceChanged={handlePlaceChanged}
+              options={{
+                componentRestrictions: { country: "au" },
+                fields: ["address_components", "geometry", "place_id", "name"],
+              }}
+            >
+              <TextField fullWidth margin="normal" label="Search Address" id="autocomplete-textfield" />
+            </Autocomplete>
+          )}
+          {loadError && <Alert severity="error">Google Maps failed to load.</Alert>}
+
+          {googlePlaceId && (
+            <Box
+              sx={{
+                mt: 2,
+                p: 2,
+                border: "1px solid",
+                borderColor: "divider",
+                borderRadius: 1,
+                bgcolor: "action.hover",
+              }}
+            >
+              <TextField label="Street Address" fullWidth margin="normal" value={streetAddress} onChange={(e) => setStreetAddress(e.target.value)} />
+              <TextField label="Suburb" fullWidth margin="normal" value={suburb} onChange={(e) => setSuburb(e.target.value)} />
+              <TextField label="State" fullWidth margin="normal" value={state} onChange={(e) => setState(e.target.value)} />
+              <TextField label="Postcode" fullWidth margin="normal" value={postcode} onChange={(e) => setPostcode(e.target.value)} />
+              <Button size="small" onClick={clearAddress} sx={{ mt: 1 }}>
+                Clear Address & Search Again
+              </Button>
+            </Box>
+          )}
+
+          <TextField label="Pharmacy Name" fullWidth margin="normal" value={name} onChange={(e) => setName(e.target.value)} />
+          <TextField label="Pharmacy Email" type="email" fullWidth margin="normal" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Box>
+      )}
+
+      {tabIndex === 1 && (
+        <Box sx={{ p: 2 }}>
+          <Typography>Approval Certificate</Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1 }}>
+            <Button variant="outlined" component="label">
+              Upload Certificate
+              <input hidden type="file" onChange={(e) => setApprovalCertFile(e.target.files?.[0] || null)} />
+            </Button>
+            {approvalCertFile ? (
+              <Typography variant="body2">{approvalCertFile.name}</Typography>
+            ) : existingApprovalCert ? (
+              <MuiLink href={getFileUrl(existingApprovalCert)} target="_blank" rel="noopener noreferrer">
+                View
+              </MuiLink>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                No file uploaded
+              </Typography>
+            )}
+          </Box>
+          <TextField
+            label="ABN"
+            required
+            fullWidth
+            margin="normal"
+            value={abn}
+            onChange={(e) => setAbn(e.target.value)}
+            error={abnInvalid}
+            helperText={abnInvalid ? "ABN must be exactly 11 digits" : undefined}
+          />
+        </Box>
+      )}
+
+      {tabIndex === 2 && (
+        <Box sx={{ p: 2 }}>
+          <Typography>SOPs (optional)</Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1, mb: 2 }}>
+            <Button variant="outlined" component="label">
+              Upload SOPs
+              <input hidden type="file" onChange={(e) => setSopsFile(e.target.files?.[0] || null)} />
+            </Button>
+            {sopsFile ? (
+              <Typography variant="body2">{sopsFile.name}</Typography>
+            ) : existingSops ? (
+              <MuiLink href={getFileUrl(existingSops)} target="_blank" rel="noopener noreferrer">
+                View
+              </MuiLink>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                No file uploaded
+              </Typography>
+            )}
+          </Box>
+
+          <Typography>Induction Guides (optional)</Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1, mb: 2 }}>
+            <Button variant="outlined" component="label">
+              Upload Induction Guides
+              <input hidden type="file" onChange={(e) => setInductionGuidesFile(e.target.files?.[0] || null)} />
+            </Button>
+            {inductionGuidesFile ? (
+              <Typography variant="body2">{inductionGuidesFile.name}</Typography>
+            ) : existingInductionGuides ? (
+              <MuiLink href={getFileUrl(existingInductionGuides)} target="_blank" rel="noopener noreferrer">
+                View
+              </MuiLink>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                No file uploaded
+              </Typography>
+            )}
+          </Box>
+
+          <Typography>S8/SUMP Docs (optional)</Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1 }}>
+            <Button variant="outlined" component="label">
+              Upload S8/SUMP
+              <input hidden type="file" onChange={(e) => setSumpDocsFile(e.target.files?.[0] || null)} />
+            </Button>
+            {sumpDocsFile ? (
+              <Typography variant="body2">{sumpDocsFile.name}</Typography>
+            ) : existingSumpDocs ? (
+              <MuiLink href={getFileUrl(existingSumpDocs)} target="_blank" rel="noopener noreferrer">
+                View
+              </MuiLink>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                No file uploaded
+              </Typography>
+            )}
+          </Box>
+        </Box>
+      )}
+
+      {tabIndex === 3 && (
+        <Box sx={{ p: 2 }}>
+          <Typography variant="h6">Employment Types</Typography>
+          <FormGroup sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, mb: 2 }}>
+            {EMPLOYMENT_TYPE_OPTIONS.map((option) => (
+              <FormControlLabel
+                key={option}
+                control={
+                  <Checkbox
+                    checked={employmentTypes.includes(option)}
+                    onChange={() =>
+                      setEmploymentTypes((prev) =>
+                        prev.includes(option) ? prev.filter((x) => x !== option) : [...prev, option]
+                      )
+                    }
+                  />
+                }
+                label={option.replace("_", " ")}
+              />
+            ))}
+          </FormGroup>
+
+          <Typography variant="h6">Roles Needed</Typography>
+          <FormGroup sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
+            {ROLE_OPTIONS.map((option) => (
+              <FormControlLabel
+                key={option}
+                control={
+                  <Checkbox
+                    checked={rolesNeeded.includes(option)}
+                    onChange={() =>
+                      setRolesNeeded((prev) =>
+                        prev.includes(option) ? prev.filter((x) => x !== option) : [...prev, option]
+                      )
+                    }
+                  />
+                }
+                label={option.charAt(0) + option.slice(1).toLowerCase()}
+              />
+            ))}
+          </FormGroup>
+        </Box>
+      )}
+
+      {tabIndex === 4 && (
+        <Box sx={{ p: 2 }}>
+          {hoursFields.map(({ label, start, setStart, end, setEnd }) => (
+            <Box
+              key={label}
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr", sm: "150px 1fr 1fr" },
+                gap: 2,
+                alignItems: "center",
+                mb: 2,
+              }}
+            >
+              <Typography>{label}</Typography>
+              <TextField
+                label="Start"
+                type="time"
+                fullWidth
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+              />
+              <TextField
+                label="End"
+                type="time"
+                fullWidth
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      {tabIndex === 5 && (
+        <Box sx={{ p: 2 }}>
+          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
+            Default Rate Strategy
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Select how you want to handle rates for Pharmacist shifts.
+          </Typography>
+          <FormControl fullWidth margin="normal">
+            <InputLabel id="rate-type-label">Rate Strategy</InputLabel>
+            <Select
+              labelId="rate-type-label"
+              value={defaultRateType}
+              label="Rate Strategy"
+              onChange={(e) => setDefaultRateType(e.target.value)}
+            >
+              <MenuItem value="">
+                <em>None</em>
+              </MenuItem>
+              {RATE_TYPES.map((type) => (
+                <MenuItem key={type.value} value={type.value}>
+                  {type.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {defaultRateType && defaultRateType !== "PHARMACIST_PROVIDED" && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+                Base Rates
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                These rates apply when "Fixed" or "Flexible" is selected. They are disabled if you choose
+                "Pharmacist Provided".
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Weekday Rate"
+                    type="number"
+                    fullWidth
+                    value={rateWeekday}
+                    onChange={(e) => setRateWeekday(e.target.value)}
+                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Saturday Rate"
+                    type="number"
+                    fullWidth
+                    value={rateSaturday}
+                    onChange={(e) => setRateSaturday(e.target.value)}
+                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Sunday Rate"
+                    type="number"
+                    fullWidth
+                    value={rateSunday}
+                    onChange={(e) => setRateSunday(e.target.value)}
+                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Public Holiday Rate"
+                    type="number"
+                    fullWidth
+                    value={ratePublicHoliday}
+                    onChange={(e) => setRatePublicHoliday(e.target.value)}
+                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Early Morning Rate (Before 8am)"
+                    type="number"
+                    fullWidth
+                    value={rateEarlyMorning}
+                    onChange={(e) => setRateEarlyMorning(e.target.value)}
+                    // helperText="Before 8am"
+                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Late Night Rate (After 7pm)"
+                    type="number"
+                    fullWidth
+                    value={rateLateNight}
+                    onChange={(e) => setRateLateNight(e.target.value)}
+                    // helperText="After 7pm"
+                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                  />
+                </Grid>
+              </Grid>
+            </Box>
+          )}
+        </Box>
+      )}
+
+      {tabIndex === 6 && (
+        <Box sx={{ p: 2 }}>
+          <TextField
+            label="About"
+            fullWidth
+            multiline
+            minRows={4}
+            value={about}
+            onChange={(e) => setAbout(e.target.value)}
+          />
+        </Box>
+      )}
+    </>
+  );
 
   useEffect(() => {
     const viewParam = searchParams.get("view");
@@ -724,6 +1094,13 @@ export default function PharmacyPage() {
   }, [user, loadPharmacies]);
 
   useEffect(() => {
+    if (!standalone || isFetching || needsOnboarding || dialogOpen || editing || pharmacies.length > 0) {
+      return;
+    }
+    openDialog();
+  }, [standalone, isFetching, needsOnboarding, dialogOpen, editing, pharmacies.length]);
+
+  useEffect(() => {
     if (isOrganizationUser) {
       void loadOrganizationClaims();
     }
@@ -853,6 +1230,11 @@ export default function PharmacyPage() {
       setAbout("");
       setAutoPublishWorkerRequests(false);
     }
+  if (standalone) {
+    setView("list");
+    setActivePharmacyId(null);
+    return;
+  }
   setDialogOpen(true);
 };
 
@@ -873,6 +1255,12 @@ export default function PharmacyPage() {
   }, [searchParams, pharmacies, openDialog, clearActionParam]);
 
   const closeDialog = () => {
+    if (standalone) {
+      setEditing(null);
+      setError("");
+      clearActionParam();
+      return;
+    }
     setDialogOpen(false);
     setEditing(null);
     setError("");
@@ -1009,6 +1397,7 @@ export default function PharmacyPage() {
       } else {
         const res = await createPharmacy(fd);
         const saved = normalizePharmacy(res);
+        const nextCount = pharmacies.some((p) => p.id === saved.id) ? pharmacies.length : pharmacies.length + 1;
         setPharmacies((prev) => {
           if (scopedPharmacyId != null && Number(saved.id) !== scopedPharmacyId) {
             return prev;
@@ -1016,8 +1405,16 @@ export default function PharmacyPage() {
           return scopePharmacies([...prev, saved]);
         });
         await loadMembers(saved.id);
-        setViewWithHistory("detail", { pharmacyId: saved.id });
         showSnackbar("Pharmacy added!", "success");
+        if (standalone) {
+          if (normalizedTargetPharmacyCount > 1 && nextCount < normalizedTargetPharmacyCount) {
+            setAdditionalPharmacyPromptOpen(true);
+          } else {
+            navigate(onCompletePath);
+          }
+        } else {
+          setViewWithHistory("detail", { pharmacyId: saved.id });
+        }
       }
       closeDialog();
     } catch (err) {
@@ -1037,6 +1434,36 @@ export default function PharmacyPage() {
       openDialog(target);
     }
   };
+
+  const handleToggleAutoPublishWorkerRequests = useCallback(
+    async (nextValue: boolean) => {
+      if (!activePharmacy) return;
+      setAutoPublishSaving(true);
+      setAutoPublishError("");
+      try {
+        const res = await updatePharmacy(activePharmacy.id, {
+          auto_publish_worker_requests: nextValue,
+        } as any);
+        const saved = normalizePharmacy(res);
+        setPharmacies((prev) =>
+          scopePharmacies(prev.map((item) => (item.id === saved.id ? saved : item)))
+        );
+        showSnackbar(
+          nextValue
+            ? "Automatic worker request publishing enabled."
+            : "Automatic worker request publishing disabled.",
+          "success"
+        );
+      } catch (err: any) {
+        setAutoPublishError(
+          err?.response?.data?.detail || err?.message || "Failed to update publishing preference."
+        );
+      } finally {
+        setAutoPublishSaving(false);
+      }
+    },
+    [activePharmacy, scopePharmacies]
+  );
 
   const handleRequestDeletePharmacy = (id: string) => {
     const target = pharmacies.find((p) => p.id === id);
@@ -1086,7 +1513,7 @@ export default function PharmacyPage() {
         <Alert severity="warning">
           Please complete <strong>Owner Onboarding</strong> first.
         </Alert>
-        <Button variant="contained" sx={{ mt: 2 }} onClick={() => navigate("/onboarding/owner")}>
+        <Button variant="contained" sx={{ mt: 2 }} onClick={() => navigate(onNeedsOnboardingPath)}>
           Go to Onboarding
         </Button>
       </Box>
@@ -1096,16 +1523,18 @@ export default function PharmacyPage() {
   return (
     <Box sx={{ flex: 1, minHeight: 0 }}>
       <GlobalStyles styles={{ ".pac-container": { zIndex: 1400 } }} />
-      <TopBar
-        breadcrumb={
-          view === "detail" && activePharmacy
-            ? ["My Pharmacies", activePharmacy.name]
-            : ["My Pharmacies"]
-        }
-        onBack={view === "detail" ? goBackToList : undefined}
-      />
+      {!standalone && (
+        <TopBar
+          breadcrumb={
+            view === "detail" && activePharmacy
+              ? ["My Pharmacies", activePharmacy.name]
+              : ["My Pharmacies"]
+          }
+          onBack={view === "detail" ? goBackToList : undefined}
+        />
+      )}
 
-      {view === "list" && isOrganizationUser && (
+      {view === "list" && isOrganizationUser && !standalone && (
         <Box
           sx={{
             maxWidth: 1200,
@@ -1245,7 +1674,7 @@ export default function PharmacyPage() {
         </Box>
       )}
 
-      {view === "list" && !isOrganizationUser && (
+      {view === "list" && !isOrganizationUser && !standalone && (
         <Box
           sx={{
             maxWidth: 1200,
@@ -1388,7 +1817,7 @@ export default function PharmacyPage() {
         </Box>
       )}
 
-      {view === "list" && (
+      {view === "list" && !standalone && (
         <Box
           sx={{
             maxWidth: 1200,
@@ -1404,19 +1833,46 @@ export default function PharmacyPage() {
         >
           <Box>
             <Typography variant="h5" fontWeight={700}>
-              My Pharmacies
+              {standalone ? "Set Up Your Pharmacy" : "My Pharmacies"}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Manage your locations, staff and admins
+              {standalone
+                ? "Add your first pharmacy now. You can keep building the rest of your workspace after this step."
+                : "Manage your locations, staff and admins"}
             </Typography>
           </Box>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => openDialog()}>
-            Add Pharmacy
-          </Button>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+            {standalone && pharmacies.length > 0 && (
+              <Button variant="outlined" onClick={() => navigate(onCompletePath)}>
+                Continue Later
+              </Button>
+            )}
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => openDialog()}>
+              Add Pharmacy
+            </Button>
+          </Stack>
         </Box>
       )}
 
-      {view === "list" && showSkeleton ? (
+      {standalone && view === "list" ? (
+        <Box sx={{ maxWidth: 980, mx: "auto", px: 3, py: 4 }}>
+          <Paper variant="outlined" sx={{ borderRadius: 3 }}>
+            <Box sx={{ px: 3, pt: 3 }}>
+              <Typography variant="h5" fontWeight={700}>
+                Add Pharmacy
+              </Typography>
+            </Box>
+            <Box sx={{ px: 2, pb: 1 }}>
+              {renderPharmacyFormSections()}
+            </Box>
+            <Stack direction="row" justifyContent="flex-end" sx={{ px: 3, pb: 3 }}>
+              <Button variant="contained" onClick={handleSave} disabled={isSaving}>
+                {isSaving ? "Saving..." : editing ? "Save Changes" : "Create Pharmacy"}
+              </Button>
+            </Stack>
+          </Paper>
+        </Box>
+      ) : view === "list" && showSkeleton ? (
         <Box sx={{ maxWidth: 1200, mx: "auto", px: 3, pb: 4 }}>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
             {Array.from({ length: 3 }).map((_, index) => (
@@ -1461,6 +1917,10 @@ export default function PharmacyPage() {
           onMembershipsChanged={() => loadMembers(activePharmacy.id)}
           onEditPharmacy={handleEditPharmacyDto}
           membershipsLoading={activeMembershipsLoading}
+          autoPublishWorkerRequests={Boolean(activePharmacy.auto_publish_worker_requests)}
+          onToggleAutoPublishWorkerRequests={handleToggleAutoPublishWorkerRequests}
+          autoPublishSaving={autoPublishSaving}
+          autoPublishError={autoPublishError}
         />
       ) : (
         <Box sx={{ maxWidth: 1200, mx: "auto", p: 3 }}>
@@ -1561,367 +2021,44 @@ export default function PharmacyPage() {
         </DialogActions>
       </Dialog>
 
+      <Dialog
+        open={additionalPharmacyPromptOpen}
+        onClose={() => setAdditionalPharmacyPromptOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Add another pharmacy?</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Do you want to add another pharmacy now, or go straight to your dashboard?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setAdditionalPharmacyPromptOpen(false);
+              navigate(onCompletePath);
+            }}
+          >
+            Go to Dashboard
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setAdditionalPharmacyPromptOpen(false);
+              openDialog();
+            }}
+          >
+            Add Another
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {!standalone && (
       <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="md" disableEnforceFocus>
         <DialogTitle>{editing ? "Edit Pharmacy" : "Add Pharmacy"}</DialogTitle>
         <DialogContent sx={{ minHeight: 450 }}>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
-          <Tabs
-            value={tabIndex}
-            onChange={(_, i) => setTabIndex(i)}
-            centered
-            sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}
-          >
-            {tabLabels.map((label) => (
-              <Tab key={label} label={label} />
-            ))}
-          </Tabs>
-
-          {tabIndex === 0 && (
-            <Box sx={{ p: 2 }}>
-              {isLoaded && !googlePlaceId && (
-                <Autocomplete
-                  onLoad={(ref) => (autocompleteRef.current = ref)}
-                  onPlaceChanged={handlePlaceChanged}
-                  options={{
-                    componentRestrictions: { country: "au" },
-                    fields: ["address_components", "geometry", "place_id", "name"],
-                  }}
-                >
-                  <TextField fullWidth margin="normal" label="Search Address" id="autocomplete-textfield" />
-                </Autocomplete>
-              )}
-              {loadError && <Alert severity="error">Google Maps failed to load.</Alert>}
-
-              {googlePlaceId && (
-                <Box
-                  sx={{
-                    mt: 2,
-                    p: 2,
-                    border: "1px solid",
-                    borderColor: "divider",
-                    borderRadius: 1,
-                    bgcolor: "action.hover",
-                  }}
-                >
-                  <TextField label="Street Address" fullWidth margin="normal" value={streetAddress} onChange={(e) => setStreetAddress(e.target.value)} />
-                  <TextField label="Suburb" fullWidth margin="normal" value={suburb} onChange={(e) => setSuburb(e.target.value)} />
-                  <TextField label="State" fullWidth margin="normal" value={state} onChange={(e) => setState(e.target.value)} />
-                  <TextField label="Postcode" fullWidth margin="normal" value={postcode} onChange={(e) => setPostcode(e.target.value)} />
-                  <Button size="small" onClick={clearAddress} sx={{ mt: 1 }}>
-                    Clear Address & Search Again
-                  </Button>
-                </Box>
-              )}
-
-              <TextField label="Pharmacy Name" fullWidth margin="normal" value={name} onChange={(e) => setName(e.target.value)} />
-              <TextField label="Pharmacy Email" type="email" fullWidth margin="normal" value={email} onChange={(e) => setEmail(e.target.value)} />
-
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={autoPublishWorkerRequests}
-                    onChange={(e) => setAutoPublishWorkerRequests(e.target.checked)}
-                  />
-                }
-                label="Automatically publish worker shift requests"
-              />
-            </Box>
-          )}
-
-          {tabIndex === 1 && (
-            <Box sx={{ p: 2 }}>
-              <Typography>Approval Certificate</Typography>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1 }}>
-                <Button variant="outlined" component="label">
-                  Upload Certificate
-                  <input hidden type="file" onChange={(e) => setApprovalCertFile(e.target.files?.[0] || null)} />
-                </Button>
-                {approvalCertFile ? (
-                  <Typography variant="body2">{approvalCertFile.name}</Typography>
-                ) : existingApprovalCert ? (
-                  <MuiLink href={getFileUrl(existingApprovalCert)} target="_blank" rel="noopener noreferrer">
-                    View
-                  </MuiLink>
-                ) : (
-                  <Typography variant="body2" color="text.secondary">
-                    No file uploaded
-                  </Typography>
-                )}
-              </Box>
-              <TextField
-                label="ABN"
-                required
-                fullWidth
-                margin="normal"
-                value={abn}
-                onChange={(e) => setAbn(e.target.value)}
-                error={abnInvalid}
-                helperText={abnInvalid ? "ABN must be exactly 11 digits" : undefined}
-              />
-            </Box>
-          )}
-
-          {tabIndex === 2 && (
-            <Box sx={{ p: 2 }}>
-              <Typography>SOPs (optional)</Typography>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1, mb: 2 }}>
-                <Button variant="outlined" component="label">
-                  Upload SOPs
-                  <input hidden type="file" onChange={(e) => setSopsFile(e.target.files?.[0] || null)} />
-                </Button>
-                {sopsFile ? (
-                  <Typography variant="body2">{sopsFile.name}</Typography>
-                ) : existingSops ? (
-                  <MuiLink href={getFileUrl(existingSops)} target="_blank" rel="noopener noreferrer">
-                    View
-                  </MuiLink>
-                ) : (
-                  <Typography variant="body2" color="text.secondary">
-                    No file uploaded
-                  </Typography>
-                )}
-              </Box>
-
-              <Typography>Induction Guides (optional)</Typography>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1, mb: 2 }}>
-                <Button variant="outlined" component="label">
-                  Upload Induction Guides
-                  <input hidden type="file" onChange={(e) => setInductionGuidesFile(e.target.files?.[0] || null)} />
-                </Button>
-                {inductionGuidesFile ? (
-                  <Typography variant="body2">{inductionGuidesFile.name}</Typography>
-                ) : existingInductionGuides ? (
-                  <MuiLink href={getFileUrl(existingInductionGuides)} target="_blank" rel="noopener noreferrer">
-                    View
-                  </MuiLink>
-                ) : (
-                  <Typography variant="body2" color="text.secondary">
-                    No file uploaded
-                  </Typography>
-                )}
-              </Box>
-
-              <Typography>S8/SUMP Docs (optional)</Typography>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1 }}>
-                <Button variant="outlined" component="label">
-                  Upload S8/SUMP
-                  <input hidden type="file" onChange={(e) => setSumpDocsFile(e.target.files?.[0] || null)} />
-                </Button>
-                {sumpDocsFile ? (
-                  <Typography variant="body2">{sumpDocsFile.name}</Typography>
-                ) : existingSumpDocs ? (
-                  <MuiLink href={getFileUrl(existingSumpDocs)} target="_blank" rel="noopener noreferrer">
-                    View
-                  </MuiLink>
-                ) : (
-                  <Typography variant="body2" color="text.secondary">
-                    No file uploaded
-                  </Typography>
-                )}
-              </Box>
-            </Box>
-          )}
-
-          {tabIndex === 3 && (
-            <Box sx={{ p: 2 }}>
-              <Typography variant="h6">Employment Types</Typography>
-              <FormGroup sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, mb: 2 }}>
-                {EMPLOYMENT_TYPE_OPTIONS.map((option) => (
-                  <FormControlLabel
-                    key={option}
-                    control={
-                      <Checkbox
-                        checked={employmentTypes.includes(option)}
-                        onChange={() =>
-                          setEmploymentTypes((prev) =>
-                            prev.includes(option) ? prev.filter((x) => x !== option) : [...prev, option]
-                          )
-                        }
-                      />
-                    }
-                    label={option.replace("_", " ")}
-                  />
-                ))}
-              </FormGroup>
-
-              <Typography variant="h6">Roles Needed</Typography>
-              <FormGroup sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
-                {ROLE_OPTIONS.map((option) => (
-                  <FormControlLabel
-                    key={option}
-                    control={
-                      <Checkbox
-                        checked={rolesNeeded.includes(option)}
-                        onChange={() =>
-                          setRolesNeeded((prev) =>
-                            prev.includes(option) ? prev.filter((x) => x !== option) : [...prev, option]
-                          )
-                        }
-                      />
-                    }
-                    label={option.charAt(0) + option.slice(1).toLowerCase()}
-                  />
-                ))}
-              </FormGroup>
-            </Box>
-          )}
-
-          {tabIndex === 4 && (
-            <Box sx={{ p: 2 }}>
-              {hoursFields.map(({ label, start, setStart, end, setEnd }) => (
-                <Box
-                  key={label}
-                  sx={{
-                    display: "grid",
-                    gridTemplateColumns: { xs: "1fr", sm: "150px 1fr 1fr" },
-                    gap: 2,
-                    alignItems: "center",
-                    mb: 2,
-                  }}
-                >
-                  <Typography>{label}</Typography>
-                  <TextField
-                    label="Start"
-                    type="time"
-                    fullWidth
-                    value={start}
-                    onChange={(e) => setStart(e.target.value)}
-                    InputLabelProps={{ shrink: true }}
-                  />
-                  <TextField
-                    label="End"
-                    type="time"
-                    fullWidth
-                    value={end}
-                    onChange={(e) => setEnd(e.target.value)}
-                    InputLabelProps={{ shrink: true }}
-                  />
-                </Box>
-              ))}
-            </Box>
-          )}
-
-          {tabIndex === 5 && (
-            <Box sx={{ p: 2 }}>
-              <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
-                Default Rate Strategy
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Select how you want to handle rates for Pharmacist shifts.
-              </Typography>
-              <FormControl fullWidth margin="normal">
-                <InputLabel id="rate-type-label">Rate Strategy</InputLabel>
-                <Select
-                  labelId="rate-type-label"
-                  value={defaultRateType}
-                  label="Rate Strategy"
-                  onChange={(e) => setDefaultRateType(e.target.value)}
-                >
-                  <MenuItem value="">
-                    <em>None</em>
-                  </MenuItem>
-                  {RATE_TYPES.map((type) => (
-                    <MenuItem key={type.value} value={type.value}>
-                      {type.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              {defaultRateType && defaultRateType !== "PHARMACIST_PROVIDED" && (
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
-                    Base Rates
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    These rates apply when "Fixed" or "Flexible" is selected. They are disabled if you choose
-                    "Pharmacist Provided".
-                  </Typography>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        label="Weekday Rate"
-                        type="number"
-                        fullWidth
-                        value={rateWeekday}
-                        onChange={(e) => setRateWeekday(e.target.value)}
-                        InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        label="Saturday Rate"
-                        type="number"
-                        fullWidth
-                        value={rateSaturday}
-                        onChange={(e) => setRateSaturday(e.target.value)}
-                        InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        label="Sunday Rate"
-                        type="number"
-                        fullWidth
-                        value={rateSunday}
-                        onChange={(e) => setRateSunday(e.target.value)}
-                        InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        label="Public Holiday Rate"
-                        type="number"
-                        fullWidth
-                        value={ratePublicHoliday}
-                        onChange={(e) => setRatePublicHoliday(e.target.value)}
-                        InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        label="Early Morning Rate"
-                        type="number"
-                        fullWidth
-                        value={rateEarlyMorning}
-                        onChange={(e) => setRateEarlyMorning(e.target.value)}
-                        helperText="Before 8am"
-                        InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        label="Late Night Rate"
-                        type="number"
-                        fullWidth
-                        value={rateLateNight}
-                        onChange={(e) => setRateLateNight(e.target.value)}
-                        helperText="After 7pm"
-                        InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                      />
-                    </Grid>
-                  </Grid>
-                </Box>
-              )}
-            </Box>
-          )}
-
-          {tabIndex === 6 && (
-            <Box sx={{ p: 2 }}>
-              <TextField
-                label="About"
-                fullWidth
-                multiline
-                minRows={4}
-                value={about}
-                onChange={(e) => setAbout(e.target.value)}
-              />
-            </Box>
-          )}
+          {renderPharmacyFormSections()}
         </DialogContent>
         <DialogActions>
           <Button onClick={closeDialog}>Cancel</Button>
@@ -1930,6 +2067,7 @@ export default function PharmacyPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      )}
     </Box>
   );
 }

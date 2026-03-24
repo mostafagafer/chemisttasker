@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Pharmacy Added to ChemistTasker</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
+        .container { padding: 28px 24px; background: #ffffff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); max-width: 520px; margin: 40px auto; }
+        .card { padding: 14px 16px; background: #f7fbfa; border: 1px solid #d9ece7; border-radius: 10px; margin: 18px 0; }
+        h2 { margin-top: 0; color: #1f2937; }
+        p { line-height: 1.6; }
+        .footer { margin-top: 28px; font-size: 0.875rem; color: #6b7280; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>{{ pharmacy_name }} was added to ChemistTasker</h2>
+        <p>Hello,</p>
+        <p>
+            This pharmacy, <strong>{{ pharmacy_name }}</strong>, was added by <strong>{{ creator_name }}</strong> in ChemistTasker
+            so it can manage and publish shifts.
+        </p>
+
+        <div class="card">
+            <p style="margin: 0;">
+                If this was not created by you or approved by your team, please respond to this email as soon as possible so we can take action.
+            </p>
+        </div>
+
+        <p>
+            You can also contact us directly at
+            <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.
+        </p>
+
+        <p class="footer">
+            The ChemistTasker Team
+        </p>
+    </div>
+</body>
+</html>

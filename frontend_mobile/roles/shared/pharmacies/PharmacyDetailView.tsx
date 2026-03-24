@@ -3,7 +3,7 @@
 
 import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Card, Text, Button, SegmentedButtons } from 'react-native-paper';
+import { ActivityIndicator, HelperText, SegmentedButtons, Switch, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type MembershipDTO, type PharmacyAdminDTO, type PharmacyDTO } from '@chemisttasker/shared-core';
 import StaffManager from './StaffManager';
@@ -20,6 +20,10 @@ interface PharmacyDetailViewProps {
     onMembershipsChanged: () => void;
     onAdminsChanged: () => void;
     loading?: boolean;
+    autoPublishWorkerRequests?: boolean;
+    onToggleAutoPublishWorkerRequests?: (nextValue: boolean) => Promise<void> | void;
+    autoPublishSaving?: boolean;
+    autoPublishError?: string;
 }
 
 export default function PharmacyDetailView({
@@ -29,6 +33,10 @@ export default function PharmacyDetailView({
     onMembershipsChanged,
     onAdminsChanged,
     loading = false,
+    autoPublishWorkerRequests = false,
+    onToggleAutoPublishWorkerRequests,
+    autoPublishSaving = false,
+    autoPublishError = '',
 }: PharmacyDetailViewProps) {
     const [activeTab, setActiveTab] = useState<Tab>('staff');
 
@@ -47,7 +55,26 @@ export default function PharmacyDetailView({
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-            {/* Quick Actions */}
+            <View style={styles.automationSection}>
+                <View style={styles.automationHeader}>
+                    <View style={styles.automationCopy}>
+                        <Text style={styles.automationTitle}>Worker Request Publishing</Text>
+                        <Text style={styles.automationDescription}>
+                            Allow pharmacy staff shift cover requests and swap requests to be published to your team automatically?
+                        </Text>
+                    </View>
+                    <View style={styles.automationToggle}>
+                        {autoPublishSaving ? <ActivityIndicator size="small" /> : null}
+                        <Text style={styles.automationState}>{autoPublishWorkerRequests ? 'Enabled' : 'Disabled'}</Text>
+                        <Switch
+                            value={autoPublishWorkerRequests}
+                            onValueChange={(value) => onToggleAutoPublishWorkerRequests?.(value)}
+                            disabled={!onToggleAutoPublishWorkerRequests || autoPublishSaving}
+                        />
+                    </View>
+                </View>
+                {autoPublishError ? <HelperText type="error">{autoPublishError}</HelperText> : null}
+            </View>
 
             {/* Tab Selector */}
             <View style={styles.tabContainer}>
@@ -138,5 +165,36 @@ const styles = StyleSheet.create({
     },
     content: {
         flex: 1,
+    },
+    automationSection: {
+        marginHorizontal: 16,
+        marginTop: 16,
+        marginBottom: 16,
+        padding: 16,
+        borderRadius: 16,
+        backgroundColor: surfaceTokens.bg,
+    },
+    automationHeader: {
+        gap: 12,
+    },
+    automationCopy: {
+        gap: 6,
+    },
+    automationTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+    },
+    automationDescription: {
+        color: surfaceTokens.textMuted,
+        lineHeight: 20,
+    },
+    automationToggle: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    automationState: {
+        fontWeight: '600',
+        color: surfaceTokens.textMuted,
     },
 });

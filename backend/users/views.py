@@ -25,7 +25,7 @@ from django.conf import settings
 from django_q.tasks import async_task
 from rest_framework.views import APIView
 from users.tasks import send_async_email
-from users.utils import get_frontend_onboarding_url, build_org_invite_context
+from users.utils import get_frontend_onboarding_url, get_frontend_owner_pharmacies_url, build_org_invite_context
 from datetime import timedelta
 from django.utils import timezone
 import secrets
@@ -368,7 +368,9 @@ class VerifyOTPView(APIView):
         ctx = {
             "first_name": user.first_name,
             "email": user.email,
+            "role": user.role,
             "onboarding_link": onboarding_link,
+            "owner_pharmacies_link": get_frontend_owner_pharmacies_url() if user.role == "OWNER" else "",
         }
         async_task(
             'users.tasks.send_async_email',
@@ -513,6 +515,33 @@ def normalize_au_mobile(raw: str) -> str:
 def valid_otp_format(otp: str) -> bool:
     """OTP must be exactly 6 digits."""
     return bool(otp and otp.isdigit() and len(otp) == 6)
+
+
+def _resolve_mobile_otp_user(request):
+    if request.user and request.user.is_authenticated:
+        return request.user, None
+
+    email = (request.data.get("email") or "").strip().lower()
+    if not email:
+        return None, Response(
+            {"error": "Email is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    user = User.objects.filter(email__iexact=email).first()
+    if not user:
+        return None, Response(
+            {"error": "No account found for this email."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if not user.is_otp_verified:
+        return None, Response(
+            {"error": "Please verify your email before verifying your mobile number."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return user, None
 
 
 class RequestMobileOTPView(APIView):

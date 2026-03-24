@@ -12,11 +12,9 @@ import {
 } from '@mui/material';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants/api';
 import AuthLayout from '../layouts/AuthLayout'; // Import the new layout
-import { useAuth } from '../contexts/AuthContext';
 
 export default function OTPVerify() {
   const navigate = useNavigate();
-  const { login } = useAuth();
   const location = useLocation();
   // --- All logic is unchanged ---
   const emailFromState = location.state?.email || '';
@@ -32,16 +30,13 @@ export default function OTPVerify() {
     setStatus('');
     setLoading(true);
     try {
-      const { data } = await axios.post(
+      await axios.post(
         `${API_BASE_URL}${API_ENDPOINTS.verifyOtp}`,
         { email, otp },
         { withCredentials: true }
       );
-      if (data?.access && data?.refresh && data?.user) {
-        login(data.access, data.refresh, data.user);
-      }
       setStatus('Verification successful! Redirecting...');
-      setTimeout(() => navigate('/mobile-verify'), 800);
+      setTimeout(() => navigate('/login', { state: { email } }), 800);
 
     } catch (err) {
       if (axios.isAxiosError(err)) {

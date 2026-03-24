@@ -418,7 +418,7 @@ export default function BasicInfoV2() {
           label="AHPRA Number"
           value={data.ahpra_number || ''}
           onChange={e => setField('ahpra_number', e.target.value)}
-          InputProps={{ startAdornment: <InputAdornment position="start">PHA000</InputAdornment> }}
+          InputProps={{ startAdornment: <InputAdornment position="start">PHA</InputAdornment> }}
           sx={{ flex: '1 1 320px', minWidth: 240, maxWidth: 420 }}
         />
         <TextField

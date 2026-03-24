@@ -287,7 +287,7 @@ class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", required=False, allow_blank=True)
     first_name = serializers.CharField(source="user.first_name", required=False, allow_blank=True)
     last_name = serializers.CharField(source="user.last_name", required=False, allow_blank=True)
-    phone_number = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    phone_number = serializers.CharField(source="user.mobile_number", required=False, allow_blank=True, allow_null=True)
     profile_photo = serializers.ImageField(required=False, allow_null=True)
     profile_photo_url = serializers.SerializerMethodField(read_only=True)
     tab = serializers.CharField(write_only=True, required=False)
@@ -304,6 +304,7 @@ class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
             "phone_number",
             "role",
             "chain_pharmacy",
+            "number_of_pharmacies",
             "profile_photo",
             "profile_photo_url",
             "ahpra_number",
@@ -349,7 +350,7 @@ class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
 
         if user_data:
             changed_user_fields = []
-            for key in ("username", "first_name", "last_name"):
+            for key in ("username", "first_name", "last_name", "mobile_number"):
                 if key in user_data:
                     setattr(instance.user, key, user_data[key])
                     changed_user_fields.append(key)
@@ -377,7 +378,7 @@ class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
                 instance.profile_photo = new_photo
                 update_fields.append("profile_photo")
 
-        direct_fields = ["phone_number", "role", "chain_pharmacy", "ahpra_number"]
+        direct_fields = ["role", "chain_pharmacy", "number_of_pharmacies", "ahpra_number"]
         role_changed = "role" in vdata and vdata.get("role") != instance.role
         ahpra_changed = "ahpra_number" in vdata and vdata.get("ahpra_number") != instance.ahpra_number
 
@@ -436,8 +437,9 @@ class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
             bool(getattr(user, "username", None)),
             bool(getattr(user, "first_name", None)),
             bool(getattr(user, "last_name", None)),
-            bool(obj.phone_number),
+            bool(getattr(user, "mobile_number", None)),
             bool(obj.role),
+            bool(getattr(obj, "number_of_pharmacies", None)),
             bool(getattr(obj, "profile_photo")),
         ]
         if obj.role == "PHARMACIST":
@@ -3667,6 +3669,7 @@ class ShiftSerializer(serializers.ModelSerializer):
     notify_pharmacy_staff = serializers.BooleanField(write_only=True, required=False, default=False)
     notify_favorite_staff = serializers.BooleanField(write_only=True, required=False, default=False)
     notify_chain_members = serializers.BooleanField(write_only=True, required=False, default=False)
+    apply_rates_to_pharmacy = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
         model = Shift
@@ -3685,6 +3688,7 @@ class ShiftSerializer(serializers.ModelSerializer):
             'role_label', 'ui_is_negotiable', 'ui_is_flexible_time', 'ui_allow_partial',
             'ui_location_city', 'ui_location_state', 'ui_address_line', 'ui_distance_km', 'ui_is_urgent',
             'notify_pharmacy_staff', 'notify_favorite_staff', 'notify_chain_members',
+            'apply_rates_to_pharmacy',
             'payment_status',
         ]
         read_only_fields = [
@@ -3898,6 +3902,63 @@ class ShiftSerializer(serializers.ModelSerializer):
 
             normalized.append(slot)
         return normalized
+
+    def _sync_pharmacy_rate_defaults(self, pharmacy, *, shift=None, request_data=None):
+        if not pharmacy:
+            return
+
+        request_data = request_data or {}
+
+        def get_request_value(*keys):
+            for key in keys:
+                if key in request_data:
+                    return request_data.get(key)
+            return None
+
+        def to_decimal_or_none(value):
+            if value in (None, ''):
+                return None
+            try:
+                return Decimal(str(value))
+            except Exception:
+                return None
+
+        next_rate_type = (
+            get_request_value('rate_type', 'rateType')
+            or getattr(shift, 'rate_type', None)
+            or getattr(pharmacy, 'default_rate_type', None)
+            or 'FLEXIBLE'
+        )
+        pharmacy.default_rate_type = next_rate_type
+
+        pharmacy.rate_weekday = to_decimal_or_none(get_request_value('rate_weekday', 'rateWeekday'))
+        pharmacy.rate_saturday = to_decimal_or_none(get_request_value('rate_saturday', 'rateSaturday'))
+        pharmacy.rate_sunday = to_decimal_or_none(get_request_value('rate_sunday', 'rateSunday'))
+        pharmacy.rate_public_holiday = to_decimal_or_none(get_request_value('rate_public_holiday', 'ratePublicHoliday'))
+        pharmacy.rate_early_morning = to_decimal_or_none(get_request_value('rate_early_morning', 'rateEarlyMorning'))
+        pharmacy.rate_late_night = to_decimal_or_none(get_request_value('rate_late_night', 'rateLateNight'))
+
+        fixed_rate_value = (
+            get_request_value('fixed_rate', 'fixedRate', 'hourly_rate', 'hourlyRate')
+            or getattr(shift, 'fixed_rate', None)
+            or pharmacy.rate_weekday
+        )
+        pharmacy.default_fixed_rate = (
+            to_decimal_or_none(fixed_rate_value)
+            if next_rate_type == 'FIXED'
+            else None
+        )
+
+        pharmacy.save(update_fields=[
+            'default_rate_type',
+            'default_fixed_rate',
+            'rate_weekday',
+            'rate_saturday',
+            'rate_sunday',
+            'rate_public_holiday',
+            'rate_early_morning',
+            'rate_late_night',
+        ])
 
     def _collect_membership_users(self, shift, pharmacy_ids, employment_types):
         qs = Membership.objects.filter(
@@ -4362,6 +4423,7 @@ class ShiftSerializer(serializers.ModelSerializer):
         notify_pharmacy_staff = validated_data.pop('notify_pharmacy_staff', False)
         notify_favorite_staff = validated_data.pop('notify_favorite_staff', False)
         notify_chain_members = validated_data.pop('notify_chain_members', False)
+        apply_rates_to_pharmacy = validated_data.pop('apply_rates_to_pharmacy', False)
         slots_data = self._normalize_slots_payload(validated_data.pop('slots'))
         user        = self.context['request'].user
         pharmacy    = validated_data['pharmacy']
@@ -4423,6 +4485,12 @@ class ShiftSerializer(serializers.ModelSerializer):
                 )
             )
             transaction.on_commit(lambda: self._send_availability_match_notifications(shift))
+            if apply_rates_to_pharmacy and validated_data.get('role_needed') == 'PHARMACIST':
+                self._sync_pharmacy_rate_defaults(
+                    pharmacy,
+                    shift=shift,
+                    request_data=getattr(self.context.get('request'), 'data', {}),
+                )
 
             dedicated_user = getattr(shift, 'dedicated_user', None)
             if dedicated_user:
@@ -4486,6 +4554,7 @@ class ShiftSerializer(serializers.ModelSerializer):
         validated_data.pop('notify_pharmacy_staff', None)
         validated_data.pop('notify_favorite_staff', None)
         validated_data.pop('notify_chain_members', None)
+        apply_rates_to_pharmacy = validated_data.pop('apply_rates_to_pharmacy', False)
         # If visibility is changing, recalc escalation_level
         if 'visibility' in validated_data:
             allowed_tiers = self.build_allowed_tiers(instance.pharmacy)
@@ -4511,6 +4580,13 @@ class ShiftSerializer(serializers.ModelSerializer):
             instance.slots.all().delete()
             for slot in validated_data['slots']:
                 ShiftSlot.objects.create(shift=instance, **slot)
+
+        if apply_rates_to_pharmacy and instance.role_needed == 'PHARMACIST':
+            self._sync_pharmacy_rate_defaults(
+                instance.pharmacy,
+                shift=instance,
+                request_data=getattr(self.context.get('request'), 'data', {}),
+            )
 
         return instance
 

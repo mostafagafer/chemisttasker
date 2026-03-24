@@ -501,10 +501,6 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                                         </>
                                     )}
 
-                                    <View style={[styles.toggleRow, { marginTop: 16 }]}>
-                                        <Text style={{ flex: 1 }}>Automatically publish worker requests</Text>
-                                        <Checkbox status={form.auto_publish_worker_requests ? 'checked' : 'unchecked'} onPress={() => setForm(p => ({ ...p, auto_publish_worker_requests: !p.auto_publish_worker_requests }))} />
-                                    </View>
                                 </>
                             )}
 

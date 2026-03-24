@@ -8,192 +8,362 @@ from client_profile.models import PharmacistOnboarding, OtherStaffOnboarding, Ph
 
 # Load static JSON data
 BASE_DIR = Path(settings.BASE_DIR)
-AWARD_RATES = json.load(open(BASE_DIR / 'client_profile/data/updated_award_rates.json'))
+AWARD_RATES = json.load(open(BASE_DIR / 'client_profile/data/updated_award_rates_casual_first_level_correct_mapping.json'))
 PUBLIC_HOLIDAYS = json.load(open(BASE_DIR / 'client_profile/data/public_holidays.json'))
 
 EARLY_MORNING_END = time(8, 0)
 LATE_NIGHT_START = time(19, 0)
+DECIMAL_ZERO = Decimal('0.00')
+FIRST_LEVEL_CLASSIFICATIONS = {
+    'ASSISTANT': 'LEVEL_1',
+    'TECHNICIAN': 'LEVEL_1',
+    'STUDENT': 'YEAR_1',
+    'INTERN': 'FIRST_HALF',
+    'PHARMACIST': 'PHARMACIST',
+}
+STATE_CODE_ALIASES = {
+    'ACT': 'ACT',
+    'AUSTRALIAN CAPITAL TERRITORY': 'ACT',
+    'NSW': 'NSW',
+    'NEW SOUTH WALES': 'NSW',
+    'NT': 'NT',
+    'NORTHERN TERRITORY': 'NT',
+    'QLD': 'QLD',
+    'QUEENSLAND': 'QLD',
+    'SA': 'SA',
+    'SOUTH AUSTRALIA': 'SA',
+    'TAS': 'TAS',
+    'TASMANIA': 'TAS',
+    'VIC': 'VIC',
+    'VICTORIA': 'VIC',
+    'WA': 'WA',
+    'WESTERN AUSTRALIA': 'WA',
+}
+
+def _normalize_state_code(state):
+    normalized = (state or '').strip().upper()
+    if not normalized:
+        return ''
+    return STATE_CODE_ALIASES.get(normalized, normalized)
 
 
 def is_public_holiday(slot_date, state):
-    return str(slot_date) in PUBLIC_HOLIDAYS.get(state.upper(), [])
+    state_code = _normalize_state_code(state)
+    if not state_code:
+        return False
+    return str(slot_date) in PUBLIC_HOLIDAYS.get(state_code, [])
+
 
 def get_day_type(slot_date, state):
     if is_public_holiday(slot_date, state):
         return 'public_holiday'
     weekday = slot_date.weekday()
-    return 'saturday' if weekday == 5 else 'sunday' if weekday == 6 else 'weekday'
+    if weekday == 5:
+        return 'saturday'
+    if weekday == 6:
+        return 'sunday'
+    return 'weekday'
 
-def get_time_category(start, end):
-    if start < EARLY_MORNING_END:
+
+def _combine_datetime(slot_date, slot_time):
+    return datetime.combine(slot_date, slot_time)
+
+
+def _resolve_shift_bounds(slot_date, start_time, end_time):
+    start_dt = _combine_datetime(slot_date, start_time)
+    end_dt = _combine_datetime(slot_date, end_time)
+    if end_dt <= start_dt:
+        end_dt += timedelta(days=1)
+    return start_dt, end_dt
+
+
+def _decimal_hours(start_dt, end_dt):
+    seconds = Decimal(str((end_dt - start_dt).total_seconds()))
+    return (seconds / Decimal('3600')).quantize(Decimal('0.0001'))
+
+
+def _split_shift_across_days(slot_date, start_time, end_time):
+    start_dt, end_dt = _resolve_shift_bounds(slot_date, start_time, end_time)
+    windows = []
+    current_start = start_dt
+
+    while current_start < end_dt:
+        next_midnight = datetime.combine(current_start.date() + timedelta(days=1), time.min)
+        current_end = min(end_dt, next_midnight)
+        windows.append({
+            'date': current_start.date(),
+            'start': current_start,
+            'end': current_end,
+        })
+        current_start = current_end
+
+    return windows
+
+
+def _resolve_time_bucket(segment_start, segment_end):
+    current_date = segment_start.date()
+    early_end = datetime.combine(current_date, EARLY_MORNING_END)
+    late_start = datetime.combine(current_date, LATE_NIGHT_START)
+
+    if segment_end <= early_end:
         return 'early_morning'
-    if end > LATE_NIGHT_START:
+    if segment_start >= late_start:
         return 'late_night'
-    return None
+    return 'daytime'
 
 
-def _get_pharmacy_rate_for_key(pharmacy, rate_lookup_key):
-    """
-    Map a calculated rate key (weekday/saturday/sunday/public_holiday/early_morning/late_night)
-    to the corresponding pharmacy rate field.
-    """
-    field_map = {
-        "weekday": "rate_weekday",
-        "saturday": "rate_saturday",
-        "sunday": "rate_sunday",
-        "public_holiday": "rate_public_holiday",
-        "early_morning": "rate_early_morning",
-        "late_night": "rate_late_night",
-    }
-    field_name = field_map.get(rate_lookup_key)
-    if not field_name:
-        return None
-    return getattr(pharmacy, field_name, None)
+def _split_day_window_into_segments(day_window):
+    current_date = day_window['date']
+    boundaries = [
+        day_window['start'],
+        datetime.combine(current_date, EARLY_MORNING_END),
+        datetime.combine(current_date, LATE_NIGHT_START),
+        day_window['end'],
+    ]
+    sorted_points = []
+    for point in boundaries:
+        if day_window['start'] <= point <= day_window['end']:
+            if point not in sorted_points:
+                sorted_points.append(point)
+    sorted_points.sort()
 
-def get_locked_rate_for_slot(slot, shift, user, override_date=None):
-    """
-    Calculates the correct rate for a given user and shift slot,
-    considering role, classification, employment type, day, and time.
-    """
-    slot_date = override_date or slot.date
-    start_time = slot.start_time
-    end_time = slot.end_time
-    state = shift.pharmacy.state
+    segments = []
+    for idx in range(len(sorted_points) - 1):
+        seg_start = sorted_points[idx]
+        seg_end = sorted_points[idx + 1]
+        if seg_end <= seg_start:
+            continue
+        segments.append({
+            'date': current_date,
+            'start': seg_start,
+            'end': seg_end,
+            'time_bucket': _resolve_time_bucket(seg_start, seg_end),
+            'hours': _decimal_hours(seg_start, seg_end),
+        })
+    return segments
 
-    # Determine the context for the rate lookup
-    day_type = get_day_type(slot_date, state)               # 'weekday' | 'saturday' | 'sunday' | 'public_holiday'
-    time_category = get_time_category(start_time, end_time) # 'early_morning' | 'late_night' | None
 
-    # Pull the user's rate prefs once (strings + our two booleans)
-    rate_pref = (
+def _extract_rate_preference(user):
+    return (
         PharmacistOnboarding.objects
         .filter(user=user)
         .values_list('rate_preference', flat=True)
         .first()
     ) or {}
 
-    if time_category in ('early_morning', 'late_night'):
-        if time_category == 'early_morning' and rate_pref.get('early_morning_same_as_day'):
-            rate_lookup_key = day_type              # use weekday/sat/sun/PH rate
-        elif time_category == 'late_night' and rate_pref.get('late_night_same_as_day'):
-            rate_lookup_key = day_type              # use weekday/sat/sun/PH rate
-        else:
-            rate_lookup_key = time_category         # use explicit early/late rate
+
+def _get_pharmacy_rate_for_key(pharmacy, rate_lookup_key):
+    field_map = {
+        'weekday': 'rate_weekday',
+        'saturday': 'rate_saturday',
+        'sunday': 'rate_sunday',
+        'public_holiday': 'rate_public_holiday',
+        'early_morning': 'rate_early_morning',
+        'late_night': 'rate_late_night',
+    }
+    field_name = field_map.get(rate_lookup_key)
+    if not field_name:
+        return None
+    return getattr(pharmacy, field_name, None)
+
+
+def _resolve_pharmacist_rate_key(day_type, time_bucket, rate_preference):
+    if time_bucket == 'early_morning':
+        if rate_preference.get('early_morning_same_as_day'):
+            return day_type
+        return 'early_morning'
+    if time_bucket == 'late_night':
+        if rate_preference.get('late_night_same_as_day'):
+            return day_type
+        return 'late_night'
+    return day_type
+
+
+def _resolve_award_role_key(role_needed):
+    if role_needed == 'TECHNICIAN' and 'TECHNICIAN' not in AWARD_RATES:
+        return 'ASSISTANT'
+    return role_needed
+
+
+def _get_first_level_award_profile(role_needed):
+    role_key = _resolve_award_role_key(role_needed)
+    classification_key = FIRST_LEVEL_CLASSIFICATIONS.get(role_needed)
+    if not classification_key:
+        return None, None, None
+    return role_key, classification_key, AWARD_RATES.get(role_key, {}).get(classification_key, {}).get('casual')
+
+
+def _get_award_rate_for_segment(role_needed, day_type, time_bucket):
+    role_key, classification_key, casual_rates = _get_first_level_award_profile(role_needed)
+    if not casual_rates:
+        raise KeyError(f'No casual award rates found for {role_needed}')
+
+    if time_bucket == 'daytime':
+        rate_value = casual_rates.get(day_type)
     else:
-        rate_lookup_key = day_type                  # daytime: use the day bucket
+        bucket_rates = casual_rates.get(time_bucket) or {}
+        rate_value = bucket_rates.get(day_type)
 
-    # Determine employment type (full/part-time vs. casual)
-    membership = Membership.objects.filter(user=user, pharmacy=shift.pharmacy).first()
-    employment_category = 'casual' # Default to casual
-    if membership and membership.employment_type in ['FULL_TIME', 'PART_TIME']:
-        employment_category = 'full_part_time'
+    if rate_value is None:
+        raise KeyError(f'No {time_bucket} rate configured for {role_needed} on {day_type}')
 
-    # Handle Pharmacist Rates (use pharmacy default base rates)
-    if shift.role_needed == 'PHARMACIST':
-        pharmacy_rate = _get_pharmacy_rate_for_key(shift.pharmacy, rate_lookup_key)
-        if pharmacy_rate is None:
-            return Decimal('0.00'), {"error": "Pharmacy rate not configured"}
+    return Decimal(str(rate_value)), {
+        'role_key': role_key,
+        'classification_key': classification_key,
+        'employment': 'casual',
+        'time_bucket': time_bucket,
+        'day_type': day_type,
+    }
 
-        reason = {
-            "type": "Default",
-            "rate_key": rate_lookup_key,
-            "source": "Pharmacy",
-        }
-        return Decimal(pharmacy_rate), reason
 
-    # Handle Other Staff Rates (Intern, Student, Assistant, Technician)
-    else:
-        try:
-            onboarding = OtherStaffOnboarding.objects.get(user=user)
-            classification_key = None
-            
-            if shift.role_needed == 'INTERN':
-                classification_key = onboarding.intern_half or 'FIRST_HALF'
-            elif shift.role_needed == 'STUDENT':
-                classification_key = onboarding.student_year or 'YEAR_1'
-            elif shift.role_needed in ['ASSISTANT', 'TECHNICIAN']:
-                # Both Assistant and Technician use the same LEVEL_1-4 keys in the JSON
-                classification_key = onboarding.classification_level or 'LEVEL_1'
+def _format_segment_description(segment):
+    bucket_labels = {
+        'early_morning': 'early morning',
+        'daytime': 'daytime',
+        'late_night': 'late night',
+    }
+    day_labels = {
+        'weekday': 'weekday',
+        'saturday': 'Saturday',
+        'sunday': 'Sunday',
+        'public_holiday': 'public holiday',
+    }
+    return (
+        f"{segment['hours']}h "
+        f"{bucket_labels.get(segment['time_bucket'], segment['time_bucket'])} "
+        f"on {day_labels.get(segment['day_type'], segment['day_type'])} "
+        f"at ${segment['rate']}/hr"
+    )
 
-            if not classification_key:
-                 return Decimal('0.00'), {"error": "User classification not found in onboarding profile."}
 
-            # Correctly look up the rate for other staff
-            rate = AWARD_RATES[shift.role_needed][classification_key][employment_category][rate_lookup_key]
-            
-            # Add owner bonus only for casual staff, as per original logic
-            owner_bonus = shift.owner_adjusted_rate or Decimal('0.00')
-            final_rate = Decimal(rate)
-            bonus_applied = False
-            if employment_category == 'casual' and owner_bonus > 0:
-                final_rate += owner_bonus
-                bonus_applied = True
+def _build_average_explanation(segments, total_hours, average_rate):
+    if not segments:
+        return 'No rate segments were generated for this shift.'
 
-            reason = {
-                "type": rate_lookup_key,
-                "role_key": classification_key,
-                "employment": employment_category,
-                "source": "Award",
-                "bonus_applied": bonus_applied
-            }
-            return final_rate, reason
+    if len(segments) == 1:
+        only_segment = segments[0]
+        return (
+            f"This shift uses a single rate segment: "
+            f"{_format_segment_description(only_segment)}. "
+            f"The effective hourly rate is ${average_rate}/hr."
+        )
 
-        except OtherStaffOnboarding.DoesNotExist:
-            return Decimal('0.00'), {"error": "OtherStaffOnboarding profile not found for user."}
-        except KeyError:
-            return Decimal('0.00'), {"error": f"Rate not found for {shift.role_needed} classification"}
+    segment_parts = [_format_segment_description(segment) for segment in segments]
+    return (
+        f"This shift crosses multiple pay windows, so the system calculated a weighted average "
+        f"across {total_hours} hours. Segments: {'; '.join(segment_parts)}. "
+        f"The effective hourly rate shown here is ${average_rate}/hr."
+    )
+
+
+def _price_shift_segments(slot_date, start_time, end_time, shift, rate_preference=None):
+    rate_preference = rate_preference or {}
+    all_segments = []
+    total_hours = DECIMAL_ZERO
+    total_pay = DECIMAL_ZERO
+
+    for day_window in _split_shift_across_days(slot_date, start_time, end_time):
+        day_type = get_day_type(day_window['date'], getattr(shift.pharmacy, 'state', '') or '')
+        for segment in _split_day_window_into_segments(day_window):
+            if shift.role_needed == 'PHARMACIST':
+                rate_key = _resolve_pharmacist_rate_key(day_type, segment['time_bucket'], rate_preference)
+                rate_value = _get_pharmacy_rate_for_key(shift.pharmacy, rate_key)
+                if rate_value is None:
+                    raise KeyError(f'Pharmacy rate not configured for {rate_key}')
+                segment_rate = Decimal(str(rate_value))
+                meta = {
+                    'source': 'Pharmacy',
+                    'rate_key': rate_key,
+                    'day_type': day_type,
+                    'time_bucket': segment['time_bucket'],
+                }
+            else:
+                segment_rate, award_meta = _get_award_rate_for_segment(
+                    shift.role_needed,
+                    day_type,
+                    segment['time_bucket'],
+                )
+                owner_bonus = getattr(shift, 'owner_adjusted_rate', None) or DECIMAL_ZERO
+                if owner_bonus > 0:
+                    segment_rate += owner_bonus
+                meta = {
+                    'source': 'Award',
+                    'day_type': day_type,
+                    'time_bucket': segment['time_bucket'],
+                    'owner_bonus': str(owner_bonus),
+                    **award_meta,
+                }
+
+            segment_total = (segment_rate * segment['hours']).quantize(Decimal('0.0001'))
+            total_hours += segment['hours']
+            total_pay += segment_total
+            all_segments.append({
+                'date': str(segment['date']),
+                'start_time': segment['start'].time().strftime('%H:%M:%S'),
+                'end_time': segment['end'].time().strftime('%H:%M:%S'),
+                'hours': str(segment['hours']),
+                'rate': str(segment_rate.quantize(Decimal('0.01'))),
+                'line_total': str(segment_total.quantize(Decimal('0.01'))),
+                **meta,
+            })
+
+    if total_hours <= 0:
+        raise ValidationError('Shift duration must be greater than zero.')
+
+    average_rate = (total_pay / total_hours).quantize(Decimal('0.01'))
+    rounded_total_hours = total_hours.quantize(Decimal('0.01'))
+    rounded_total_pay = total_pay.quantize(Decimal('0.01'))
+    return average_rate, {
+        'source': 'Pharmacy' if shift.role_needed == 'PHARMACIST' else 'Award',
+        'segments': all_segments,
+        'total_hours': str(rounded_total_hours),
+        'total_pay': str(rounded_total_pay),
+        'calculation_method': 'weighted_segment_average',
+        'description': _build_average_explanation(all_segments, rounded_total_hours, average_rate),
+    }
+
+def get_locked_rate_for_slot(slot, shift, user, override_date=None):
+    """
+    Calculates the effective hourly rate for a concrete slot.
+
+    The rate is derived from a segment-by-segment analysis:
+    - split overnight shifts across calendar days
+    - split each day into early-morning / daytime / late-night windows
+    - map each segment to public-holiday / weekend / weekday rates
+    - compute the weighted average hourly rate for the full slot
+    """
+    slot_date = override_date or slot.date
+    rate_preference = _extract_rate_preference(user) if shift.role_needed == 'PHARMACIST' else {}
+    try:
+        return _price_shift_segments(
+            slot_date,
+            slot.start_time,
+            slot.end_time,
+            shift,
+            rate_preference=rate_preference,
+        )
+    except (KeyError, ValidationError) as exc:
+        return DECIMAL_ZERO, {'error': str(exc)}
 
 
 def calculate_shift_rates(shift, slot_date, start_time, end_time):
     """
-    Calculates a preview hourly rate for a draft shift slot (owner posting flow).
+    Calculates the preview hourly rate shown on the Post Shift page.
 
-    - Pharmacist: uses the pharmacy's configured base rates (`rate_*`) and public holiday detection.
-    - Other staff: uses `updated_award_rates.json` defaults (LEVEL_1 / YEAR_1 / FIRST_HALF) and applies any owner bonus.
+    This uses the same segmented logic as `get_locked_rate_for_slot()` so the owner
+    sees the same effective hourly rate that the backend will later lock in.
     """
-    state = getattr(shift.pharmacy, "state", "") or ""
-    day_type = get_day_type(slot_date, state)
-    time_category = get_time_category(start_time, end_time)
-
-    rate_pref = getattr(shift, "rate_preference", None) or {}
-    if time_category in ("early_morning", "late_night"):
-        if time_category == "early_morning" and rate_pref.get("early_morning_same_as_day"):
-            rate_lookup_key = day_type
-        elif time_category == "late_night" and rate_pref.get("late_night_same_as_day"):
-            rate_lookup_key = day_type
-        else:
-            rate_lookup_key = time_category
-    else:
-        rate_lookup_key = day_type
-
-    if shift.role_needed == "PHARMACIST":
-        pharmacy_rate = _get_pharmacy_rate_for_key(shift.pharmacy, rate_lookup_key)
-        if pharmacy_rate is None:
-            return Decimal("0.00"), {"error": "Pharmacy rate not configured"}
-        return Decimal(pharmacy_rate), {"source": "Pharmacy", "type": "Default"}
-
-    employment_category = "casual"
-    default_classification = None
-    if shift.role_needed == "INTERN":
-        default_classification = "FIRST_HALF"
-    elif shift.role_needed == "STUDENT":
-        default_classification = "YEAR_1"
-    elif shift.role_needed in ["ASSISTANT", "TECHNICIAN"]:
-        default_classification = "LEVEL_1"
-
-    if not default_classification:
-        return Decimal("0.00"), {"error": "Unsupported role for award rate preview"}
-
+    rate_preference = getattr(shift, 'rate_preference', None) or {}
     try:
-        rate = Decimal(AWARD_RATES[shift.role_needed][default_classification][employment_category][rate_lookup_key])
-    except KeyError:
-        return Decimal("0.00"), {"error": "Award rate not found"}
-
-    owner_bonus = getattr(shift, "owner_adjusted_rate", None) or Decimal("0.00")
-    if owner_bonus and owner_bonus > 0:
-        rate += Decimal(owner_bonus)
-
-    return rate, {"source": "Award", "type": rate_lookup_key, "role_key": default_classification}
+        return _price_shift_segments(
+            slot_date,
+            start_time,
+            end_time,
+            shift,
+            rate_preference=rate_preference,
+        )
+    except (KeyError, ValidationError) as exc:
+        return DECIMAL_ZERO, {'error': str(exc)}
 
 
 def expand_shift_slots(shift):

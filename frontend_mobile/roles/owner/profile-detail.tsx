@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Chip, HelperText, Menu, Text, TextInput } from 'react-native-paper';
 import { getOnboarding, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { useRouter } from 'expo-router';
+import { useAuth } from '../../context/AuthContext';
 
 type OwnerRole = 'MANAGER' | 'PHARMACIST';
 type OwnerFormData = {
@@ -13,10 +14,17 @@ type OwnerFormData = {
   phone_number: string;
   role: OwnerRole;
   chain_pharmacy: boolean;
+  number_of_pharmacies: number;
   ahpra_number: string;
   ahpra_years_since_first_registration?: number | null;
   ahpra_verified?: boolean | null;
   ahpra_verification_note?: string | null;
+};
+
+type Props = {
+  standalone?: boolean;
+  onSuccessPath?: string;
+  onCancelPath?: string;
 };
 
 const ROLE_OPTIONS: Array<{ value: OwnerRole; label: string }> = [
@@ -24,12 +32,18 @@ const ROLE_OPTIONS: Array<{ value: OwnerRole; label: string }> = [
   { value: 'PHARMACIST', label: 'Pharmacist' },
 ];
 
-export default function OwnerProfileDetailScreen() {
+export default function OwnerProfileDetailScreen({
+  standalone = false,
+  onSuccessPath,
+  onCancelPath,
+}: Props) {
   const router = useRouter();
+  const { user, refreshUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [roleMenuVisible, setRoleMenuVisible] = useState(false);
+  const isMobileVerified = Boolean(user?.is_mobile_verified);
   const [form, setForm] = useState<OwnerFormData>({
     username: '',
     first_name: '',
@@ -37,6 +51,7 @@ export default function OwnerProfileDetailScreen() {
     phone_number: '',
     role: 'MANAGER',
     chain_pharmacy: false,
+    number_of_pharmacies: 1,
     ahpra_number: '',
     ahpra_years_since_first_registration: null,
     ahpra_verified: null,
@@ -56,9 +71,10 @@ export default function OwnerProfileDetailScreen() {
           username: data?.username || '',
           first_name: data?.first_name || '',
           last_name: data?.last_name || '',
-          phone_number: data?.phone_number || '',
+          phone_number: data?.phone_number || user?.mobile_number || '',
           role: (data?.role as OwnerRole) || 'MANAGER',
           chain_pharmacy: Boolean(data?.chain_pharmacy),
+          number_of_pharmacies: Math.max(1, Number(data?.number_of_pharmacies) || 1),
           ahpra_number: data?.ahpra_number || '',
           ahpra_years_since_first_registration: data?.ahpra_years_since_first_registration ?? null,
           ahpra_verified: typeof data?.ahpra_verified === 'boolean' ? data.ahpra_verified : null,
@@ -71,7 +87,7 @@ export default function OwnerProfileDetailScreen() {
       }
     };
     void load();
-  }, []);
+  }, [user?.mobile_number]);
 
   const submit = async () => {
     setError('');
@@ -91,14 +107,22 @@ export default function OwnerProfileDetailScreen() {
     payload.append('phone_number', form.phone_number);
     payload.append('role', form.role);
     payload.append('chain_pharmacy', String(form.chain_pharmacy));
+    payload.append('number_of_pharmacies', String(form.chain_pharmacy ? Math.max(1, form.number_of_pharmacies) : 1));
     payload.append('ahpra_number', form.role === 'PHARMACIST' ? form.ahpra_number : '');
     payload.append('submitted_for_verification', 'true');
 
     setSaving(true);
     try {
       await updateOnboardingForm('owner', payload);
-      Alert.alert('Saved', 'Owner profile detail updated.');
-      router.back();
+      await refreshUser();
+      if (standalone) {
+        if (onSuccessPath) {
+          router.replace(onSuccessPath as any);
+        }
+      } else {
+        Alert.alert('Saved', 'Owner profile detail updated.');
+        router.back();
+      }
     } catch (err: any) {
       setError(err?.response?.data?.detail || err?.message || 'Failed to save owner profile detail.');
     } finally {
@@ -119,11 +143,31 @@ export default function OwnerProfileDetailScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.content}>
+        {standalone ? (
+          <View style={styles.headerBlock}>
+            <Text variant="headlineMedium" style={styles.title}>Complete Owner Setup</Text>
+            <Text variant="bodyMedium" style={styles.subtitle}>
+              Finish your owner details first. After this, you&apos;ll add your pharmacy.
+            </Text>
+          </View>
+        ) : null}
 
         <TextInput mode="outlined" label="First Name" value={form.first_name} onChangeText={(v) => setForm((p) => ({ ...p, first_name: v }))} />
         <TextInput mode="outlined" label="Last Name" value={form.last_name} onChangeText={(v) => setForm((p) => ({ ...p, last_name: v }))} />
         <TextInput mode="outlined" label="Username" value={form.username} onChangeText={(v) => setForm((p) => ({ ...p, username: v }))} />
-        <TextInput mode="outlined" label="Phone Number" value={form.phone_number} onChangeText={(v) => setForm((p) => ({ ...p, phone_number: v }))} />
+        <TextInput
+          mode="outlined"
+          label="Phone Number"
+          value={form.phone_number}
+          onChangeText={(v) => setForm((p) => ({ ...p, phone_number: v }))}
+          disabled={isMobileVerified}
+        />
+        <Chip
+          mode="outlined"
+          icon={isMobileVerified ? 'check-circle-outline' : 'clock-outline'}
+        >
+          {isMobileVerified ? 'Mobile Verified' : 'Mobile Not Verified'}
+        </Chip>
 
         <View style={styles.switchRow}>
           <Text variant="bodyMedium">Do you have more than one pharmacy?</Text>
@@ -131,6 +175,22 @@ export default function OwnerProfileDetailScreen() {
             {form.chain_pharmacy ? 'Yes' : 'No'}
           </Button>
         </View>
+
+        {form.chain_pharmacy ? (
+          <TextInput
+            mode="outlined"
+            label="Number of Pharmacies"
+            value={String(form.number_of_pharmacies || 1)}
+            onChangeText={(v) => {
+              const digits = v.replace(/\D/g, '');
+              setForm((p) => ({
+                ...p,
+                number_of_pharmacies: Math.max(1, Number(digits || '1')),
+              }));
+            }}
+            keyboardType="number-pad"
+          />
+        ) : null}
 
         <Menu
           visible={roleMenuVisible}
@@ -152,7 +212,7 @@ export default function OwnerProfileDetailScreen() {
               label="AHPRA Number"
               value={form.ahpra_number}
               onChangeText={(v) => setForm((p) => ({ ...p, ahpra_number: v }))}
-              left={<TextInput.Affix text="PHA000" />}
+              left={<TextInput.Affix text="PHA" />}
             />
             <TextInput
               mode="outlined"
@@ -173,9 +233,20 @@ export default function OwnerProfileDetailScreen() {
         {error ? <HelperText type="error">{error}</HelperText> : null}
 
         <View style={styles.actions}>
-          <Button mode="outlined" onPress={() => router.back()}>Cancel</Button>
+          <Button
+            mode="outlined"
+            onPress={() => {
+              if (onCancelPath) {
+                router.replace(onCancelPath as any);
+                return;
+              }
+              router.back();
+            }}
+          >
+            Cancel
+          </Button>
           <Button mode="contained" onPress={submit} loading={saving} disabled={saving}>
-            {saving ? 'Saving...' : 'Submit'}
+            {saving ? 'Saving...' : standalone ? 'Continue' : 'Submit'}
           </Button>
         </View>
       </ScrollView>
@@ -187,6 +258,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9FAFB' },
   loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   content: { padding: 16, gap: 12, paddingBottom: 32 },
+  headerBlock: { gap: 6, marginBottom: 8 },
   title: { color: '#111827', fontWeight: '700' },
   subtitle: { color: '#6B7280', marginBottom: 4 },
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },

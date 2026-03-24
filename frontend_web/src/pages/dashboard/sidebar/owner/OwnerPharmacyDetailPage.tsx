@@ -1,5 +1,5 @@
 import React, { useRef } from "react";
-import { Box, Button, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, FormControlLabel, Switch, Typography } from "@mui/material";
 import PeopleIcon from "@mui/icons-material/People";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import StarOutlineIcon from "@mui/icons-material/StarOutline";
@@ -62,6 +62,10 @@ interface OwnerPharmacyDetailPageProps {
   onMembershipsChanged: () => void;
   onEditPharmacy?: (pharmacy: PharmacyDTO) => void;
   membershipsLoading?: boolean;
+  autoPublishWorkerRequests?: boolean;
+  onToggleAutoPublishWorkerRequests?: (nextValue: boolean) => Promise<void> | void;
+  autoPublishSaving?: boolean;
+  autoPublishError?: string;
 }
 
 export default function OwnerPharmacyDetailPage({
@@ -72,6 +76,10 @@ export default function OwnerPharmacyDetailPage({
   onMembershipsChanged,
   onEditPharmacy,
   membershipsLoading = false,
+  autoPublishWorkerRequests = false,
+  onToggleAutoPublishWorkerRequests,
+  autoPublishSaving = false,
+  autoPublishError = "",
 }: OwnerPharmacyDetailPageProps) {
   const theme = useTheme();
   const tokens = surface(theme);
@@ -147,6 +155,54 @@ export default function OwnerPharmacyDetailPage({
       </Box>
 
       <Box sx={{ mt: 3 }} ref={staffSectionRef}>
+        <Box
+          sx={{
+            mb: 3,
+            p: 2.5,
+            borderRadius: 3,
+            border: `1px solid ${tokens.border}`,
+            background: tokens.bg,
+          }}
+        >
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: { xs: "column", md: "row" },
+              gap: 2,
+              alignItems: { md: "center" },
+              justifyContent: "space-between",
+            }}
+          >
+            <Box>
+              <Typography variant="h6" sx={{ mb: 0.5 }}>
+                Worker Request Publishing
+              </Typography>
+              <Typography variant="body2" sx={{ color: tokens.textMuted, maxWidth: 720 }}>
+                Allow pharmacy staff shift cover requests and swap requests to be published to your team automatically?
+              </Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              {autoPublishSaving ? <CircularProgress size={20} /> : null}
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={autoPublishWorkerRequests}
+                    onChange={(_, checked) => onToggleAutoPublishWorkerRequests?.(checked)}
+                    disabled={!onToggleAutoPublishWorkerRequests || autoPublishSaving}
+                  />
+                }
+                label={autoPublishWorkerRequests ? "Enabled" : "Disabled"}
+                sx={{ m: 0 }}
+              />
+            </Box>
+          </Box>
+          {autoPublishError ? (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {autoPublishError}
+            </Alert>
+          ) : null}
+        </Box>
+
         <Typography variant="h6" sx={{ mb: 1 }}>
           Staff
         </Typography>

@@ -26,6 +26,7 @@ import { useNavigate } from 'react-router-dom';
 import ProfilePhotoUploader from '../../components/profilePhoto/ProfilePhotoUploader';
 import AccountDeletionSection from '../../components/AccountDeletionSection';
 import apiClient from '../../utils/apiClient';
+import { useAuth, type User } from '../../contexts/AuthContext';
 
 interface FormData {
   username: string;
@@ -34,6 +35,7 @@ interface FormData {
   phone_number: string;
   role: 'MANAGER' | 'PHARMACIST';
   chain_pharmacy: boolean;
+  number_of_pharmacies: number;
   ahpra_number: string;
   ahpra_years_since_first_registration?: number | null;
   ahpra_verified?: boolean | null;
@@ -47,9 +49,19 @@ const ROLE_OPTIONS = [
   { value: 'PHARMACIST', label: 'Pharmacist' },
 ];
 
-export default function OwnerOnboarding() {
+type OwnerOnboardingProps = {
+  standalone?: boolean;
+  onSuccessPath?: string;
+};
+
+export default function OwnerOnboarding({
+  standalone = false,
+  onSuccessPath,
+}: OwnerOnboardingProps) {
   const roleKey = 'owner';
   const navigate = useNavigate();
+  const { user, setUser } = useAuth();
+  const isMobileVerified = Boolean(user?.is_mobile_verified);
 
   const [data, setData] = useState<FormData>({
     username: '',
@@ -58,6 +70,7 @@ export default function OwnerOnboarding() {
     phone_number: '',
     role: 'MANAGER',
     chain_pharmacy: false,
+    number_of_pharmacies: 1,
     ahpra_number: '',
   });
   const [loading, setLoading] = useState(true);
@@ -84,6 +97,7 @@ export default function OwnerOnboarding() {
           phone_number: d.phone_number || '',
           role: (d.role as 'MANAGER' | 'PHARMACIST') || 'MANAGER',
           chain_pharmacy: !!d.chain_pharmacy,
+          number_of_pharmacies: Math.max(1, Number(d.number_of_pharmacies) || 1),
           ahpra_number: d.ahpra_number || '',
           ahpra_years_since_first_registration: d.ahpra_years_since_first_registration ?? null,
           ahpra_verified: typeof d.ahpra_verified === 'boolean' ? d.ahpra_verified : null,
@@ -104,6 +118,9 @@ export default function OwnerOnboarding() {
   }, [roleKey]);
 
   useEffect(() => {
+    if (standalone) {
+      return;
+    }
     apiClient
       .get('/billing/subscription/')
       .then(({ data }) => {
@@ -117,16 +134,23 @@ export default function OwnerOnboarding() {
       .catch(() => {
         setSubscriptionSummary(null);
       });
-  }, []);
+  }, [standalone]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setData(prev => ({ ...prev, [name]: value }));
+    setData(prev => ({
+      ...prev,
+      [name]: name === 'number_of_pharmacies' ? Math.max(1, Number(value) || 1) : value,
+    }));
   };
 
   const handleSwitch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, checked } = e.target;
-    setData(prev => ({ ...prev, [name]: checked }));
+    setData(prev => ({
+      ...prev,
+      [name]: checked,
+      ...(name === 'chain_pharmacy' && !checked ? { number_of_pharmacies: 1 } : {}),
+    }));
   };
 
 const handleSubmit = async (e: React.FormEvent) => {
@@ -136,7 +160,11 @@ const handleSubmit = async (e: React.FormEvent) => {
 
   try {
     const payload = new FormData();
-    Object.entries(data).forEach(([k, v]) => {
+    const normalizedData = {
+      ...data,
+      number_of_pharmacies: data.chain_pharmacy ? Math.max(1, data.number_of_pharmacies || 1) : 1,
+    };
+    Object.entries(normalizedData).forEach(([k, v]) => {
       payload.append(k, String(v));
     });
     payload.append('submitted_for_verification', 'true');
@@ -147,6 +175,14 @@ const handleSubmit = async (e: React.FormEvent) => {
     }
 
     await updateOnboardingForm(roleKey, payload);
+    setUser((prev: User | null) => (
+      prev
+        ? {
+            ...prev,
+            mobile_number: data.phone_number,
+          }
+        : prev
+    ));
 
     setSnackbarOpen(true);
     setLoading(false);
@@ -161,7 +197,7 @@ const handleSubmit = async (e: React.FormEvent) => {
 
   const handleCloseSnackbar = () => {
     setSnackbarOpen(false);
-    navigate('/dashboard/owner');
+    navigate(onSuccessPath || '/dashboard/owner');
   };
 
   const VerifiedChip = ({ ok, label }: { ok?: boolean | null; label: string }) => {
@@ -189,7 +225,7 @@ const handleSubmit = async (e: React.FormEvent) => {
 
       <Paper sx={{ p: 4, mt: 4 }} elevation={3}>
         <Typography variant="h5" gutterBottom>
-          Complete Onboarding
+          {standalone ? 'Complete Owner Setup' : 'Complete Onboarding'}
         </Typography>
 
         <Box sx={{ mb: 3 }}>
@@ -244,7 +280,11 @@ const handleSubmit = async (e: React.FormEvent) => {
             value={data.phone_number}
             onChange={handleChange}
             required
+            disabled={isMobileVerified}
           />
+          <Box sx={{ mt: 1, mb: 1 }}>
+            <VerifiedChip ok={isMobileVerified} label="Mobile Verified" />
+          </Box>
 
           <FormControlLabel
             control={
@@ -256,6 +296,21 @@ const handleSubmit = async (e: React.FormEvent) => {
             }
             label="Do you have more than one pharmacy?"
           />
+
+          {data.chain_pharmacy && (
+            <TextField
+              fullWidth
+              margin="normal"
+              label="Number of Pharmacies"
+              name="number_of_pharmacies"
+              type="number"
+              value={data.number_of_pharmacies}
+              onChange={handleChange}
+              inputProps={{ min: 1 }}
+              helperText="You can add more pharmacies after setup as well."
+              required
+            />
+          )}
 
           <TextField
             select
@@ -285,7 +340,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                 onChange={handleChange}
                 required
                 InputProps={{
-                  startAdornment: <InputAdornment position="start">PHA000</InputAdornment>,
+                  startAdornment: <InputAdornment position="start">PHA</InputAdornment>,
                 }}
               />
               <TextField
@@ -332,6 +387,7 @@ const handleSubmit = async (e: React.FormEvent) => {
           </Box>
         </Box>
 
+        {!standalone && (
         <Paper variant="outlined" sx={{ mt: 4, p: 3, borderRadius: 3 }}>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', md: 'center' }} justifyContent="space-between">
             <Box>
@@ -355,10 +411,13 @@ const handleSubmit = async (e: React.FormEvent) => {
             </Button>
           </Stack>
         </Paper>
+        )}
 
+        {!standalone && (
         <Box sx={{ mt: 4 }}>
           <AccountDeletionSection />
         </Box>
+        )}
       </Paper>
     </Container>
   );

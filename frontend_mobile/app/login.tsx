@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, Image } from 'react-native';
 import { Text, TextInput, Button, Surface } from 'react-native-paper';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import AuthLayout from '../components/AuthLayout';
+import { getOwnerSetupStatus } from '../utils/ownerSetup';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ email?: string }>();
   const { loginWithCredentials } = useAuth();
 
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(typeof params.email === 'string' ? params.email : '');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -27,9 +29,15 @@ export default function LoginScreen() {
     try {
       const userData = await loginWithCredentials(email, password);
 
+      if (!userData.is_mobile_verified) {
+        router.replace('/mobile-verify' as never);
+        return;
+      }
+
       // Navigate directly to appropriate dashboard based on role
       if (userData.role === 'OWNER') {
-        router.replace('/owner/dashboard' as never);
+        const setupStatus = await getOwnerSetupStatus();
+        router.replace((setupStatus.nextPath || '/owner/dashboard') as never);
       } else if (userData.role === 'PHARMACIST') {
         router.replace('/pharmacist/dashboard' as never);
       } else if (userData.role === 'OTHER_STAFF') {

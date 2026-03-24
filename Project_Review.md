@@ -99,3 +99,27 @@ Deliverables:
 3. review of delete behavior
 4. recommendation for UI placement of overdue penalty/payment handling
 5. concise summary of what changed and any remaining edge cases
+
+
+
+
+for the welcome email.
+backend\templates\emails\welcome_email.html
+
+
+I need to add some description if the user is Onwer
+
+such as navigate to this link
+base frontend (changes between locally and production)/dashboard/owner/manage-pharmacies/my-pharmacies
+
+so you can list your pharmacies bla bla bla
+
+with some good language and welcoming behavior
+
+
+and fix this url link
+/onboarding/owner/
+
+this is wrong this should be http://localhost:5173/dashboard/owner/onboarding
+
+also changes based on the user role 

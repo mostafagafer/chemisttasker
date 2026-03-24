@@ -19,6 +19,8 @@ export type User = {
   username: string;
   email?: string;
   role: string;
+  mobile_number?: string | null;
+  is_mobile_verified?: boolean;
   profile_photo?: string;
   profile_photo_url?: string;
   memberships?: OrgMembership[];
@@ -47,8 +49,8 @@ type AuthContextType = {
   loginWithCredentials: (email: string, password: string) => Promise<User>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
-  verifyOTP: (code: string) => Promise<void>;
-  resendOTP: () => Promise<void>;
+  verifyOTP: (code: string, email?: string) => Promise<void>;
+  resendOTP: (email?: string) => Promise<void>;
   refreshUser: () => Promise<void>;
   isLoading: boolean;
 };
@@ -292,36 +294,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const verifyOTP = async (code: string) => {
+  const verifyOTP = async (code: string, email?: string) => {
     try {
-      const response = await apiClient.post('/users/verify-otp/', { email: user?.email, otp: code });
-      // Backend returns access + refresh tokens alongside the user (mirror of web OTPVerify.tsx)
-      const newAccess: string | undefined = response.data.access;
-      const newRefresh: string | undefined = response.data.refresh;
-      const updatedUser = normalizeUser(response.data.user);
-
-      if (newAccess) {
-        setAccess(newAccess);
-      }
-      if (newRefresh) {
-        setRefresh(newRefresh);
-      }
-
-      setUser(updatedUser);
-      await writeStoredSession({
-        access: newAccess || access,
-        refresh: newRefresh || refresh,
-        user: updatedUser,
-      });
+      const targetEmail = email || user?.email;
+      await apiClient.post('/users/verify-otp/', { email: targetEmail, otp: code });
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'OTP verification failed');
     }
   };
 
-  const resendOTP = async () => {
+  const resendOTP = async (email?: string) => {
     try {
       // Backend ResendOTPView looks up user by email from request body (same as web)
-      await apiClient.post('/users/resend-otp/', { email: user?.email });
+      await apiClient.post('/users/resend-otp/', { email: email || user?.email });
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'Failed to resend OTP');
     }

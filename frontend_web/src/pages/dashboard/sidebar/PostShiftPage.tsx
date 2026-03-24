@@ -25,6 +25,13 @@ import {
   ThemeProvider,
   useMediaQuery,
   Chip,
+  ToggleButton,
+  ToggleButtonGroup,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  // Switch,
+  // Divider,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import type { StepIconProps } from '@mui/material/StepIcon';
@@ -37,9 +44,13 @@ import {
   VerifiedUser as SkillsIcon,
   AttachMoney as RateIcon,
   Schedule as ScheduleIcon,
+  ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 import Grid from '@mui/material/Grid';
 import { stepConnectorClasses } from '@mui/material/StepConnector';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { Calendar, momentLocalizer } from 'react-big-calendar';
@@ -57,6 +68,7 @@ import {
   createOwnerShiftService,
   updateOwnerShiftService,
 } from '@chemisttasker/shared-core';
+import skillsCatalog from '../../../../../shared-core/skills_catalog.json';
 
 // --- Interface Definitions ---
 type PharmacyOption = PharmacySummary & { hasChain?: boolean; claimed?: boolean };
@@ -136,8 +148,30 @@ const applyTimeToDate = (date: Date, time: string) => {
   return next;
 };
 
-const formatSlotDate = (value: string) => (value ? dayjs(value).format('ddd, MMM D YYYY') : '');
+const formatSlotDate = (value: string) => (value ? dayjs(value).format('DD/MM/YYYY') : '');
 const formatSlotTime = (value: string) => dayjs(`1970-01-01T${value}`).format('h:mm A');
+const formatSlotDisplayDate = (value: string) => {
+  if (!value) return '';
+  const parsed = dayjs(value);
+  if (!parsed.isValid()) return value;
+  const day = parsed.date();
+  const suffix =
+    day >= 11 && day <= 13
+      ? 'th'
+      : day % 10 === 1
+        ? 'st'
+        : day % 10 === 2
+          ? 'nd'
+          : day % 10 === 3
+            ? 'rd'
+            : 'th';
+  return `${parsed.format('ddd')}, ${day}${suffix} of ${parsed.format('MMMM YYYY')}`;
+};
+const RATE_TYPE_DESCRIPTIONS: Record<string, string> = {
+  FLEXIBLE: 'The rate is flexible and negotiable with the candidate.',
+  FIXED: 'The rate is fixed in advanceand  and not negotiable',
+  PHARMACIST_PROVIDED: 'Use the candidate’s preset rate. You’ll always see it before assigning the shift.',
+};
 const toInputDateTimeLocal = (value?: string | null) =>
   value ? dayjs(value).local().format('YYYY-MM-DDTHH:mm') : '';
 
@@ -868,57 +902,12 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
     );
   };
 
-  const handleAddSlot = (): boolean => {
-    if (!slotStartTime || !slotEndTime) {
-      showSnackbar('Please select a start and end time.', 'error');
-      return false;
-    }
-    if (new Date(`1970-01-01T${slotEndTime}`) <= new Date(`1970-01-01T${slotStartTime}`)) {
-      showSnackbar('End time must be after start time.', 'error');
-      return false;
-    }
-
-    const baseDates = selectedDates.length ? selectedDates : slotDate ? [slotDate] : [];
-    if (!baseDates.length) {
-      showSnackbar('Select at least one date from the calendar.', 'error');
-      return false;
-    }
-
-    if (isRecurring && (!recurringEndDate || recurringDays.length === 0)) {
-      showSnackbar('Please complete the recurrence details.', 'error');
-      return false;
-    }
-
-    if (isRecurring && baseDates.length > 1) {
-      showSnackbar('Recurring schedules can only start from a single date selection.', 'error');
-      return false;
-    }
-
-    const validDates = baseDates.filter((date) => !dayjs(date).isBefore(todayStart, 'day'));
-    if (!validDates.length) {
-      showSnackbar('Cannot schedule entries in the past.', 'error');
-      return false;
-    }
-    if (validDates.length < baseDates.length) {
-      showSnackbar('Past dates were ignored.', 'error');
-    }
-
-    const newEntries = validDates.map((date) => {
-      const custom = selectedDateTimes[date];
-      const startTime = custom?.startTime || slotStartTime;
-      const endTime = custom?.endTime || slotEndTime;
-      return {
-        date,
-        startTime,
-        endTime,
-        isRecurring: isRecurring && validDates.length === 1,
-        recurringDays: isRecurring ? recurringDays : [],
-        recurringEndDate: isRecurring ? recurringEndDate : '',
-      };
-    });
-
+  const addSlotEntries = (
+    entries: SlotEntry[],
+    options?: { clearDates?: string[]; clearAllSelected?: boolean; resetRecurring?: boolean }
+  ): boolean => {
     const existingKeys = new Set(slots.map((s) => `${s.date}-${s.startTime}-${s.endTime}-${s.isRecurring}-${s.recurringDays.join(',')}`));
-    const filtered = newEntries.filter(
+    const filtered = entries.filter(
       (entry) => !existingKeys.has(`${entry.date}-${entry.startTime}-${entry.endTime}-${entry.isRecurring}-${entry.recurringDays.join(',')}`)
     );
 
@@ -930,12 +919,127 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
     setSlots((prev) => [...prev, ...filtered]);
     showSnackbar(`${filtered.length} timetable entr${filtered.length > 1 ? 'ies' : 'y'} added.`);
 
-    setSelectedDates([]);
-    setSelectedDateTimes({});
-    setIsRecurring(false);
-    setRecurringDays([]);
-    setRecurringEndDate('');
+    if (options?.clearAllSelected) {
+      setSelectedDates([]);
+      setSelectedDateTimes({});
+    } else if (options?.clearDates?.length) {
+      setSelectedDates((prev) => prev.filter((date) => !options.clearDates?.includes(date)));
+      setSelectedDateTimes((prev) => {
+        const next = { ...prev };
+        options.clearDates?.forEach((date) => {
+          delete next[date];
+        });
+        return next;
+      });
+    }
+
+    if (options?.resetRecurring) {
+      setIsRecurring(false);
+      setRecurringDays([]);
+      setRecurringEndDate('');
+    }
+
     return true;
+  };
+
+  const handleAddManualSlot = (): boolean => {
+    if (!slotStartTime || !slotEndTime) {
+      showSnackbar('Please select a start and end time.', 'error');
+      return false;
+    }
+    if (new Date(`1970-01-01T${slotEndTime}`) <= new Date(`1970-01-01T${slotStartTime}`)) {
+      showSnackbar('End time must be after start time.', 'error');
+      return false;
+    }
+
+    if (!slotDate) {
+      showSnackbar('Select a date to add a manual schedule entry.', 'error');
+      return false;
+    }
+
+    if (isRecurring && (!recurringEndDate || recurringDays.length === 0)) {
+      showSnackbar('Please complete the recurrence details.', 'error');
+      return false;
+    }
+
+    if (dayjs(slotDate).isBefore(todayStart, 'day')) {
+      showSnackbar('Cannot schedule entries in the past.', 'error');
+      return false;
+    }
+
+    const newEntries: SlotEntry[] = [{
+      date: slotDate,
+      startTime: slotStartTime,
+      endTime: slotEndTime,
+      isRecurring,
+      recurringDays: isRecurring ? recurringDays : [],
+      recurringEndDate: isRecurring ? recurringEndDate : '',
+    }];
+
+    return addSlotEntries(newEntries, { resetRecurring: true });
+  };
+
+  const handleAddSelectedDate = (date: string): boolean => {
+    const custom = selectedDateTimes[date] || { startTime: slotStartTime, endTime: slotEndTime };
+    if (!custom.startTime || !custom.endTime) {
+      showSnackbar('Please select a start and end time.', 'error');
+      return false;
+    }
+    if (new Date(`1970-01-01T${custom.endTime}`) <= new Date(`1970-01-01T${custom.startTime}`)) {
+      showSnackbar('End time must be after start time.', 'error');
+      return false;
+    }
+    if (dayjs(date).isBefore(todayStart, 'day')) {
+      showSnackbar('Cannot schedule entries in the past.', 'error');
+      return false;
+    }
+    return addSlotEntries([{
+      date,
+      startTime: custom.startTime,
+      endTime: custom.endTime,
+      isRecurring: false,
+      recurringDays: [],
+      recurringEndDate: '',
+    }], { clearDates: [date] });
+  };
+
+  const handleAddAllSelectedDates = (): boolean => {
+    if (!selectedDates.length) {
+      showSnackbar('Select at least one date from the calendar.', 'error');
+      return false;
+    }
+
+    const validDates = selectedDates.filter((date) => !dayjs(date).isBefore(todayStart, 'day'));
+    if (!validDates.length) {
+      showSnackbar('Cannot schedule entries in the past.', 'error');
+      return false;
+    }
+    if (validDates.length < selectedDates.length) {
+      showSnackbar('Past dates were ignored.', 'error');
+    }
+
+    const newEntries: SlotEntry[] = [];
+    for (const date of validDates) {
+      const custom = selectedDateTimes[date] || { startTime: slotStartTime, endTime: slotEndTime };
+      if (!custom.startTime || !custom.endTime) {
+        showSnackbar('Please select a start and end time.', 'error');
+        return false;
+      }
+      if (new Date(`1970-01-01T${custom.endTime}`) <= new Date(`1970-01-01T${custom.startTime}`)) {
+        showSnackbar('Each selected day must have an end time after its start time.', 'error');
+        return false;
+      }
+      newEntries.push({
+        date,
+        startTime: custom.startTime,
+        endTime: custom.endTime,
+        isRecurring: false,
+        recurringDays: [],
+        recurringEndDate: '',
+      });
+    }
+
+    return addSlotEntries(newEntries, { clearAllSelected: true });
   };
 
   const handleSubmit = async () => {
@@ -1054,9 +1158,37 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
   const renderStepContent = (step: number) => {
     const stepKey = steps[step]?.key;
     const workloadOptions = ['Sole Pharmacist', 'High Script Load', 'Webster Packs'];
-    const skillOptions = ['Vaccination', 'Methadone', 'CPR', 'First Aid', 'Anaphylaxis', 'Credentialed Badge', 'PDL Insurance'];
     const ESCALATION_LABELS: Record<string, string> = { FULL_PART_TIME: 'Pharmacy Members', LOCUM_CASUAL: 'Favourite Staff', OWNER_CHAIN: 'Owner Chain', ORG_CHAIN: 'Organization', PLATFORM: 'Platform (Public)' };
     const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2 } };
+    const VISIBILITY_META: Record<string, { eyebrow: string; description: string; accent: string }> = {
+      FULL_PART_TIME: {
+        eyebrow: 'Internal first',
+        description: 'Start with your own pharmacy team before widening the audience.',
+        accent: 'linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(5, 150, 105, 0.06))',
+      },
+      LOCUM_CASUAL: {
+        eyebrow: 'Trusted bench',
+        description: 'Open the shift to your known locums and favourite casual staff.',
+        accent: 'linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(37, 99, 235, 0.06))',
+      },
+      OWNER_CHAIN: {
+        eyebrow: 'Chain network',
+        description: 'Share across the owner chain when local coverage is still unavailable.',
+        accent: 'linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(217, 119, 6, 0.06))',
+      },
+      ORG_CHAIN: {
+        eyebrow: 'Organization reach',
+        description: 'Escalate to the wider organization to improve fill speed.',
+        accent: 'linear-gradient(135deg, rgba(236, 72, 153, 0.16), rgba(190, 24, 93, 0.06))',
+      },
+      PLATFORM: {
+        eyebrow: 'Public audience',
+        description: 'Publish broadly on the platform for maximum visibility and reach.',
+        accent: 'linear-gradient(135deg, rgba(109, 40, 217, 0.18), rgba(79, 70, 229, 0.06))',
+      },
+    };
+    const formatEscalationDateTime = (value?: string) =>
+      value ? dayjs(value).format('ddd, MMM D - h:mm A') : 'Choose a date and time';
 
     switch (stepKey) {
       case 'details': return (
@@ -1175,183 +1307,437 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
           </Grid>
         </Grid>
       );
-      case 'skills': return (
-        <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
-          <Grid size={12}>
-            <Typography variant="h6" sx={{ mb: 1 }}>
-              Must-Have Skills
-            </Typography>
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                gap: 1.5,
-              }}
-            >
-              {skillOptions.map(s => (
-                <FormControlLabel
-                  key={`must-${s}`}
-                  control={
-                    <Checkbox
-                      checked={mustHave.includes(s)}
-                      onChange={() =>
-                        setMustHave(current =>
-                          current.includes(s)
-                            ? current.filter(x => x !== s)
-                            : [...current, s]
-                        )
-                      }
-                    />
-                  }
-                  label={s}
-                />
-              ))}
+      case 'skills': {
+        const roleKey = roleNeeded === 'PHARMACIST' ? 'pharmacist' : 'otherstaff';
+        const roleCatalog = (skillsCatalog as any)[roleKey] || {};
+        
+        const categories = [
+          { key: 'clinical_services', title: 'Clinical Services', items: roleCatalog.clinical_services || [] },
+          { key: 'dispense_software', title: 'Dispense Software', items: roleCatalog.dispense_software || [] },
+          { key: 'expanded_scope', title: 'Expanded Scope', items: roleCatalog.expanded_scope || [] },
+        ].filter(cat => cat.items.length > 0);
+
+        return (
+          <Stack spacing={3}>
+            <Alert severity="info" sx={{ borderRadius: 2 }}>
+              Select which skills are <strong>Required</strong> (must have to apply) or <strong>Favorable</strong> (nice to have, but not mandatory).
+            </Alert>
+            
+            <Box sx={{ width: '100%' }}>
+              {categories.map((category, index) => {
+                const selectedCount = category.items.filter((s: any) => mustHave.includes(s.code) || niceToHave.includes(s.code)).length;
+
+                return (
+                  <Accordion 
+                    key={category.key} 
+                    disableGutters 
+                    elevation={0}
+                    defaultExpanded={index === 0}
+                    sx={{
+                      border: '1px solid',
+                      borderColor: 'grey.200',
+                      '&:not(:last-child)': { borderBottom: 0 },
+                      '&:before': { display: 'none' },
+                      '&:first-of-type': { borderTopLeftRadius: 12, borderTopRightRadius: 12 },
+                      '&:last-of-type': { borderBottomLeftRadius: 12, borderBottomRightRadius: 12 },
+                    }}
+                  >
+                    <AccordionSummary
+                      expandIcon={<ExpandMoreIcon />}
+                      sx={{
+                        bgcolor: 'grey.50',
+                        borderBottom: '1px solid',
+                        borderColor: 'grey.200',
+                        '& .MuiAccordionSummary-content': { alignItems: 'center', gap: 1.5, my: 1.5 }
+                      }}
+                    >
+                      <Typography variant="subtitle1" fontWeight={600}>
+                        {category.title}
+                      </Typography>
+                      {selectedCount > 0 && (
+                        <Chip 
+                          size="small" 
+                          label={`${selectedCount} selected`} 
+                          color="primary" 
+                          variant="outlined"
+                          sx={{ height: 22, fontWeight: 600, bgcolor: 'white' }} 
+                        />
+                      )}
+                    </AccordionSummary>
+                    <AccordionDetails sx={{ p: 0 }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        {category.items.map((s: any, idx: number) => {
+                          const value = mustHave.includes(s.code) 
+                            ? 'required' 
+                            : niceToHave.includes(s.code) 
+                              ? 'favorable' 
+                              : null;
+                              
+                          return (
+                            <Box
+                              key={s.code}
+                              sx={{
+                                display: 'flex',
+                                flexDirection: { xs: 'column', sm: 'row' },
+                                alignItems: { xs: 'flex-start', sm: 'center' },
+                                justifyContent: 'space-between',
+                                p: 2.5,
+                                gap: 2,
+                                borderBottom: idx < category.items.length - 1 ? '1px solid' : 'none',
+                                borderColor: 'grey.100',
+                                bgcolor: value === 'required' ? 'rgba(109, 40, 217, 0.06)' : value === 'favorable' ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
+                                transition: 'all 0.2s ease-in-out',
+                                '&:hover': {
+                                  bgcolor: value ? undefined : 'grey.50'
+                                }
+                              }}
+                            >
+                              <Box sx={{ flex: 1 }}>
+                                <Typography variant="body1" fontWeight={value ? 600 : 500} color={value ? 'text.primary' : 'text.secondary'}>
+                                  {s.label}
+                                </Typography>
+                                {s.description && (
+                                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                    {s.description}
+                                  </Typography>
+                                )}
+                              </Box>
+                              
+                              <ToggleButtonGroup
+                                size="small"
+                                value={value}
+                                exclusive
+                                onChange={(_, newVal) => {
+                                  setMustHave(prev => prev.filter(x => x !== s.code));
+                                  setNiceToHave(prev => prev.filter(x => x !== s.code));
+                                  if (newVal === 'required') {
+                                    setMustHave(prev => [...prev, s.code]);
+                                  } else if (newVal === 'favorable') {
+                                    setNiceToHave(prev => [...prev, s.code]);
+                                  }
+                                }}
+                                sx={{
+                                  bgcolor: 'background.paper',
+                                  boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+                                  '& .MuiToggleButtonGroup-grouped': {
+                                    border: '1px solid',
+                                    borderColor: 'grey.300',
+                                  },
+                                  '& .MuiToggleButton-root': {
+                                    px: 2,
+                                    py: 0.75,
+                                    textTransform: 'none',
+                                    fontWeight: 600,
+                                    color: 'text.secondary',
+                                  },
+                                  '& .Mui-selected': {
+                                    bgcolor: value === 'required' ? 'primary.main' : 'secondary.dark',
+                                    color: 'white !important',
+                                    borderColor: value === 'required' ? 'primary.main' : 'secondary.dark',
+                                    zIndex: 1,
+                                    '&:hover': {
+                                      bgcolor: value === 'required' ? 'primary.dark' : '#03694b',
+                                    }
+                                  }
+                                }}
+                              >
+                                <ToggleButton value="required">Required</ToggleButton>
+                                <ToggleButton value="favorable">Favorable</ToggleButton>
+                              </ToggleButtonGroup>
+                            </Box>
+                          );
+                        })}
+                      </Box>
+                    </AccordionDetails>
+                  </Accordion>
+                );
+              })}
             </Box>
-          </Grid>
-          <Grid size={12}>
-            <Typography variant="h6" sx={{ mb: 1 }}>
-              Nice-to-Have Skills
-            </Typography>
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                gap: 1.5,
-              }}
-            >
-              {skillOptions.map(s => (
-                <FormControlLabel
-                  key={`nice-${s}`}
-                  control={
-                    <Checkbox
-                      checked={niceToHave.includes(s)}
-                      onChange={() =>
-                        setNiceToHave(current =>
-                          current.includes(s)
-                            ? current.filter(x => x !== s)
-                            : [...current, s]
-                        )
-                      }
-                    />
-                  }
-                  label={s}
-                />
-              ))}
-            </Box>
-          </Grid>
-        </Grid>
-      );
+          </Stack>
+        );
+      }
       case 'visibility':
         const startIdx = allowedVis.indexOf(visibility);
+        const upcomingTiers = !isEmbedded && startIdx > -1 ? allowedVis.slice(startIdx + 1) : [];
         return (
           <Grid container rowSpacing={3} columnSpacing={{ xs: 0, md: 3 }}>
             <Grid size={12}>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                {isEmbedded
-                  ? 'This booking is private and only visible to the selected worker.'
-                  : 'Define who sees this shift and when it escalates to wider groups.'}
-              </Typography>
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: { xs: 2, md: 2.5 },
+                  borderRadius: 4,
+                  borderColor: 'rgba(109, 40, 217, 0.12)',
+                  background: 'linear-gradient(135deg, rgba(248, 250, 252, 1), rgba(245, 243, 255, 0.95))',
+                }}
+              >
+                <Stack spacing={1.25}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                    <Box>
+                      <Typography variant="overline" sx={{ letterSpacing: 1, color: 'primary.main', fontWeight: 700 }}>
+                        Audience Plan
+                      </Typography>
+                      <Typography variant="h6" fontWeight={700}>
+                        {isEmbedded ? 'Private direct booking' : 'Control who sees this shift first'}
+                      </Typography>
+                    </Box>
+                    {!isEmbedded && visibility && (
+                      <Chip
+                        label={`Starting with ${ESCALATION_LABELS[visibility]}`}
+                        sx={{
+                          fontWeight: 700,
+                          bgcolor: 'rgba(109, 40, 217, 0.08)',
+                          color: 'primary.dark',
+                        }}
+                      />
+                    )}
+                  </Stack>
+                  <Typography variant="body2" color="text.secondary">
+                    {isEmbedded
+                      ? 'This booking stays private and is only visible to the selected worker.'
+                      : 'Choose the first audience, then optionally schedule when the shift should expand to broader groups.'}
+                  </Typography>
+                </Stack>
+              </Paper>
             </Grid>
             <Grid size={12}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={postAnonymously}
-                    onChange={(_, checked) => setPostAnonymously(checked)}
-                  />
-                }
-                label={
-                  <Box>
-                    <Typography
-                      variant="body1"
-                      sx={{ display: 'block', fontWeight: 500 }}
-                    >
-                      Hide pharmacy name from applicants
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      When enabled, eligible workers only see the suburb while applying.
-                    </Typography>
-                  </Box>
-                }
-                sx={{ alignItems: 'flex-start' }}
-              />
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 2,
+                  borderRadius: 3,
+                  borderColor: postAnonymously ? 'rgba(109, 40, 217, 0.28)' : 'grey.200',
+                  bgcolor: postAnonymously ? 'rgba(245, 243, 255, 0.72)' : 'background.paper',
+                }}
+              >
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={postAnonymously}
+                      onChange={(_, checked) => setPostAnonymously(checked)}
+                    />
+                  }
+                  label={
+                    <Box>
+                      <Typography
+                        variant="body1"
+                        sx={{ display: 'block', fontWeight: 600 }}
+                      >
+                        Post as anonymus 
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        only Pharmacy suburb well be showed 
+                     </Typography>
+                    </Box>
+                  }
+                  sx={{ alignItems: 'flex-start', m: 0 }}
+                />
+              </Paper>
             </Grid>
             {!isEmbedded && (
               <Grid size={12}>
-                <FormControl fullWidth size="small" sx={fieldSx}>
-                  <InputLabel>Initial Audience</InputLabel>
-                  <Select
-                    value={visibility}
-                    label="Initial Audience"
-                    onChange={e => setVisibility(e.target.value)}
-                  >
-                    {allowedVis.map(opt => (
-                      <MenuItem key={opt} value={opt}>
-                        {ESCALATION_LABELS[opt]}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                <Stack spacing={2}>
+                  <FormControl fullWidth size="small" sx={fieldSx}>
+                    <InputLabel>Initial Audience</InputLabel>
+                    <Select
+                      value={visibility}
+                      label="Initial Audience"
+                      onChange={e => setVisibility(e.target.value)}
+                    >
+                      {allowedVis.map(opt => (
+                        <MenuItem key={opt} value={opt}>
+                          {ESCALATION_LABELS[opt]}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Grid container spacing={2}>
+                    {allowedVis.map((opt, index) => {
+                      const meta = VISIBILITY_META[opt] ?? VISIBILITY_META.PLATFORM;
+                      const isSelected = visibility === opt;
+                      const isCurrentOrPast = startIdx > -1 && index <= startIdx;
+                      return (
+                        <Grid key={opt} size={{ xs: 12, md: 6, xl: 4 }}>
+                          <Paper
+                            variant="outlined"
+                            onClick={() => setVisibility(opt)}
+                            sx={{
+                              p: 2,
+                              borderRadius: 3,
+                              cursor: 'pointer',
+                              height: '100%',
+                              borderColor: isSelected ? 'primary.main' : 'grey.200',
+                              bgcolor: isSelected ? 'rgba(245, 243, 255, 0.96)' : 'background.paper',
+                              backgroundImage: meta.accent,
+                              boxShadow: isSelected ? '0 12px 30px rgba(109, 40, 217, 0.14)' : 'none',
+                              transition: 'all 180ms ease',
+                              '&:hover': {
+                                borderColor: isSelected ? 'primary.main' : 'rgba(109, 40, 217, 0.28)',
+                                transform: 'translateY(-2px)',
+                              },
+                            }}
+                          >
+                            <Stack spacing={1.5} height="100%">
+                              <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="flex-start">
+                                <Box>
+                                  <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700, letterSpacing: 0.6 }}>
+                                    {meta.eyebrow}
+                                  </Typography>
+                                  <Typography variant="subtitle1" fontWeight={700}>
+                                    {ESCALATION_LABELS[opt]}
+                                  </Typography>
+                                </Box>
+                                <Chip
+                                  size="small"
+                                  label={isSelected ? 'Selected' : isCurrentOrPast ? 'In flow' : `Stage ${index + 1}`}
+                                  color={isSelected ? 'primary' : 'default'}
+                                  variant={isSelected ? 'filled' : 'outlined'}
+                                />
+                              </Stack>
+                              <Typography variant="body2" color="text.secondary">
+                                {meta.description}
+                              </Typography>
+                            </Stack>
+                          </Paper>
+                        </Grid>
+                      );
+                    })}
+                  </Grid>
+                </Stack>
               </Grid>
             )}
             {(showNotifyPharmacyStaff || showNotifyFavoriteStaff || showNotifyChainMembers) && (
               <Grid size={12}>
-                <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, borderColor: 'grey.200' }}>
-                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Send emails and in-app notifications
-                  </Typography>
-                  <Stack spacing={1}>
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 2.5,
+                    borderRadius: 3,
+                    borderColor: 'grey.200',
+                    background: 'linear-gradient(180deg, rgba(255,255,255,1), rgba(249,250,251,1))',
+                  }}
+                >
+                  <Stack spacing={2}>
+                    <Box>
+                      <Typography variant="subtitle1" fontWeight={700}>
+                        Notification Boost
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Choose which groups should get an immediate nudge when this shift goes live.
+                      </Typography>
+                    </Box>
+                    <Stack spacing={1.25}>
                     {showNotifyPharmacyStaff && (
-                      <FormControlLabel
-                        control={(
-                          <Checkbox
-                            checked={notifyPharmacyStaff}
-                            onChange={(_, checked) => setNotifyPharmacyStaff(checked)}
+                        <Paper variant="outlined" sx={{ borderRadius: 2.5, borderColor: notifyPharmacyStaff ? 'rgba(109, 40, 217, 0.28)' : 'grey.200', bgcolor: notifyPharmacyStaff ? 'rgba(245, 243, 255, 0.72)' : 'background.paper' }}>
+                          <FormControlLabel
+                            control={(
+                              <Checkbox
+                                checked={notifyPharmacyStaff}
+                                onChange={(_, checked) => setNotifyPharmacyStaff(checked)}
+                              />
+                            )}
+                            label="Email and notify pharmacy staff members"
+                            sx={{ m: 0, px: 1.5, py: 0.75, width: '100%' }}
                           />
-                        )}
-                        label="Email and notify pharmacy staff members"
-                      />
+                        </Paper>
                     )}
                     {showNotifyFavoriteStaff && (
-                      <FormControlLabel
-                        control={(
-                          <Checkbox
-                            checked={notifyFavoriteStaff}
-                            onChange={(_, checked) => setNotifyFavoriteStaff(checked)}
+                        <Paper variant="outlined" sx={{ borderRadius: 2.5, borderColor: notifyFavoriteStaff ? 'rgba(109, 40, 217, 0.28)' : 'grey.200', bgcolor: notifyFavoriteStaff ? 'rgba(245, 243, 255, 0.72)' : 'background.paper' }}>
+                          <FormControlLabel
+                            control={(
+                              <Checkbox
+                                checked={notifyFavoriteStaff}
+                                onChange={(_, checked) => setNotifyFavoriteStaff(checked)}
+                              />
+                            )}
+                            label="Email and notify pharmacy favourite staff"
+                            sx={{ m: 0, px: 1.5, py: 0.75, width: '100%' }}
                           />
-                        )}
-                        label="Email and notify pharmacy favourite staff"
-                      />
+                        </Paper>
                     )}
                     {showNotifyChainMembers && (
-                      <FormControlLabel
-                        control={(
-                          <Checkbox
-                            checked={notifyChainMembers}
-                            onChange={(_, checked) => setNotifyChainMembers(checked)}
+                        <Paper variant="outlined" sx={{ borderRadius: 2.5, borderColor: notifyChainMembers ? 'rgba(109, 40, 217, 0.28)' : 'grey.200', bgcolor: notifyChainMembers ? 'rgba(245, 243, 255, 0.72)' : 'background.paper' }}>
+                          <FormControlLabel
+                            control={(
+                              <Checkbox
+                                checked={notifyChainMembers}
+                                onChange={(_, checked) => setNotifyChainMembers(checked)}
+                              />
+                            )}
+                            label="Email and notify your chain members"
+                            sx={{ m: 0, px: 1.5, py: 0.75, width: '100%' }}
                           />
-                        )}
-                        label="Email and notify your chain members"
-                      />
+                        </Paper>
                     )}
+                    </Stack>
                   </Stack>
                 </Paper>
               </Grid>
             )}
-            {!isEmbedded && startIdx > -1 && allowedVis.slice(startIdx + 1).map(tier => (
-              <Grid key={tier} size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  label={`Escalate to ${ESCALATION_LABELS[tier]}`}
-                  type="datetime-local"
-                  value={escalationDates[tier] || ''}
-                  onChange={e => setEscalationDates(d => ({ ...d, [tier]: e.target.value }))}
-                  InputLabelProps={{ shrink: true }}
-                  fullWidth
-                  size="small"
-                  sx={fieldSx}
-                />
+            {!isEmbedded && upcomingTiers.length > 0 && (
+              <Grid size={12}>
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: { xs: 2, md: 2.5 },
+                    borderRadius: 3,
+                    borderColor: 'grey.200',
+                  }}
+                >
+                  <Stack spacing={2.5}>
+                    <Box>
+                      <Typography variant="subtitle1" fontWeight={700}>
+                        Escalation Schedule
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        If the shift is still unfilled, these timestamps will automatically widen the audience in order.
+                      </Typography>
+                    </Box>
+                    <Grid container spacing={2}>
+                      {upcomingTiers.map((tier, index) => (
+                        <Grid key={tier} size={{ xs: 12, lg: 6 }}>
+                          <Paper
+                            variant="outlined"
+                            sx={{
+                              p: 2,
+                              borderRadius: 3,
+                              borderColor: escalationDates[tier] ? 'rgba(109, 40, 217, 0.24)' : 'grey.200',
+                              bgcolor: escalationDates[tier] ? 'rgba(245, 243, 255, 0.6)' : 'background.paper',
+                            }}
+                          >
+                            <Stack spacing={1.5}>
+                              <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
+                                <Typography variant="subtitle2" fontWeight={700}>
+                                  {`${index + 2}. ${ESCALATION_LABELS[tier]}`}
+                                </Typography>
+                                <Chip
+                                  size="small"
+                                  variant="outlined"
+                                  label={escalationDates[tier] ? 'Scheduled' : 'Optional'}
+                                />
+                              </Stack>
+                              <Typography variant="body2" color="text.secondary">
+                                {formatEscalationDateTime(escalationDates[tier])}
+                              </Typography>
+                              <TextField
+                                label={`Escalate to ${ESCALATION_LABELS[tier]}`}
+                                type="datetime-local"
+                                value={escalationDates[tier] || ''}
+                                onChange={e => setEscalationDates(d => ({ ...d, [tier]: e.target.value }))}
+                                InputLabelProps={{ shrink: true }}
+                                fullWidth
+                                size="small"
+                                sx={fieldSx}
+                              />
+                            </Stack>
+                          </Paper>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </Stack>
+                </Paper>
               </Grid>
-            ))}
+            )}
           </Grid>
         );
       case 'timetable': {
@@ -1393,17 +1779,23 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                     </Typography>
                     <Grid container rowSpacing={2} columnSpacing={2}>
                       <Grid size={{ xs: 12 }}>
-                        <TextField
-                          label="Date"
-                          type="date"
-                          value={slotDate}
-                          onChange={e => setSlotDate(e.target.value)}
-                          inputProps={{ min: minDateInputValue }}
-                          InputLabelProps={{ shrink: true }}
-                          fullWidth
-                          size="small"
-                          sx={fieldSx}
-                        />
+                        <LocalizationProvider dateAdapter={AdapterDayjs}>
+                          <DatePicker
+                            label="Date"
+                            format="DD/MM/YYYY"
+                            value={slotDate ? dayjs(slotDate) : null}
+                            minDate={dayjs(minDateInputValue)}
+                            onChange={(value) => setSlotDate(value && value.isValid() ? value.format('YYYY-MM-DD') : '')}
+                            // slotProps={{
+                            //   textField: {
+                            //     fullWidth: true,
+                            //     size: 'small',
+                            //     helperText: slotDate ? `Display: ${formatSlotDate(slotDate)}` : 'Use DD/MM/YYYY display',
+                            //     sx: fieldSx,
+                            //   },
+                            // }}
+                          />
+                        </LocalizationProvider>
                       </Grid>
                       <Grid size={{ xs: 6 }}>
                         <TextField
@@ -1432,7 +1824,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                       <Grid size={12}>
                         <Button
                           variant="contained"
-                          onClick={handleAddSlot}
+                          onClick={handleAddManualSlot}
                           startIcon={<AddIcon />}
                           fullWidth
                           sx={{ height: 44, borderRadius: 2 }}
@@ -1459,16 +1851,23 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                     />
                     {isRecurring && (
                       <Stack spacing={2}>
-                        <TextField
-                          label="Repeat until"
-                          type="date"
-                          value={recurringEndDate}
-                          onChange={e => setRecurringEndDate(e.target.value)}
-                          InputLabelProps={{ shrink: true }}
-                          fullWidth
-                          size="small"
-                          sx={fieldSx}
-                        />
+                        <LocalizationProvider dateAdapter={AdapterDayjs}>
+                          <DatePicker
+                            label="Repeat until"
+                            format="DD/MM/YYYY"
+                            value={recurringEndDate ? dayjs(recurringEndDate) : null}
+                            minDate={slotDate ? dayjs(slotDate) : dayjs(minDateInputValue)}
+                            onChange={(value) => setRecurringEndDate(value && value.isValid() ? value.format('YYYY-MM-DD') : '')}
+                            slotProps={{
+                              textField: {
+                                fullWidth: true,
+                                size: 'small',
+                                helperText: recurringEndDate ? `Display: ${formatSlotDate(recurringEndDate)}` : 'Use DD/MM/YYYY display',
+                                sx: fieldSx,
+                              },
+                            }}
+                          />
+                        </LocalizationProvider>
                         <Stack direction="row" flexWrap="wrap" justifyContent="center" gap={1}>
                           {WEEK_DAYS.map((d) => (
                             <Button
@@ -1505,9 +1904,20 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                         <Typography variant="subtitle2" fontWeight={600}>
                           Selected calendar days
                         </Typography>
-                        <Button size="small" onClick={() => { setSelectedDates([]); setSelectedDateTimes({}); }}>
-                          Clear
-                        </Button>
+                        <Stack direction="row" spacing={1}>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            startIcon={<AddIcon />}
+                            onClick={handleAddAllSelectedDates}
+                            sx={{ borderRadius: 999 }}
+                          >
+                            Add all slots
+                          </Button>
+                          <Button size="small" onClick={() => { setSelectedDates([]); setSelectedDateTimes({}); }}>
+                            Clear
+                          </Button>
+                        </Stack>
                       </Stack>
                       <Stack spacing={1}>
                         {selectedDates.map((date) => {
@@ -1517,13 +1927,14 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                               key={date}
                               sx={{
                                 display: 'flex',
-                                flexWrap: 'wrap',
+                                flexWrap: 'nowrap',
                                 gap: 1,
                                 alignItems: 'center',
                                 border: '1px solid',
                                 borderColor: 'grey.200',
                                 borderRadius: 1,
                                 p: 1,
+                                overflowX: 'auto',
                               }}
                             >
                               <Chip
@@ -1565,12 +1976,22 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                                 sx={{ width: 140 }}
                                 InputLabelProps={{ shrink: true }}
                               />
+                              <IconButton
+                                onClick={() => handleAddSelectedDate(date)}
+                                sx={{
+                                  bgcolor: 'primary.main',
+                                  color: 'common.white',
+                                  '&:hover': { bgcolor: 'primary.dark' },
+                                }}
+                              >
+                                <AddIcon />
+                              </IconButton>
                             </Box>
                           );
                         })}
                       </Stack>
                       <Typography variant="caption" color="text.secondary">
-                        Adjust times per day, then press “Add slot” to add entries for every selected day.
+                        Adjust times per day, then use the purple plus to add one day or "Add all slots" to add everything at once.
                       </Typography>
                     </Stack>
                   </Paper>
@@ -1600,7 +2021,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                           >
                             <Box>
                               <Typography variant="subtitle2" fontWeight={600}>
-                                {formatSlotDate(slot.date)}
+                                {formatSlotDisplayDate(slot.date)}
                               </Typography>
                               <Typography variant="body2" color="text.secondary">
                                 {`${formatSlotTime(slot.startTime)} – ${formatSlotTime(slot.endTime)}`}
@@ -1619,7 +2040,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                                     <Chip
                                       size="small"
                                       variant="outlined"
-                                      label={`Ends ${formatSlotDate(slot.recurringEndDate)}`}
+                                      label={`Ends ${formatSlotDisplayDate(slot.recurringEndDate)}`}
                                     />
                                   )}
                                 </Stack>
@@ -1800,7 +2221,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                 onChange={(_, checked) => setLocumSuperIncluded(checked)}
               />
             )}
-            label="Include superannuation (+super)"
+            label="+ superannuation "
           />
         ) : null;
 
@@ -1915,11 +2336,11 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                       <Stack
                         key={`${slot.date}-${slot.startTime}-${idx}`}
                         direction="row"
-                        spacing={1}
+                        spacing={2}
                         alignItems="center"
                         flexWrap="wrap"
                       >
-                        <Typography variant="body2" sx={{ minWidth: 180 }}>
+                        <Typography variant="body2" sx={{ minWidth: 180, display: 'none' }}>
                           {`${slot.date} · ${slot.startTime}—${slot.endTime}`}
                         </Typography>
                         <TextField
@@ -1961,6 +2382,9 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                       <MenuItem value="PHARMACIST_PROVIDED">Pharmacist Provided</MenuItem>
                     </Select>
                   </FormControl>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    {RATE_TYPE_DESCRIPTIONS[rateType] || ''}
+                  </Typography>
                 </Grid>
                 {paymentField}
                 {superCheckbox && (
@@ -2225,8 +2649,8 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                   // Ensure timetable entries exist before moving to pay step
                   if (currentKey === 'timetable') {
                     if (slots.length === 0) {
-                      const added = handleAddSlot();
-                      if (!added) return;
+                      showSnackbar('Add at least one timetable entry before continuing.', 'error');
+                      return;
                     }
                   }
                   setActiveStep(nextStep);

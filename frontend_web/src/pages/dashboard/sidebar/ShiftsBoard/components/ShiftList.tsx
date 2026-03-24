@@ -423,7 +423,7 @@ const ShiftList: React.FC<ShiftListProps> = ({
                   )}
                   {isPharmacistProvided && (
                     <Typography variant="caption" color="text.secondary">
-                      Rate set by pharmacist ƒ?" update your profile rates to improve matches.
+                      Rate set by pharmacist, update your profile rates to improve matches.
                     </Typography>
                   )}
                   <Stack spacing={1} sx={{ mt: 1 }}>

@@ -1,8 +1,8 @@
 {
   "pharmacist": {
     "clinical_services": [
-      {"code": "VACCINATION", "label": "Vaccination (w/ Anaphylaxis training)", "requires_certificate": true},
-      {"code": "CANNABIS", "label": "Cannabis handling (no cert)", "requires_certificate": true},
+      {"code": "VACCINATION", "label": "Vaccination", "requires_certificate": true},
+      {"code": "CANNABIS", "label": "Cannabis dispensing", "requires_certificate": false},
       {"code": "COMPOUNDING", "label": "Compounding", "requires_certificate": true},
       {"code": "CRED_PHARM", "label": "Credentialed Pharmacist", "requires_certificate": true},
       {"code": "FIRST_AID", "label": "First Aid/CPR", "requires_certificate": true},
@@ -36,8 +36,8 @@
   },
   "otherstaff": {
     "clinical_services": [
-      {"code": "VACCINATION", "label": "Vaccination (w/ Anaphylaxis training)", "requires_certificate": true},
-      {"code": "CANNABIS", "label": "Cannabis handling (no cert)", "requires_certificate": true},
+      {"code": "VACCINATION", "label": "Vaccination", "requires_certificate": true},
+      {"code": "CANNABIS", "label": "Cannabis dispensing", "requires_certificate": false},
       {"code": "COMPOUNDING", "label": "Compounding", "requires_certificate": true},
       {"code": "CRED_PHARM", "label": "Credentialed Pharmacist", "requires_certificate": true},
       {"code": "FIRST_AID", "label": "First Aid/CPR", "requires_certificate": true},

@@ -390,7 +390,7 @@ STRIPE_WEBHOOK_SECRET = env('STRIPE_WEBHOOK_SECRET', default='')
 # Change BILLING_LIVE_DATE to enable payments. Before this date nobody is charged.
 from datetime import date as _date
 BILLING_LIVE_DATE = _date(2025, 6, 1)   # June 1, 2026 — flip this to go live
-FREE_TRIAL_DAYS   = 30                   # New users get this many days free after live date
+FREE_TRIAL_DAYS   = 0                   # New users get this many days free after live date
 
 
 # ---------------------------------------------------------------------

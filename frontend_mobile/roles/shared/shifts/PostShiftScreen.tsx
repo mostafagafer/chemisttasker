@@ -11,6 +11,7 @@ import {
     Menu,
     Snackbar,
     Checkbox,
+    List,
 } from 'react-native-paper';
 import { DatePickerModal } from 'react-native-paper-dates';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -23,14 +24,58 @@ import {
     updateOwnerShiftService,
     calculateShiftRates,
 } from '@chemisttasker/shared-core';
+import skillsCatalog from '../../../../shared-core/skills_catalog.json';
 
 const ROLE_OPTIONS = ['PHARMACIST', 'TECHNICIAN', 'ASSISTANT', 'INTERN', 'STUDENT'];
 const EMPLOYMENT_TYPES = ['LOCUM', 'CASUAL', 'PART_TIME', 'FULL_TIME'];
-const SKILL_OPTIONS = ['Vaccination', 'Methadone', 'CPR', 'First Aid', 'Anaphylaxis', 'Credentialed Badge', 'PDL Insurance'];
 const WORKLOAD_TAGS = ['Sole Pharmacist', 'High Script Load', 'Webster Packs'];
 const PRIMARY = '#7c3aed';
 const PRIMARY_LIGHT = '#F3E8FF';
 const PRIMARY_TEXT = '#2D1B69';
+const VISIBILITY_LABELS: Record<VisibilityTier, string> = {
+    FULL_PART_TIME: 'Pharmacy Members',
+    LOCUM_CASUAL: 'Favourite Staff',
+    OWNER_CHAIN: 'Owner Chain',
+    ORG_CHAIN: 'Organization',
+    PLATFORM: 'Platform (Public)',
+};
+const VISIBILITY_META: Record<VisibilityTier, { eyebrow: string; description: string; tint: string; border: string }> = {
+    FULL_PART_TIME: {
+        eyebrow: 'Internal first',
+        description: 'Start with your own pharmacy team before widening the audience.',
+        tint: '#ECFDF5',
+        border: '#A7F3D0',
+    },
+    LOCUM_CASUAL: {
+        eyebrow: 'Trusted bench',
+        description: 'Open the shift to your known locums and favourite casual staff.',
+        tint: '#EFF6FF',
+        border: '#BFDBFE',
+    },
+    OWNER_CHAIN: {
+        eyebrow: 'Chain network',
+        description: 'Share across the owner chain when local coverage is still unavailable.',
+        tint: '#FFF7ED',
+        border: '#FED7AA',
+    },
+    ORG_CHAIN: {
+        eyebrow: 'Organization reach',
+        description: 'Escalate to the wider organization to improve fill speed.',
+        tint: '#FDF2F8',
+        border: '#FBCFE8',
+    },
+    PLATFORM: {
+        eyebrow: 'Public audience',
+        description: 'Publish broadly on the platform for maximum visibility and reach.',
+        tint: '#F5F3FF',
+        border: '#DDD6FE',
+    },
+};
+const RATE_TYPE_DESCRIPTIONS: Record<RateType, string> = {
+    FLEXIBLE: 'The rate is flexible and negotiable with the candidate.',
+    FIXED: 'The rate is fixed in advanceand and not negotiable',
+    PHARMACIST_PROVIDED: 'Use the candidate’s preset rate. You’ll always see it before assigning the shift.',
+};
 const GOVERNMENT_AWARD_GUIDE_URL = 'https://calculate.fairwork.gov.au/payguides/fairwork/ma000012/pdf';
 
 const BASE_STEP_ORDER = ['details', 'skills', 'visibility'] as const;
@@ -67,6 +112,45 @@ const toIsoDate = (value: string): Date | null => {
 };
 const toLocalIsoDate = (date: Date) =>
     `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+const formatAuDate = (value?: string) => {
+    if (!value) return '';
+    const date = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return value;
+    return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+};
+const formatLongSlotDate = (value?: string) => {
+    if (!value) return '';
+    const date = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return value;
+    const day = date.getDate();
+    const suffix =
+        day >= 11 && day <= 13
+            ? 'th'
+            : day % 10 === 1
+                ? 'st'
+                : day % 10 === 2
+                    ? 'nd'
+                    : day % 10 === 3
+                        ? 'rd'
+                        : 'th';
+    const weekday = date.toLocaleDateString('en-AU', { weekday: 'short' });
+    const month = date.toLocaleDateString('en-AU', { month: 'long' });
+    return `${weekday}, ${day}${suffix} of ${month} ${date.getFullYear()}`;
+};
+const formatClockTime = (value?: string) => {
+    if (!value) return '';
+    const [hours, minutes] = value.split(':').map(Number);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return value;
+    const date = new Date();
+    date.setHours(hours, minutes, 0, 0);
+    return date.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true });
+};
+const formatDateLabel = (value?: string) => {
+    if (!value) return 'Choose a date';
+    const date = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return value;
+    return formatAuDate(value);
+};
 
 export default function PostShiftScreen() {
     const router = useRouter();
@@ -92,6 +176,7 @@ export default function PostShiftScreen() {
     const [slots, setSlots] = useState<SlotEntry[]>([]);
     const [slotDate, setSlotDate] = useState<string>(new Date().toISOString().split('T')[0]);
     const [selectedDates, setSelectedDates] = useState<string[]>([]);
+    const [selectedDateTimes, setSelectedDateTimes] = useState<Record<string, { startTime: string; endTime: string }>>({});
     const [slotStart, setSlotStart] = useState('09:00');
     const [slotEnd, setSlotEnd] = useState('17:00');
     const [slotRecurring, setSlotRecurring] = useState(false);
@@ -169,6 +254,7 @@ export default function PostShiftScreen() {
         setSlots([]);
         setSlotDate(todayIso);
         setSelectedDates([]);
+        setSelectedDateTimes({});
         setSlotStart('09:00');
         setSlotEnd('17:00');
         setSlotRecurring(false);
@@ -419,6 +505,12 @@ export default function PostShiftScreen() {
             setSlotDate(uniqueDates[0]);
             setCalendarMonthAnchor(new Date(`${uniqueDates[0]}T00:00:00`));
             setSelectedDates(uniqueDates);
+            setSelectedDateTimes(
+                uniqueDates.reduce<Record<string, { startTime: string; endTime: string }>>((acc, date) => {
+                    acc[date] = { startTime: slotStart, endTime: slotEnd };
+                    return acc;
+                }, {})
+            );
             setSlots(
                 uniqueDates.map((date) => ({
                     date,
@@ -460,8 +552,17 @@ export default function PostShiftScreen() {
         const valid = incomingDates.filter((d) => d && d >= todayIso);
         if (!valid.length) return;
         setSelectedDates((prev) => Array.from(new Set([...prev, ...valid])).sort());
+        setSelectedDateTimes((prev) => {
+            const next = { ...prev };
+            valid.forEach((date) => {
+                if (!next[date]) {
+                    next[date] = { startTime: slotStart, endTime: slotEnd };
+                }
+            });
+            return next;
+        });
         setSlotDate(valid[valid.length - 1]);
-    }, []);
+    }, [slotEnd, slotStart]);
 
     const selectedDateObjects = useMemo(
         () => selectedDates.map((d) => new Date(`${d}T00:00:00`)),
@@ -627,28 +728,111 @@ export default function PostShiftScreen() {
         roleNeeded,
     ]);
 
-    const addSlot = () => {
-        if (!slotStart || !slotEnd) return;
-        const baseDates = selectedDates.length ? selectedDates : slotDate ? [slotDate] : [];
-        if (!baseDates.length) return;
-        setSlots((prev) => {
-            const existingKeys = new Set(prev.map((s) => `${s.date}-${s.startTime}-${s.endTime}-${s.isRecurring}`));
-            const next = [...prev];
-            baseDates.forEach((date) => {
-                const key = `${date}-${slotStart}-${slotEnd}-${slotRecurring}`;
-                if (!existingKeys.has(key)) {
-                    next.push({
-                        date,
-                        startTime: slotStart,
-                        endTime: slotEnd,
-                        isRecurring: slotRecurring,
-                        recurringDays: slotRecurring ? slotRecurringDays : [],
-                        recurringEndDate: slotRecurring ? slotRecurringEnd : '',
-                    });
-                }
+    const addSlotEntries = (
+        entries: SlotEntry[],
+        options?: { clearDates?: string[]; clearAllSelected?: boolean; resetRecurring?: boolean }
+    ) => {
+        const existingKeys = new Set(slots.map((s) => `${s.date}-${s.startTime}-${s.endTime}-${s.isRecurring}-${s.recurringDays.join(',')}`));
+        const filtered = entries.filter(
+            (entry) => !existingKeys.has(`${entry.date}-${entry.startTime}-${entry.endTime}-${entry.isRecurring}-${entry.recurringDays.join(',')}`)
+        );
+
+        if (!filtered.length) {
+            setError('Those timetable entries already exist.');
+            return false;
+        }
+
+        setSlots((prev) => [...prev, ...filtered]);
+        setError('');
+        setToast(`${filtered.length} timetable entr${filtered.length > 1 ? 'ies' : 'y'} added.`);
+
+        if (options?.clearAllSelected) {
+            setSelectedDates([]);
+            setSelectedDateTimes({});
+        } else if (options?.clearDates?.length) {
+            setSelectedDates((prev) => prev.filter((date) => !options.clearDates?.includes(date)));
+            setSelectedDateTimes((prev) => {
+                const next = { ...prev };
+                options.clearDates?.forEach((date) => {
+                    delete next[date];
+                });
+                return next;
             });
-            return next;
-        });
+        }
+
+        if (options?.resetRecurring) {
+            setSlotRecurring(false);
+            setSlotRecurringDays([]);
+            setSlotRecurringEnd(new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]);
+        }
+
+        return true;
+    };
+
+    const addManualSlot = () => {
+        if (!slotStart || !slotEnd) {
+            setError('Please select a start and end time.');
+            return false;
+        }
+        if (new Date(`1970-01-01T${slotEnd}:00`).getTime() <= new Date(`1970-01-01T${slotStart}:00`).getTime()) {
+            setError('End time must be after start time.');
+            return false;
+        }
+        if (!slotDate) {
+            setError('Select a date to add a manual schedule entry.');
+            return false;
+        }
+        if (slotRecurring && (!slotRecurringEnd || slotRecurringDays.length === 0)) {
+            setError('Please complete the recurrence details.');
+            return false;
+        }
+
+        return addSlotEntries([{
+            date: slotDate,
+            startTime: slotStart,
+            endTime: slotEnd,
+            isRecurring: slotRecurring,
+            recurringDays: slotRecurring ? slotRecurringDays : [],
+            recurringEndDate: slotRecurring ? slotRecurringEnd : '',
+        }], { resetRecurring: true });
+    };
+
+    const addSelectedDateSlot = (date: string) => {
+        const entry = {
+            date,
+            ...(selectedDateTimes[date] || { startTime: slotStart, endTime: slotEnd }),
+        };
+        if (new Date(`1970-01-01T${entry.endTime}:00`).getTime() <= new Date(`1970-01-01T${entry.startTime}:00`).getTime()) {
+            setError('End time must be after start time.');
+            return false;
+        }
+        return addSlotEntries([{
+            ...entry,
+            isRecurring: false,
+            recurringDays: [],
+            recurringEndDate: '',
+        }], { clearDates: [date] });
+    };
+
+    const addAllSelectedSlots = () => {
+        if (!selectedDates.length) {
+            setError('Select at least one date from the calendar.');
+            return false;
+        }
+        if (new Date(`1970-01-01T${slotEnd}:00`).getTime() <= new Date(`1970-01-01T${slotStart}:00`).getTime()) {
+            setError('End time must be after start time.');
+            return false;
+        }
+        return addSlotEntries(
+            selectedDates.map((date) => ({
+                date,
+                ...(selectedDateTimes[date] || { startTime: slotStart, endTime: slotEnd }),
+                isRecurring: false,
+                recurringDays: [],
+                recurringEndDate: '',
+            })),
+            { clearAllSelected: true }
+        );
     };
 
     const removeSlot = (index: number) => setSlots((prev) => prev.filter((_, i) => i !== index));
@@ -881,172 +1065,281 @@ export default function PostShiftScreen() {
         </Surface>
     );
 
-    const renderSkills = () => (
-        <Surface style={styles.card} elevation={1}>
-            <Text style={styles.label}>Skills</Text>
-            <Text style={styles.subHeader}>Must-Have Skills</Text>
-            <View style={styles.checkGrid}>
-                {SKILL_OPTIONS.map((skill) => {
-                    const checked = mustHave.includes(skill);
-                    return (
-                        <TouchableOpacity
-                            key={`must-${skill}`}
-                            style={[styles.checkboxRow, checked && styles.checkboxRowActive]}
-                            onPress={() =>
-                                setMustHave((current: string[]) =>
-                                    current.includes(skill) ? current.filter((x: string) => x !== skill) : [...current, skill]
-                                )
+    const renderSkills = () => {
+        const roleKey = roleNeeded === 'PHARMACIST' ? 'pharmacist' : 'otherstaff';
+        const roleCatalog = (skillsCatalog as any)[roleKey] || {};
+
+        const categories = [
+            { key: 'clinical_services', title: 'Clinical Services', items: roleCatalog.clinical_services || [] },
+            { key: 'dispense_software', title: 'Dispense Software', items: roleCatalog.dispense_software || [] },
+            { key: 'expanded_scope', title: 'Expanded Scope', items: roleCatalog.expanded_scope || [] },
+        ].filter(cat => cat.items.length > 0);
+
+        return (
+            <Surface style={styles.card} elevation={1}>
+                <Text style={styles.label}>Skills</Text>
+                <View style={styles.infoAlert}>
+                    <Text style={styles.infoAlertText}>
+                        Select which skills are Required (must have to apply) or Favorable (nice to have, but not mandatory).
+                    </Text>
+                </View>
+
+                <List.AccordionGroup>
+                    {categories.map((category) => {
+                        const selectedCount = category.items.filter((s: any) => mustHave.includes(s.code) || niceToHave.includes(s.code)).length;
+                        
+                        return (
+                            <List.Accordion
+                                key={category.key}
+                                id={category.key}
+                                title={category.title}
+                                titleStyle={{ fontWeight: '700', color: '#111827' }}
+                                description={selectedCount > 0 ? `${selectedCount} selected` : undefined}
+                                descriptionStyle={{ color: PRIMARY, fontWeight: '600' }}
+                                style={styles.accordionHeader}
+                            >
+                                {category.items.map((s: any, idx: number) => {
+                                    const isRequired = mustHave.includes(s.code);
+                                    const isFavorable = niceToHave.includes(s.code);
+                                    
+                                    return (
+                                        <View 
+                                            key={s.code} 
+                                            style={[
+                                                styles.skillRow, 
+                                                idx < category.items.length - 1 && styles.skillRowBorder,
+                                                isRequired && { backgroundColor: 'rgba(109, 40, 217, 0.06)' },
+                                                isFavorable && { backgroundColor: 'rgba(16, 185, 129, 0.08)' }
+                                            ]}
+                                        >
+                                            <View style={styles.skillTextContainer}>
+                                                <Text style={[styles.skillLabel, (isRequired || isFavorable) ? { fontWeight: '700' } : {}]}>{s.label}</Text>
+                                                {s.description ? (
+                                                    <Text style={styles.skillDescription}>{s.description}</Text>
+                                                ) : null}
+                                            </View>
+                                            
+                                            <View style={styles.toggleGroup}>
+                                                <TouchableOpacity 
+                                                    style={[styles.toggleBtn, styles.toggleBtnLeft, isRequired && styles.toggleBtnRequiredActive]}
+                                                    onPress={() => {
+                                                        setMustHave((prev: string[]) => prev.includes(s.code) ? prev.filter(x => x !== s.code) : [...prev, s.code]);
+                                                        setNiceToHave((prev: string[]) => prev.filter(x => x !== s.code));
+                                                    }}
+                                                >
+                                                    <Text style={[styles.toggleBtnText, isRequired && styles.toggleBtnTextActive]}>Required</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity 
+                                                    style={[styles.toggleBtn, styles.toggleBtnRight, isFavorable && styles.toggleBtnFavorableActive]}
+                                                    onPress={() => {
+                                                        setNiceToHave((prev: string[]) => prev.includes(s.code) ? prev.filter(x => x !== s.code) : [...prev, s.code]);
+                                                        setMustHave((prev: string[]) => prev.filter(x => x !== s.code));
+                                                    }}
+                                                >
+                                                    <Text style={[styles.toggleBtnText, isFavorable && styles.toggleBtnTextActive]}>Favorable</Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        </View>
+                                    );
+                                })}
+                            </List.Accordion>
+                        );
+                    })}
+                </List.AccordionGroup>
+            </Surface>
+        );
+    };
+
+    const renderVisibility = () => {
+        const startIdx = allowedVis.indexOf(initialAudience as VisibilityTier);
+        const upcomingTiers = startIdx > -1 ? allowedVis.slice(startIdx + 1) : allowedVis;
+        const notificationItems = [
+            {
+                key: 'pharmacy',
+                visible: initialAudience !== 'FULL_PART_TIME',
+                checked: notifyPharmacyStaff,
+                label: 'Notify pharmacy staff',
+                onPress: () => setNotifyPharmacyStaff((v) => !v),
+            },
+            {
+                key: 'favourites',
+                visible: ['LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(initialAudience),
+                checked: notifyFavoriteStaff,
+                label: 'Notify favorite staff',
+                onPress: () => setNotifyFavoriteStaff((v) => !v),
+            },
+            {
+                key: 'chain',
+                visible: ['OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(initialAudience),
+                checked: notifyChainMembers,
+                label: 'Notify chain members',
+                onPress: () => setNotifyChainMembers((v) => !v),
+            },
+        ].filter((item) => item.visible);
+
+        return (
+            <Surface style={styles.card} elevation={1}>
+                <Surface style={styles.visibilityHero} elevation={0}>
+                    <Text style={styles.visibilityHeroEyebrow}>AUDIENCE PLAN</Text>
+                    <Text style={styles.visibilityHeroTitle}>
+                        {isEmbedded ? 'Private direct booking' : 'Control who sees this shift first'}
+                    </Text>
+                    <Text style={styles.helper}>
+                        {isEmbedded
+                            ? 'This booking stays private and is only visible to the selected worker.'
+                            : 'Choose the first audience, then optionally schedule when the shift should expand to broader groups.'}
+                    </Text>
+                    {!isEmbedded && initialAudience ? (
+                        <Chip style={styles.visibilitySummaryChip} textStyle={styles.visibilitySummaryChipText}>
+                            {`Starting with ${VISIBILITY_LABELS[initialAudience as VisibilityTier]}`}
+                        </Chip>
+                    ) : null}
+                </Surface>
+
+                <TouchableOpacity
+                    style={[styles.visibilityToggleCard, hideName && styles.visibilityToggleCardActive]}
+                    onPress={() => setHideName((v) => !v)}
+                >
+                    <Checkbox status={hideName ? 'checked' : 'unchecked'} />
+                    <View style={styles.visibilityToggleContent}>
+                        <Text style={styles.visibilityToggleTitle}>Hide pharmacy name from applicants</Text>
+                        <Text style={styles.visibilityToggleText}>
+                            When enabled, eligible workers only see the suburb while applying.
+                        </Text>
+                    </View>
+                </TouchableOpacity>
+
+                {!isEmbedded && (
+                    <>
+                        <Text style={styles.label}>Initial Audience</Text>
+                        <Menu
+                            visible={audienceMenuVisible}
+                            onDismiss={() => setAudienceMenuVisible(false)}
+                            anchor={
+                                <TouchableOpacity style={styles.selector} onPress={() => setAudienceMenuVisible(true)}>
+                                    <Text style={styles.selectorText}>
+                                        {VISIBILITY_LABELS[initialAudience as VisibilityTier] || 'Select audience'}
+                                    </Text>
+                                    <IconButton icon="chevron-down" size={18} />
+                                </TouchableOpacity>
                             }
                         >
-                            <Checkbox status={checked ? 'checked' : 'unchecked'} />
-                            <Text style={styles.rowText}>{skill}</Text>
-                        </TouchableOpacity>
-                    );
-                })}
-            </View>
+                            {allowedVis.map((value) => (
+                                <Menu.Item
+                                    key={value}
+                                    onPress={() => {
+                                        setInitialAudience(value);
+                                        setAudienceMenuVisible(false);
+                                    }}
+                                    title={VISIBILITY_LABELS[value]}
+                                />
+                            ))}
+                        </Menu>
 
-            <Text style={styles.subHeader}>Nice-to-Have Skills</Text>
-            <View style={styles.checkGrid}>
-                {SKILL_OPTIONS.map((skill) => {
-                    const checked = niceToHave.includes(skill);
-                    return (
-                        <TouchableOpacity
-                            key={`nice-${skill}`}
-                            style={[styles.checkboxRow, checked && styles.checkboxRowActive]}
-                            onPress={() =>
-                                setNiceToHave((current: string[]) =>
-                                    current.includes(skill) ? current.filter((x: string) => x !== skill) : [...current, skill]
-                                )
-                            }
-                        >
-                            <Checkbox status={checked ? 'checked' : 'unchecked'} />
-                            <Text style={styles.rowText}>{skill}</Text>
-                        </TouchableOpacity>
-                    );
-                })}
-            </View>
-        </Surface>
-    );
+                        <View style={styles.visibilityCardGrid}>
+                            {allowedVis.map((value, index) => {
+                                const selected = initialAudience === value;
+                                const currentOrPast = startIdx > -1 && index <= startIdx;
+                                const meta = VISIBILITY_META[value];
+                                return (
+                                    <TouchableOpacity
+                                        key={value}
+                                        style={[
+                                            styles.visibilityAudienceCard,
+                                            { backgroundColor: meta.tint, borderColor: meta.border },
+                                            selected && styles.visibilityAudienceCardActive,
+                                        ]}
+                                        onPress={() => setInitialAudience(value)}
+                                    >
+                                        <View style={styles.visibilityAudienceHeader}>
+                                            <View style={styles.visibilityAudienceTextWrap}>
+                                                <Text style={styles.visibilityAudienceEyebrow}>{meta.eyebrow}</Text>
+                                                <Text style={styles.visibilityAudienceTitle}>{VISIBILITY_LABELS[value]}</Text>
+                                            </View>
+                                            <Chip
+                                                compact
+                                                style={selected ? styles.visibilityStageChipActive : styles.visibilityStageChip}
+                                                textStyle={selected ? styles.visibilityStageChipTextActive : styles.visibilityStageChipText}
+                                            >
+                                                {selected ? 'Selected' : currentOrPast ? 'In flow' : `Stage ${index + 1}`}
+                                            </Chip>
+                                        </View>
+                                        <Text style={styles.visibilityAudienceDescription}>{meta.description}</Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
 
-    const renderVisibility = () => (
-        <Surface style={styles.card} elevation={1}>
-            <Text style={styles.label}>Visibility</Text>
-            <Text style={styles.helper}>
-                {isEmbedded ? 'This booking is private and only visible to the selected worker.' : 'Define who sees this shift and when it escalates.'}
-            </Text>
-            <View style={styles.row}>
-                <Checkbox status={hideName ? 'checked' : 'unchecked'} onPress={() => setHideName((v) => !v)} />
-                <Text style={styles.rowText}>Hide pharmacy name from applicants</Text>
-            </View>
-            {!isEmbedded && (
-                <>
-                    <Text style={styles.label}>Initial Audience</Text>
-                    <Menu
-                        visible={audienceMenuVisible}
-                        onDismiss={() => setAudienceMenuVisible(false)}
-                        anchor={
-                            <TouchableOpacity style={styles.selector} onPress={() => setAudienceMenuVisible(true)}>
-                                <Text style={styles.selectorText}>
-                                    {{
-                                        FULL_PART_TIME: 'Pharmacy Members (FT/PT)',
-                                        LOCUM_CASUAL: 'Favourite Staff',
-                                        OWNER_CHAIN: 'Owner Chain',
-                                        ORG_CHAIN: 'Organization',
-                                        PLATFORM: 'Platform (Public)',
-                                    }[initialAudience as VisibilityTier] || 'Select audience'}
+                        {notificationItems.length > 0 ? (
+                            <Surface style={styles.visibilityPanel} elevation={0}>
+                                <Text style={styles.visibilityPanelTitle}>Notification Boost</Text>
+                                <Text style={styles.helper}>
+                                    Choose which groups should get an immediate nudge when this shift goes live.
                                 </Text>
-                                <IconButton icon="chevron-down" size={18} />
-                            </TouchableOpacity>
-                        }
-                    >
-                        {allowedVis.map((value) => (
-                            <Menu.Item
-                                key={value}
-                                onPress={() => {
-                                    setInitialAudience(value);
-                                    setAudienceMenuVisible(false);
-                                }}
-                                title={{
-                                    FULL_PART_TIME: 'Pharmacy Members (FT/PT)',
-                                    LOCUM_CASUAL: 'Favourite Staff',
-                                    OWNER_CHAIN: 'Owner Chain',
-                                    ORG_CHAIN: 'Organization',
-                                    PLATFORM: 'Platform (Public)',
-                                }[value]}
-                            />
-                        ))}
-                    </Menu>
+                                <View style={styles.visibilityPanelStack}>
+                                    {notificationItems.map((item) => (
+                                        <TouchableOpacity
+                                            key={item.key}
+                                            style={[styles.visibilityOptionCard, item.checked && styles.visibilityOptionCardActive]}
+                                            onPress={item.onPress}
+                                        >
+                                            <Checkbox status={item.checked ? 'checked' : 'unchecked'} />
+                                            <Text style={styles.rowText}>{item.label}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </Surface>
+                        ) : null}
 
-                    {(() => {
-                        const startIdx = allowedVis.indexOf(initialAudience as VisibilityTier);
-                        const items =
-                            startIdx > -1 ? allowedVis.slice(startIdx + 1) : allowedVis;
-                        if (!items.length) return null;
-                        const labelMap: Record<VisibilityTier, string> = {
-                            FULL_PART_TIME: 'Full / Part Time',
-                            LOCUM_CASUAL: 'Favourite Staff',
-                            OWNER_CHAIN: 'Owner Chain',
-                            ORG_CHAIN: 'Organization',
-                            PLATFORM: 'Platform (Public)',
-                        };
-                        return items.map((tier) => (
-                            <View key={tier}>
-                                <Text style={styles.label}>Escalate to {labelMap[tier]}</Text>
-                                <TextInput
-                                    mode="outlined"
-                                    value={escalationDates[
-                                        tier === 'ORG_CHAIN' ? 'org_chain' :
-                                            tier === 'OWNER_CHAIN' ? 'owner_chain' :
-                                                tier === 'LOCUM_CASUAL' ? 'locum_casual' : 'platform'
-                                    ] || ''}
-                                    placeholder="YYYY-MM-DD"
-                                    style={styles.input}
-                                    right={<TextInput.Icon icon="calendar" onPress={() => setEscalationPicker({
-                                        key:
+                        {upcomingTiers.length > 0 ? (
+                            <Surface style={styles.visibilityPanel} elevation={0}>
+                                <Text style={styles.visibilityPanelTitle}>Escalation Schedule</Text>
+                                <Text style={styles.helper}>
+                                    If the shift is still unfilled, these dates will widen the audience in order.
+                                </Text>
+                                <View style={styles.visibilityPanelStack}>
+                                    {upcomingTiers.map((tier, index) => {
+                                        const pickerKey =
                                             tier === 'ORG_CHAIN' ? 'org_chain' :
                                                 tier === 'OWNER_CHAIN' ? 'owner_chain' :
-                                                    tier === 'LOCUM_CASUAL' ? 'locum_casual' : 'platform',
-                                        open: true
-                                    })} />}
-                                    editable={false}
-                                />
-                            </View>
-                        ));
-                    })()}
-
-                    {/* Notification Preferences */}
-                    <Text style={styles.label}>Notifications</Text>
-                    {initialAudience !== 'FULL_PART_TIME' && (
-                        <TouchableOpacity
-                            style={styles.checkboxRow}
-                            onPress={() => setNotifyPharmacyStaff(v => !v)}
-                        >
-                            <Checkbox status={notifyPharmacyStaff ? 'checked' : 'unchecked'} />
-                            <Text style={styles.rowText}>Notify pharmacy staff</Text>
-                        </TouchableOpacity>
-                    )}
-                    {['LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(initialAudience) && (
-                        <TouchableOpacity
-                            style={styles.checkboxRow}
-                            onPress={() => setNotifyFavoriteStaff(v => !v)}
-                        >
-                            <Checkbox status={notifyFavoriteStaff ? 'checked' : 'unchecked'} />
-                            <Text style={styles.rowText}>Notify favorite staff</Text>
-                        </TouchableOpacity>
-                    )}
-                    {['OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(initialAudience) && (
-                        <TouchableOpacity
-                            style={styles.checkboxRow}
-                            onPress={() => setNotifyChainMembers(v => !v)}
-                        >
-                            <Checkbox status={notifyChainMembers ? 'checked' : 'unchecked'} />
-                            <Text style={styles.rowText}>Notify chain members</Text>
-                        </TouchableOpacity>
-                    )}
-                </>
-            )}
-        </Surface>
-    );
+                                                    tier === 'LOCUM_CASUAL' ? 'locum_casual' : 'platform';
+                                        const value = escalationDates[pickerKey] || '';
+                                        return (
+                                            <Surface
+                                                key={tier}
+                                                style={[styles.escalationCard, value ? styles.escalationCardActive : null]}
+                                                elevation={0}
+                                            >
+                                                <View style={styles.visibilityAudienceHeader}>
+                                                    <Text style={styles.escalationTitle}>{`${index + 2}. ${VISIBILITY_LABELS[tier]}`}</Text>
+                                                    <Chip
+                                                        compact
+                                                        style={value ? styles.visibilityStageChipActive : styles.visibilityStageChip}
+                                                        textStyle={value ? styles.visibilityStageChipTextActive : styles.visibilityStageChipText}
+                                                    >
+                                                        {value ? 'Scheduled' : 'Optional'}
+                                                    </Chip>
+                                                </View>
+                                                <Text style={styles.escalationPreview}>{formatDateLabel(value)}</Text>
+                                                <TextInput
+                                                    mode="outlined"
+                                                    value={value}
+                                                    placeholder="YYYY-MM-DD"
+                                                    style={styles.input}
+                                                    right={<TextInput.Icon icon="calendar" onPress={() => setEscalationPicker({ key: pickerKey, open: true })} />}
+                                                    editable={false}
+                                                />
+                                            </Surface>
+                                        );
+                                    })}
+                                </View>
+                            </Surface>
+                        ) : null}
+                    </>
+                )}
+            </Surface>
+        );
+    };
 
     const renderPayRate = () => {
         const showSlotPreview = isLocumLike && !(roleNeeded === 'PHARMACIST' && rateType === 'PHARMACIST_PROVIDED');
@@ -1070,7 +1363,10 @@ export default function PostShiftScreen() {
                                 : '$0.00/hr';
                         return (
                             <View key={`${slot.date}-${slot.startTime}-${idx}`} style={{ gap: 6 }}>
-                                <Text style={styles.helper}>{`${slot.date} ${slot.startTime}-${slot.endTime}`}</Text>
+                                <View>
+                                    <Text style={styles.slotText}>{formatLongSlotDate(slot.date)}</Text>
+                                    <Text style={styles.helper}>{`${formatClockTime(slot.startTime)} - ${formatClockTime(slot.endTime)}`}</Text>
+                                </View>
                                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                                     <TextInput
                                         mode="outlined"
@@ -1141,6 +1437,7 @@ export default function PostShiftScreen() {
                                 );
                             })}
                         </View>
+                        <Text style={styles.helper}>{RATE_TYPE_DESCRIPTIONS[rateType]}</Text>
                         <Text style={[styles.label, { marginTop: 16 }]}>Payment Type</Text>
                         <View style={styles.pills}>
                             {(['ABN', 'TFN'] as const).map((pref) => {
@@ -1160,7 +1457,7 @@ export default function PostShiftScreen() {
                         </View>
                         <TouchableOpacity style={styles.checkboxRow} onPress={() => setLocumSuperIncluded((v) => !v)}>
                             <Checkbox status={locumSuperIncluded ? 'checked' : 'unchecked'} />
-                            <Text style={styles.rowText}>Include superannuation (+super)</Text>
+                            <Text style={styles.rowText}>+ superannuation </Text>
                         </TouchableOpacity>
 
                         {rateType === 'FIXED' ? (
@@ -1203,7 +1500,7 @@ export default function PostShiftScreen() {
                         </View>
                         <TouchableOpacity style={styles.checkboxRow} onPress={() => setLocumSuperIncluded((v) => !v)}>
                             <Checkbox status={locumSuperIncluded ? 'checked' : 'unchecked'} />
-                            <Text style={styles.rowText}>Include superannuation (+super)</Text>
+                            <Text style={styles.rowText}>+ superannuation </Text>
                         </TouchableOpacity>
                         <TextInput mode="outlined" label="Owner Bonus ($/hr, optional)" value={ownerBonus} onChangeText={setOwnerBonus} keyboardType="numeric" style={styles.input} />
                         {renderSlotPreviewList()}
@@ -1217,7 +1514,7 @@ export default function PostShiftScreen() {
         <Surface style={styles.card} elevation={1}>
             <View style={styles.slotHeader}>
                 <Text style={styles.label}>Timetable</Text>
-                <Button mode="contained" onPress={addSlot} icon="plus" style={styles.primaryBtn} labelStyle={styles.primaryBtnText}>
+                <Button mode="contained" onPress={addManualSlot} icon="plus" style={styles.primaryBtn} labelStyle={styles.primaryBtnText}>
                     Add slot
                 </Button>
             </View>
@@ -1226,7 +1523,7 @@ export default function PostShiftScreen() {
                 <TextInput
                     mode="outlined"
                     label="Date"
-                    value={selectedDates.length > 0 ? `${selectedDates.length} dates selected` : slotDate}
+                    value={selectedDates.length > 0 ? `${selectedDates.length} dates selected` : formatAuDate(slotDate)}
                     style={styles.slotInput}
                     placeholder="Select date(s)"
                     right={<TextInput.Icon icon="calendar" onPress={() => setSlotDatePickerOpen(true)} />}
@@ -1291,6 +1588,15 @@ export default function PostShiftScreen() {
                                             ? prev.filter((d) => d !== cell.iso)
                                             : [...prev, cell.iso].sort()
                                     );
+                                    setSelectedDateTimes((prev) => {
+                                        const next = { ...prev };
+                                        if (selectedDateSet.has(cell.iso)) {
+                                            delete next[cell.iso];
+                                        } else if (!next[cell.iso]) {
+                                            next[cell.iso] = { startTime: slotStart, endTime: slotEnd };
+                                        }
+                                        return next;
+                                    });
                                 }}
                             >
                                 <Text style={[styles.calendarCellText, isSelected && styles.calendarCellTextSelected]}>
@@ -1326,9 +1632,9 @@ export default function PostShiftScreen() {
                     <TextInput
                         mode="outlined"
                         label="Recurring end date"
-                        value={slotRecurringEnd}
+                        value={formatAuDate(slotRecurringEnd)}
                         style={styles.input}
-                        placeholder="YYYY-MM-DD"
+                        placeholder="DD/MM/YYYY"
                         right={<TextInput.Icon icon="calendar" onPress={() => setRecurringEndPickerOpen(true)} />}
                         editable={false}
                     />
@@ -1341,17 +1647,65 @@ export default function PostShiftScreen() {
             </View>
 
             {selectedDates.length > 0 ? (
-                <View style={styles.pills}>
-                    {selectedDates.map((date) => (
-                        <Chip
-                            key={date}
-                            onClose={() => setSelectedDates((prev) => prev.filter((d) => d !== date))}
-                            style={styles.chipUnselected}
-                            textStyle={styles.chipText}
-                        >
-                            {date}
-                        </Chip>
-                    ))}
+                <View style={styles.selectedDaysPanel}>
+                    <View style={styles.selectedDaysHeader}>
+                        <Text style={styles.label}>Selected calendar days</Text>
+                        <View style={styles.selectedDaysActions}>
+                            <Button mode="contained" onPress={addAllSelectedSlots} icon="plus" style={styles.primaryBtn} labelStyle={styles.primaryBtnText}>
+                                Add all
+                            </Button>
+                            <Button mode="text" onPress={() => { setSelectedDates([]); setSelectedDateTimes({}); }}>
+                                Clear
+                            </Button>
+                        </View>
+                    </View>
+                    <View style={{ gap: 10 }}>
+                        {selectedDates.map((date) => {
+                            const times = selectedDateTimes[date] || { startTime: slotStart, endTime: slotEnd };
+                            return (
+                                <Surface key={date} style={styles.selectedDayCard} elevation={0}>
+                                    <View style={styles.selectedDayHeader}>
+                                        <Chip
+                                            onClose={() => {
+                                                setSelectedDates((prev) => prev.filter((d) => d !== date));
+                                                setSelectedDateTimes((prev) => {
+                                                    const next = { ...prev };
+                                                    delete next[date];
+                                                    return next;
+                                                });
+                                            }}
+                                            style={styles.chipUnselected}
+                                            textStyle={styles.chipText}
+                                        >
+                                            {formatAuDate(date)}
+                                        </Chip>
+                                        <TouchableOpacity style={styles.selectedDayAddBtn} onPress={() => addSelectedDateSlot(date)}>
+                                            <IconButton icon="plus" size={18} iconColor="#FFFFFF" />
+                                        </TouchableOpacity>
+                                    </View>
+                                    <View style={styles.slotRow}>
+                                        <TextInput
+                                            mode="outlined"
+                                            label="Start"
+                                            value={times.startTime}
+                                            onChangeText={(value) => setSelectedDateTimes((prev) => ({ ...prev, [date]: { startTime: value, endTime: times.endTime } }))}
+                                            style={styles.slotInput}
+                                            placeholder="09:00"
+                                        />
+                                        <TextInput
+                                            mode="outlined"
+                                            label="End"
+                                            value={times.endTime}
+                                            onChangeText={(value) => setSelectedDateTimes((prev) => ({ ...prev, [date]: { startTime: times.startTime, endTime: value } }))}
+                                            style={styles.slotInput}
+                                            placeholder="17:00"
+                                        />
+                                    </View>
+                                </Surface>
+                            );
+                        })}
+                    </View>
+                    <Text style={styles.hint}>Adjust times per day, then use the purple plus to add one day or Add all to add everything at once.</Text>
                 </View>
             ) : null}
 
@@ -1360,11 +1714,11 @@ export default function PostShiftScreen() {
                     <Surface key={`${slot.date}-${idx}`} style={styles.slotItem} elevation={0}>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.slotText}>
-                                {slot.date} — {slot.startTime} to {slot.endTime}
+                                {formatLongSlotDate(slot.date)} — {slot.startTime} to {slot.endTime}
                             </Text>
                             {slot.isRecurring ? (
                                 <Text style={styles.slotRecurringText}>
-                                    Recurring: {slot.recurringDays.join(', ')} until {slot.recurringEndDate || 'N/A'}
+                                    Recurring: {slot.recurringDays.join(', ')} until {slot.recurringEndDate ? formatLongSlotDate(slot.recurringEndDate) : 'N/A'}
                                 </Text>
                             ) : null}
                         </View>
@@ -1631,7 +1985,226 @@ const styles = StyleSheet.create({
     navRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 },
     row: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
     rowText: { color: '#111827' },
+    visibilityHero: {
+        backgroundColor: '#F8FAFC',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#E9D5FF',
+        padding: 16,
+        gap: 8,
+        marginBottom: 12,
+    },
+    visibilityHeroEyebrow: {
+        color: PRIMARY,
+        fontSize: 11,
+        fontWeight: '800',
+        letterSpacing: 1,
+    },
+    visibilityHeroTitle: {
+        color: '#111827',
+        fontSize: 20,
+        lineHeight: 26,
+        fontWeight: '700',
+    },
+    visibilitySummaryChip: {
+        alignSelf: 'flex-start',
+        backgroundColor: '#EDE9FE',
+    },
+    visibilitySummaryChipText: {
+        color: PRIMARY_TEXT,
+        fontWeight: '700',
+    },
+    visibilityToggleCard: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 6,
+        padding: 12,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        backgroundColor: '#FFFFFF',
+        marginBottom: 12,
+    },
+    visibilityToggleCardActive: {
+        borderColor: '#C4B5FD',
+        backgroundColor: '#F5F3FF',
+    },
+    visibilityToggleContent: {
+        flex: 1,
+        paddingTop: 8,
+    },
+    visibilityToggleTitle: {
+        color: '#111827',
+        fontWeight: '700',
+        fontSize: 15,
+    },
+    visibilityToggleText: {
+        color: '#6B7280',
+        fontSize: 13,
+        lineHeight: 18,
+        marginTop: 4,
+    },
+    visibilityCardGrid: {
+        gap: 10,
+        marginTop: 10,
+        marginBottom: 12,
+    },
+    visibilityAudienceCard: {
+        borderRadius: 16,
+        borderWidth: 1,
+        padding: 14,
+        gap: 10,
+    },
+    visibilityAudienceCardActive: {
+        borderColor: PRIMARY,
+        backgroundColor: '#F5F3FF',
+        shadowColor: PRIMARY,
+        shadowOpacity: 0.14,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 6 },
+        elevation: 2,
+    },
+    visibilityAudienceHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        gap: 8,
+    },
+    visibilityAudienceTextWrap: {
+        flex: 1,
+    },
+    visibilityAudienceEyebrow: {
+        color: '#6B7280',
+        fontSize: 11,
+        fontWeight: '800',
+        letterSpacing: 0.8,
+        textTransform: 'uppercase',
+    },
+    visibilityAudienceTitle: {
+        color: '#111827',
+        fontSize: 16,
+        fontWeight: '700',
+        marginTop: 2,
+    },
+    visibilityAudienceDescription: {
+        color: '#4B5563',
+        fontSize: 13,
+        lineHeight: 19,
+    },
+    visibilityStageChip: {
+        backgroundColor: '#FFFFFF',
+        borderWidth: 1,
+        borderColor: '#D1D5DB',
+    },
+    visibilityStageChipActive: {
+        backgroundColor: PRIMARY,
+    },
+    visibilityStageChipText: {
+        color: '#6B7280',
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    visibilityStageChipTextActive: {
+        color: '#FFFFFF',
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    visibilityPanel: {
+        backgroundColor: '#FCFCFD',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        padding: 14,
+        gap: 8,
+        marginTop: 12,
+    },
+    visibilityPanelTitle: {
+        color: '#111827',
+        fontSize: 16,
+        fontWeight: '700',
+    },
+    visibilityPanelStack: {
+        gap: 10,
+        marginTop: 4,
+    },
+    visibilityOptionCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 8,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        backgroundColor: '#FFFFFF',
+    },
+    visibilityOptionCardActive: {
+        borderColor: '#C4B5FD',
+        backgroundColor: '#F5F3FF',
+    },
+    escalationCard: {
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        backgroundColor: '#FFFFFF',
+        padding: 12,
+        gap: 8,
+    },
+    escalationCardActive: {
+        borderColor: '#C4B5FD',
+        backgroundColor: '#F5F3FF',
+    },
+    escalationTitle: {
+        color: '#111827',
+        fontSize: 15,
+        fontWeight: '700',
+        flex: 1,
+    },
+    escalationPreview: {
+        color: '#6B7280',
+        fontSize: 13,
+    },
     recurringRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+    selectedDaysPanel: {
+        marginTop: 12,
+        gap: 10,
+        padding: 12,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        backgroundColor: '#FFFFFF',
+    },
+    selectedDaysHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 8,
+    },
+    selectedDaysActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    selectedDayCard: {
+        padding: 10,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        backgroundColor: '#FFFFFF',
+        gap: 10,
+    },
+    selectedDayHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 8,
+    },
+    selectedDayAddBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: PRIMARY,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     checkGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
     checkboxRow: {
         flexDirection: 'row',
@@ -1647,4 +2220,78 @@ const styles = StyleSheet.create({
     },
     primaryBtn: { backgroundColor: PRIMARY },
     primaryBtnText: { color: '#FFFFFF', fontWeight: '700' },
+    infoAlert: {
+        backgroundColor: '#EFF6FF',
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 12,
+    },
+    infoAlertText: {
+        color: '#1E40AF',
+        fontSize: 13,
+        lineHeight: 18,
+    },
+    accordionHeader: {
+        backgroundColor: '#F9FAFB',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+        paddingVertical: 4,
+    },
+    skillRow: {
+        flexDirection: 'column',
+        padding: 16,
+        gap: 12,
+    },
+    skillRowBorder: {
+        borderBottomWidth: 1,
+        borderBottomColor: '#F3F4F6',
+    },
+    skillTextContainer: {
+        flex: 1,
+    },
+    skillLabel: {
+        color: '#111827',
+        fontSize: 15,
+        fontWeight: '500',
+    },
+    skillDescription: {
+        color: '#6B7280',
+        fontSize: 13,
+        marginTop: 4,
+    },
+    toggleGroup: {
+        flexDirection: 'row',
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#D1D5DB',
+        overflow: 'hidden',
+        alignSelf: 'flex-start',
+        backgroundColor: '#FFFFFF',
+    },
+    toggleBtn: {
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    toggleBtnLeft: {
+        borderRightWidth: 1,
+        borderRightColor: '#D1D5DB',
+    },
+    toggleBtnRight: {
+    },
+    toggleBtnRequiredActive: {
+        backgroundColor: PRIMARY,
+    },
+    toggleBtnFavorableActive: {
+        backgroundColor: '#047857',
+    },
+    toggleBtnText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#6B7280',
+    },
+    toggleBtnTextActive: {
+        color: '#FFFFFF',
+    },
 });

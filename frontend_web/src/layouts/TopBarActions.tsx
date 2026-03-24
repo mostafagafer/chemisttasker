@@ -1045,20 +1045,41 @@ export default function TopBarActions() {
         navigate(`${chatRoute}?conversationId=${conversationId}`);
       } else if (offerId || shiftId) {
         const role = String(user?.role || "").toUpperCase();
-        const rolePath =
-          role === "PHARMACIST"
-            ? "pharmacist"
-            : role === "OTHER_STAFF"
-              ? "otherstaff"
-              : role === "EXPLORER"
-                ? "explorer"
-                : null;
-        if (rolePath) {
+        const isWorkerRole = role === "PHARMACIST" || role === "OTHER_STAFF" || role === "EXPLORER";
+        if (isWorkerRole) {
+          const rolePath =
+            role === "PHARMACIST"
+              ? "pharmacist"
+              : role === "OTHER_STAFF"
+                ? "otherstaff"
+                : "explorer";
           const params = new URLSearchParams();
           params.set("tab", "accepted");
           if (shiftId != null) params.set("shift_id", String(shiftId));
           if (offerId != null) params.set("offer_id", String(offerId));
           navigate(`/dashboard/${rolePath}/shifts?${params.toString()}`);
+        } else if (shiftId != null) {
+          if (activePersona === "admin" && activeAdminAssignment?.pharmacy_id) {
+            navigate(`/dashboard/admin/${activeAdminAssignment.pharmacy_id}/shifts/${shiftId}`);
+          } else if (role === "OWNER") {
+            navigate(`/dashboard/owner/shifts/${shiftId}`);
+          } else {
+            navigate(`/dashboard/organization/shifts/${shiftId}`);
+          }
+        } else if (item.actionUrl) {
+          try {
+            const target = new URL(item.actionUrl, window.location.origin);
+            if (target.origin === window.location.origin) {
+              navigate(`${target.pathname}${target.search}${target.hash}`);
+            } else {
+              window.location.href = target.toString();
+            }
+          } catch {
+            const normalized = item.actionUrl.startsWith('/')
+              ? item.actionUrl
+              : `/${item.actionUrl}`;
+            navigate(normalized);
+          }
         } else {
           handleCloseNotifications();
           return;

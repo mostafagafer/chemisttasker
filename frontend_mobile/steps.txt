@@ -41,15 +41,15 @@ when have we sat this mostafarg.chemisttasker and where?
 
 We set com.mostafarg.chemisttasker when the EAS build prompt asked for the Android application id during the first dev build. After that, we saved it in frontend_mobile/app.json under expo.android.package so it persists for all builds.
 ************
-eas build --profile production-apk --platform android --clear-cache
+npx eas build --profile production-apk --platform android --clear-cache
 eas build:download --platform android --latest
 
 
 eas build -p android --profile production
-eas build -p ios --profile production --clear-cache
+npx eas build -p ios --profile production --clear-cache
 
 then this
-eas submit -p ios --profile production
+npx eas submit -p ios --profile production
 
 =========================
 

@@ -24,7 +24,7 @@ import {
     updateOwnerShiftService,
     calculateShiftRates,
 } from '@chemisttasker/shared-core';
-import skillsCatalog from '../../../../shared-core/skills_catalog.json';
+import skillsCatalog from '@chemisttasker/shared-core/skills_catalog.json';
 
 const ROLE_OPTIONS = ['PHARMACIST', 'TECHNICIAN', 'ASSISTANT', 'INTERN', 'STUDENT'];
 const EMPLOYMENT_TYPES = ['LOCUM', 'CASUAL', 'PART_TIME', 'FULL_TIME'];

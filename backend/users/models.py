@@ -61,7 +61,7 @@ class User(AbstractUser):
     def is_explorer(self):
         return self.role == 'EXPLORER'
     
-    otp_code = models.CharField(max_length=8, blank=True, null=True)
+    otp_code = models.CharField(max_length=128, blank=True, null=True)
     otp_created_at = models.DateTimeField(blank=True, null=True)
     otp_failed_attempts = models.PositiveSmallIntegerField(default=0)
     otp_locked_until = models.DateTimeField(blank=True, null=True)
@@ -70,7 +70,7 @@ class User(AbstractUser):
     accepted_terms_at = models.DateTimeField(null=True, blank=True)
 
     mobile_number = models.CharField(max_length=20, blank=True, null=True)
-    mobile_otp_code = models.CharField(max_length=6, blank=True, null=True)
+    mobile_otp_code = models.CharField(max_length=128, blank=True, null=True)
     mobile_otp_created_at = models.DateTimeField(blank=True, null=True)
     mobile_otp_failed_attempts = models.PositiveSmallIntegerField(default=0)
     mobile_otp_locked_until = models.DateTimeField(blank=True, null=True)

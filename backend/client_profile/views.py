@@ -609,7 +609,7 @@ class RefereeSubmitResponseView(generics.CreateAPIView):
 
 class RefereeRejectView(APIView):
     """
-    POST /onboarding/referee-reject/<profile_pk>/<ref_idx>/
+    POST /onboarding/referee-reject/<token>/
     Effect:
       - Sets referee{idx}_confirmed=False, referee{idx}_rejected=True (idempotent)
       - Emails the candidate ONLY on first transition to rejected
@@ -617,23 +617,27 @@ class RefereeRejectView(APIView):
     """
     permission_classes = [permissions.AllowAny]
 
-    def post(self, request, profile_pk, ref_idx, *args, **kwargs):
-        onboarding_models = [PharmacistOnboarding, OtherStaffOnboarding, ExplorerOnboarding]
-        instance, model_name, Model = None, None, None
-        for M in onboarding_models:
-            try:
-                instance = M.objects.get(pk=profile_pk)
-                model_name = M._meta.model_name
-                Model = M
-                break
-            except M.DoesNotExist:
-                continue
-        if not instance:
+    def post(self, request, token, *args, **kwargs):
+        signer = TimestampSigner()
+        try:
+            data = signer.unsign(token, max_age=timedelta(days=14))
+            model_name, pk, ref_idx = data.split(':')
+            pk = int(pk)
+            idx = int(ref_idx)
+            if idx not in (1, 2):
+                raise ValueError
+        except (BadSignature, ValueError):
+            raise PermissionDenied("This referee link is invalid or has expired.")
+
+        try:
+            Model = apps.get_model('client_profile', model_name)
+        except LookupError:
             return Response({'detail': 'Onboarding profile not found.'}, status=404)
 
-        if str(ref_idx) not in ("1", "2"):
-            return Response({'detail': 'Invalid referee index.'}, status=400)
-        idx = int(ref_idx)
+        try:
+            instance = Model.objects.get(pk=pk)
+        except Model.DoesNotExist:
+            return Response({'detail': 'Onboarding profile not found.'}, status=404)
 
         # Do an atomic, conditional update so we only send email on the first transition.
         confirmed_field = f"referee{idx}_confirmed"
@@ -4338,7 +4342,15 @@ class ShiftInterestViewSet(viewsets.ModelViewSet):
 
         shift_id = self.request.query_params.get('shift')
         if shift_id is not None:
-            qs = qs.filter(shift_id=shift_id)
+            shift = get_object_or_404(Shift, pk=shift_id)
+            if BaseShiftViewSet._user_can_manage_pharmacy(self.request.user, shift.pharmacy):
+                qs = qs.filter(shift_id=shift_id)
+            else:
+                qs = qs.filter(shift_id=shift_id, user=self.request.user)
+        elif self.action == 'list':
+            raise ValidationError({'shift': 'This query parameter is required.'})
+        else:
+            qs = qs.filter(user=self.request.user)
 
         slot_param = self.request.query_params.get('slot')
         if slot_param == 'null':
@@ -4378,7 +4390,15 @@ class ShiftRejectionViewSet(viewsets.ModelViewSet):
 
         shift_id = self.request.query_params.get('shift')
         if shift_id is not None:
-            qs = qs.filter(shift_id=shift_id)
+            shift = get_object_or_404(Shift, pk=shift_id)
+            if BaseShiftViewSet._user_can_manage_pharmacy(self.request.user, shift.pharmacy):
+                qs = qs.filter(shift_id=shift_id)
+            else:
+                qs = qs.filter(shift_id=shift_id, user=self.request.user)
+        elif self.action == 'list':
+            raise ValidationError({'shift': 'This query parameter is required.'})
+        else:
+            qs = qs.filter(user=self.request.user)
 
         slot_param = self.request.query_params.get('slot')
         if slot_param == 'null':

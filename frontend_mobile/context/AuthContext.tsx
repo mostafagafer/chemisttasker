@@ -37,6 +37,7 @@ interface RegisterData {
   last_name?: string;
   role: string;
   accepted_terms: boolean;
+  captcha_token?: string | null;
 }
 
 type AuthContextType = {
@@ -248,11 +249,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const register = async (data: RegisterData) => {
     try {
-      await apiClient.post('/users/register/', data, {
-        headers: {
-          'X-Client-Platform': 'mobile-app',
-        },
-      });
+      await apiClient.post('/users/register/', data);
     } catch (error: any) {
       const duplicateEmailMessage =
         'There is already an account registered with this email. Please log in or reset your password.';

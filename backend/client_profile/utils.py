@@ -419,7 +419,7 @@ def send_referee_emails(obj, is_reminder=False):
             })
             confirm_url = f"{settings.FRONTEND_BASE_URL}/referee/questionnaire/{token}?{query}"
 
-            reject_url = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-reject/{obj.pk}/{idx}"
+            reject_url = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-reject/{token}"
 
             async_task(
                 'users.tasks.send_async_email',

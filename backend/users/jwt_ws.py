@@ -66,8 +66,6 @@ class JWTAuthMiddleware:
         auth = headers.get(b"authorization", b"").decode()
         if auth.lower().startswith("bearer "):
             return auth.split(" ", 1)[1].strip()
-        if "token" in query and query["token"]:
-            return query["token"][0].strip()
         # Deprecated: Reading from cookies
         raw_cookies = headers.get(b"cookie", b"").decode()
         cookie_name = getattr(settings, "JWT_AUTH_COOKIE", "ct_access")

@@ -103,7 +103,7 @@ urlpatterns = [
 
     # path('onboarding/referee-confirm/<int:profile_pk>/<int:ref_idx>/', RefereeConfirmView.as_view(), name='referee-confirm'),
     path('onboarding/submit-reference/<str:token>/', RefereeSubmitResponseView.as_view(), name='submit-referee-response'),
-    path('onboarding/referee-reject/<int:profile_pk>/<int:ref_idx>/', RefereeRejectView.as_view(), name='referee-reject'),
+    path('onboarding/referee-reject/<str:token>/', RefereeRejectView.as_view(), name='referee-reject'),
 
     path('magic/memberships/<str:token>/', MagicLinkInfoView.as_view(), name='magic-membership-detail'),
     path('magic/memberships/<str:token>/apply/', SubmitMembershipApplication.as_view(), name='magic-membership-apply'),

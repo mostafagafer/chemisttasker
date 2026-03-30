@@ -1021,7 +1021,7 @@ def run_referee_reminder(model_name: str, pk: int, ref_idx: int) -> None:
         "position_applied_for": get_candidate_role(obj),
     })
     confirm_url = f"{settings.FRONTEND_BASE_URL}/referee/questionnaire/{token}?{query}"
-    reject_url = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-reject/{pk}/{ref_idx}"
+    reject_url = f"{settings.FRONTEND_BASE_URL}/onboarding/referee-reject/{token}"
 
     async_task(
         'users.tasks.send_async_email',

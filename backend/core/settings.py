@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import ssl
 from environ import Env
 from datetime import timedelta
 import dj_database_url
@@ -17,9 +18,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = env('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env.bool("DEBUG", default=False)
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
 # Only send cookies when they’re on an explicitly allowed origin:
 CORS_ALLOW_CREDENTIALS = True
@@ -49,6 +50,8 @@ FRONTEND_BASE_URL = "http://localhost:5173"
 
 BACKEND_BASE_URL = "http://127.0.0.1:8000"
 
+ADMIN_URL = env("ADMIN_URL")
+
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -69,6 +72,11 @@ INSTALLED_APPS = [
     'daphne',
 
     'django.contrib.admin',
+    'django_otp',
+    'django_otp.plugins.otp_totp',
+    'django_otp.plugins.otp_static',
+    'two_factor',
+    'axes',
     # Async tasks
     'django_q',
 
@@ -119,10 +127,15 @@ _redis_options = {
 if _redis_is_ssl:
     _redis_options.update({
         'ssl': True,
-        # Disable cert verification to avoid TLS handshake issues on managed Redis.
-        # If you want strict verification, set ssl_cert_reqs to "required" and provide CA certs.
-        'ssl_cert_reqs': None,
+        'ssl_cert_reqs': {
+            "none": ssl.CERT_NONE,
+            "optional": ssl.CERT_OPTIONAL,
+            "required": ssl.CERT_REQUIRED,
+        }.get(env("REDIS_SSL_CERT_REQS", default="required").strip().lower(), ssl.CERT_REQUIRED),
     })
+    redis_ssl_ca_certs = env("REDIS_SSL_CA_CERTS", default="").strip()
+    if redis_ssl_ca_certs:
+        _redis_options['ssl_ca_certs'] = redis_ssl_ca_certs
 
 Q_CLUSTER = {
     'name': 'DjangoQ',
@@ -142,6 +155,8 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django_otp.middleware.OTPMiddleware',
+    'axes.middleware.AxesMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -151,9 +166,19 @@ ROOT_URLCONF = 'core.urls'
 AUTH_USER_MODEL = 'users.User'
 
 AUTHENTICATION_BACKENDS = [
+     'axes.backends.AxesStandaloneBackend',
      'users.authentication.EmailBackend',
      'django.contrib.auth.backends.ModelBackend',
 ]
+
+LOGIN_URL = "/account/login/"
+LOGIN_REDIRECT_URL = "/"
+
+AXES_ENABLED = env.bool("AXES_ENABLED", default=True)
+AXES_FAILURE_LIMIT = env.int("AXES_FAILURE_LIMIT", default=5)
+AXES_COOLOFF_TIME = timedelta(hours=1)
+AXES_RESET_ON_SUCCESS = True
+AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
@@ -278,6 +303,16 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Base security defaults should remain safe even if deployment.py is not loaded.
+SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=not DEBUG)
+SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=0 if DEBUG else 31536000)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", default=not DEBUG)
+SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=not DEBUG)
+SECURE_BROWSER_XSS_FILTER = env.bool("SECURE_BROWSER_XSS_FILTER", default=True)
+X_FRAME_OPTIONS = env("X_FRAME_OPTIONS", default="DENY")
+SECURE_REFERRER_POLICY = env("SECURE_REFERRER_POLICY", default="same-origin")
+SECURE_CONTENT_TYPE_NOSNIFF = env.bool("SECURE_CONTENT_TYPE_NOSNIFF", default=True)
+
 # JWT settings for better frontend integration
 SIMPLE_JWT = {
     # Short‑lived access token
@@ -298,6 +333,14 @@ JWT_REFRESH_COOKIE = env("JWT_REFRESH_COOKIE", default="ct_refresh")
 JWT_COOKIE_SECURE = env.bool("JWT_COOKIE_SECURE", default=not DEBUG)
 JWT_COOKIE_SAMESITE = env("JWT_COOKIE_SAMESITE", default="None" if not DEBUG else "Lax")
 JWT_COOKIE_PATH = env("JWT_COOKIE_PATH", default="/")
+
+# Session/CSRF cookie defaults should stay secure even outside deployment.py.
+SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=not DEBUG)
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=not DEBUG)
+SESSION_COOKIE_HTTPONLY = env.bool("SESSION_COOKIE_HTTPONLY", default=True)
+CSRF_COOKIE_HTTPONLY = env.bool("CSRF_COOKIE_HTTPONLY", default=False)
+SESSION_COOKIE_SAMESITE = env("SESSION_COOKIE_SAMESITE", default="Lax")
+CSRF_COOKIE_SAMESITE = env("CSRF_COOKIE_SAMESITE", default="Lax")
 
 
 MEDIA_URL = '/media/'

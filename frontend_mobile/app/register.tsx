@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   View,
   StyleSheet,
   TouchableOpacity,
   Image,
   Linking,
+  Modal,
 } from 'react-native';
 import {
   Text,
@@ -17,6 +19,7 @@ import {
 } from 'react-native-paper';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { WebView } from 'react-native-webview';
 import { useAuth } from '../context/AuthContext';
 import AuthLayout from '../components/AuthLayout';
 
@@ -38,6 +41,7 @@ const PRIVACY_URL = 'https://www.chemisttasker.com.au/privacy-policy';
 export default function RegisterScreen() {
   const router = useRouter();
   const { register } = useAuth();
+  const recaptchaSiteKey = process.env.EXPO_PUBLIC_RECAPTCHA_SITE_KEY?.trim() || '';
 
   const [formData, setFormData] = useState({
     email: '',
@@ -50,6 +54,48 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaModalVisible, setCaptchaModalVisible] = useState(false);
+  const [captchaLoading, setCaptchaLoading] = useState(true);
+
+  const captchaHtml = useMemo(() => {
+    if (!recaptchaSiteKey) {
+      return '';
+    }
+
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <script src="https://www.google.com/recaptcha/api.js" async defer></script>
+          <style>
+            body {
+              margin: 0;
+              min-height: 100vh;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: #f8fafc;
+              font-family: Arial, sans-serif;
+            }
+          </style>
+        </head>
+        <body>
+          <div
+            class="g-recaptcha"
+            data-sitekey="${recaptchaSiteKey}"
+            data-callback="onCaptchaSuccess"
+          ></div>
+          <script>
+            function onCaptchaSuccess(token) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'captcha', token: token }));
+            }
+          </script>
+        </body>
+      </html>
+    `;
+  }, [recaptchaSiteKey]);
 
   const openLink = async (url: string) => {
     try {
@@ -77,6 +123,16 @@ export default function RegisterScreen() {
       return;
     }
 
+    if (!recaptchaSiteKey) {
+      setError('CAPTCHA is not configured for this build');
+      return;
+    }
+
+    if (!captchaToken) {
+      setError('Please complete the CAPTCHA verification');
+      return;
+    }
+
     setLoading(true);
     try {
       await register({
@@ -85,6 +141,7 @@ export default function RegisterScreen() {
         confirm_password: formData.confirm_password,
         role: formData.role,
         accepted_terms: formData.accepted_terms,
+        captcha_token: captchaToken,
       });
       router.replace({ pathname: '/verify-otp', params: { email: formData.email } } as any);
     } catch (err: any) {
@@ -213,11 +270,38 @@ export default function RegisterScreen() {
           </Text>
         </View>
 
+        <TouchableOpacity
+          style={[
+            styles.captchaButton,
+            captchaToken ? styles.captchaButtonVerified : null,
+          ]}
+          activeOpacity={0.85}
+          onPress={() => {
+            setError('');
+            setCaptchaLoading(true);
+            setCaptchaModalVisible(true);
+          }}
+        >
+          <View style={styles.captchaButtonContent}>
+            <MaterialIcons
+              name={captchaToken ? 'verified-user' : 'security'}
+              size={20}
+              color={captchaToken ? '#166534' : '#1d4ed8'}
+            />
+            <Text style={[
+              styles.captchaButtonText,
+              captchaToken ? styles.captchaButtonTextVerified : null,
+            ]}>
+              {captchaToken ? 'CAPTCHA verified' : 'Complete CAPTCHA verification'}
+            </Text>
+          </View>
+        </TouchableOpacity>
+
         <Button
           mode="contained"
           onPress={handleRegister}
           loading={loading}
-          disabled={loading}
+          disabled={loading || !captchaToken}
           style={styles.button}
           contentStyle={styles.buttonContent}
         >
@@ -233,6 +317,58 @@ export default function RegisterScreen() {
           Already have an account? Login
         </Button>
       </View>
+
+      <Modal
+        visible={captchaModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setCaptchaModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text variant="titleMedium" style={styles.modalTitle}>Verify you are human</Text>
+              <TouchableOpacity onPress={() => setCaptchaModalVisible(false)}>
+                <MaterialIcons name="close" size={22} color="#475569" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalDescription}>
+              Complete the CAPTCHA challenge to continue account creation.
+            </Text>
+            {!recaptchaSiteKey ? (
+              <Surface style={styles.errorContainer} elevation={1}>
+                <Text style={styles.errorText}>Missing `EXPO_PUBLIC_RECAPTCHA_SITE_KEY`.</Text>
+              </Surface>
+            ) : (
+              <View style={styles.webviewWrap}>
+                {captchaLoading ? (
+                  <View style={styles.webviewLoader}>
+                    <ActivityIndicator size="small" color="#2563EB" />
+                    <Text style={styles.webviewLoaderText}>Loading CAPTCHA...</Text>
+                  </View>
+                ) : null}
+                <WebView
+                  source={{ html: captchaHtml, baseUrl: 'https://www.chemisttasker.com.au' }}
+                  onLoadEnd={() => setCaptchaLoading(false)}
+                  javaScriptEnabled
+                  originWhitelist={['*']}
+                  onMessage={(event) => {
+                    try {
+                      const payload = JSON.parse(event.nativeEvent.data);
+                      if (payload?.type === 'captcha' && payload?.token) {
+                        setCaptchaToken(payload.token);
+                        setCaptchaModalVisible(false);
+                      }
+                    } catch {
+                      setError('CAPTCHA verification failed');
+                    }
+                  }}
+                />
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </AuthLayout>
   );
 }
@@ -298,6 +434,31 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     flex: 1,
   },
+  captchaButton: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  captchaButtonVerified: {
+    borderColor: '#bbf7d0',
+    backgroundColor: '#f0fdf4',
+  },
+  captchaButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  captchaButtonText: {
+    color: '#1d4ed8',
+    fontWeight: '600',
+  },
+  captchaButtonTextVerified: {
+    color: '#166534',
+  },
   linkText: {
     color: '#2563EB',
     textDecorationLine: 'underline',
@@ -339,5 +500,54 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    padding: 18,
+    maxHeight: '78%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  modalTitle: {
+    color: '#0f172a',
+    fontWeight: '700',
+  },
+  modalDescription: {
+    marginTop: 8,
+    marginBottom: 14,
+    color: '#475569',
+  },
+  webviewWrap: {
+    height: 280,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#f8fafc',
+  },
+  webviewLoader: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#f8fafc',
+    zIndex: 1,
+  },
+  webviewLoaderText: {
+    color: '#475569',
   },
 });

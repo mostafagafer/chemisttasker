@@ -33,10 +33,13 @@ django-cors-headers==4.7.0
 django-environ==0.12.0
 django-filter==25.1
 django-multiselectfield==0.1.13
+django-axes==7.1.0
+django-otp==1.5.4
 django-picklefield==3.3
 django-q2==1.8.0
 django-storages==1.14.6
 django-tenants==3.7.0
+django-two-factor-auth==1.17.0
 djangorestframework==3.16.0
 djangorestframework_simplejwt==5.5.0
 drf-spectacular==0.28.0
@@ -57,6 +60,7 @@ msgpack==1.1.1
 multidict==6.4.4
 packaging==25.0
 pillow==11.2.1
+phonenumbers==8.13.55
 propcache==0.3.2
 psycopg==3.2.9
 psycopg-binary==3.2.9

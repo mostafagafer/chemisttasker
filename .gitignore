@@ -20,6 +20,8 @@ openapi.yaml
 backend/media/
 backend/static/
 backend/staticfiles/
+JSM_Global_Security_Audit_ChemistTasker_v1.1.pdf
+Security_Audit_Tracking.md
 
 
 # Django migrations (ignore every migrations/ folder)

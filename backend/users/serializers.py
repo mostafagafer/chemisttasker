@@ -2,6 +2,9 @@
 
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
 from rest_framework_simplejwt.tokens      import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
@@ -77,6 +80,15 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'confirm_password': 'Passwords do not match.'
             })
+        try:
+            validate_password(
+                attrs.get('password'),
+                user=User(email=attrs.get('email', '').strip().lower()),
+            )
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({
+                'password': list(exc.messages)
+            })
         return attrs
     
     def validate_accepted_terms(self, value):
@@ -104,10 +116,11 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
         # ---- OTP verification ----
         otp = str(secrets.randbelow(900000) + 100000)
-        user.otp_code = otp
+        user.otp_code = make_password(otp)
         user.otp_created_at = timezone.now()
         user.is_otp_verified = False
         user.save()
+        user._plain_email_otp = otp
         # ---- END NEW BLOCK ----
 
         return user

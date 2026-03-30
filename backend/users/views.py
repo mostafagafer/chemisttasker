@@ -1,6 +1,8 @@
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView  
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password, check_password, identify_hasher
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import viewsets, permissions, filters, generics, status, mixins
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
@@ -31,6 +33,7 @@ from django.utils import timezone
 import secrets
 import logging
 from rest_framework.exceptions import ValidationError
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.contrib.sessions.models import Session
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
@@ -48,6 +51,21 @@ from django.db.models import Q
 
 OTP_MAX_FAILED_ATTEMPTS = 5
 OTP_LOCKOUT_MINUTES = 15
+
+
+def _hash_otp(raw_otp: str) -> str:
+    return make_password(raw_otp)
+
+
+def _otp_matches(raw_otp: str, stored_value: str | None) -> bool:
+    if not raw_otp or not stored_value:
+        return False
+    try:
+        identify_hasher(stored_value)
+    except Exception:
+        # Backward compatibility for OTPs issued before hashing was introduced.
+        return stored_value == raw_otp
+    return check_password(raw_otp, stored_value)
 
 
 def _get_lockout_response(locked_until):
@@ -213,13 +231,6 @@ def verify_recaptcha(token):
         return False
     return result.get('success', False)
 
-def is_mobile_registration_request(request):
-    platform_header = (request.headers.get("X-Client-Platform") or "").strip().lower()
-    if platform_header in {"mobile", "mobile-app", "expo", "react-native"}:
-        return True
-    user_agent = (request.headers.get("User-Agent") or "").lower()
-    return "expo" in user_agent or "reactnative" in user_agent or "okhttp" in user_agent
-
 def _delete_verification_docs_for_user(user):
     from client_profile.models import PharmacistOnboarding, OtherStaffOnboarding, ExplorerOnboarding
 
@@ -307,19 +318,18 @@ class RegisterView(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]
     
     def create(self, request, *args, **kwargs):
-        if not is_mobile_registration_request(request):
-            captcha_token = request.data.get('captcha_token')
-            if not captcha_token or not verify_recaptcha(captcha_token):
-                return Response(
-                    {'captcha': ['reCAPTCHA validation failed. Please try again.']},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        captcha_token = request.data.get('captcha_token')
+        if not captcha_token or not verify_recaptcha(captcha_token):
+            return Response(
+                {'captcha': ['reCAPTCHA validation failed. Please try again.']},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         user = serializer.save()
         otp_subject = "Your ChemistTasker Verification Code"
-        otp_context = {"otp": user.otp_code, "user": user}
+        otp_context = {"otp": getattr(user, "_plain_email_otp", ""), "user": user}
         send_async_email(
             subject=otp_subject,
             recipient_list=[user.email],
@@ -350,7 +360,7 @@ class VerifyOTPView(APIView):
             return Response({"detail": "OTP has expired. Please request a new code."}, status=400)
 
         # --- Check if OTP matches ---
-        if user.otp_code != otp:
+        if not _otp_matches(otp, user.otp_code):
             just_locked = _register_email_otp_failure(user)
             if just_locked:
                 return _get_lockout_response(user.otp_locked_until)
@@ -458,7 +468,7 @@ class ResendOTPView(APIView):
         user = User.objects.filter(email__iexact=email).first()
         if user and not user.is_otp_verified:
             otp = str(secrets.randbelow(900000) + 100000)
-            user.otp_code = otp
+            user.otp_code = _hash_otp(otp)
             user.otp_created_at = timezone.now()
             _reset_email_otp_security_state(user)
             user.save()
@@ -573,7 +583,7 @@ class RequestMobileOTPView(APIView):
         # Persist to user
         otp_code = generate_otp()
         user.mobile_number = normalized
-        user.mobile_otp_code = otp_code
+        user.mobile_otp_code = _hash_otp(otp_code)
         user.mobile_otp_created_at = timezone.now()
         user.is_mobile_verified = False
         _reset_mobile_otp_security_state(user)
@@ -599,9 +609,15 @@ class RequestMobileOTPView(APIView):
         )
 
         if resp.status_code != 200:
+            logging.getLogger(__name__).warning(
+                "Mobile OTP send failed for user %s with provider status %s: %s",
+                user.id,
+                resp.status_code,
+                resp.text,
+            )
             return Response(
-                {"error": "Failed to send OTP", "details": resp.text},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                {"error": "Unable to send verification code right now. Please try again later."},
+                status=status.HTTP_502_BAD_GATEWAY,
             )
 
         return Response({"detail": "OTP sent successfully"}, status=status.HTTP_200_OK)
@@ -630,7 +646,7 @@ class VerifyMobileOTPView(APIView):
             return Response({"error": "OTP has expired, please request a new one."},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        if otp != user.mobile_otp_code:
+        if not _otp_matches(otp, user.mobile_otp_code):
             just_locked = _register_mobile_otp_failure(user)
             if just_locked:
                 return _get_lockout_response(user.mobile_otp_locked_until)
@@ -672,7 +688,7 @@ class ResendMobileOTPView(APIView):
 
         # Generate new OTP, invalidate old one
         otp_code = generate_otp()
-        user.mobile_otp_code = otp_code
+        user.mobile_otp_code = _hash_otp(otp_code)
         user.mobile_otp_created_at = timezone.now()
         user.is_mobile_verified = False
         _reset_mobile_otp_security_state(user)
@@ -698,9 +714,15 @@ class ResendMobileOTPView(APIView):
         )
 
         if resp.status_code != 200:
+            logging.getLogger(__name__).warning(
+                "Mobile OTP resend failed for user %s with provider status %s: %s",
+                user.id,
+                resp.status_code,
+                resp.text,
+            )
             return Response(
-                {"error": "Failed to resend OTP", "details": resp.text},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                {"error": "Unable to send verification code right now. Please try again later."},
+                status=status.HTTP_502_BAD_GATEWAY,
             )
 
         return Response({"detail": "OTP resent successfully"}, status=status.HTTP_200_OK)
@@ -802,6 +824,11 @@ class PasswordResetConfirmAPIView(APIView):
             return Response({'detail':'Invalid or expired token.'}, status=400)
 
         # all good—set the password
+        try:
+            validate_password(pw1, user=user)
+        except DjangoValidationError as exc:
+            return Response({'new_password1': list(exc.messages)}, status=400)
+
         user.set_password(pw1)
         user.is_otp_verified = True
         user.save()

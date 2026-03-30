@@ -6,9 +6,14 @@ from django.conf.urls.static import static
 from .sitemap import sitemap_web
 from .admin_site import otp_admin_site
 from two_factor.urls import urlpatterns as two_factor_urlpatterns
+from .two_factor_views import AdminAwareLoginView
+
+two_factor_patterns, two_factor_app_name = two_factor_urlpatterns
+two_factor_patterns = list(two_factor_patterns)
+two_factor_patterns[0] = path('account/login/', AdminAwareLoginView.as_view(), name='login')
 
 urlpatterns = [
-    path('', include(two_factor_urlpatterns, namespace='two_factor')),
+    path('', include((two_factor_patterns, two_factor_app_name), namespace='two_factor')),
     path(settings.ADMIN_URL, otp_admin_site.urls),
     path('sitemap.xml', sitemap_web, name='sitemap-web'),
     path('api/users/', include('users.urls')),

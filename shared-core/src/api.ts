@@ -14,6 +14,36 @@ function getApiConfig() {
     }
     return config;
 }
+function buildRequestUrl(baseURL, endpoint) {
+    const normalizedBase = baseURL.endsWith('/') ? baseURL : `${baseURL}/`;
+    const target = String(endpoint || '');
+    if (/^https?:\/\//i.test(target)) {
+        return new URL(target);
+    }
+    return new URL(target.replace(/^\/+/, ''), normalizedBase);
+}
+function isSameOriginRequest(baseURL, targetUrl) {
+    return buildRequestUrl(baseURL, '').origin === targetUrl.origin;
+}
+async function parseApiError(response) {
+    if (response.status >= 500) {
+        return `Request failed with status ${response.status}`;
+    }
+    const payload = await response.json().catch(() => null);
+    if (payload && typeof payload === 'object') {
+        const detail = typeof payload.detail === 'string' ? payload.detail : null;
+        const error = typeof payload.error === 'string' ? payload.error : null;
+        const message = typeof payload.message === 'string' ? payload.message : null;
+        const firstFieldError = Object.values(payload).find((value) => Array.isArray(value) && typeof value[0] === 'string');
+        if (detail) return detail;
+        if (error) return error;
+        if (message) return message;
+        if (Array.isArray(firstFieldError) && typeof firstFieldError[0] === 'string') {
+            return firstFieldError[0];
+        }
+    }
+    return `Request failed with status ${response.status}`;
+}
 async function fetchApi(endpoint, options = {}) {
     const { baseURL, getToken, credentials = 'include' } = getApiConfig();
     const includeAuth = !options.skipAuth;
@@ -37,14 +67,13 @@ async function fetchApi(endpoint, options = {}) {
     if (!(options.body instanceof FormData)) {
         headers['Content-Type'] = 'application/json';
     }
-    const response = await fetch(`${baseURL}${endpoint}`, {
+    const response = await fetch(buildRequestUrl(baseURL, endpoint), {
         ...options,
         headers,
         credentials,
     });
     if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-        throw new Error(error.detail || `HTTP ${response.status}`);
+        throw new Error(await parseApiError(response));
     }
     const contentType = response.headers.get('content-type');
     if (!contentType || !contentType.includes('application/json')) {
@@ -72,6 +101,10 @@ function buildQuery(params) {
 }
 async function fetchWithAuth(url, options = {}) {
     const { baseURL, getToken, credentials = 'include' } = getApiConfig();
+    const targetUrl = buildRequestUrl(baseURL, url);
+    if (!isSameOriginRequest(baseURL, targetUrl)) {
+        throw new Error('Cross-origin authenticated requests are not allowed.');
+    }
     const token = await getToken();
     const headers = {};
     if (options.headers) {
@@ -83,11 +116,9 @@ async function fetchWithAuth(url, options = {}) {
     if (!(options.body instanceof FormData)) {
         headers['Content-Type'] = headers['Content-Type'] ?? 'application/json';
     }
-    const target = url.startsWith('http') ? url : `${baseURL}${url}`;
-    const response = await fetch(target, { ...options, headers, credentials });
+    const response = await fetch(targetUrl, { ...options, headers, credentials });
     if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-        throw new Error(error.detail || `HTTP ${response.status}`);
+        throw new Error(await parseApiError(response));
     }
     if (response.status === 204) {
         return {};

@@ -3,9 +3,15 @@ import { getAccessToken, refreshCookieSession } from '../utils/tokenService';
 
 let configured = false;
 
+const normalizeApiBaseUrl = (value: string) => {
+  const trimmed = (value || '').trim().replace(/\/+$/, '');
+  if (!trimmed) return '';
+  return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+};
+
 export function initSharedCoreApi() {
   if (configured) return;
-  const baseURL = import.meta.env.VITE_API_URL;
+  const baseURL = normalizeApiBaseUrl(import.meta.env.VITE_API_URL || '');
   if (!baseURL) {
     throw new Error('VITE_API_URL is not defined');
   }

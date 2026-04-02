@@ -836,6 +836,8 @@ class PasswordResetConfirmAPIView(APIView):
 
 class PasswordResetRequestAPIView(APIView):
     permission_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "password_reset"
 
     def post(self, request):
         email = request.data.get('email', '').strip().lower()
@@ -883,7 +885,20 @@ class WsTicketView(APIView):
 class ContactMessageCreateView(generics.CreateAPIView):
     serializer_class = ContactMessageCreateSerializer
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "contact_form"
     queryset = ContactMessage.objects.all()
+
+    def create(self, request, *args, **kwargs):
+        user = request.user if request.user and request.user.is_authenticated else None
+        captcha_token = request.data.get('captcha_token')
+
+        if user is None and (not captcha_token or not verify_recaptcha(captcha_token)):
+            raise ValidationError({
+                'captcha': ['reCAPTCHA validation failed. Please try again.']
+            })
+
+        return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         user = self.request.user if self.request.user and self.request.user.is_authenticated else None

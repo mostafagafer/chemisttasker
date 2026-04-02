@@ -473,6 +473,8 @@ class InviteOrgUserSerializer(serializers.Serializer):
 
 
 class ContactMessageCreateSerializer(serializers.ModelSerializer):
+    captcha_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
     class Meta:
         model = ContactMessage
         fields = (
@@ -485,11 +487,13 @@ class ContactMessageCreateSerializer(serializers.ModelSerializer):
             'source',
             'page_url',
             'app_version',
+            'captcha_token',
             'created_at',
         )
         read_only_fields = ('id', 'created_at')
 
     def validate(self, attrs):
+        attrs.pop('captcha_token', None)
         request = self.context.get('request')
         user = getattr(request, 'user', None)
         if user and user.is_authenticated:

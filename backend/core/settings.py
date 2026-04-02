@@ -151,6 +151,7 @@ Q_CLUSTER = {
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'core.security.ContentSecurityPolicyMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -195,9 +196,11 @@ REST_FRAMEWORK = {
         'user': '5000/day',
         'otp_verify': '10/minute',
         'otp_resend': '5/minute',
+        'password_reset': '5/hour',
         'mobile_otp_request': '10/minute',
         'mobile_otp_verify': '10/minute',
         'mobile_otp_resend': '5/minute',
+        'contact_form': '5/hour',
     },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 50
@@ -312,6 +315,21 @@ SECURE_BROWSER_XSS_FILTER = env.bool("SECURE_BROWSER_XSS_FILTER", default=True)
 X_FRAME_OPTIONS = env("X_FRAME_OPTIONS", default="DENY")
 SECURE_REFERRER_POLICY = env("SECURE_REFERRER_POLICY", default="same-origin")
 SECURE_CONTENT_TYPE_NOSNIFF = env.bool("SECURE_CONTENT_TYPE_NOSNIFF", default=True)
+BACKEND_CSP_POLICY = env(
+    "BACKEND_CSP_POLICY",
+    default=(
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com http://cdnjs.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com http://cdnjs.cloudflare.com; "
+        "img-src 'self' data: https://*.blob.core.windows.net; "
+        "font-src 'self' data:; "
+        "connect-src 'self' https://cdnjs.cloudflare.com http://cdnjs.cloudflare.com; "
+        "frame-ancestors 'none'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self';"
+    ),
+)
 
 # JWT settings for better frontend integration
 SIMPLE_JWT = {
@@ -385,12 +403,12 @@ LOGGING = {
         # Your app modules
         'client_profile': {
             'handlers': ['console'],
-            'level': 'DEBUG',
+            'level': env("APP_LOG_LEVEL", default="INFO"),
             'propagate': False,
         },
         'users': {
             'handlers': ['console'],
-            'level': 'DEBUG',
+            'level': env("APP_LOG_LEVEL", default="INFO"),
             'propagate': False,
         },
     }

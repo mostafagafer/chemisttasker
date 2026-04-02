@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Alert, Box, Button, Container, Snackbar, TextField, Typography, styled } from '@mui/material';
 import { contactSupport } from '@chemisttasker/shared-core';
+import ReCAPTCHA from 'react-google-recaptcha';
 
 const CtaButton = styled(Button)(({ theme }) => ({
   transition: 'all 0.3s ease',
@@ -47,11 +48,13 @@ export default function PublicContactFormSection({
     message: defaultMessage,
   });
   const [submitting, setSubmitting] = useState(false);
+  const [captchaValue, setCaptchaValue] = useState<string | null>(null);
   const [toast, setToast] = useState<{ open: boolean; severity: 'success' | 'error'; message: string }>({
     open: false,
     severity: 'success',
     message: '',
   });
+  const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string | undefined;
 
   const handleChange = (field: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement>) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
@@ -62,6 +65,10 @@ export default function PublicContactFormSection({
       setToast({ open: true, severity: 'error', message: 'Please complete all required fields.' });
       return;
     }
+    if (!captchaValue) {
+      setToast({ open: true, severity: 'error', message: 'Please complete the reCAPTCHA challenge.' });
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -69,6 +76,7 @@ export default function PublicContactFormSection({
         ...form,
         source,
         page_url: pageUrl || window.location.href,
+        captcha_token: captchaValue,
       });
       setToast({ open: true, severity: 'success', message: 'Thanks! Your message has been sent.' });
       setForm({
@@ -78,6 +86,7 @@ export default function PublicContactFormSection({
         subject: defaultSubject,
         message: defaultMessage,
       });
+      setCaptchaValue(null);
     } catch (err: any) {
       setToast({ open: true, severity: 'error', message: err?.message || 'Failed to send message.' });
     } finally {
@@ -111,6 +120,11 @@ export default function PublicContactFormSection({
             sx={{ mt: 2 }}
             fullWidth
           />
+          {recaptchaSiteKey ? (
+            <Box sx={{ mt: 2 }}>
+              <ReCAPTCHA sitekey={recaptchaSiteKey} onChange={setCaptchaValue} />
+            </Box>
+          ) : null}
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
             <CtaButton onClick={handleSubmit} disabled={submitting} sx={{ px: 4, py: 1.2 }}>
               {submitting ? 'Sending...' : submitLabel}

@@ -1187,7 +1187,18 @@ export default function TopBarActions() {
   );
 
   return (
-    <Stack direction="row" spacing={1.25} alignItems="center" sx={{ pr: { xs: 0.5, md: 1.5 } }}>
+    <Stack
+      direction="row"
+      spacing={{ xs: 0.25, sm: 1.25 }}
+      alignItems="center"
+      useFlexGap
+      flexWrap="wrap"
+      sx={{
+        pr: { xs: 0, md: 1.5 },
+        justifyContent: "flex-end",
+        minWidth: 0,
+      }}
+    >
       {showPersonaSwitcher && (
         <>
           <Button
@@ -1199,17 +1210,20 @@ export default function TopBarActions() {
             sx={{
               textTransform: "none",
               borderRadius: 999,
-              px: 1.5,
-              py: 0.5,
+              px: { xs: 1, sm: 1.5 },
+              py: { xs: 0.375, sm: 0.5 },
               borderColor: alpha(theme.palette.text.primary, 0.3),
               color: "inherit",
-              maxWidth: { xs: 200, sm: 260 },
+              maxWidth: { xs: 140, sm: 260 },
+              minWidth: 0,
             }}
           >
-            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.2 }}>
-              <Typography variant="caption" sx={{ color: alpha(theme.palette.text.primary, 0.7), mb: 0.25 }}>
-                Viewing as
-              </Typography>
+            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.2, minWidth: 0 }}>
+              {!downSm && (
+                <Typography variant="caption" sx={{ color: alpha(theme.palette.text.primary, 0.7), mb: 0.25 }}>
+                  Viewing as
+                </Typography>
+              )}
               <Typography variant="body2" fontWeight={600} noWrap>
                 {activePersonaOption?.label ?? "Select persona"}
               </Typography>
@@ -1322,7 +1336,7 @@ export default function TopBarActions() {
         onClose={handleCloseNotifications}
         anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
         transformOrigin={{ vertical: "top", horizontal: "right" }}
-        PaperProps={{ sx: { width: 360, maxHeight: 420, p: 0.5 } }}
+        PaperProps={{ sx: { width: { xs: "calc(100vw - 24px)", sm: 360 }, maxWidth: 360, maxHeight: 420, p: 0.5 } }}
       >
         {notificationsLoading ? (
           <Box sx={{ p: 2, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1380,7 +1394,7 @@ export default function TopBarActions() {
         onClose={handleCloseMessages}
         anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
         transformOrigin={{ vertical: "top", horizontal: "right" }}
-        PaperProps={{ sx: { width: 360, maxHeight: 420, p: 0.5 } }}
+        PaperProps={{ sx: { width: { xs: "calc(100vw - 24px)", sm: 360 }, maxWidth: 360, maxHeight: 420, p: 0.5 } }}
       >
         {unreadMessageEntries.length === 0 ? (
           <Box sx={{ p: 2, textAlign: "center" }}>

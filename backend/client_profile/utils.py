@@ -10,6 +10,7 @@ from django.core.signing import TimestampSigner
 from urllib.parse import urlencode
 from django.db import transaction
 from django.db.models import Q
+from django.utils.html import strip_tags
 from rest_framework.exceptions import ValidationError
 
 from client_profile.models import Shift, ShiftOffer, ShiftSlotAssignment
@@ -65,6 +66,14 @@ def extract_suburb_from_travel_origin(origin: str | None):
     if tokens and tokens[-1].upper() in STATE_CODES:
         tokens = tokens[:-1]
     return " ".join(tokens).strip()
+
+
+def sanitize_chat_text(value: str) -> str:
+    raw_value = (value or "").strip()
+    # Drop script/style blocks entirely so their inner text is not kept in messages.
+    raw_value = re.sub(r"<(script|style)\b[^>]*>.*?</\1>", " ", raw_value, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = strip_tags(raw_value)
+    return " ".join(cleaned.split())
 
 def build_shift_email_context(shift, user=None, extra=None, role=None, shift_type=None):
     """

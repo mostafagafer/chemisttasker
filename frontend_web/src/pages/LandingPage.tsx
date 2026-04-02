@@ -14,6 +14,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { resolveDashboardPath } from '../utils/dashboardPath';
 import { setCanonical, setPageMeta, setSocialMeta } from '../utils/seo';
 import { contactSupport } from '@chemisttasker/shared-core';
+import ReCAPTCHA from 'react-google-recaptcha';
 
 // --- Constants ---
 const PAGE_ROUTES = {
@@ -683,11 +684,13 @@ const ContactSection: React.FC = () => {
     message: '',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [captchaValue, setCaptchaValue] = useState<string | null>(null);
   const [toast, setToast] = useState<{ open: boolean; severity: 'success' | 'error'; message: string }>({
     open: false,
     severity: 'success',
     message: '',
   });
+  const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string | undefined;
 
   const handleChange = (field: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement>) => {
     setForm(prev => ({ ...prev, [field]: event.target.value }));
@@ -698,15 +701,21 @@ const ContactSection: React.FC = () => {
       setToast({ open: true, severity: 'error', message: 'Please complete all required fields.' });
       return;
     }
+    if (!captchaValue) {
+      setToast({ open: true, severity: 'error', message: 'Please complete the reCAPTCHA challenge.' });
+      return;
+    }
     setSubmitting(true);
     try {
       await contactSupport({
         ...form,
         source: 'web',
         page_url: window.location.href,
+        captcha_token: captchaValue,
       });
       setToast({ open: true, severity: 'success', message: 'Thanks! Your message has been sent.' });
       setForm({ name: '', email: '', phone: '', subject: '', message: '' });
+      setCaptchaValue(null);
     } catch (err: any) {
       setToast({ open: true, severity: 'error', message: err?.message || 'Failed to send message.' });
     } finally {
@@ -741,6 +750,11 @@ const ContactSection: React.FC = () => {
             sx={{ mt: 2 }}
             fullWidth
           />
+          {recaptchaSiteKey ? (
+            <Box sx={{ mt: 2 }}>
+              <ReCAPTCHA sitekey={recaptchaSiteKey} onChange={setCaptchaValue} />
+            </Box>
+          ) : null}
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
             <CtaButton onClick={handleSubmit} disabled={submitting} sx={{ px: 4, py: 1.2 }}>
               {submitting ? 'Sendingâ€¦' : 'Send Message'}

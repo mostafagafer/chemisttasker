@@ -32,6 +32,9 @@ export default function DashboardShell({ children }: PropsWithChildren) {
           const sidebarHandleSelector = '[data-dashboard-shell] [data-sidebar-handle]';
           const collapsedSidebarHandleSelector =
             '[data-dashboard-shell].dashboard-shell--collapsed [data-sidebar-handle]';
+          const appBarToolbarSelector = '[data-dashboard-shell] .MuiAppBar-root .MuiToolbar-root';
+          const appBarTitleSlotSelector = '[data-dashboard-shell] .MuiAppBar-root .MuiToolbar-root > :first-of-type';
+          const appBarActionsSlotSelector = '[data-dashboard-shell] .MuiAppBar-root .MuiToolbar-root > :last-child';
 
           return {
             [navDrawerSelector]: {
@@ -125,6 +128,26 @@ export default function DashboardShell({ children }: PropsWithChildren) {
             },
             [collapsedSidebarHandleSelector]: {
               display: "flex",
+            },
+            [theme.breakpoints.down("sm")]: {
+              [appBarToolbarSelector]: {
+                alignItems: "flex-start",
+                flexWrap: "wrap",
+                rowGap: theme.spacing(1),
+                columnGap: theme.spacing(1),
+                paddingTop: theme.spacing(1),
+                paddingBottom: theme.spacing(1),
+              },
+              [appBarTitleSlotSelector]: {
+                flex: "1 1 100%",
+                minWidth: 0,
+              },
+              [appBarActionsSlotSelector]: {
+                width: "100%",
+                minWidth: 0,
+                display: "flex",
+                justifyContent: "flex-start",
+              },
             },
           };
         }}

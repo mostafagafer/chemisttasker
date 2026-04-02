@@ -36,6 +36,7 @@ from client_profile.utils import (
     clean_email,
     build_roster_email_link,
     get_frontend_dashboard_url,
+    sanitize_chat_text,
     enforce_public_shift_daily_limit,
     build_shift_counter_offer_context,
     build_shift_offer_context,
@@ -7515,7 +7516,7 @@ class ConversationViewSet(mixins.ListModelMixin,
             return self.get_paginated_response(ser.data) if page else Response(ser.data)
 
         data = request.data or {}
-        body = (data.get('body') or '').strip()
+        body = sanitize_chat_text(data.get('body') or '')
         attachments = request.FILES.getlist('attachment')
         if not body and not attachments:
             return Response({"detail": "Message body or attachment is required."}, status=status.HTTP_400_BAD_REQUEST)
@@ -7598,7 +7599,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         user = request.user
-        body = (request.data.get("body") or "").strip()
+        body = sanitize_chat_text(request.data.get("body") or "")
         if not body and not request.FILES.get("attachment"):
             return Response({"detail": "Message body or attachment is required."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -7655,7 +7656,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         if not my_participant or message.sender != my_participant.membership:
             raise PermissionDenied("You can only edit your own messages.")
 
-        new_body = request.data.get("body", "").strip()
+        new_body = sanitize_chat_text(request.data.get("body", ""))
         if not new_body:
             raise ValidationError({"body": "Message body cannot be empty."})
 

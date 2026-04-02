@@ -11,6 +11,7 @@ except ImportError:  # pragma: no cover - editor type checking fallback
     def database_sync_to_async(func: Callable[..., Any]) -> Callable[..., Any]:  # type: ignore
         return func
 from client_profile.models import Conversation, Participant, Membership, Message
+from client_profile.utils import sanitize_chat_text
 import logging
 
 log = logging.getLogger("client_profile.ws")
@@ -98,7 +99,7 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
             return
         if content.get("type") != "message":
             return
-        body = (content.get("body") or "").strip()
+        body = sanitize_chat_text(content.get("body") or "")
         if not body:
             return
         if not getattr(self, "membership", None):

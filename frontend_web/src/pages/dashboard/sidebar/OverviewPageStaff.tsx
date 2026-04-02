@@ -103,7 +103,7 @@ if (loading) {
         width: "100%",
         maxWidth: "1200px",
         mx: "auto",
-        px: { xs: 2, md: 4 },
+        px: { xs: 1, sm: 2, md: 4 },
         py: { xs: 4, md: 6 },
         display: "flex",
         flexDirection: "column",
@@ -231,7 +231,7 @@ if (loading) {
         flexDirection: "column",
         justifyContent: "flex-start",
         gap: { xs: 2, md: 3 },
-        px: { xs: 2, md: 4 },
+        px: { xs: 1, sm: 2, md: 4 },
         py: { xs: 2, md: 4 },
       }}
     >
@@ -249,21 +249,52 @@ if (loading) {
           spacing={{ xs: 3, md: 4 }}
           alignItems={{ xs: "flex-start", md: "center" }}
           justifyContent="space-between"
+          sx={{ minWidth: 0 }}
         >
-          <Box>
-            <Typography variant="h4" fontWeight={800} gutterBottom>
+          <Box sx={{ minWidth: 0, width: "100%" }}>
+            <Typography
+              variant="h4"
+              fontWeight={800}
+              gutterBottom
+              sx={{
+                fontSize: { xs: "2.25rem", sm: theme.typography.h4.fontSize },
+                lineHeight: 1.05,
+                overflowWrap: "anywhere",
+              }}
+            >
               Welcome back, {displayName}!
             </Typography>
-            <Typography variant="body1" sx={{ opacity: 0.92, maxWidth: 540, mb: 3 }}>
+            <Typography
+              variant="body1"
+              sx={{
+                opacity: 0.92,
+                maxWidth: 540,
+                mb: 3,
+                pr: { xs: 0, md: 2 },
+              }}
+            >
               {subtitle}
             </Typography>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1.5}
+              sx={{
+                width: "100%",
+                "& > *": {
+                  width: { xs: "100%", sm: "auto" },
+                },
+              }}
+            >
               <Button
                 variant={primaryCta.variant}
                 color="inherit"
                 component={RouterLink}
                 to={primaryCta.to}
-                sx={primaryCta.variant === "contained" ? { color: theme.palette.primary.main } : undefined}
+                sx={
+                  primaryCta.variant === "contained"
+                    ? { color: theme.palette.primary.main, minWidth: 0 }
+                    : { minWidth: 0 }
+                }
               >
                 {primaryCta.label}
               </Button>
@@ -272,26 +303,40 @@ if (loading) {
                 color="inherit"
                 component={RouterLink}
                 to={secondaryCta.to}
-                sx={{ borderColor: alpha("#ffffff", 0.45), color: "#fff" }}
+                sx={{ borderColor: alpha("#ffffff", 0.45), color: "#fff", minWidth: 0 }}
               >
                 {secondaryCta.label}
               </Button>
             </Stack>
           </Box>
 
-          <Stack direction="column" spacing={1} alignItems={{ xs: "flex-start", md: "flex-end" }}>
+          <Stack
+            direction="column"
+            spacing={1}
+            alignItems={{ xs: "flex-start", md: "flex-end" }}
+            sx={{ width: { xs: "100%", md: "auto" }, minWidth: 0 }}
+          >
             <Typography
               variant="body2"
               sx={{ letterSpacing: ".08em", textTransform: "uppercase", opacity: 0.7 }}
             >
               Quick stats
             </Typography>
-            <Stack direction="row" spacing={1} flexWrap="wrap">
+            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ width: "100%" }}>
               {heroChips.map((chip) => (
                 <Chip
                   key={chip}
                   label={chip}
-                  sx={{ bgcolor: alpha("#ffffff", 0.2), color: "#fff" }}
+                  sx={{
+                    maxWidth: "100%",
+                    bgcolor: alpha("#ffffff", 0.2),
+                    color: "#fff",
+                    "& .MuiChip-label": {
+                      display: "block",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    },
+                  }}
                 />
               ))}
             </Stack>

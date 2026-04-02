@@ -5,6 +5,8 @@ import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
+import { useTheme } from "@mui/material/styles";
+import useMediaQuery from "@mui/material/useMediaQuery";
 import { useWorkspace } from "../contexts/WorkspaceContext";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { useAuth } from "../contexts/AuthContext";
@@ -25,6 +27,8 @@ export default function CustomAppTitle({
   showVerificationChip = true,
 }: Props) {
   const { isAdminUser, activePersona } = useAuth();
+  const theme = useTheme();
+  const downSm = useMediaQuery(theme.breakpoints.down("sm"));
   const [verified, setVerified] = React.useState<boolean>(false);
   const { workspace, setWorkspace, canUseInternal } = useWorkspace();
 
@@ -112,22 +116,28 @@ export default function CustomAppTitle({
   return (
     <Box
       sx={{
-        px: 1,
+        px: { xs: 0.25, sm: 1 },
         py: 0.5,
         display: "flex",
-        alignItems: "center",
-        gap: 1.5,
+        alignItems: { xs: "flex-start", sm: "center" },
+        gap: { xs: 1, sm: 1.5 },
+        flexWrap: "wrap",
         width: "100%",
         minWidth: 0,
       }}
     >
       {/* Left: Brand block */}
-      <Stack direction="row" alignItems="center" spacing={1.25} sx={{ minWidth: 0 }}>
+      <Stack
+        direction="row"
+        alignItems="center"
+        spacing={{ xs: 0.75, sm: 1.25 }}
+        sx={{ minWidth: 0, flex: "1 1 auto" }}
+      >
         {/* Logo wrapper to preserve aspect ratio & avoid cropping */}
         <Box
           sx={{
-            width: 42,
-            height: 42,
+            width: { xs: 32, sm: 42 },
+            height: { xs: 32, sm: 42 },
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
@@ -153,16 +163,16 @@ export default function CustomAppTitle({
           <Typography
             variant="caption"
             color="text.secondary"
-            sx={{ display: "block", lineHeight: 1 }}
+            sx={{ display: { xs: "none", sm: "block" }, lineHeight: 1 }}
           >
             ChemistTasker
           </Typography>
           <Typography
-            variant="subtitle1"
+            variant={downSm ? "body1" : "subtitle1"}
             fontWeight={800}
             noWrap
             title={displayTitle}
-            sx={{ maxWidth: 280 }}
+            sx={{ maxWidth: { xs: 180, sm: 280 } }}
           >
             {displayTitle}
           </Typography>
@@ -170,12 +180,21 @@ export default function CustomAppTitle({
       </Stack>
 
       {/* Right: Status + workspace */}
-      <Stack direction="row" spacing={1.25} sx={{ ml: "auto" }} alignItems="center">
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{
+          ml: { xs: 0, sm: "auto" },
+          width: { xs: "100%", sm: "auto" },
+          flexWrap: "wrap",
+        }}
+        alignItems="center"
+      >
         {showVerificationChip &&
           (verified ? (
-            <Chip size="small" variant="outlined" color="success" label="Verified" />
+            <Chip size={downSm ? "medium" : "small"} variant="outlined" color="success" label="Verified" />
           ) : (
-            <Chip size="small" variant="outlined" label="Pending" />
+            <Chip size={downSm ? "medium" : "small"} variant="outlined" label="Pending" />
           ))}
         {isSwitcherVisible && (
           <WorkspaceSwitcher workspace={workspace} setWorkspace={setWorkspace} />

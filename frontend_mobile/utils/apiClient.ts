@@ -4,7 +4,13 @@ import { clearStoredSession, getValidAccessToken, refreshAccessToken } from './a
 
 // Prefer an env-driven base URL so the app can talk to the backend from devices/emulators.
 // Set EXPO_PUBLIC_API_URL for Expo (e.g. http://192.168.1.10:8000/api).
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL?.trim();
+const normalizeApiBaseUrl = (value?: string) => {
+    const trimmed = (value || '').trim().replace(/\/+$/, '');
+    if (!trimmed) return '';
+    return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+};
+
+const API_BASE_URL = normalizeApiBaseUrl(process.env.EXPO_PUBLIC_API_URL);
 
 if (!API_BASE_URL) {
     // Fail fast in development so we don't silently point to localhost on devices.

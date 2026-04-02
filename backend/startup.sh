@@ -23,7 +23,7 @@ cat Procfile || echo "[startup] Procfile missing!"
 
 # Run Django management tasks with the environment that Azure built
 echo "[startup] Running database migrations..."
-python manage.py migrate --noinput || true
+python manage.py migrate --noinput
 
 echo "[startup] Collecting static files..."
 python manage.py collectstatic --noinput || true

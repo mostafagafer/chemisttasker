@@ -3,6 +3,7 @@ import { Tabs, useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { useAuth } from '../../context/AuthContext';
 import { resolveChatNotificationRoomId, resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
+import { getMessageDetailRoute } from '@/utils/chatRoutes';
 
 export default function OrganizationTabs() {
   const router = useRouter();
@@ -16,7 +17,7 @@ export default function OrganizationTabs() {
         payload: data,
       });
       if (roomId) {
-        router.push({ pathname: '/shared/messages/[id]', params: { id: String(roomId) } } as any);
+        router.push(getMessageDetailRoute(user?.role, roomId) as any);
         return;
       }
       const route = resolveShiftNotificationRoute({

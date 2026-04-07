@@ -136,6 +136,7 @@ export default function ConfirmedShiftsView() {
                                     <Text>Late Night: {profile.ratePreference.lateNight || 'N/A'}</Text>
                                 </View>
                             ) : null}
+                            <Text style={styles.auditNote}>Profile access is logged for audit purposes.</Text>
                         </View>
                     ) : (
                         <Text>No profile data available.</Text>
@@ -259,4 +260,5 @@ const styles = StyleSheet.create({
     primaryBtn: { backgroundColor: PRIMARY },
     primaryBtnText: { color: '#FFFFFF', fontWeight: '700' },
     bold: { fontWeight: '700' },
+    auditNote: { marginTop: 12, color: '#6B7280' },
 });

@@ -11,6 +11,7 @@ import {
   resolveChatNotificationRoomId,
   resolveShiftNotificationRoute,
 } from '@/utils/notificationNavigation';
+import { getMessageDetailRoute } from '@/utils/chatRoutes';
 
 type Notification = {
   id: number;
@@ -117,7 +118,7 @@ export default function NotificationsScreen() {
       payload: item.payload,
     });
     if (roomId) {
-      router.push({ pathname: '/shared/messages/[id]', params: { id: String(roomId) } } as any);
+      router.push(getMessageDetailRoute(user?.role, roomId) as any);
       return;
     }
     const route = resolveShiftNotificationRoute({

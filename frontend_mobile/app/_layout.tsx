@@ -10,6 +10,7 @@ import { theme } from '../constants/theme';
 import OfflineBanner from '../components/OfflineBanner';
 import '../config/api'; // Configure shared-core on app load
 import { getOwnerSetupStatus, ownerSetupPaths } from '../utils/ownerSetup';
+import { initializeMobileSslPinning } from '../utils/sslPinning';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -81,7 +82,8 @@ function AuthGate() {
   useEffect(() => {
     if (isLoading) return;
     const top = segments[0];
-    const second = segments[1];
+    const segmentList = segments as readonly string[];
+    const second = segmentList[1];
     const publicRoutes = new Set(['login', 'register', 'welcome', 'verify-otp', 'forgot-password', 'reset-password', 'mobile-verify', 'index', 'contact']);
     const isPublic = publicRoutes.has(top ?? '');
     const isOwnerSetupRoute = top === 'setup' && second === 'owner';
@@ -166,6 +168,10 @@ function AuthGate() {
 }
 
 export default function RootLayout() {
+  useEffect(() => {
+    void initializeMobileSslPinning();
+  }, []);
+
   return (
     <ErrorBoundary>
       <SafeAreaProvider>

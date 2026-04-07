@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureGet, secureRemove, secureSet } from './secureStorage';
 
 type StoredUserSession = {
   access?: string | null;
@@ -10,11 +11,14 @@ type StoredUserSession = {
   user?: unknown;
 };
 
-const USER_STORAGE_KEY = 'user';
+const ACCESS_STORAGE_KEY = 'ACCESS_KEY';
+const REFRESH_STORAGE_KEY = 'REFRESH_KEY';
+const LEGACY_SESSION_STORAGE_KEY = 'user';
 const TOKEN_REFRESH_PATH = '/users/token/refresh/';
 
 let refreshPromise: Promise<string | null> | null = null;
 let inMemorySession: StoredUserSession | null = null;
+let legacyMigrationPromise: Promise<StoredUserSession | null> | null = null;
 
 function normalizeToken(value: unknown): string | null {
   return typeof value === 'string' && value && value !== 'cookie-session' ? value : null;
@@ -50,42 +54,137 @@ function isJwtExpired(token: string): boolean {
   }
 }
 
-export async function readStoredSession(): Promise<StoredUserSession | null> {
-  if (inMemorySession) {
-    return inMemorySession;
-  }
+async function readLegacyAsyncSession(): Promise<StoredUserSession | null> {
   try {
-    const raw = await AsyncStorage.getItem(USER_STORAGE_KEY);
+    const raw = await AsyncStorage.getItem(LEGACY_SESSION_STORAGE_KEY);
     if (!raw) {
       return null;
     }
-    inMemorySession = JSON.parse(raw) as StoredUserSession;
-    return inMemorySession;
+    return JSON.parse(raw) as StoredUserSession;
   } catch {
     return null;
   }
 }
 
+async function removeLegacyAsyncSession(): Promise<void> {
+  await AsyncStorage.removeItem(LEGACY_SESSION_STORAGE_KEY).catch(() => null);
+}
+
+async function persistSecureTokens(access: string | null, refresh: string | null): Promise<void> {
+  if (access) {
+    await secureSet(ACCESS_STORAGE_KEY, access);
+  } else {
+    await secureRemove(ACCESS_STORAGE_KEY).catch(() => null);
+  }
+
+  if (refresh) {
+    await secureSet(REFRESH_STORAGE_KEY, refresh);
+  } else {
+    await secureRemove(REFRESH_STORAGE_KEY).catch(() => null);
+  }
+}
+
+async function migrateLegacySessionIfNeeded(): Promise<StoredUserSession | null> {
+  if (legacyMigrationPromise) {
+    return legacyMigrationPromise;
+  }
+
+  legacyMigrationPromise = (async () => {
+    const [storedAccess, storedRefresh] = await Promise.all([
+      secureGet(ACCESS_STORAGE_KEY),
+      secureGet(REFRESH_STORAGE_KEY),
+    ]);
+    const existingAccess = normalizeToken(storedAccess);
+    const existingRefresh = normalizeToken(storedRefresh);
+
+    if (existingAccess || existingRefresh) {
+      return {
+        access: existingAccess,
+        refresh: existingRefresh,
+        tokens: { access: existingAccess, refresh: existingRefresh },
+      };
+    }
+
+    const legacySession = await readLegacyAsyncSession();
+    const legacyAccess = normalizeToken(legacySession?.access ?? legacySession?.tokens?.access);
+    const legacyRefresh = normalizeToken(legacySession?.refresh ?? legacySession?.tokens?.refresh);
+
+    if (!legacyAccess && !legacyRefresh) {
+      await removeLegacyAsyncSession();
+      return null;
+    }
+
+    await persistSecureTokens(legacyAccess, legacyRefresh);
+    await removeLegacyAsyncSession();
+
+    return {
+      access: legacyAccess,
+      refresh: legacyRefresh,
+      tokens: { access: legacyAccess, refresh: legacyRefresh },
+      user: legacySession?.user ?? null,
+    };
+  })().finally(() => {
+    legacyMigrationPromise = null;
+  });
+
+  return legacyMigrationPromise;
+}
+
+export async function readStoredSession(): Promise<StoredUserSession | null> {
+  if (inMemorySession) {
+    return inMemorySession;
+  }
+
+  const migrated = await migrateLegacySessionIfNeeded();
+  if (migrated) {
+    inMemorySession = migrated;
+    return migrated;
+  }
+
+  const [storedAccess, storedRefresh] = await Promise.all([
+    secureGet(ACCESS_STORAGE_KEY),
+    secureGet(REFRESH_STORAGE_KEY),
+  ]);
+  const access = normalizeToken(storedAccess);
+  const refresh = normalizeToken(storedRefresh);
+
+  if (!access && !refresh) {
+    return null;
+  }
+
+  inMemorySession = {
+    access,
+    refresh,
+    tokens: { access, refresh },
+  };
+  return inMemorySession;
+}
+
 export async function writeStoredSession(next: StoredUserSession): Promise<void> {
   const current = (await readStoredSession()) || {};
-  const merged = {
+  const access = normalizeToken(next.access ?? next.tokens?.access ?? current.access ?? current.tokens?.access);
+  const refresh = normalizeToken(next.refresh ?? next.tokens?.refresh ?? current.refresh ?? current.tokens?.refresh);
+  const merged: StoredUserSession = {
     ...current,
     ...next,
-    tokens: {
-      access: normalizeToken(next.access ?? next.tokens?.access ?? current.access ?? current.tokens?.access),
-      refresh: normalizeToken(next.refresh ?? next.tokens?.refresh ?? current.refresh ?? current.tokens?.refresh),
-    },
-    access: normalizeToken(next.access ?? next.tokens?.access ?? current.access ?? current.tokens?.access),
-    refresh: normalizeToken(next.refresh ?? next.tokens?.refresh ?? current.refresh ?? current.tokens?.refresh),
+    access,
+    refresh,
+    tokens: { access, refresh },
     user: next.user ?? current.user ?? null,
   };
+
   inMemorySession = merged;
-  await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(merged));
+  await persistSecureTokens(access, refresh);
+  await removeLegacyAsyncSession();
 }
 
 export async function clearStoredSession(): Promise<void> {
   inMemorySession = null;
-  await AsyncStorage.removeItem(USER_STORAGE_KEY).catch(() => null);
+  await Promise.all([
+    secureRemove(ACCESS_STORAGE_KEY).catch(() => null),
+    secureRemove(REFRESH_STORAGE_KEY).catch(() => null),
+    removeLegacyAsyncSession(),
+  ]);
 }
 
 export async function refreshAccessToken(baseURL: string): Promise<string | null> {

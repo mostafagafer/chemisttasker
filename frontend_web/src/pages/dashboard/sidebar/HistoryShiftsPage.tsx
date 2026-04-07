@@ -360,6 +360,9 @@ const openRateWorker = async (workerUserId: number) => {
                   </ul>
                 </Box>
               )}
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                Profile access is logged for audit purposes.
+              </Typography>
             </>
           )}
         </DialogContent>

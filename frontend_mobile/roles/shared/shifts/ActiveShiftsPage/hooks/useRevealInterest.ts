@@ -45,6 +45,7 @@ export function useRevealInterest(
                     };
                 });
 
+                showSnackbar('Candidate revealed. This profile access was logged.');
                 return userDetail;
             } catch (error) {
                 console.error('Failed to reveal interest', error);

@@ -17,6 +17,7 @@ import { fetchUnreadCount } from '@/utils/unread';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getActiveRoomId, setActiveRoomId } from './activeRoomState';
 import { displayNameFromUser } from './displayName';
+import { getMessageDetailRoute } from '@/utils/chatRoutes';
 
 function resolveName(room: ChatRoom): string {
   const pharm = (room as any)?.pharmacy;
@@ -91,7 +92,7 @@ export default function ChatPage() {
     }
     setActiveRoomId(id);
     router.push({
-      pathname: '/shared/messages/[id]',
+      pathname: getMessageDetailRoute(user?.role, id) as any,
       params: { id: id.toString(), name: nameOverride || resolveName(room) },
     });
   };

@@ -8,6 +8,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
 import { resolveCalendarNotificationRoute, resolveChatNotificationRoomId, resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
 import { triggerShiftSlotActivity } from '@/utils/pushNotifications';
+import { getMessageDetailRoute } from '@/utils/chatRoutes';
 
 const tabTitles: Record<string, string> = {
   dashboard: 'Home',
@@ -136,7 +137,7 @@ export default function PharmacistTabs() {
         payload: data,
       });
       if (roomId) {
-        router.push({ pathname: '/shared/messages/[id]', params: { id: String(roomId) } } as any);
+        router.push(getMessageDetailRoute(user?.role, roomId) as any);
         return;
       }
       const calendarRoute = resolveCalendarNotificationRoute({

@@ -1,13 +1,9 @@
 import { useState, useCallback } from 'react';
 import {
+    acceptShiftCounterOfferService,
     fetchShiftCounterOffersService,
     rejectShiftCounterOfferService,
 } from '@chemisttasker/shared-core';
-import {
-    getAccessToken,
-    refreshCookieSession,
-    clearTokens,
-} from '../../../../../utils/tokenService';
 
 export function useCounterOffers() {
     const [counterOffersByShift, setCounterOffersByShift] = useState<Record<number, any[]>>({});
@@ -23,21 +19,6 @@ export function useCounterOffers() {
         const fallback = offer?.slot_id ?? offer?.slotId ?? null;
         const resolved = slotIdFromSlots ?? fallback;
         return resolved != null ? Number(resolved) : null;
-    }, []);
-
-    const getAccessWithRefresh = useCallback(async () => {
-        const existing = getAccessToken();
-        if (existing) return existing;
-
-        try {
-            const refreshed = await refreshCookieSession(true);
-            return refreshed?.access ?? null;
-        } catch (error) {
-            console.error('Failed to refresh token for counter offer accept', error);
-            clearTokens();
-        }
-
-        return null;
     }, []);
 
     const loadCounterOffers = useCallback(async (shiftId: number) => {
@@ -58,31 +39,17 @@ export function useCounterOffers() {
             setCounterActionLoading(payload.offer.id);
             try {
                 const resolvedSlotId = payload.slotId ?? resolveOfferSlotId(payload.offer);
-                const baseURL = import.meta.env.VITE_API_URL as string;
-                const token = await getAccessWithRefresh();
-                const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-                if (token) {
-                    headers.Authorization = `Bearer ${token}`;
-                }
                 console.log('[ActiveShifts] acceptShiftCounterOfferService', {
                     shiftId: payload.shiftId,
                     offerId: payload.offer.id,
                     slotId: payload.slotId,
                     resolvedSlotId,
                 });
-                const query = resolvedSlotId != null ? `?slot_id=${encodeURIComponent(resolvedSlotId)}` : '';
-                const response = await fetch(
-                    `${baseURL}/client-profile/shifts/${payload.shiftId}/counter-offers/${payload.offer.id}/accept/${query}`,
-                    {
-                        method: 'POST',
-                        headers,
-                        body: resolvedSlotId != null ? JSON.stringify({ slot_id: resolvedSlotId }) : undefined,
-                    }
-                );
-                if (!response.ok) {
-                    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-                    throw new Error(error.detail || `HTTP ${response.status}`);
-                }
+                await acceptShiftCounterOfferService({
+                    shiftId: payload.shiftId,
+                    offerId: payload.offer.id,
+                    slotId: resolvedSlotId,
+                });
                 if (onSuccess) onSuccess();
             } catch (error) {
                 console.error('Failed to accept counter offer', error);
@@ -90,7 +57,7 @@ export function useCounterOffers() {
                 setCounterActionLoading(null);
             }
         },
-        [resolveOfferSlotId, getAccessWithRefresh]
+        [resolveOfferSlotId]
     );
 
     const rejectOffer = useCallback(

@@ -49,6 +49,7 @@ from ..serializers import (
     HubReactionSerializer,
     HubPollSerializer,
 )
+from ..file_validation import ATTACHMENT_UPLOAD_POLICY, validate_uploaded_file
 
 
 class HubAttachmentMixin:
@@ -67,6 +68,7 @@ class HubAttachmentMixin:
         for uploaded in files or []:
             if not uploaded:
                 continue
+            validate_uploaded_file(uploaded, ATTACHMENT_UPLOAD_POLICY, "attachment")
             PharmacyHubAttachment.objects.create(
                 post=post,
                 file=uploaded,

@@ -9,6 +9,7 @@ from django.contrib.contenttypes.fields import GenericRelation, GenericForeignKe
 from django.contrib.contenttypes.models import ContentType
 from datetime import timedelta
 from django.utils import timezone
+from client_profile.fields import EncryptedTextField
 
 
 class Organization(models.Model):
@@ -170,7 +171,7 @@ class PharmacistOnboarding(models.Model):
     abn_entity_confirmed = models.BooleanField(default=False)
 
     # TFN
-    tfn_number = models.CharField(max_length=11, blank=True, null=True)
+    tfn_number = EncryptedTextField(blank=True, null=True)
     super_fund_name = models.CharField(max_length=255, blank=True, null=True)
     super_usi = models.CharField(max_length=50, blank=True, null=True)
     super_member_number = models.CharField(max_length=100, blank=True, null=True)
@@ -319,7 +320,7 @@ class OtherStaffOnboarding(models.Model):
     abn_entity_confirmed = models.BooleanField(default=False)
 
     # TFN (stored; masked via serializer)
-    tfn_number = models.CharField(max_length=11, blank=True, null=True)
+    tfn_number = EncryptedTextField(blank=True, null=True)
     super_fund_name = models.CharField(max_length=255, blank=True, null=True)
     super_usi = models.CharField(max_length=50, blank=True, null=True)
     super_member_number = models.CharField(max_length=100, blank=True, null=True)
@@ -1502,6 +1503,53 @@ class ShiftSlotAssignment(models.Model):
 
     def __str__(self):
         return f"{self.user.get_full_name()} assigned to slot {self.slot.id}"
+
+
+class ShiftProfileAccessAudit(models.Model):
+    class Action(models.TextChoices):
+        REVEAL_PROFILE = "REVEAL_PROFILE", "Reveal profile"
+        VIEW_ASSIGNED_PROFILE = "VIEW_ASSIGNED_PROFILE", "View assigned profile"
+
+    shift = models.ForeignKey(
+        'Shift',
+        on_delete=models.CASCADE,
+        related_name='profile_access_audits'
+    )
+    slot = models.ForeignKey(
+        'ShiftSlot',
+        on_delete=models.SET_NULL,
+        related_name='profile_access_audits',
+        null=True,
+        blank=True
+    )
+    target_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='profile_access_events'
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='performed_profile_access_events'
+    )
+    action = models.CharField(max_length=32, choices=Action.choices)
+    request_ip = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['shift', 'created_at']),
+            models.Index(fields=['target_user', 'created_at']),
+            models.Index(fields=['actor', 'created_at']),
+            models.Index(fields=['action', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.action} shift={self.shift_id} actor={self.actor_id} target={self.target_user_id}"
 
 class ShiftRejection(models.Model):
     shift = models.ForeignKey(

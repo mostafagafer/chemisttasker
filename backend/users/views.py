@@ -352,6 +352,9 @@ class VerifyOTPView(APIView):
         if not user or not otp:
             return Response({"detail": "Invalid credentials."}, status=400)
 
+        if not user.is_active:
+            return Response({"detail": "Invalid credentials."}, status=400)
+
         if user.otp_locked_until and timezone.now() < user.otp_locked_until:
             return _get_lockout_response(user.otp_locked_until)
 
@@ -634,6 +637,9 @@ class VerifyMobileOTPView(APIView):
     def post(self, request):
         user = request.user
         otp = request.data.get("otp")
+
+        if not user.is_active:
+            return Response({"detail": "Account is disabled."}, status=status.HTTP_403_FORBIDDEN)
 
         if user.mobile_otp_locked_until and timezone.now() < user.mobile_otp_locked_until:
             return _get_lockout_response(user.mobile_otp_locked_until)
@@ -950,16 +956,14 @@ class InviteOrgUserView(generics.CreateAPIView):
             user = User.objects.get(email=data['email'])
             temp_password = None
         except User.DoesNotExist:
-            temp_password = get_random_string(length=12)
+            temp_password = None
             user = User.objects.create_user(
                 email    = data['email'],
-                password = temp_password,
+                password = None,
                 role     = 'ORG_STAFF'
             )
-
-        if user.role != 'ORG_STAFF':
-            user.role = 'ORG_STAFF'
-            user.save(update_fields=['role'])
+            user.set_unusable_password()
+            user.save(update_fields=['password'])
 
         # 2) Find or create the membership; update if it already exists
         invitee_membership, created = OrganizationMembership.objects.get_or_create(

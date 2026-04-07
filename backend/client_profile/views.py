@@ -43,6 +43,7 @@ from client_profile.utils import (
     finalize_shift_offer,
 )
 from client_profile.notifications import mark_notifications_read, broadcast_message_read, broadcast_message_badge
+from client_profile.file_validation import ATTACHMENT_UPLOAD_POLICY, validate_uploaded_file
 from django.utils.crypto import get_random_string
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode
@@ -94,6 +95,25 @@ import re
 #     logger.info(f"[CLAIM_DBG] {msg}")
 
 MAX_ACTIVE_PHARMACY_MEMBERSHIPS = 3
+
+
+def _get_request_ip(request):
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR")
+
+
+def _log_shift_profile_access(*, request, shift, candidate, action, slot=None):
+    ShiftProfileAccessAudit.objects.create(
+        shift=shift,
+        slot=slot,
+        target_user=candidate,
+        actor=request.user if getattr(request.user, "is_authenticated", False) else None,
+        action=action,
+        request_ip=_get_request_ip(request),
+        user_agent=(request.META.get("HTTP_USER_AGENT", "") or "")[:1000],
+    )
 
 
 def _count_active_memberships(user, exclude_membership_id=None):
@@ -317,10 +337,8 @@ class OwnerOnboardingClaim(APIView):
         )
         temp_password = None
         if created:
-            temp_password = get_random_string(length=12)
-            user.set_password(temp_password)
-            user.role = 'ORG_STAFF'
-            user.save(update_fields=['password', 'role'])
+            user.set_unusable_password()
+            user.save(update_fields=['password'])
         return user, temp_password
 
     def _ensure_scoped_chief_admin_membership(self, user, organization, pharmacy):
@@ -2180,12 +2198,12 @@ class PharmacyAdminViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         data = request.data
         email = (data.get("email") or "").strip().lower()
-        admin_level = data.get("admin_level")
+        requested_admin_level = data.get("admin_level")
         staff_role = data.get("staff_role")
         job_title = (data.get("job_title") or "").strip()
         pharmacy_id = data.get("pharmacy")
 
-        if not email or not admin_level or not staff_role or not pharmacy_id:
+        if not email or not requested_admin_level or not staff_role or not pharmacy_id:
             return Response({"detail": "pharmacy, email, admin_level, and staff_role are required."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
@@ -2193,7 +2211,7 @@ class PharmacyAdminViewSet(viewsets.ModelViewSet):
         except Pharmacy.DoesNotExist:
             return Response({"detail": "Pharmacy not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        if admin_level not in PharmacyAdmin.AdminLevel.values:
+        if requested_admin_level not in PharmacyAdmin.AdminLevel.values:
             return Response({"detail": "Invalid admin level."}, status=status.HTTP_400_BAD_REQUEST)
 
         if staff_role not in dict(PharmacyAdmin.ADMIN_STAFF_ROLE_CHOICES):
@@ -2201,6 +2219,22 @@ class PharmacyAdminViewSet(viewsets.ModelViewSet):
 
         if not self._can_manage_admins(request.user, pharmacy):
             return Response({"detail": "Not allowed to manage admins for this pharmacy."}, status=status.HTTP_403_FORBIDDEN)
+
+        user = User.objects.filter(email__iexact=email).first()
+        owner_user_id = getattr(getattr(pharmacy, "owner", None), "user_id", None)
+        target_is_owner = bool(user and owner_user_id and user.id == owner_user_id)
+
+        if requested_admin_level == PharmacyAdmin.AdminLevel.OWNER and not target_is_owner:
+            return Response(
+                {"detail": "OWNER admin level can only be assigned to the pharmacy owner."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        admin_level = (
+            PharmacyAdmin.AdminLevel.OWNER
+            if target_is_owner
+            else requested_admin_level
+        )
 
         if admin_level == PharmacyAdmin.AdminLevel.OWNER:
             membership_role = "CONTACT"
@@ -2210,14 +2244,15 @@ class PharmacyAdminViewSet(viewsets.ModelViewSet):
             expected_user_role = required_user_role_for_membership(membership_role) or "EXPLORER"
 
         with transaction.atomic():
-            user = User.objects.filter(email__iexact=email).first()
             if not user:
                 user = User.objects.create_user(
                     email=email,
-                    password=get_random_string(12),
+                    password=None,
                     role=expected_user_role,
                     is_otp_verified=False,
                 )
+                user.set_unusable_password()
+                user.save(update_fields=["password"])
             elif user.role != expected_user_role:
                 return Response(
                     {
@@ -2226,6 +2261,12 @@ class PharmacyAdminViewSet(viewsets.ModelViewSet):
                             f"but this admin invitation requires an account with role {expected_user_role}."
                         )
                     },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if admin_level == PharmacyAdmin.AdminLevel.OWNER and getattr(getattr(pharmacy, "owner", None), "user_id", None) != user.id:
+                return Response(
+                    {"detail": "OWNER admin level can only be assigned to the pharmacy owner."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -2853,6 +2894,7 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
         candidate = get_object_or_404(User, pk=user_id)
         slot_id = request.data.get('slot_id')
+        slot = get_object_or_404(ShiftSlot, pk=slot_id, shift=shift) if slot_id is not None else None
 
         # Handle single user shifts
         if shift.single_user_only:
@@ -2905,6 +2947,14 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         if not already_revealed_interest:
             interest.revealed = True
             interest.save()
+
+        _log_shift_profile_access(
+            request=request,
+            shift=shift,
+            candidate=candidate,
+            action=ShiftProfileAccessAudit.Action.REVEAL_PROFILE,
+            slot=slot,
+        )
 
         # Send email only on first reveal for this candidate/shift to avoid inflating reveal count or duplicate notifications.
         if not already_revealed_user:
@@ -2983,20 +3033,21 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 s.id for s in slots_qs
                 if not ShiftSlotAssignment.objects.filter(slot=s).exists()
             ]
-            print({
-                "DBG": "accept_user",
-                "shift_id": shift.id,
-                "single_user_only": shift.single_user_only,
-                "slot_id_raw": request.data.get('slot_id'),
-                "slotId_raw": request.data.get('slotId'),
-                "slot_alt_raw": request.data.get('slot'),
-                "slot_id_normalized": slot_id,
-                "slots_count": slots_qs.count(),
-                "unassigned_ids": unassigned_ids,
-                "user_id": user_id,
-            })
+            # print({
+            #     "DBG": "accept_user",
+            #     "shift_id": shift.id,
+            #     "single_user_only": shift.single_user_only,
+            #     "slot_id_raw": request.data.get('slot_id'),
+            #     "slotId_raw": request.data.get('slotId'),
+            #     "slot_alt_raw": request.data.get('slot'),
+            #     "slot_id_normalized": slot_id,
+            #     "slots_count": slots_qs.count(),
+            #     "unassigned_ids": unassigned_ids,
+            #     "user_id": user_id,
+            # })
         except Exception as e:
-            print({"DBG": "accept_user_error", "error": str(e)})
+            # print({"DBG": "accept_user_error", "error": str(e)})
+            pass
         # For multi-slot shifts, auto-pick when possible (prefer unassigned)
         if not shift.single_user_only and slot_id is None:
             slots_qs = shift.slots.all()
@@ -3112,9 +3163,9 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         serializer = ShiftCounterOfferSerializer(data=request.data, context={'request': request, 'shift': shift})
         serializer.is_valid(raise_exception=True)
         try:
-            print(f"[counter_offers POST] shift={shift.id} user={getattr(request.user, 'id', None)} slots_payload={request.data.get('slots')}")
+            # print(f"[counter_offers POST] shift={shift.id} user={getattr(request.user, 'id', None)} slots_payload={request.data.get('slots')}")
             vd = getattr(serializer, 'validated_data', {})
-            print(f"[counter_offers POST] validated slots count={len(vd.get('slots', []))} slots={vd.get('slots')}")
+            # print(f"[counter_offers POST] validated slots count={len(vd.get('slots', []))} slots={vd.get('slots')}")
         except Exception:
             pass
         offer = serializer.save()
@@ -3172,7 +3223,8 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             )
         output = ShiftCounterOfferSerializer(offer, context={'request': request, 'shift': shift})
         try:
-            print(f"[counter_offers POST] saved slots={list(offer.slots.values('id','slot_id','slot_date','proposed_start_time','proposed_end_time','proposed_rate'))}")
+            # print(f"[counter_offers POST] saved slots={list(offer.slots.values('id','slot_id','slot_date','proposed_start_time','proposed_end_time','proposed_rate'))}")
+            pass
         except Exception:
             pass
         return Response(output.data, status=status.HTTP_201_CREATED)
@@ -3766,7 +3818,7 @@ class CommunityShiftViewSet(BaseShiftViewSet):
         # --- 4. Role match check ---
         user_role = getattr(user, 'role', None)
         onboarding_role = None
-        print(f"[CLAIM_DBG] Step 4 - user.top_role={user_role}")
+        # print(f"[CLAIM_DBG] Step 4 - user.top_role={user_role}")
 
         if user_role == 'OTHER_STAFF':
             try:
@@ -3852,7 +3904,8 @@ class CommunityShiftViewSet(BaseShiftViewSet):
                 )
                 # print("[CLAIM_DBG] Step 8 - Notification queued")
             except Exception as e:
-                print(f"[CLAIM_DBG] Step 8 - Notification error={e}")
+                # print(f"[CLAIM_DBG] Step 8 - Notification error={e}")
+                pass
 
 
         return Response({
@@ -4024,10 +4077,10 @@ class ActiveShiftViewSet(BaseShiftViewSet):
         qs = qs.distinct()
         try:
             ids = list(qs.values_list('id', flat=True))
-            print(
-                f"[ActiveShiftViewSet:get_queryset] user_id={getattr(user, 'id', None)} "
-                f"role={getattr(user, 'role', None)} total={len(ids)} ids={ids}"
-            )
+            # print(
+            #     f"[ActiveShiftViewSet:get_queryset] user_id={getattr(user, 'id', None)} "
+            #     f"role={getattr(user, 'role', None)} total={len(ids)} ids={ids}"
+            # )
         except Exception:
             pass
         return qs
@@ -4188,6 +4241,7 @@ class ConfirmedShiftViewSet(BaseShiftViewSet):
 
         candidate = get_object_or_404(User, pk=user_id)
         slot_id = request.data.get('slot_id')
+        slot = get_object_or_404(ShiftSlot, pk=slot_id, shift=shift) if slot_id is not None else None
 
         # Verify the user is actually assigned to this shift/slot
         if shift.single_user_only:
@@ -4201,6 +4255,14 @@ class ConfirmedShiftViewSet(BaseShiftViewSet):
             else:
                 if not ShiftSlotAssignment.objects.filter(shift=shift, slot_id=slot_id, user=candidate).exists():
                     return Response({'detail': 'User is not assigned to this specific slot.'}, status=status.HTTP_404_NOT_FOUND)
+
+        _log_shift_profile_access(
+            request=request,
+            shift=shift,
+            candidate=candidate,
+            action=ShiftProfileAccessAudit.Action.VIEW_ASSIGNED_PROFILE,
+            slot=slot,
+        )
 
         # Retrieve profile data without sending an email
         profile_data = {}
@@ -4280,6 +4342,7 @@ class HistoryShiftViewSet(BaseShiftViewSet):
 
         candidate = get_object_or_404(User, pk=user_id)
         slot_id = request.data.get('slot_id')
+        slot = get_object_or_404(ShiftSlot, pk=slot_id, shift=shift) if slot_id is not None else None
 
         # Verify the user is actually assigned to this shift/slot
         if shift.single_user_only:
@@ -4293,6 +4356,14 @@ class HistoryShiftViewSet(BaseShiftViewSet):
             else:
                 if not ShiftSlotAssignment.objects.filter(shift=shift, slot_id=slot_id, user=candidate).exists():
                     return Response({'detail': 'User is not assigned to this specific slot.'}, status=status.HTTP_404_NOT_FOUND)
+
+        _log_shift_profile_access(
+            request=request,
+            shift=shift,
+            candidate=candidate,
+            action=ShiftProfileAccessAudit.Action.VIEW_ASSIGNED_PROFILE,
+            slot=slot,
+        )
 
         # Retrieve profile data without sending an email or consuming reveal quota
         profile_data = {}
@@ -4348,8 +4419,6 @@ class ShiftInterestViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(shift_id=shift_id)
             else:
                 qs = qs.filter(shift_id=shift_id, user=self.request.user)
-        elif self.action == 'list':
-            raise ValidationError({'shift': 'This query parameter is required.'})
         else:
             qs = qs.filter(user=self.request.user)
 
@@ -4365,7 +4434,10 @@ class ShiftInterestViewSet(viewsets.ModelViewSet):
 
         user_id = self.request.query_params.get('user')
         if user_id is not None:
-            qs = qs.filter(user_id=user_id)
+            if str(user_id) == str(self.request.user.id):
+                qs = qs.filter(user_id=user_id)
+            else:
+                qs = qs.filter(user=self.request.user)
 
         return qs
 
@@ -4396,8 +4468,6 @@ class ShiftRejectionViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(shift_id=shift_id)
             else:
                 qs = qs.filter(shift_id=shift_id, user=self.request.user)
-        elif self.action == 'list':
-            raise ValidationError({'shift': 'This query parameter is required.'})
         else:
             qs = qs.filter(user=self.request.user)
 
@@ -4413,7 +4483,10 @@ class ShiftRejectionViewSet(viewsets.ModelViewSet):
 
         user_id = self.request.query_params.get('user')
         if user_id is not None:
-            qs = qs.filter(user_id=user_id)
+            if str(user_id) == str(self.request.user.id):
+                qs = qs.filter(user_id=user_id)
+            else:
+                qs = qs.filter(user=self.request.user)
 
         return qs
 
@@ -5172,37 +5245,61 @@ class RosterShiftManageViewSet(viewsets.ModelViewSet):
         It now supports re-assigning a new user at the same time.
         """
         shift_instance = self.get_object()
-        
-        # First, let the serializer handle the update of the Shift and its Slots
-        response = super().update(request, *args, **kwargs)
-        
-        # After updating, clear any previous assignments from all slots of this shift.
-        shift_instance.slot_assignments.all().delete()
 
-        # Now, check if a new user was selected to be assigned.
-        new_user_id = request.data.get('user_id')
-        if new_user_id:
+        with transaction.atomic():
+            # First, let the serializer handle the update of the Shift and its Slots.
+            response = super().update(request, *args, **kwargs)
+
+            # Only mutate assignments when the caller explicitly includes user_id.
+            if 'user_id' not in request.data:
+                return response
+
+            shift_instance.refresh_from_db()
+            existing_assignments = {
+                (assignment.slot_id, assignment.slot_date): assignment
+                for assignment in shift_instance.slot_assignments.select_related('slot')
+            }
+
+            new_user_id = request.data.get('user_id')
+            if new_user_id in (None, '', 'null'):
+                # Explicit clear requested by caller.
+                shift_instance.slot_assignments.all().delete()
+                return response
+
             newly_assigned_user = get_object_or_404(User, pk=new_user_id)
-            
-            # Re-assign the new user to all slots of this shift
+            desired_keys = set()
+
+            # Build the desired assignment state first, then remove obsolete rows.
             for slot in shift_instance.slots.all():
+                slot_date = slot.date
+                desired_keys.add((slot.id, slot_date))
                 rate, rate_reason = get_locked_rate_for_slot(
                     slot=slot,
                     shift=shift_instance,
                     user=newly_assigned_user,
-                    override_date=slot.date # Assuming one-off shifts for simplicity in this context
+                    override_date=slot_date
                 )
-                ShiftSlotAssignment.objects.create(
-                    shift=shift_instance,
+                ShiftSlotAssignment.objects.update_or_create(
                     slot=slot,
-                    slot_date=slot.date,
-                    user=newly_assigned_user,
-                    unit_rate=rate,
-                    rate_reason=rate_reason,
-                    is_rostered=True
+                    slot_date=slot_date,
+                    defaults={
+                        'shift': shift_instance,
+                        'user': newly_assigned_user,
+                        'unit_rate': rate,
+                        'rate_reason': rate_reason,
+                        'is_rostered': True,
+                    }
                 )
-        
-        return response
+
+            obsolete_assignment_ids = [
+                assignment.id
+                for key, assignment in existing_assignments.items()
+                if key not in desired_keys
+            ]
+            if obsolete_assignment_ids:
+                ShiftSlotAssignment.objects.filter(id__in=obsolete_assignment_ids).delete()
+
+            return response
 
     @action(detail=False, methods=['get'], url_path='list-open-shifts')
     def list_open_shifts(self, request):
@@ -7525,6 +7622,7 @@ class ConversationViewSet(mixins.ListModelMixin,
         sender_membership = my_part.membership
         if attachments:
             for attachment_file in attachments:
+                validate_uploaded_file(attachment_file, ATTACHMENT_UPLOAD_POLICY, "attachment")
                 msg = Message.objects.create(conversation=conv, sender=sender_membership, body=body if not created_messages else "", attachment=attachment_file, attachment_filename=attachment_file.name)
                 created_messages.append(msg)
         elif body:
@@ -7613,12 +7711,16 @@ class MessageViewSet(viewsets.ModelViewSet):
         if not participant:
             return Response({"detail": "You are not a participant in this conversation."}, status=status.HTTP_403_FORBIDDEN)
 
+        attachment_file = request.FILES.get("attachment") if request.FILES else None
+        if attachment_file:
+            validate_uploaded_file(attachment_file, ATTACHMENT_UPLOAD_POLICY, "attachment")
+
         msg = Message.objects.create(
             conversation=conversation,
             sender=participant.membership,
             body=body,
-            attachment=request.FILES.get("attachment") if request.FILES else None,
-            attachment_filename=request.FILES.get("attachment").name if request.FILES.get("attachment") else None,
+            attachment=attachment_file,
+            attachment_filename=attachment_file.name if attachment_file else None,
         )
         Conversation.objects.filter(pk=conversation.id).update(updated_at=msg.created_at)
         serializer = self.get_serializer(msg)

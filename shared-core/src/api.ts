@@ -30,16 +30,40 @@ async function parseApiError(response) {
         return `Request failed with status ${response.status}`;
     }
     const payload = await response.json().catch(() => null);
+    if (typeof payload === 'string' && payload.trim()) {
+        return payload;
+    }
+    if (Array.isArray(payload) && typeof payload[0] === 'string') {
+        return payload[0];
+    }
     if (payload && typeof payload === 'object') {
-        const detail = typeof payload.detail === 'string' ? payload.detail : null;
-        const error = typeof payload.error === 'string' ? payload.error : null;
-        const message = typeof payload.message === 'string' ? payload.message : null;
-        const firstFieldError = Object.values(payload).find((value) => Array.isArray(value) && typeof value[0] === 'string');
+        const extractMessage = (value) => {
+            if (!value) return null;
+            if (typeof value === 'string' && value.trim()) return value;
+            if (Array.isArray(value)) {
+                for (const item of value) {
+                    const nested = extractMessage(item);
+                    if (nested) return nested;
+                }
+                return null;
+            }
+            if (typeof value === 'object') {
+                for (const nestedValue of Object.values(value)) {
+                    const nested = extractMessage(nestedValue);
+                    if (nested) return nested;
+                }
+            }
+            return null;
+        };
+        const detail = extractMessage(payload.detail);
+        const error = extractMessage(payload.error);
+        const message = extractMessage(payload.message);
+        const firstFieldError = Object.values(payload).map(extractMessage).find(Boolean);
         if (detail) return detail;
         if (error) return error;
         if (message) return message;
-        if (Array.isArray(firstFieldError) && typeof firstFieldError[0] === 'string') {
-            return firstFieldError[0];
+        if (firstFieldError) {
+            return firstFieldError;
         }
     }
     return `Request failed with status ${response.status}`;
@@ -620,8 +644,13 @@ export function createShiftCounterOffer(shiftId, data) {
         body: JSON.stringify(data),
     });
 }
-export function acceptShiftCounterOffer(shiftId, offerId) {
-    return fetchApi(`/client-profile/shifts/${shiftId}/counter-offers/${offerId}/accept/`, { method: 'POST' });
+export function acceptShiftCounterOffer(shiftId, offerId, data) {
+    const slotId = data?.slotId ?? data?.slot_id ?? null;
+    const query = slotId != null ? `?slot_id=${encodeURIComponent(slotId)}` : '';
+    return fetchApi(`/client-profile/shifts/${shiftId}/counter-offers/${offerId}/accept/${query}`, {
+        method: 'POST',
+        body: slotId != null ? JSON.stringify({ slot_id: slotId }) : undefined,
+    });
 }
 export function rejectShiftCounterOffer(shiftId, offerId) {
     return fetchApi(`/client-profile/shifts/${shiftId}/counter-offers/${offerId}/reject/`, { method: 'POST' });
@@ -890,7 +919,7 @@ export async function submitShiftCounterOfferService(payload) {
     return mapShiftCounterOffer(data);
 }
 export async function acceptShiftCounterOfferService(payload) {
-    await acceptShiftCounterOffer(payload.shiftId, payload.offerId);
+    await acceptShiftCounterOffer(payload.shiftId, payload.offerId, payload);
 }
 export async function rejectShiftCounterOfferService(payload) {
     await rejectShiftCounterOffer(payload.shiftId, payload.offerId);

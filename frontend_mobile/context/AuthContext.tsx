@@ -190,26 +190,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const login = async (newAccess: string, newRefresh: string, userInfo: User) => {
     authMutationIdRef.current += 1;
-    setAccess(newAccess || 'cookie-session');
-    setRefresh(newRefresh || 'cookie-session');
-
     const baseUser = normalizeUser(userInfo);
-    setUser(baseUser);
     await writeStoredSession({
       access: newAccess || null,
       refresh: newRefresh || null,
       user: baseUser,
     });
+    setAccess(newAccess || null);
+    setRefresh(newRefresh || null);
+    setUser(baseUser);
 
     // Hydrate with onboarding profile if available (adds photo, phone, etc.)
     try {
       const hydrated = await fetchOnboardingProfile(baseUser.role, baseUser);
-      setUser(hydrated);
       await writeStoredSession({
         access: newAccess || null,
         refresh: newRefresh || null,
         user: hydrated,
       });
+      setUser(hydrated);
     } catch (error) {
       const msg = (error as any)?.message || error;
       console.debug('Onboarding profile fetch skipped:', msg);
@@ -221,10 +220,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const response: any = await apiClient.post('/users/login/', { email, password }, { withCredentials: true });
       const payload = response?.data ?? response;
       const userData = payload.user || payload.userData || payload.profile;
-      const newAccess = payload.access || 'cookie-session';
-      const newRefresh = payload.refresh || 'cookie-session';
+      const newAccess = payload.access;
+      const newRefresh = payload.refresh;
       if (!userData) {
         throw new Error('Unexpected login response');
+      }
+      if (!newAccess || !newRefresh) {
+        throw new Error('Login did not return API tokens.');
       }
       await login(newAccess, newRefresh, userData);
       return userData;

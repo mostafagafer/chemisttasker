@@ -7,6 +7,7 @@ import * as Notifications from 'expo-notifications';
 import { getNotifications, markNotificationsAsRead } from '@chemisttasker/shared-core';
 import { useAuth } from '../../context/AuthContext';
 import { resolveChatNotificationRoomId } from '@/utils/notificationNavigation';
+import { getMessageDetailRoute } from '@/utils/chatRoutes';
 
 const tabTitles: Record<string, string> = {
   dashboard: 'Home',
@@ -123,7 +124,7 @@ export default function ExplorerTabs() {
         payload: data,
       });
       if (roomId) {
-        router.push({ pathname: '/shared/messages/[id]', params: { id: String(roomId) } } as any);
+        router.push(getMessageDetailRoute(user?.role, roomId) as any);
         return;
       }
     });

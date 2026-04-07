@@ -2,6 +2,7 @@
 
 ## Preflight
 - [ ] `EXPO_PUBLIC_API_URL` points to production API.
+- [ ] `EXPO_PUBLIC_SSL_PINNED_PUBLIC_KEY_HASHES` is set to the production API public key hash list for release builds.
 - [ ] `EXPO_PUBLIC_WS_URL` points to production WS.
 - [ ] `EXPO_PUBLIC_WEB_URL` points to production web.
 - [ ] `EXPO_PUBLIC_ANDROID_PLACES` uses the restricted production key.

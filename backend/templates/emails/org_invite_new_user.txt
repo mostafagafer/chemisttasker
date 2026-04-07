@@ -21,11 +21,11 @@ You'll be able to:
 {% for item in capability_descriptions %}- {{ item }}
 {% endfor %}{% endif %}
 
-Set your password and get started:
+Use this one-time setup link to create your password and activate your access:
 {{ magic_link }}
 
 {% if temporary_password %}Temporary password: {{ temporary_password }}
-{% endif %}After you sign in you'll land on your ChemistTasker dashboard and can begin right away.
+{% endif %}After you set your password, you can sign in normally and you'll land on your ChemistTasker dashboard.
 
 See you inside,
 The ChemistTasker team

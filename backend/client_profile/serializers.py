@@ -27,8 +27,22 @@ import json
 from pathlib import Path
 from django.utils.text import slugify
 from django.core.files.storage import default_storage
+from client_profile.file_validation import (
+    ATTACHMENT_UPLOAD_POLICY,
+    DOCUMENT_UPLOAD_POLICY,
+    IMAGE_UPLOAD_POLICY,
+    validate_upload_mapping,
+    validate_uploaded_file,
+)
 
 OFFER_EXPIRY_HOURS = 48
+
+class UploadValidationMixin:
+    upload_validation_map = {}
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        return validate_upload_mapping(attrs, self.upload_validation_map)
 
 
 # --- Skills catalog (shared-core/skills_catalog.json) ---
@@ -278,7 +292,7 @@ def _get_user_short_bio(user):
 #         transaction.on_commit(schedule_orchestrator)
 
 
-class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
+class OwnerOnboardingV2Serializer(UploadValidationMixin, serializers.ModelSerializer):
     """
     Single-tab onboarding for owners/managers.
     Mirrors the V2 pattern used by pharmacist/other staff/explorer flows.
@@ -294,6 +308,9 @@ class OwnerOnboardingV2Serializer(serializers.ModelSerializer):
     submitted_for_verification = serializers.BooleanField(write_only=True, required=False)
     progress_percent = serializers.SerializerMethodField()
     ahpra_years_since_first_registration = serializers.SerializerMethodField(read_only=True)
+    upload_validation_map = {
+        "profile_photo": IMAGE_UPLOAD_POLICY,
+    }
 
     class Meta:
         model = OwnerOnboarding
@@ -481,7 +498,7 @@ class RefereeResponseSerializer(serializers.ModelSerializer):
             "additional_comments",
         ]
 
-class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
+class PharmacistOnboardingV2Serializer(UploadValidationMixin, serializers.ModelSerializer):
     """
     V2 single-endpoint, tab-aware serializer.
     Implements ONLY the Basic tab (as requested).
@@ -516,6 +533,12 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
 
     # computed
     progress_percent = serializers.SerializerMethodField()
+    upload_validation_map = {
+        "profile_photo": IMAGE_UPLOAD_POLICY,
+        "government_id": DOCUMENT_UPLOAD_POLICY,
+        "identity_secondary_file": DOCUMENT_UPLOAD_POLICY,
+        "resume": DOCUMENT_UPLOAD_POLICY,
+    }
 
     class Meta:
         model = PharmacistOnboarding
@@ -677,7 +700,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
     def get_tfn_masked(self, obj):
         """
         Never expose raw TFN back to the client.
-        If you store TFN in the model as `tfn_number`, mask it on output.
+        TFNs are stored through the encrypted `tfn_number` field and masked on output.
         """
         tfn = getattr(obj, 'tfn_number', '') or ''
         if not tfn:
@@ -705,6 +728,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         Save to: skill_certs/<user_id>/<CODE>/<base>_<CODE>_<YYYYmmddHHMMSS>.<ext>
         (keeps historical versions; no deletes)
         """
+        validate_uploaded_file(uploaded_file, DOCUMENT_UPLOAD_POLICY, f"skill certificate {code}")
         base, ext = os.path.splitext(uploaded_file.name or "certificate")
         safe = slugify(base) or "certificate"
         code_up = (code or "UNKNOWN").upper()
@@ -782,9 +806,10 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
             try:
                 obj.verified = True
                 obj.save(update_fields=['verified'])
-                print("[VERIFY DEBUG] progress flip -> verified=True", {"pk": obj.pk}, flush=True)
+                # print("[VERIFY DEBUG] progress flip -> verified=True", {"pk": obj.pk}, flush=True)
             except Exception as e:
-                print("[VERIFY DEBUG] progress flip failed", {"pk": obj.pk, "err": str(e)}, flush=True)
+                # print("[VERIFY DEBUG] progress flip failed", {"pk": obj.pk, "err": str(e)}, flush=True)
+                pass
         # ------------------------------------------------------------------------
 
         filled = sum(1 for x in checks if x)
@@ -1187,7 +1212,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         """
         Payment fields only. No GST file in V2.
         - ABN: task scrapes ABR fields; user must confirm => abn_verified=True
-        - TFN: store raw in model.tfn_number, show only tfn_masked on reads
+        - TFN: store through encrypted model field `tfn_number`, show only tfn_masked on reads
         - When pref=TFN and submit=True -> TFN + super_* are required
         """
         payment_fields = [
@@ -1540,7 +1565,7 @@ class PharmacistOnboardingV2Serializer(serializers.ModelSerializer):
         return instance
 
 
-class OtherStaffOnboardingV2Serializer(serializers.ModelSerializer):
+class OtherStaffOnboardingV2Serializer(UploadValidationMixin, serializers.ModelSerializer):
     """
     V2 single-endpoint, tab-aware serializer for OtherStaff.
     Mirrors the Pharmacist V2 procedure but without AHPRA and with a Regulatory tab.
@@ -1555,7 +1580,7 @@ class OtherStaffOnboardingV2Serializer(serializers.ModelSerializer):
     latitude  = serializers.DecimalField(max_digits=18, decimal_places=12, required=False, allow_null=True)
     longitude = serializers.DecimalField(max_digits=18, decimal_places=12, required=False, allow_null=True)
 
-    # TFN aliasing (store raw; only expose masked)
+    # TFN aliasing (store encrypted; only expose masked)
     tfn = serializers.CharField(
         source='tfn_number', write_only=True, required=False, allow_blank=True, allow_null=True
     )
@@ -1571,6 +1596,17 @@ class OtherStaffOnboardingV2Serializer(serializers.ModelSerializer):
 
     # computed
     progress_percent = serializers.SerializerMethodField()
+    upload_validation_map = {
+        "government_id": DOCUMENT_UPLOAD_POLICY,
+        "identity_secondary_file": DOCUMENT_UPLOAD_POLICY,
+        "ahpra_proof": DOCUMENT_UPLOAD_POLICY,
+        "hours_proof": DOCUMENT_UPLOAD_POLICY,
+        "certificate": DOCUMENT_UPLOAD_POLICY,
+        "university_id": DOCUMENT_UPLOAD_POLICY,
+        "cpr_certificate": DOCUMENT_UPLOAD_POLICY,
+        "s8_certificate": DOCUMENT_UPLOAD_POLICY,
+        "resume": DOCUMENT_UPLOAD_POLICY,
+    }
 
     class Meta:
         model = OtherStaffOnboarding
@@ -1742,6 +1778,7 @@ class OtherStaffOnboardingV2Serializer(serializers.ModelSerializer):
         return out
 
     def _save_skill_file(self, user_id: int, code: str, uploaded_file):
+        validate_uploaded_file(uploaded_file, DOCUMENT_UPLOAD_POLICY, f"skill certificate {code}")
         base, ext = os.path.splitext(uploaded_file.name or "certificate")
         safe = slugify(base) or "certificate"
         code_up = (code or "UNKNOWN").upper()
@@ -1836,9 +1873,10 @@ class OtherStaffOnboardingV2Serializer(serializers.ModelSerializer):
             try:
                 obj.verified = True
                 obj.save(update_fields=['verified'])
-                print("[VERIFY DEBUG] otherstaff progress flip -> verified=True", {"pk": obj.pk}, flush=True)
+                # print("[VERIFY DEBUG] otherstaff progress flip -> verified=True", {"pk": obj.pk}, flush=True)
             except Exception as e:
-                print("[VERIFY DEBUG] otherstaff progress flip failed", {"pk": obj.pk, "err": str(e)}, flush=True)
+                # print("[VERIFY DEBUG] otherstaff progress flip failed", {"pk": obj.pk, "err": str(e)}, flush=True)
+                pass
 
         filled = sum(1 for x in checks if x)
         total = len(checks) or 1
@@ -2460,7 +2498,7 @@ def q6(val):
 def clean_email(s):
     return (s or "").strip().lower()
 
-class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
+class ExplorerOnboardingV2Serializer(UploadValidationMixin, serializers.ModelSerializer):
     """
     V2 tab-aware serializer for Explorer.
     Tabs: basic, identity, interests, referees, profile.
@@ -2483,6 +2521,12 @@ class ExplorerOnboardingV2Serializer(serializers.ModelSerializer):
 
     # computed
     progress_percent = serializers.SerializerMethodField()
+    upload_validation_map = {
+        "profile_photo": IMAGE_UPLOAD_POLICY,
+        "government_id": DOCUMENT_UPLOAD_POLICY,
+        "identity_secondary_file": DOCUMENT_UPLOAD_POLICY,
+        "resume": DOCUMENT_UPLOAD_POLICY,
+    }
 
     class Meta:
         model = ExplorerOnboarding
@@ -3032,7 +3076,7 @@ class ExplorerDashboardResponseSerializer(serializers.Serializer):
     user = UserProfileSerializer()
     message = serializers.CharField()
 
-class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
+class PharmacySerializer(RemoveOldFilesMixin, UploadValidationMixin, serializers.ModelSerializer):
     # explicitly declare your FileFields so DRF will return the URLs
     methadone_s8_protocols = serializers.FileField(
         use_url=True, allow_null=True, required=False
@@ -3058,6 +3102,12 @@ class PharmacySerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
         'induction_guides',
     ]
     abn = serializers.CharField(required=True, allow_blank=False)
+    upload_validation_map = {
+        "methadone_s8_protocols": DOCUMENT_UPLOAD_POLICY,
+        "qld_sump_docs": DOCUMENT_UPLOAD_POLICY,
+        "sops": DOCUMENT_UPLOAD_POLICY,
+        "induction_guides": DOCUMENT_UPLOAD_POLICY,
+    }
 
     class Meta:
         model = Pharmacy
@@ -3264,8 +3314,11 @@ class PharmacyClaimCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Provide either pharmacy_id or pharmacy_email.")
         return attrs
 
-class ChainSerializer(RemoveOldFilesMixin, serializers.ModelSerializer):
+class ChainSerializer(RemoveOldFilesMixin, UploadValidationMixin, serializers.ModelSerializer):
     file_fields = ['logo']
+    upload_validation_map = {
+        "logo": IMAGE_UPLOAD_POLICY,
+    }
     # nested readout of pharmacies
     pharmacies = PharmacySerializer(many=True, read_only=True)
     # write-only field to set pharmacies by ID list
@@ -3561,6 +3614,7 @@ class PharmacyAdminSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = [
+            "admin_level",
             "capabilities",
             "can_remove",
             "created_by",
@@ -4755,7 +4809,8 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
         if not slots_data:
             raise serializers.ValidationError({'slots': 'At least one slot is required.'})
         try:
-            print("[ShiftCounterOfferSerializer.validate] incoming slots", slots_data)
+            # print("[ShiftCounterOfferSerializer.validate] incoming slots", slots_data)
+            pass
         except Exception:
             pass
 
@@ -4855,11 +4910,29 @@ class ShiftCounterOfferSerializer(serializers.ModelSerializer):
             )
         return offer
 
+    def _can_view_user_detail(self, obj):
+        shift = getattr(obj, "shift", None)
+        user = getattr(obj, "user", None)
+        request = self.context.get("request")
+        viewer = getattr(request, "user", None)
+
+        if not shift or not user:
+            return False
+
+        if shift.visibility != "PLATFORM":
+            return True
+
+        if viewer and getattr(viewer, "is_authenticated", False) and viewer.id == user.id:
+            return True
+
+        return shift.revealed_users.filter(pk=user.id).exists()
+
     def get_user_detail(self, obj):
         user = getattr(obj, 'user', None)
         if not user:
             return None
-        # Always return the user detail so the frontend can render the name after reveal (or for owners).
+        if not self._can_view_user_detail(obj):
+            return None
         return {
             'id': user.id,
             'first_name': user.first_name,
@@ -6079,13 +6152,21 @@ class HubOrganizationSerializer(serializers.ModelSerializer):
         return perms.get(obj.id, {}).get("is_org_admin", False)
 
 
-class HubPharmacyProfileSerializer(serializers.ModelSerializer):
+class HubPharmacyProfileSerializer(UploadValidationMixin, serializers.ModelSerializer):
+    upload_validation_map = {
+        "cover_image": IMAGE_UPLOAD_POLICY,
+    }
+
     class Meta:
         model = Pharmacy
         fields = ["about", "cover_image"]
 
 
-class HubOrganizationProfileSerializer(serializers.ModelSerializer):
+class HubOrganizationProfileSerializer(UploadValidationMixin, serializers.ModelSerializer):
+    upload_validation_map = {
+        "cover_image": IMAGE_UPLOAD_POLICY,
+    }
+
     class Meta:
         model = Organization
         fields = ["about", "cover_image"]

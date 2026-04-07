@@ -119,6 +119,11 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
     []
   );
 
+  const getErrorMessage = useCallback((error: unknown, fallback: string) => {
+    if (error instanceof Error && error.message) return error.message;
+    return fallback;
+  }, []);
+
   const pushToast = useCallback(
     (message: string, severity: AlertColor, roomId?: number) => {
       setToast({ message, severity, roomId });
@@ -571,6 +576,7 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
       // Rely on the websocket message.created event to update UI (prevents sender duplicates)
     } catch (e) {
       console.error('send text error', e);
+      setToast({ message: getErrorMessage(e, 'Failed to send message'), severity: 'error' });
     }
   };
 
@@ -584,7 +590,10 @@ const ChatPage: FC<ChatPageProps> = ({ initialFilter }) => {
       });
       await sendRoomMessageService(activeRoomId, form);
       // Rely on websocket delivery to render the attachment once created
-    } catch (e) { console.error('send attachment error', e); }
+    } catch (e) {
+      console.error('send attachment error', e);
+      setToast({ message: getErrorMessage(e, 'Failed to send attachment'), severity: 'error' });
+    }
   };
 
   const handleLoadMore = async () => {

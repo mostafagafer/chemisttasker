@@ -1,36 +1,37 @@
 const appJson = require('./app.json');
+module.exports = ({ config }) => {
+  const baseConfig = config || appJson.expo || {};
 
-const config = appJson.expo || {};
+  const androidMapsApiKey =
+    process.env.EXPO_PUBLIC_ANDROID_PLACES ||
+    process.env.EXPO_PUBLIC_PLACES_KEY ||
+    process.env.EXPO_PUBLIC_MAPS_API_KEY ||
+    '';
 
-const androidMapsApiKey =
-  process.env.EXPO_PUBLIC_ANDROID_PLACES ||
-  process.env.EXPO_PUBLIC_PLACES_KEY ||
-  process.env.EXPO_PUBLIC_MAPS_API_KEY ||
-  '';
+  const iosMapsApiKey =
+    process.env.EXPO_PUBLIC_IOS_PLACES ||
+    process.env.EXPO_PUBLIC_PLACES_KEY ||
+    process.env.EXPO_PUBLIC_MAPS_API_KEY ||
+    '';
 
-const iosMapsApiKey =
-  process.env.EXPO_PUBLIC_IOS_PLACES ||
-  process.env.EXPO_PUBLIC_PLACES_KEY ||
-  process.env.EXPO_PUBLIC_MAPS_API_KEY ||
-  '';
-
-module.exports = {
-  ...config,
-  android: {
-    ...(config.android || {}),
-    config: {
-      ...((config.android && config.android.config) || {}),
-      googleMaps: {
-        ...((((config.android || {}).config || {}).googleMaps) || {}),
-        apiKey: androidMapsApiKey,
+  return {
+    ...baseConfig,
+    android: {
+      ...(baseConfig.android || {}),
+      config: {
+        ...((baseConfig.android && baseConfig.android.config) || {}),
+        googleMaps: {
+          ...((((baseConfig.android || {}).config || {}).googleMaps) || {}),
+          apiKey: androidMapsApiKey,
+        },
       },
     },
-  },
-  ios: {
-    ...(config.ios || {}),
-    config: {
-      ...((config.ios && config.ios.config) || {}),
-      googleMapsApiKey: iosMapsApiKey,
+    ios: {
+      ...(baseConfig.ios || {}),
+      config: {
+        ...((baseConfig.ios && baseConfig.ios.config) || {}),
+        googleMapsApiKey: iosMapsApiKey,
+      },
     },
-  },
+  };
 };

@@ -15,6 +15,7 @@ import {
   IconButton,
 } from 'react-native-paper';
 import { useRouter } from 'expo-router';
+import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
 import { deleteAccount, updateOnboardingForm } from '@chemisttasker/shared-core';
 import * as ImagePicker from 'expo-image-picker';
@@ -27,6 +28,7 @@ export default function OtherStaffProfileScreen() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteText, setDeleteText] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const appVersion = typeof Constants?.expoConfig?.version === 'string' ? Constants.expoConfig.version : '';
   const webBaseUrl = 'https://www.chemisttasker.com.au';
   const imageMediaTypes = (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
   const menuItems = [
@@ -232,6 +234,9 @@ export default function OtherStaffProfileScreen() {
           >
             Delete My Account
           </Button>
+          <Text variant="bodySmall" style={styles.versionText}>
+            Version {appVersion || 'N/A'}
+          </Text>
         </View>
       </ScrollView>
 
@@ -327,5 +332,10 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     marginBottom: 12,
     textAlign: 'center',
+  },
+  versionText: {
+    textAlign: 'center',
+    color: '#9CA3AF',
+    marginTop: 8,
   },
 });

@@ -3,6 +3,7 @@ import { View, StyleSheet, ScrollView, Alert, Linking } from 'react-native';
 import { Text, Avatar, List, Button, Surface, Divider, Switch, IconButton, Card, Portal, Dialog, TextInput } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
 import { getOnboarding, deleteAccount, updateOnboardingForm } from '@chemisttasker/shared-core';
 import * as ImagePicker from 'expo-image-picker';
@@ -36,6 +37,7 @@ export default function OwnerProfileScreen() {
     staffCount: number;
     extraSeatCount: number;
   } | null>(null);
+  const appVersion = typeof Constants?.expoConfig?.version === 'string' ? Constants.expoConfig.version : '';
   const webBaseUrl = 'https://www.chemisttasker.com.au';
   const imageMediaTypes = (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
   const menuItems = [
@@ -370,7 +372,7 @@ export default function OwnerProfileScreen() {
             </Dialog>
           </Portal>
           <Text variant="bodySmall" style={styles.versionText}>
-            Version 1.0.0
+            Version {appVersion || 'N/A'}
           </Text>
         </View>
       </ScrollView>

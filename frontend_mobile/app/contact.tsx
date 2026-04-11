@@ -10,7 +10,7 @@ export default function ContactScreen() {
   const { user } = useAuth();
   const appVersion = useMemo(() => {
     const expo = Constants?.expoConfig;
-    return expo?.version || expo?.runtimeVersion || '';
+    return typeof expo?.version === 'string' ? expo.version : '';
   }, []);
   const [form, setForm] = useState({
     name: user?.username || user?.email || '',

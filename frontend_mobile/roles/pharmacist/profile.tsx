@@ -4,6 +4,7 @@ import { Card, Text, Button, Divider, Avatar, IconButton, List, Surface, Switch,
 import { useAuth } from '../../context/AuthContext';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { deleteAccount, updateOnboardingForm } from '@chemisttasker/shared-core';
@@ -16,6 +17,7 @@ export default function PharmacistProfileScreen() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteText, setDeleteText] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const appVersion = typeof Constants?.expoConfig?.version === 'string' ? Constants.expoConfig.version : '';
   const webBaseUrl = 'https://www.chemisttasker.com.au';
   const imageMediaTypes = (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
 
@@ -312,6 +314,9 @@ export default function PharmacistProfileScreen() {
         >
           Delete My Account
         </Button>
+        <Text variant="bodySmall" style={styles.versionText}>
+          Version {appVersion || 'N/A'}
+        </Text>
         <Portal>
           <Dialog
             visible={deleteDialogOpen}
@@ -476,5 +481,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 8,
     color: '#9CA3AF',
+  },
+  versionText: {
+    textAlign: 'center',
+    color: '#9CA3AF',
+    marginTop: 8,
+    marginBottom: 4,
   },
 });

@@ -292,6 +292,17 @@ export default function SetAvailabilityScreen() {
     },
     []
   );
+  const nativeMapsKeyConfigured = useMemo(
+    () =>
+      Boolean(
+        Platform.select({
+          ios: process.env.EXPO_PUBLIC_IOS_PLACES || process.env.EXPO_PUBLIC_PLACES_KEY || process.env.EXPO_PUBLIC_MAPS_API_KEY,
+          android: process.env.EXPO_PUBLIC_ANDROID_PLACES || process.env.EXPO_PUBLIC_PLACES_KEY || process.env.EXPO_PUBLIC_MAPS_API_KEY,
+          default: '',
+        })
+      ),
+    []
+  );
 
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMsg, setSnackbarMsg] = useState('');
@@ -536,6 +547,7 @@ export default function SetAvailabilityScreen() {
             <View style={styles.mapWrap}>
               {locationForm.latitude != null &&
               locationForm.longitude != null &&
+              nativeMapsKeyConfigured &&
               NativeMapView &&
               NativeMarker &&
               NativeCircle ? (
@@ -572,7 +584,11 @@ export default function SetAvailabilityScreen() {
                 </NativeMapView>
               ) : (
                 <View style={styles.mapFallback}>
-                  <Text style={styles.hint}>Select an address to preview the travel radius.</Text>
+                  <Text style={styles.hint}>
+                    {nativeMapsKeyConfigured
+                      ? 'Select an address to preview the travel radius.'
+                      : 'Native Google Maps key is not configured for this build yet. Save your address and rebuild the app to enable the map preview.'}
+                  </Text>
                 </View>
               )}
             </View>

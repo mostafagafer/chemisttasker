@@ -45,6 +45,7 @@ frontend_web_old/.env.production
 # ─── Miscellaneous ─────────────────────────────────────────────────
 # OS and editor
 .vscode/
+.qwen/
 *.log
 *.tmp
 

@@ -25,6 +25,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { API_BASE_URL } from '@/constants/api';
 import { Autocomplete as WebAutocomplete, Circle, GoogleMap, Marker, useJsApiLoader } from '@react-google-maps/api';
 import GooglePlacesInput from '../pharmacies/GooglePlacesInput';
+import AvailabilityRadiusMap from './AvailabilityRadiusMap';
 
 type AvailabilityEntry = UserAvailability & { notifyNewShifts?: boolean };
 type AvailabilityDraft = Omit<AvailabilityEntry, 'id'>;
@@ -59,20 +60,6 @@ const toLocalIsoDate = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
 const GOOGLE_LIBRARIES: Array<'places'> = ['places'];
-
-const nativeMapsModule =
-  Platform.OS === 'web'
-    ? null
-    : (require('react-native-maps') as {
-        default: React.ComponentType<any>;
-        Circle: React.ComponentType<any>;
-        Marker: React.ComponentType<any>;
-        PROVIDER_GOOGLE?: any;
-      });
-const NativeMapView = nativeMapsModule?.default;
-const NativeCircle = nativeMapsModule?.Circle;
-const NativeMarker = nativeMapsModule?.Marker;
-const PROVIDER_GOOGLE = nativeMapsModule?.PROVIDER_GOOGLE;
 
 LogBox.ignoreLogs(['VirtualizedLists should never be nested']);
 
@@ -241,18 +228,6 @@ function AvailabilityWebLocationField({
       </View>
     </>
   );
-}
-
-function buildNativeRegion(latitude: number, longitude: number, radiusKm: number) {
-  const latDelta = Math.max(0.02, radiusKm / 55);
-  const lngDelta = Math.max(0.02, radiusKm / (55 * Math.max(Math.cos((latitude * Math.PI) / 180), 0.2)));
-
-  return {
-    latitude,
-    longitude,
-    latitudeDelta: latDelta,
-    longitudeDelta: lngDelta,
-  };
 }
 
 export default function SetAvailabilityScreen() {
@@ -547,41 +522,13 @@ export default function SetAvailabilityScreen() {
             <View style={styles.mapWrap}>
               {locationForm.latitude != null &&
               locationForm.longitude != null &&
-              nativeMapsKeyConfigured &&
-              NativeMapView &&
-              NativeMarker &&
-              NativeCircle ? (
-                <NativeMapView
-                  provider={PROVIDER_GOOGLE}
+              nativeMapsKeyConfigured ? (
+                <AvailabilityRadiusMap
+                  latitude={locationForm.latitude}
+                  longitude={locationForm.longitude}
+                  radiusKm={locationForm.coverageRadiusKm}
                   style={styles.nativeMap}
-                  initialRegion={buildNativeRegion(
-                    locationForm.latitude,
-                    locationForm.longitude,
-                    locationForm.coverageRadiusKm
-                  )}
-                  region={buildNativeRegion(
-                    locationForm.latitude,
-                    locationForm.longitude,
-                    locationForm.coverageRadiusKm
-                  )}
-                >
-                  <NativeMarker
-                    coordinate={{
-                      latitude: locationForm.latitude,
-                      longitude: locationForm.longitude,
-                    }}
-                  />
-                  <NativeCircle
-                    center={{
-                      latitude: locationForm.latitude,
-                      longitude: locationForm.longitude,
-                    }}
-                    radius={locationForm.coverageRadiusKm * 1000}
-                    strokeColor="#4caf50"
-                    fillColor="rgba(76, 175, 80, 0.2)"
-                    strokeWidth={2}
-                  />
-                </NativeMapView>
+                />
               ) : (
                 <View style={styles.mapFallback}>
                   <Text style={styles.hint}>

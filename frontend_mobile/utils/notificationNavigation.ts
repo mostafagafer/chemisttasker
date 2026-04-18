@@ -22,6 +22,12 @@ const ROLE_CALENDAR_ROUTE_MAP: Record<string, string> = {
   organization: '/organization/calendar',
 };
 
+const ROLE_HUB_ROUTE_MAP: Record<string, string> = {
+  owner: '/owner/hub',
+  pharmacist: '/pharmacist/hub',
+  otherstaff: '/otherstaff/hub',
+};
+
 const normalizeRoleSlug = (rawRole?: string | null): string | null => {
   if (!rawRole) return null;
   const upper = String(rawRole).toUpperCase();
@@ -139,6 +145,36 @@ const parseCalendarFromPayload = (payload?: NotificationPayload | null) => {
   };
 };
 
+const parseHubFromActionUrl = (actionUrl?: string | null) => {
+  if (!actionUrl) return null;
+  try {
+    const url = new URL(actionUrl, 'http://localhost');
+    if (!url.pathname.includes('/dashboard/pharmacy-hub')) return null;
+    return {
+      scope: url.searchParams.get('scope') || null,
+      pharmacyId: url.searchParams.get('pharmacy_id') || null,
+      organizationId: url.searchParams.get('organization_id') || null,
+      groupId: url.searchParams.get('group_id') || null,
+      platformHub: url.searchParams.get('platform_hub') || null,
+      postId: url.searchParams.get('post') || null,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const parseHubFromPayload = (payload?: NotificationPayload | null) => {
+  if (!payload) return null;
+  return {
+    scope: payload.scope ? String(payload.scope) : null,
+    pharmacyId: payload.pharmacy_id ?? payload.pharmacyId ?? null,
+    organizationId: payload.organization_id ?? payload.organizationId ?? null,
+    groupId: payload.group_id ?? payload.groupId ?? null,
+    platformHub: payload.platform_hub ?? payload.platformHub ?? null,
+    postId: payload.post_id ?? payload.postId ?? null,
+  };
+};
+
 export const resolveChatNotificationRoomId = ({
   actionUrl,
   payload,
@@ -205,6 +241,40 @@ export const resolveCalendarNotificationRoute = ({
   if (merged.pharmacyId) params.set('pharmacy_id', String(merged.pharmacyId));
   if (merged.date) params.set('date', String(merged.date));
   if (merged.noteId) params.set('note_id', String(merged.noteId));
+
+  const query = params.toString();
+  return query ? `${baseRoute}?${query}` : baseRoute;
+};
+
+export const resolveHubNotificationRoute = ({
+  actionUrl,
+  payload,
+  userRole,
+}: ResolveRouteInput): string | null => {
+  const roleSlug = normalizeRoleSlug(userRole);
+  const baseRoute = roleSlug ? ROLE_HUB_ROUTE_MAP[roleSlug] : null;
+  if (!baseRoute) return null;
+
+  const actionParams = parseHubFromActionUrl(actionUrl);
+  const payloadParams = parseHubFromPayload(payload);
+  const merged = {
+    scope: actionParams?.scope ?? payloadParams?.scope ?? null,
+    pharmacyId: actionParams?.pharmacyId ?? payloadParams?.pharmacyId ?? null,
+    organizationId: actionParams?.organizationId ?? payloadParams?.organizationId ?? null,
+    groupId: actionParams?.groupId ?? payloadParams?.groupId ?? null,
+    platformHub: actionParams?.platformHub ?? payloadParams?.platformHub ?? null,
+    postId: actionParams?.postId ?? payloadParams?.postId ?? null,
+  };
+
+  if (!merged.scope && !merged.postId) return null;
+
+  const params = new URLSearchParams();
+  if (merged.scope) params.set('scope', String(merged.scope));
+  if (merged.pharmacyId != null) params.set('pharmacy_id', String(merged.pharmacyId));
+  if (merged.organizationId != null) params.set('organization_id', String(merged.organizationId));
+  if (merged.groupId != null) params.set('group_id', String(merged.groupId));
+  if (merged.platformHub) params.set('platform_hub', String(merged.platformHub));
+  if (merged.postId != null) params.set('post', String(merged.postId));
 
   const query = params.toString();
   return query ? `${baseRoute}?${query}` : baseRoute;

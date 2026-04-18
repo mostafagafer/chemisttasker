@@ -17,6 +17,7 @@ type Scope =
   | { type: 'organization'; id: number }
   | { type: 'group'; id: number }
   | { type: 'orgGroup'; id: number }
+  | { type: 'platform'; id: string }
   | null;
 
 type Props = {
@@ -39,6 +40,9 @@ export function PostComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
 
   const stableScope = useMemo(() => {
     if (!scope || scope.id == null) return null;
+    if (scope.type === 'platform') {
+      return { type: 'platform' as const, id: String(scope.id) };
+    }
     const idNum = typeof scope.id === 'string' ? Number(scope.id) : scope.id;
     if (!Number.isFinite(idNum)) return null;
     const normalizedType = scope.type === 'orgGroup' ? 'group' : scope.type;
@@ -58,8 +62,10 @@ export function PostComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
         resp = await fetchPharmacyGroupMembers(stableScope.id as any);
       } else if (stableScope.type === 'organization') {
         resp = await fetchOrganizationMembers(stableScope.id as any);
-      } else {
+      } else if (stableScope.type === 'group') {
         resp = await fetchHubGroupMembers(stableScope.id as any);
+      } else {
+        resp = [];
       }
       const normalized = Array.isArray(resp?.results) ? resp.results : Array.isArray(resp) ? resp : [];
       setMembers(normalized);

@@ -2520,6 +2520,13 @@ class PharmacyHubPost(models.Model):
         NORMAL = "NORMAL", "Normal"
         ANNOUNCEMENT = "ANNOUNCEMENT", "Announcement"
 
+    class PlatformHub(models.TextChoices):
+        PUBLIC = "public", "Public Hub"
+        OWNER = "owner", "Owner Hub"
+        PHARMACIST = "pharmacist", "Pharmacists Hub"
+        INTERN = "intern", "Interns Hub"
+        STAFF = "staff", "Staff Hub"
+
     pharmacy = models.ForeignKey(
         "client_profile.Pharmacy",
         on_delete=models.CASCADE,
@@ -2553,6 +2560,13 @@ class PharmacyHubPost(models.Model):
         null=True,
         blank=True,
         related_name="hub_posts",
+    )
+    platform_hub = models.CharField(
+        max_length=32,
+        choices=PlatformHub.choices,
+        null=True,
+        blank=True,
+        db_index=True,
     )
     is_pinned = models.BooleanField(default=False)
     pinned_at = models.DateTimeField(null=True, blank=True)
@@ -2592,11 +2606,36 @@ class PharmacyHubPost(models.Model):
             models.Index(fields=["is_pinned", "pinned_at"]),
             models.Index(fields=["organization", "created_at"]),
             models.Index(fields=["community_group", "created_at"]),
+            models.Index(fields=["platform_hub", "created_at"]),
         ]
         constraints = [
             models.CheckConstraint(
-                check=Q(pharmacy__isnull=False, organization__isnull=True)
-                | Q(pharmacy__isnull=True, organization__isnull=False),
+                check=(
+                    Q(
+                        platform_hub__isnull=False,
+                        pharmacy__isnull=True,
+                        organization__isnull=True,
+                        community_group__isnull=True,
+                    )
+                    | Q(
+                        community_group__isnull=False,
+                        pharmacy__isnull=False,
+                        organization__isnull=True,
+                        platform_hub__isnull=True,
+                    )
+                    | Q(
+                        community_group__isnull=True,
+                        pharmacy__isnull=False,
+                        organization__isnull=True,
+                        platform_hub__isnull=True,
+                    )
+                    | Q(
+                        community_group__isnull=True,
+                        pharmacy__isnull=True,
+                        organization__isnull=False,
+                        platform_hub__isnull=True,
+                    )
+                ),
                 name="pharmacy_hub_post_scope_check",
             )
         ]
@@ -2604,7 +2643,15 @@ class PharmacyHubPost(models.Model):
     def save(self, *args, **kwargs):
         update_fields = kwargs.get("update_fields")
 
-        if self.pharmacy_id and not self.organization_id:
+        if self.platform_hub:
+            self.pharmacy_id = None
+            self.organization_id = None
+            self.community_group_id = None
+            if update_fields is not None:
+                fields = set(update_fields)
+                fields.update({"pharmacy", "organization", "community_group"})
+                kwargs["update_fields"] = list(fields)
+        elif self.pharmacy_id and not self.organization_id:
             self.organization_id = None
             if update_fields is not None:
                 fields = set(update_fields)
@@ -2623,10 +2670,11 @@ class PharmacyHubPost(models.Model):
                 raise ValidationError("Community group must be linked to a pharmacy.")
             self.pharmacy_id = group_pharmacy_id
             self.organization_id = None
+            self.platform_hub = None
             update_fields = kwargs.get("update_fields")
             if update_fields is not None:
                 fields = set(update_fields)
-                fields.update({"pharmacy", "organization"})
+                fields.update({"pharmacy", "organization", "platform_hub"})
                 kwargs["update_fields"] = list(fields)
         super().save(*args, **kwargs)
 
@@ -2850,6 +2898,13 @@ class PharmacyHubAttachment(models.Model):
 
 
 class PharmacyHubPoll(models.Model):
+    class PlatformHub(models.TextChoices):
+        PUBLIC = "public", "Public Hub"
+        OWNER = "owner", "Owner Hub"
+        PHARMACIST = "pharmacist", "Pharmacists Hub"
+        INTERN = "intern", "Interns Hub"
+        STAFF = "staff", "Staff Hub"
+
     pharmacy = models.ForeignKey(
         "client_profile.Pharmacy",
         on_delete=models.CASCADE,
@@ -2870,6 +2925,13 @@ class PharmacyHubPoll(models.Model):
         null=True,
         blank=True,
         related_name="hub_polls",
+    )
+    platform_hub = models.CharField(
+        max_length=32,
+        choices=PlatformHub.choices,
+        null=True,
+        blank=True,
+        db_index=True,
     )
     question = models.CharField(max_length=500)
     created_by = models.ForeignKey(
@@ -2897,13 +2959,36 @@ class PharmacyHubPoll(models.Model):
             models.Index(fields=["pharmacy", "created_at"]),
             models.Index(fields=["organization", "created_at"]),
             models.Index(fields=["community_group", "created_at"]),
+            models.Index(fields=["platform_hub", "created_at"]),
             models.Index(fields=["is_closed", "closes_at"]),
         ]
         constraints = [
             models.CheckConstraint(
                 check=(
-                    Q(pharmacy__isnull=False, organization__isnull=True)
-                    | Q(pharmacy__isnull=True, organization__isnull=False)
+                    Q(
+                        platform_hub__isnull=False,
+                        pharmacy__isnull=True,
+                        organization__isnull=True,
+                        community_group__isnull=True,
+                    )
+                    | Q(
+                        community_group__isnull=False,
+                        pharmacy__isnull=False,
+                        organization__isnull=True,
+                        platform_hub__isnull=True,
+                    )
+                    | Q(
+                        community_group__isnull=True,
+                        pharmacy__isnull=False,
+                        organization__isnull=True,
+                        platform_hub__isnull=True,
+                    )
+                    | Q(
+                        community_group__isnull=True,
+                        pharmacy__isnull=True,
+                        organization__isnull=False,
+                        platform_hub__isnull=True,
+                    )
                 ),
                 name="pharmacy_hub_poll_scope_check",
             )
@@ -2911,15 +2996,24 @@ class PharmacyHubPoll(models.Model):
 
     def save(self, *args, **kwargs):
         update_fields = kwargs.get("update_fields")
-        if self.community_group_id:
+        if self.platform_hub:
+            self.pharmacy_id = None
+            self.organization_id = None
+            self.community_group_id = None
+            if update_fields is not None:
+                fields = set(update_fields)
+                fields.update({"pharmacy", "organization", "community_group"})
+                kwargs["update_fields"] = list(fields)
+        elif self.community_group_id:
             group_pharmacy_id = self.community_group.pharmacy_id
             if not group_pharmacy_id:
                 raise ValidationError("Community group must be linked to a pharmacy.")
             self.pharmacy_id = group_pharmacy_id
             self.organization_id = None
+            self.platform_hub = None
             if update_fields is not None:
                 fields = set(update_fields)
-                fields.update({"pharmacy", "organization"})
+                fields.update({"pharmacy", "organization", "platform_hub"})
                 kwargs["update_fields"] = list(fields)
         elif self.pharmacy_id and self.organization_id:
             # enforce constraint manually to keep validation errors clear
@@ -2927,6 +3021,8 @@ class PharmacyHubPoll(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
+        if self.platform_hub:
+            return f"HubPoll#{self.pk} platform={self.platform_hub}"
         if self.community_group_id:
             return f"HubPoll#{self.pk} group={self.community_group_id}"
         if self.pharmacy_id:

@@ -6502,6 +6502,7 @@ class HubPostSerializer(serializers.ModelSerializer):
     viewer_is_admin = serializers.SerializerMethodField()
     organization = serializers.IntegerField(source="organization_id", read_only=True)
     organization_name = serializers.SerializerMethodField()
+    platform_hub = serializers.CharField(read_only=True)
     pharmacy_name = serializers.SerializerMethodField()
     community_group = serializers.IntegerField(
         source="community_group_id", read_only=True
@@ -6527,6 +6528,7 @@ class HubPostSerializer(serializers.ModelSerializer):
             "community_group_name",
             "organization",
             "organization_name",
+            "platform_hub",
             "scope_type",
             "scope_target_id",
             "author",
@@ -6562,6 +6564,7 @@ class HubPostSerializer(serializers.ModelSerializer):
             "community_group_name",
             "organization",
             "organization_name",
+            "platform_hub",
             "scope_type",
             "scope_target_id",
             "author",
@@ -6635,6 +6638,7 @@ class HubPostSerializer(serializers.ModelSerializer):
         pharmacy = context.get("pharmacy")
         organization = context.get("organization")
         community_group = context.get("community_group")
+        platform_hub = context.get("platform_hub")
         if community_group:
             allowed_ids = set(
                 PharmacyCommunityGroupMembership.objects.filter(
@@ -6664,6 +6668,10 @@ class HubPostSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"tagged_member_ids": f"Memberships must belong to organization #{organization.id}."}
                 )
+        elif platform_hub:
+            raise serializers.ValidationError(
+                {"tagged_member_ids": "Member tagging is not available in ChemistTasker Hub posts."}
+            )
         else:
             raise serializers.ValidationError({"tagged_member_ids": "Unable to determine post scope for tagging."})
         return memberships
@@ -6687,6 +6695,8 @@ class HubPostSerializer(serializers.ModelSerializer):
         return [membership for membership in memberships if membership.id in to_add]
 
     def get_scope_type(self, obj):
+        if obj.platform_hub:
+            return "platform"
         if obj.community_group_id:
             return "group"
         if obj.pharmacy_id:
@@ -6696,6 +6706,8 @@ class HubPostSerializer(serializers.ModelSerializer):
         return None
 
     def get_scope_target_id(self, obj):
+        if obj.platform_hub:
+            return obj.platform_hub
         if obj.community_group_id:
             return obj.community_group_id
         if obj.pharmacy_id:
@@ -6820,6 +6832,7 @@ class HubPollSerializer(serializers.ModelSerializer):
     total_votes = serializers.SerializerMethodField()
     has_voted = serializers.SerializerMethodField()
     selected_option_id = serializers.SerializerMethodField()
+    platform_hub = serializers.CharField(read_only=True)
     scope_type = serializers.SerializerMethodField()
     scope_target_id = serializers.SerializerMethodField()
     created_by = serializers.SerializerMethodField()
@@ -6834,6 +6847,7 @@ class HubPollSerializer(serializers.ModelSerializer):
             "pharmacy",
             "organization",
             "community_group",
+            "platform_hub",
             "scope_type",
             "scope_target_id",
             "created_at",
@@ -6854,6 +6868,7 @@ class HubPollSerializer(serializers.ModelSerializer):
             "pharmacy",
             "organization",
             "community_group",
+            "platform_hub",
             "scope_type",
             "scope_target_id",
             "created_at",
@@ -6893,6 +6908,7 @@ class HubPollSerializer(serializers.ModelSerializer):
             pharmacy=self.context.get("pharmacy"),
             organization=self.context.get("organization"),
             community_group=self.context.get("community_group"),
+            platform_hub=self.context.get("platform_hub"),
             created_by=self.context.get("request_user"),
             created_by_membership=self.context.get("request_membership"),
         )
@@ -6931,6 +6947,8 @@ class HubPollSerializer(serializers.ModelSerializer):
         return instance
 
     def get_scope_type(self, obj):
+        if obj.platform_hub:
+            return "platform"
         if obj.community_group_id:
             return "group"
         if obj.pharmacy_id:
@@ -6940,6 +6958,8 @@ class HubPollSerializer(serializers.ModelSerializer):
         return None
 
     def get_scope_target_id(self, obj):
+        if obj.platform_hub:
+            return obj.platform_hub
         if obj.community_group_id:
             return obj.community_group_id
         if obj.pharmacy_id:

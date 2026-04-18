@@ -11,13 +11,16 @@ type ScopeBase =
   | { type: 'pharmacy'; id: number }
   | { type: 'organization'; id: number }
   | { type: 'group'; id: number }
-  | { type: 'orgGroup'; id: number };
+  | { type: 'orgGroup'; id: number }
+  | { type: 'platform'; id: string };
 
 type Scope = ScopeBase | null;
 
 type Props = {
   scope: Scope;
   onBack?: () => void;
+  targetPostId?: number | null;
+  onTargetPostHandled?: () => void;
   header?: {
     title: string;
     subtitle?: string;
@@ -56,9 +59,12 @@ const formatMemberLabel = (name: string, role?: string | null, jobTitle?: string
   return parts.join(' | ');
 };
 
-export function HubFeed({ scope, onBack, header }: Props) {
+export function HubFeed({ scope, onBack, targetPostId, onTargetPostHandled, header }: Props) {
   const stableScope = React.useMemo(() => {
     if (!scope || scope.id == null) return null;
+    if (scope.type === 'platform') {
+      return { type: 'platform' as const, id: String(scope.id) };
+    }
     const idNum = typeof scope.id === 'string' ? Number(scope.id) : scope.id;
     if (!Number.isFinite(idNum)) return null;
     const normalizedType = scope.type === 'orgGroup' ? 'group' : (scope as ScopeBase).type;
@@ -108,6 +114,7 @@ export function HubFeed({ scope, onBack, header }: Props) {
   const [pollError, setPollError] = useState<string | null>(null);
   const [editingPoll, setEditingPoll] = useState<HubPoll | null>(null);
   const [pollMenuId, setPollMenuId] = useState<number | null>(null);
+  const listRef = React.useRef<FlatList<HubPost>>(null);
   const reactionEmojis: Record<string, string> = {
     LIKE: '\uD83D\uDC4D',
     LOVE: '\u2764\uFE0F',
@@ -369,6 +376,17 @@ export function HubFeed({ scope, onBack, header }: Props) {
       .finally(() => setPollsLoading(false));
   }, [scope, load]);
 
+  useEffect(() => {
+    if (!targetPostId || !posts.length) return;
+    const index = posts.findIndex((item) => item.id === targetPostId);
+    if (index < 0) return;
+    const timer = setTimeout(() => {
+      listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.1 });
+      onTargetPostHandled?.();
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [onTargetPostHandled, posts, targetPostId]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -472,6 +490,7 @@ export function HubFeed({ scope, onBack, header }: Props) {
       ) : null}
 
       <Animated.FlatList
+        ref={listRef}
         data={posts}
         keyExtractor={(item) => String(item.id)}
         renderItem={({ item }) => (
@@ -494,6 +513,7 @@ export function HubFeed({ scope, onBack, header }: Props) {
                 .finally(() => setCommentsLoading(false));
             }}
             onRefresh={onRefresh}
+            highlighted={targetPostId === item.id}
           />
         )}
         ListHeaderComponent={

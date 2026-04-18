@@ -47,6 +47,9 @@ if DEBUG:
         "exp://192.168.1.7:8081",        # Sometimes Expo uses exp:// protocol
         "http://192.168.1.9:19006",       # Expo Go dev server
         "exp://192.168.1.9:8081",        # Sometimes Expo uses exp:// protocol
+        "http://192.168.1.10:19006",
+        "http://192.168.1.10:8081",
+        "exp://192.168.1.10:8081",
     ])
 
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS

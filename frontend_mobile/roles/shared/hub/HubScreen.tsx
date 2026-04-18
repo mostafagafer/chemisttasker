@@ -1,6 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, View, StyleSheet, TouchableOpacity, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLocalSearchParams, usePathname, useRouter } from 'expo-router';
 import {
   ActivityIndicator,
   Button,
@@ -32,6 +33,7 @@ import {
   updateOrganizationHubProfile,
 } from './api';
 import type {
+  HubChemistTaskerHub,
   HubContext,
   HubGroup,
   HubGroupMemberOption,
@@ -46,13 +48,15 @@ type Scope =
   | { type: 'pharmacy'; id: number }
   | { type: 'organization'; id: number }
   | { type: 'group'; id: number }
-  | { type: 'orgGroup'; id: number };
+  | { type: 'orgGroup'; id: number }
+  | { type: 'platform'; id: string };
 
 type ViewSelection =
   | { type: 'pharmacy'; id: number } // Pharmacy home
   | { type: 'organization'; id: number } // Organization home
   | { type: 'group'; id: number } // Community group (cross pharmacies)
   | { type: 'orgGroup'; id: number } // Org community group
+  | { type: 'platform'; id: string } // ChemistTasker hub
   | null;
 
 function SectionHeader({ title }: { title: string }) {
@@ -92,6 +96,16 @@ type GroupFormState = {
 };
 
 export default function HubScreen() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useLocalSearchParams<{
+    scope?: string;
+    pharmacy_id?: string;
+    organization_id?: string;
+    group_id?: string;
+    platform_hub?: string;
+    post?: string;
+  }>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hub, setHub] = useState<HubContext | null>(null);
@@ -125,7 +139,18 @@ export default function HubScreen() {
   const [profileMenuVisible, setProfileMenuVisible] = useState(false);
   const defaultPharmacyCover = 'https://placehold.co/1200x400/4F46E5/FFFFFF?text=Pharmacy+Hub';
   const defaultOrgCover = 'https://placehold.co/1200x400/0EA5E9/FFFFFF?text=Organization+Hub';
+  const defaultPlatformCover = 'https://placehold.co/1200x400/111827/FFFFFF?text=ChemistTasker+Hub';
   const imageMediaTypes = (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
+  const targetPostId = useMemo(() => {
+    const raw = searchParams.post;
+    if (!raw) return null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [searchParams.post]);
+
+  const clearDeepLinkParams = useCallback(() => {
+    router.replace(pathname as any);
+  }, [pathname, router]);
 
   const pickDefaultSelection = useCallback((data: any): { pharmacyId: number | null; orgId: number | null; selection: ViewSelection } | null => {
     const pharmacies = data?.pharmacies || [];
@@ -161,6 +186,53 @@ export default function HubScreen() {
     try {
       const data = await fetchHubContext();
       setHub(data as HubContext);
+      const requestedScope = searchParams.scope;
+      const requestedPharmacyId = Number(searchParams.pharmacy_id);
+      const requestedOrganizationId = Number(searchParams.organization_id);
+      const requestedGroupId = Number(searchParams.group_id);
+      const requestedPlatformHub = searchParams.platform_hub ? String(searchParams.platform_hub) : null;
+      let deepLinkedSelection: ViewSelection = null;
+      let deepLinkedPharmacyId: number | null = null;
+      let deepLinkedOrgId: number | null = null;
+
+      if (requestedScope === 'pharmacy' && Number.isFinite(requestedPharmacyId)) {
+        const pharmacy = data?.pharmacies?.find((p: any) => p.id === requestedPharmacyId);
+        if (pharmacy) {
+          deepLinkedSelection = { type: 'pharmacy', id: requestedPharmacyId };
+          deepLinkedPharmacyId = requestedPharmacyId;
+          deepLinkedOrgId = pharmacy.organizationId || null;
+        }
+      } else if (requestedScope === 'organization' && Number.isFinite(requestedOrganizationId)) {
+        const organization = data?.organizations?.find((o: any) => o.id === requestedOrganizationId);
+        if (organization) {
+          deepLinkedSelection = { type: 'organization', id: requestedOrganizationId };
+          deepLinkedOrgId = requestedOrganizationId;
+        }
+      } else if (requestedScope === 'group' && Number.isFinite(requestedGroupId)) {
+        const communityGroup = (data?.communityGroups || []).find((g: any) => g.id === requestedGroupId);
+        if (communityGroup) {
+          deepLinkedSelection = { type: 'group', id: requestedGroupId };
+          deepLinkedPharmacyId = communityGroup.pharmacyId || null;
+        } else {
+          const orgGroup = (data?.organizationGroups || []).find((g: any) => g.id === requestedGroupId);
+          if (orgGroup) {
+            deepLinkedSelection = { type: 'orgGroup', id: requestedGroupId };
+            deepLinkedOrgId = orgGroup.organizationId || null;
+          }
+        }
+      } else if (requestedScope === 'platform' && requestedPlatformHub) {
+        const platformHub = (data?.chemisttaskerHubs || []).find((h: any) => h.key === requestedPlatformHub);
+        if (platformHub) {
+          deepLinkedSelection = { type: 'platform', id: requestedPlatformHub };
+        }
+      }
+
+      if (deepLinkedSelection) {
+        setActivePharmacyId(deepLinkedPharmacyId);
+        setActiveOrgId(deepLinkedOrgId);
+        setSelection(deepLinkedSelection);
+        return;
+      }
       const picked = pickDefaultSelection(data);
       if (picked) {
         setActivePharmacyId(picked.pharmacyId);
@@ -177,7 +249,7 @@ export default function HubScreen() {
     } finally {
       setLoading(false);
     }
-  }, [pickDefaultSelection]);
+  }, [pickDefaultSelection, searchParams.group_id, searchParams.organization_id, searchParams.pharmacy_id, searchParams.platform_hub, searchParams.scope]);
 
   useEffect(() => {
     void loadContext();
@@ -403,6 +475,11 @@ export default function HubScreen() {
     return hub.communityGroups || [];
   }, [hub]);
 
+  const chemisttaskerHubs = useMemo<HubChemistTaskerHub[]>(() => {
+    if (!hub) return [];
+    return hub.chemisttaskerHubs || [];
+  }, [hub]);
+
   const defaultOrg = useMemo(() => {
     if (!hub) return null;
     if (selectedPharmacy?.organizationId) {
@@ -430,13 +507,15 @@ export default function HubScreen() {
     const isValidOrg = (id: number) => organizations.some((o) => o.id === id);
     const isValidGroup = (id: number) => (hub.communityGroups || []).some((g) => g.id === id);
     const isValidOrgGroup = (id: number) => (hub.organizationGroups || []).some((g) => g.id === id);
+    const isValidPlatform = (id: string) => (hub.chemisttaskerHubs || []).some((item) => item.key === id);
 
     if (selection) {
       if (
         (selection.type === 'pharmacy' && !isValidPharmacy(selection.id)) ||
         (selection.type === 'organization' && !isValidOrg(selection.id)) ||
         (selection.type === 'group' && !isValidGroup(selection.id)) ||
-        (selection.type === 'orgGroup' && !isValidOrgGroup(selection.id))
+        (selection.type === 'orgGroup' && !isValidOrgGroup(selection.id)) ||
+        (selection.type === 'platform' && !isValidPlatform(selection.id))
       ) {
         setSelection(null);
       }
@@ -452,6 +531,11 @@ export default function HubScreen() {
     if (!selection || selection.type !== 'orgGroup') return null;
     return orgGroups.find((g) => g.id === selection.id) || null;
   }, [selection, orgGroups]);
+
+  const selectedChemistTaskerHub = useMemo<HubChemistTaskerHub | null>(() => {
+    if (!selection || selection.type !== 'platform') return null;
+    return chemisttaskerHubs.find((hubItem) => hubItem.key === selection.id) || null;
+  }, [chemisttaskerHubs, selection]);
 
   const filteredMembers = useMemo(() => {
     if (!memberOptions) return [];
@@ -617,6 +701,7 @@ export default function HubScreen() {
       else if (selection.type === 'organization') scope = { type: 'organization', id: selection.id };
       else if (selection.type === 'group') scope = { type: 'group', id: selection.id };
       else if (selection.type === 'orgGroup') scope = { type: 'orgGroup', id: selection.id };
+      else if (selection.type === 'platform') scope = { type: 'platform', id: selection.id };
     }
 
     const title =
@@ -628,6 +713,8 @@ export default function HubScreen() {
             ? selectedGroup?.name || 'Group'
             : selection.type === 'orgGroup'
               ? selectedOrgGroup?.name || 'Org Group'
+              : selection.type === 'platform'
+                ? selectedChemistTaskerHub?.label || 'ChemistTasker Hub'
               : 'Hub';
 
     const aboutText =
@@ -639,6 +726,8 @@ export default function HubScreen() {
             ? selectedGroup?.description
             : selection.type === 'orgGroup'
               ? selectedOrgGroup?.description
+              : selection.type === 'platform'
+                ? 'ChemistTasker community space for platform-wide updates and discussion.'
               : '';
 
     const cover =
@@ -646,6 +735,8 @@ export default function HubScreen() {
         ? (selectedPharmacy as any)?.coverImageUrl || defaultPharmacyCover
         : selection.type === 'organization'
           ? (selectedOrganization as any)?.coverImageUrl || defaultOrgCover
+          : selection.type === 'platform'
+            ? defaultPlatformCover
           : null;
 
     const canEditProfile =
@@ -669,6 +760,8 @@ export default function HubScreen() {
         <HubFeed
           scope={scope}
           onBack={() => setSelection(null)}
+          targetPostId={targetPostId}
+          onTargetPostHandled={clearDeepLinkParams}
           header={headerData}
         />
       </SafeAreaView>
@@ -825,6 +918,23 @@ export default function HubScreen() {
                 )}
               </>
             ) : null}
+
+            {chemisttaskerHubs.length ? (
+              <>
+                <Divider style={{ marginVertical: 8 }} />
+                <Text style={styles.sectionLabel}>CHEMISTTASKER HUB</Text>
+                {chemisttaskerHubs.map((hubItem) => (
+                  <TouchableOpacity
+                    key={hubItem.key}
+                    style={styles.tile}
+                    onPress={() => setSelection({ type: 'platform', id: hubItem.key })}
+                  >
+                    <Text style={styles.tileTitle}>{hubItem.label}</Text>
+                    <Text style={styles.meta}>{hubItem.audienceType.replace(/_/g, ' ')}</Text>
+                  </TouchableOpacity>
+                ))}
+              </>
+            ) : null}
           </Card.Content>
         </Card>
 
@@ -832,7 +942,7 @@ export default function HubScreen() {
         <Card style={styles.spaceCard} mode="outlined">
           <Card.Content>
             <Text variant="titleMedium">Select a space</Text>
-            <Text style={styles.muted}>Choose Pharmacy Home, Organization Home, or any group to view and post.</Text>
+            <Text style={styles.muted}>Choose a ChemistTasker hub, Pharmacy Home, Organization Home, or any group to view and post.</Text>
           </Card.Content>
         </Card>
       </ScrollView>
@@ -1267,3 +1377,4 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
 });
+

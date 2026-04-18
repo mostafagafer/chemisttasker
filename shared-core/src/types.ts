@@ -195,8 +195,15 @@ export interface HubContextApi {
     organizations: OrganizationContextApi[];
     community_groups: HubGroupApi[];
     organization_groups: HubGroupApi[];
+    chemisttasker_hubs?: HubChemistTaskerHubApi[];
     default_pharmacy_id: number | null;
     default_organization_id: number | null;
+}
+
+export interface HubChemistTaskerHubApi {
+    key: string;
+    label: string;
+    audience_type: string;
 }
 
 // ============ HUB - DOMAIN TYPES (camelCase) ============
@@ -266,8 +273,9 @@ export type HubPost = {
     communityGroupName: string | null;
     organizationId: number | null;
     organizationName: string | null;
+    platformHub: string | null;
     scopeType: HubScopeType;
-    scopeTargetId: number | null;
+    scopeTargetId: number | string | null;
     body: string;
     visibility: "NORMAL" | "ANNOUNCEMENT";
     allowComments: boolean;
@@ -307,6 +315,7 @@ export type HubPoll = {
     pharmacyId: number | null;
     organizationId: number | null;
     communityGroupId: number | null;
+    platformHub: string | null;
     scopeType: HubScopeType;
     options: HubPollOption[];
     totalVotes: number;
@@ -360,15 +369,22 @@ export type HubContext = {
     organizations: HubOrganization[];
     communityGroups: HubGroup[];
     organizationGroups: HubGroup[];
+    chemisttaskerHubs: HubChemistTaskerHub[];
     defaultPharmacyId: number | null;
     defaultOrganizationId: number | null;
 };
 
-export type HubScopeType = "pharmacy" | "group" | "organization";
+export type HubChemistTaskerHub = {
+    key: string;
+    label: string;
+    audienceType: string;
+};
+
+export type HubScopeType = "pharmacy" | "group" | "organization" | "platform";
 
 export type HubScopeSelection = {
     type: HubScopeType;
-    id: number;
+    id: number | string;
 };
 
 export type HubTaggedMember = {

@@ -3,6 +3,7 @@
 import json
 import mimetypes
 from collections.abc import Mapping
+from urllib.parse import urlencode
 from django.http import QueryDict
 
 from django.conf import settings
@@ -24,6 +25,7 @@ from client_profile.notifications import notify_users
 
 from ..models import (
     Membership,
+    OtherStaffOnboarding,
     Organization,
     Pharmacy,
     PharmacyAdmin,
@@ -50,6 +52,115 @@ from ..serializers import (
     HubPollSerializer,
 )
 from ..file_validation import ATTACHMENT_UPLOAD_POLICY, validate_uploaded_file
+
+
+CHEMISTTASKER_HUB_DEFINITIONS = {
+    PharmacyHubPost.PlatformHub.PUBLIC: {
+        "key": PharmacyHubPost.PlatformHub.PUBLIC,
+        "label": "Public Hub",
+        "audience_type": "PUBLIC",
+    },
+    PharmacyHubPost.PlatformHub.OWNER: {
+        "key": PharmacyHubPost.PlatformHub.OWNER,
+        "label": "Owner Hub",
+        "audience_type": "OWNER",
+    },
+    PharmacyHubPost.PlatformHub.PHARMACIST: {
+        "key": PharmacyHubPost.PlatformHub.PHARMACIST,
+        "label": "Pharmacists Hub",
+        "audience_type": "PHARMACIST",
+    },
+    PharmacyHubPost.PlatformHub.INTERN: {
+        "key": PharmacyHubPost.PlatformHub.INTERN,
+        "label": "Interns Hub",
+        "audience_type": "INTERN",
+    },
+    PharmacyHubPost.PlatformHub.STAFF: {
+        "key": PharmacyHubPost.PlatformHub.STAFF,
+        "label": "Staff Hub",
+        "audience_type": "STAFF",
+    },
+}
+
+
+def _get_user_display_name(user):
+    if not user:
+        return "A user"
+    full_name = user.get_full_name().strip() if hasattr(user, "get_full_name") else ""
+    return full_name or getattr(user, "username", "") or getattr(user, "email", "") or "A user"
+
+
+def _build_hub_post_action_url(post):
+    params = {"post": post.id}
+    if post.platform_hub:
+        params.update(
+            {
+                "scope": "platform",
+                "platform_hub": post.platform_hub,
+            }
+        )
+    elif post.community_group_id:
+        params.update(
+            {
+                "scope": "group",
+                "group_id": post.community_group_id,
+            }
+        )
+    elif post.organization_id:
+        params.update(
+            {
+                "scope": "organization",
+                "organization_id": post.organization_id,
+            }
+        )
+    elif post.pharmacy_id:
+        params.update(
+            {
+                "scope": "pharmacy",
+                "pharmacy_id": post.pharmacy_id,
+            }
+        )
+    return f"/dashboard/pharmacy-hub?{urlencode(params)}"
+
+
+def _notify_hub_post_owner(*, post, actor_user, title, body="", payload=None):
+    post_author = getattr(getattr(post, "author_membership", None), "user", None)
+    if not post_author or not post_author.is_active:
+        return
+    if actor_user and post_author.id == actor_user.id:
+        return
+    final_payload = {
+        "post_id": post.id,
+        **(payload or {}),
+    }
+    notify_users(
+        [post_author.id],
+        title=title,
+        body=body,
+        notification_type="alert",
+        action_url=_build_hub_post_action_url(post),
+        payload=final_payload,
+    )
+
+
+def get_user_chemisttasker_hubs(user):
+    hubs = [CHEMISTTASKER_HUB_DEFINITIONS[PharmacyHubPost.PlatformHub.PUBLIC]]
+    top_role = (getattr(user, "role", "") or "").upper()
+    if top_role == "OWNER":
+        hubs.append(CHEMISTTASKER_HUB_DEFINITIONS[PharmacyHubPost.PlatformHub.OWNER])
+    elif top_role == "PHARMACIST":
+        hubs.append(CHEMISTTASKER_HUB_DEFINITIONS[PharmacyHubPost.PlatformHub.PHARMACIST])
+    elif top_role == "OTHER_STAFF":
+        other_staff_role = (
+            OtherStaffOnboarding.objects.filter(user=user)
+            .values_list("role_type", flat=True)
+            .first()
+        )
+        if (other_staff_role or "").upper() == "INTERN":
+            hubs.append(CHEMISTTASKER_HUB_DEFINITIONS[PharmacyHubPost.PlatformHub.INTERN])
+        else:
+            hubs.append(CHEMISTTASKER_HUB_DEFINITIONS[PharmacyHubPost.PlatformHub.STAFF])
+    return hubs
 
 
 class HubAttachmentMixin:
@@ -310,6 +421,7 @@ class HubScopeResolver:
             "organization": organization,
             "pharmacy": None,
             "community_group": None,
+            "platform_hub": None,
             "request_membership": membership,
             "organization_memberships": memberships,
             "has_admin_permissions": has_admin,
@@ -318,7 +430,36 @@ class HubScopeResolver:
             "is_org_admin": org_admin,
         }
 
+    def platform_scope(self, platform_hub):
+        if platform_hub not in CHEMISTTASKER_HUB_DEFINITIONS:
+            raise PermissionDenied("Unknown ChemistTasker hub.")
+        allowed_hubs = {
+            item["key"] for item in get_user_chemisttasker_hubs(self.user)
+        }
+        if platform_hub not in allowed_hubs:
+            raise PermissionDenied("You do not have access to this ChemistTasker hub.")
+        membership = (
+            Membership.objects.filter(user=self.user, is_active=True)
+            .select_related("pharmacy", "pharmacy__organization", "user")
+            .order_by("id")
+            .first()
+        )
+        return {
+            "scope_type": "platform",
+            "platform_hub": platform_hub,
+            "organization": None,
+            "pharmacy": None,
+            "community_group": None,
+            "request_membership": membership,
+            "has_admin_permissions": False,
+            "has_group_admin_permissions": False,
+            "is_owner": False,
+            "is_org_admin": False,
+        }
+
     def from_post(self, post):
+        if post.platform_hub:
+            return self.platform_scope(post.platform_hub)
         if post.community_group_id:
             return self.group_scope(post.community_group_id, group=post.community_group)
         if post.pharmacy_id:
@@ -328,6 +469,8 @@ class HubScopeResolver:
         raise PermissionDenied("Post scope is not configured.")
 
     def from_poll(self, poll):
+        if poll.platform_hub:
+            return self.platform_scope(poll.platform_hub)
         if poll.community_group_id:
             return self.group_scope(poll.community_group_id, group=poll.community_group)
         if poll.pharmacy_id:
@@ -344,14 +487,11 @@ class HubScopeResolver:
             return self._ensure_pharmacy_membership(scope)
         if scope["scope_type"] == "organization":
             return self._ensure_organization_membership(scope)
+        if scope["scope_type"] == "platform":
+            return self._ensure_platform_membership(scope)
         raise PermissionDenied("Unable to resolve membership for this scope.")
 
-    def _ensure_pharmacy_membership(self, scope):
-        pharmacy = scope.get("pharmacy")
-        if not pharmacy:
-            raise PermissionDenied("Join this pharmacy before posting.")
-        if not (scope.get("is_owner") or scope.get("is_org_admin")):
-            raise PermissionDenied("Join this pharmacy before posting.")
+    def _activate_or_create_membership(self, pharmacy):
         membership, _ = Membership.objects.get_or_create(
             user=self.user,
             pharmacy=pharmacy,
@@ -374,6 +514,15 @@ class HubScopeResolver:
                 "is_active": True,
             },
         )
+        return membership
+
+    def _ensure_pharmacy_membership(self, scope):
+        pharmacy = scope.get("pharmacy")
+        if not pharmacy:
+            raise PermissionDenied("Join this pharmacy before posting.")
+        if not (scope.get("is_owner") or scope.get("is_org_admin")):
+            raise PermissionDenied("Join this pharmacy before posting.")
+        membership = self._activate_or_create_membership(pharmacy)
         scope["request_membership"] = membership
         return membership
 
@@ -394,30 +543,44 @@ class HubScopeResolver:
         primary_pharmacy = organization.pharmacies.order_by("id").first()
         if not primary_pharmacy:
             raise PermissionDenied("This organization has no pharmacies configured.")
-        membership, _ = Membership.objects.get_or_create(
-            user=self.user,
-            pharmacy=primary_pharmacy,
-            defaults={
-                "role": "CONTACT",
-                "employment_type": "FULL_TIME",
-                "is_active": True,
-            },
-        )
-        if not membership.is_active:
-            membership.is_active = True
-            membership.save(update_fields=["is_active"])
-        PharmacyAdmin.objects.update_or_create(
-            user=self.user,
-            pharmacy=primary_pharmacy,
-            defaults={
-                "membership": membership,
-                "admin_level": PharmacyAdmin.AdminLevel.MANAGER,
-                "staff_role": "OTHER",
-                "is_active": True,
-            },
-        )
+        membership = self._activate_or_create_membership(primary_pharmacy)
         scope["request_membership"] = membership
         return membership
+
+    def _ensure_platform_membership(self, scope):
+        membership = (
+            Membership.objects.filter(user=self.user, is_active=True)
+            .select_related("pharmacy")
+            .order_by("id")
+            .first()
+        )
+        if membership:
+            scope["request_membership"] = membership
+            return membership
+        owned_pharmacy = (
+            Pharmacy.objects.filter(owner__user_id=self.user.id)
+            .select_related("organization")
+            .order_by("id")
+            .first()
+        )
+        if owned_pharmacy:
+            membership = self._activate_or_create_membership(owned_pharmacy)
+            scope["request_membership"] = membership
+            return membership
+        org_admin_pharmacy = (
+            Pharmacy.objects.filter(
+                organization__memberships__user=self.user,
+                organization__memberships__role__in=self.org_access_roles,
+            )
+            .select_related("organization")
+            .order_by("id")
+            .first()
+        )
+        if org_admin_pharmacy:
+            membership = self._activate_or_create_membership(org_admin_pharmacy)
+            scope["request_membership"] = membership
+            return membership
+        raise PermissionDenied("Join a pharmacy before posting in ChemistTasker Hub.")
 
 
 class HubScopedViewSetMixin:
@@ -447,7 +610,7 @@ class HubScopedViewSetMixin:
         scope_type = params.get("scope") or params.get("scope_type")
         if not scope_type:
             raise ValidationError(
-                {"scope": "Provide a scope (pharmacy, group, or organization)."}
+                {"scope": "Provide a scope (pharmacy, group, organization, or platform)."}
             )
         resolver = HubScopeResolver(self.request.user)
         if scope_type == "pharmacy":
@@ -465,9 +628,16 @@ class HubScopedViewSetMixin:
             if not organization_id:
                 raise ValidationError({"organization_id": "This field is required."})
             return resolver.organization_scope(organization_id)
+        if scope_type == "platform":
+            platform_hub = params.get("platform_hub") or params.get("scope_id")
+            if not platform_hub:
+                raise ValidationError({"platform_hub": "This field is required."})
+            return resolver.platform_scope(platform_hub)
         raise ValidationError({"scope": "Invalid scope type."})
 
     def _apply_scope_filter(self, queryset, scope):
+        if scope["scope_type"] == "platform":
+            return queryset.filter(platform_hub=scope["platform_hub"])
         if scope["scope_type"] == "group":
             return queryset.filter(community_group=scope["community_group"])
         if scope["scope_type"] == "pharmacy":
@@ -489,6 +659,7 @@ class HubScopedViewSetMixin:
             "pharmacy": scope.get("pharmacy"),
             "organization": scope.get("organization"),
             "community_group": scope.get("community_group"),
+            "platform_hub": scope.get("platform_hub"),
             "request_membership": scope.get("request_membership"),
             "has_admin_permissions": scope.get("has_admin_permissions", False),
             "has_group_admin_permissions": scope.get(
@@ -547,6 +718,7 @@ class HubContextBuilder:
             "organizations": organization_data,
             "community_groups": community_groups,
             "organization_groups": org_groups,
+            "chemisttasker_hubs": get_user_chemisttasker_hubs(self.user),
             "default_pharmacy_id": pharmacy_data[0]["id"] if pharmacy_data else None,
             "default_organization_id": organization_data[0]["id"] if organization_data else None,
         }
@@ -967,6 +1139,7 @@ class HubPostViewSet(HubAttachmentMixin, HubScopedViewSetMixin, viewsets.ModelVi
         pharmacy = None
         organization = None
         community_group = None
+        platform_hub = None
         if scope_type == "pharmacy":
             pharmacy = self.scope_context.get("pharmacy")
         elif scope_type == "organization":
@@ -975,10 +1148,13 @@ class HubPostViewSet(HubAttachmentMixin, HubScopedViewSetMixin, viewsets.ModelVi
         elif scope_type == "group":
             pharmacy = self.scope_context.get("pharmacy")
             community_group = self.scope_context.get("community_group")
+        elif scope_type == "platform":
+            platform_hub = self.scope_context.get("platform_hub")
         post = serializer.save(
             pharmacy=pharmacy,
             organization=organization,
             community_group=community_group,
+            platform_hub=platform_hub,
             author_membership=membership,
             original_body=serializer.validated_data.get("body", ""),
             is_edited=False,
@@ -1105,6 +1281,8 @@ class HubPollViewSet(
                 poll._prefetched_votes = list(votes)
 
     def _apply_scope_filter(self, queryset, scope):
+        if scope["scope_type"] == "platform":
+            return queryset.filter(platform_hub=scope["platform_hub"])
         if scope["scope_type"] == "group":
             return queryset.filter(community_group=scope["community_group"])
         if scope["scope_type"] == "pharmacy":
@@ -1351,6 +1529,15 @@ class HubCommentViewSet(
             last_edited_by=None,
         )
         post.recompute_comment_count()
+        actor_user = getattr(membership, "user", None)
+        actor_name = _get_user_display_name(actor_user)
+        _notify_hub_post_owner(
+            post=post,
+            actor_user=actor_user,
+            title=f"{actor_name} has commented on the post",
+            body=(comment.body or "").strip()[:280],
+            payload={"comment_id": comment.id},
+        )
         output = self.get_serializer(comment)
         return Response(output.data, status=status.HTTP_201_CREATED)
 
@@ -1392,6 +1579,7 @@ class HubReactionView(APIView):
     def post(self, request, post_pk: int):
         post = get_object_or_404(
             PharmacyHubPost.objects.select_related(
+                "author_membership__user",
                 "pharmacy",
                 "organization",
                 "community_group",
@@ -1414,6 +1602,15 @@ class HubReactionView(APIView):
             },
         )
         post.recompute_reaction_summary()
+        actor_user = getattr(membership, "user", None)
+        actor_name = _get_user_display_name(actor_user)
+        _notify_hub_post_owner(
+            post=post,
+            actor_user=actor_user,
+            title=f"{actor_name} has reacted to the post",
+            body=reaction_type.replace("_", " ").title(),
+            payload={"reaction_type": reaction_type},
+        )
         context = {
             "request": request,
             "request_membership": membership,

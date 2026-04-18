@@ -9,6 +9,7 @@ type Props = {
   onEdit: (post: HubPost) => void;
   onComment: (post: HubPost) => void;
   onRefresh: () => void;
+  highlighted?: boolean;
 };
 
 const reactionEmojis: Record<string, string> = {
@@ -47,7 +48,7 @@ const formatMemberLabel = (name: string, role?: string | null, jobTitle?: string
   return parts.join(' | ');
 };
 
-export function PostCard({ post, onEdit, onComment, onRefresh }: Props) {
+export function PostCard({ post, onEdit, onComment, onRefresh, highlighted = false }: Props) {
   const [working, setWorking] = useState(false);
   const [reactionMenuVisible, setReactionMenuVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
@@ -251,7 +252,15 @@ export function PostCard({ post, onEdit, onComment, onRefresh }: Props) {
     : 'React';
 
   return (
-    <Card style={styles.card} mode="elevated">
+    <Card
+      style={[
+        styles.card,
+        highlighted
+          ? { borderWidth: 2, borderColor: '#4F46E5', backgroundColor: '#EEF2FF' }
+          : null,
+      ]}
+      mode="elevated"
+    >
       <Card.Content>
         <View style={styles.header}>
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 }}>

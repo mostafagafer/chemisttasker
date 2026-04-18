@@ -1586,6 +1586,7 @@ const mapPost = (api) => ({
     communityGroupName: api.community_group_name,
     organizationId: api.organization,
     organizationName: api.organization_name,
+    platformHub: api.platform_hub ?? null,
     scopeType: (api.scope_type ?? 'pharmacy'),
     scopeTargetId: api.scope_target_id,
     body: api.body,
@@ -1625,6 +1626,7 @@ const mapPoll = (api) => ({
     pharmacyId: api.pharmacy,
     organizationId: api.organization,
     communityGroupId: api.community_group,
+    platformHub: api.platform_hub ?? null,
     scopeType: (api.scope_type ?? 'pharmacy'),
     options: (api.options ?? []).map(mapPollOption),
     totalVotes: api.total_votes,
@@ -1684,6 +1686,11 @@ const mapContext = (api) => ({
     organizations: (api.organizations ?? []).map(mapOrganization),
     communityGroups: (api.community_groups ?? []).map(mapGroup),
     organizationGroups: (api.organization_groups ?? []).map(mapGroup),
+    chemisttaskerHubs: (api.chemisttasker_hubs ?? []).map((hub) => ({
+        key: hub.key,
+        label: hub.label,
+        audienceType: hub.audience_type,
+    })),
     defaultPharmacyId: api.default_pharmacy_id,
     defaultOrganizationId: api.default_organization_id,
 });
@@ -1697,6 +1704,9 @@ const buildScopeParams = (scope) => {
     }
     else if (scope.type === 'group') {
         params.group_id = scope.id;
+    }
+    else if (scope.type === 'platform') {
+        params.platform_hub = scope.id;
     }
     return params;
 };

@@ -15,6 +15,7 @@ export type {
   HubOrganization,
   HubGroup,
   HubContext,
+  HubChemistTaskerHub,
   HubScopeType,
   HubScopeSelection,
   HubGroupPayload,

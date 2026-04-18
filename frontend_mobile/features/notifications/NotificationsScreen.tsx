@@ -9,6 +9,7 @@ import { useAuth } from '@/context/AuthContext';
 import {
   resolveCalendarNotificationRoute,
   resolveChatNotificationRoomId,
+  resolveHubNotificationRoute,
   resolveShiftNotificationRoute,
 } from '@/utils/notificationNavigation';
 import { getMessageDetailRoute } from '@/utils/chatRoutes';
@@ -137,6 +138,15 @@ export default function NotificationsScreen() {
     });
     if (calendarRoute) {
       router.push(calendarRoute as any);
+      return;
+    }
+    const hubRoute = resolveHubNotificationRoute({
+      actionUrl: item.actionUrl,
+      payload: item.payload,
+      userRole: user?.role ?? null,
+    });
+    if (hubRoute) {
+      router.push(hubRoute as any);
       return;
     }
   };

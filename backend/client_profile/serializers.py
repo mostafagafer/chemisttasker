@@ -6067,6 +6067,7 @@ def _serialize_user_summary(user, request):
     photo = _resolve_user_profile_photo(user)
     return {
         "id": user.id,
+        "username": getattr(user, "username", None),
         "first_name": getattr(user, "first_name", None),
         "last_name": getattr(user, "last_name", None),
         "email": getattr(user, "email", None),
@@ -6160,6 +6161,51 @@ class HubPharmacyProfileSerializer(UploadValidationMixin, serializers.ModelSeria
     class Meta:
         model = Pharmacy
         fields = ["about", "cover_image"]
+
+
+def _serialize_hub_author(membership, user, request):
+    def _display_role(target_user):
+        if not target_user:
+            return ""
+        top_role = (getattr(target_user, "role", "") or "").upper()
+        if top_role == "OWNER":
+            return "Owner"
+        if top_role == "PHARMACIST":
+            return "Pharmacist"
+        if top_role == "OTHER_STAFF":
+            role_type = (
+                OtherStaffOnboarding.objects.filter(user=target_user)
+                .values_list("role_type", flat=True)
+                .first()
+            )
+            if (role_type or "").upper() == "INTERN":
+                return "Intern"
+            return "Staff"
+        if top_role == "ORG_STAFF":
+            return "Staff"
+        if top_role == "EXPLORER":
+            return "Explorer"
+        return ""
+
+    target_user = user or getattr(membership, "user", None)
+    summary = _serialize_user_summary(target_user, request)
+    if membership:
+        return {
+            "id": membership.id,
+            "role": _display_role(target_user),
+            "employment_type": getattr(membership, "employment_type", "") or "",
+            "job_title": getattr(membership, "job_title", "") or "",
+            "user_details": summary,
+        }
+    if not summary:
+        return None
+    return {
+        "id": 0,
+        "role": _display_role(target_user),
+        "employment_type": "",
+        "job_title": "",
+        "user_details": summary,
+    }
 
 
 class HubOrganizationProfileSerializer(UploadValidationMixin, serializers.ModelSerializer):
@@ -6389,7 +6435,7 @@ class HubCommunityGroupSerializer(serializers.ModelSerializer):
 
 
 class HubCommentSerializer(serializers.ModelSerializer):
-    author = HubMembershipSerializer(source="author_membership", read_only=True)
+    author = serializers.SerializerMethodField()
     can_edit = serializers.SerializerMethodField()
     is_edited = serializers.BooleanField(read_only=True)
     original_body = serializers.CharField(read_only=True)
@@ -6439,7 +6485,19 @@ class HubCommentSerializer(serializers.ModelSerializer):
         membership = self.context.get("request_membership")
         if membership and membership == obj.author_membership:
             return True
+        request = self.context.get("request")
+        request_user = getattr(request, "user", None)
+        if request_user and obj.author_user_id == request_user.id:
+            return True
         return self.context.get("has_admin_permissions", False)
+
+    def get_author(self, obj):
+        return _serialize_hub_author(
+            getattr(obj, "author_membership", None),
+            getattr(obj, "author_user", None)
+            or getattr(getattr(obj, "author_membership", None), "user", None),
+            self.context.get("request"),
+        )
 
     def get_edited_by(self, obj):
         user = getattr(obj, "last_edited_by", None)
@@ -6450,13 +6508,21 @@ class HubCommentSerializer(serializers.ModelSerializer):
 
     def get_viewer_reaction(self, obj):
         membership = self.context.get("request_membership")
-        if not membership:
-            return None
-        return (
-            obj.reactions.filter(member=membership)
-            .values_list("reaction_type", flat=True)
-            .first()
-        )
+        request = self.context.get("request")
+        request_user = getattr(request, "user", None)
+        if membership:
+            return (
+                obj.reactions.filter(member=membership)
+                .values_list("reaction_type", flat=True)
+                .first()
+            )
+        if request_user and request_user.is_authenticated:
+            return (
+                obj.reactions.filter(user=request_user)
+                .values_list("reaction_type", flat=True)
+                .first()
+            )
+        return None
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -6486,7 +6552,7 @@ class HubAttachmentSerializer(serializers.ModelSerializer):
 
 
 class HubPostSerializer(serializers.ModelSerializer):
-    author = HubMembershipSerializer(source="author_membership", read_only=True)
+    author = serializers.SerializerMethodField()
     viewer_reaction = serializers.SerializerMethodField()
     recent_comments = serializers.SerializerMethodField()
     can_manage = serializers.SerializerMethodField()
@@ -6716,18 +6782,26 @@ class HubPostSerializer(serializers.ModelSerializer):
 
     def get_viewer_reaction(self, obj):
         membership = self.context.get("request_membership")
-        if not membership:
-            return None
-        return (
-            obj.reactions.filter(member=membership)
-            .values_list("reaction_type", flat=True)
-            .first()
-        )
+        request = self.context.get("request")
+        request_user = getattr(request, "user", None)
+        if membership:
+            return (
+                obj.reactions.filter(member=membership)
+                .values_list("reaction_type", flat=True)
+                .first()
+            )
+        if request_user and request_user.is_authenticated:
+            return (
+                obj.reactions.filter(user=request_user)
+                .values_list("reaction_type", flat=True)
+                .first()
+            )
+        return None
 
     def get_recent_comments(self, obj):
         comments_qs = (
             obj.comments.filter(deleted_at__isnull=True)
-            .select_related("author_membership__user")
+            .select_related("author_membership__user", "author_user")
             .order_by("-created_at")[:2]
         )
         serializer = HubCommentSerializer(
@@ -6737,9 +6811,20 @@ class HubPostSerializer(serializers.ModelSerializer):
         )
         return list(reversed(serializer.data))
 
+    def get_author(self, obj):
+        return _serialize_hub_author(
+            getattr(obj, "author_membership", None),
+            getattr(obj, "author_user", None),
+            self.context.get("request"),
+        )
+
     def get_can_manage(self, obj):
         membership = self.context.get("request_membership")
-        return bool(membership and membership == obj.author_membership)
+        if membership and membership == obj.author_membership:
+            return True
+        request = self.context.get("request")
+        request_user = getattr(request, "user", None)
+        return bool(request_user and obj.author_user_id == request_user.id)
 
     def get_edited_by(self, obj):
         user = getattr(obj, "last_edited_by", None)
@@ -6822,6 +6907,7 @@ class HubPollOptionSerializer(serializers.ModelSerializer):
 
 
 class HubPollSerializer(serializers.ModelSerializer):
+    author = serializers.SerializerMethodField()
     options = serializers.SerializerMethodField()
     option_labels = serializers.ListField(
         child=serializers.CharField(max_length=255),
@@ -6838,6 +6924,10 @@ class HubPollSerializer(serializers.ModelSerializer):
     created_by = serializers.SerializerMethodField()
     can_vote = serializers.SerializerMethodField()
     can_manage = serializers.SerializerMethodField()
+    comment_count = serializers.IntegerField(read_only=True)
+    reaction_summary = serializers.JSONField(read_only=True)
+    viewer_reaction = serializers.SerializerMethodField()
+    recent_comments = serializers.SerializerMethodField()
 
     class Meta:
         model = PharmacyHubPoll
@@ -6850,6 +6940,7 @@ class HubPollSerializer(serializers.ModelSerializer):
             "platform_hub",
             "scope_type",
             "scope_target_id",
+            "author",
             "created_at",
             "updated_at",
             "closes_at",
@@ -6862,6 +6953,10 @@ class HubPollSerializer(serializers.ModelSerializer):
             "selected_option_id",
             "created_by",
             "can_vote",
+            "comment_count",
+            "reaction_summary",
+            "viewer_reaction",
+            "recent_comments",
         ]
         read_only_fields = [
             "id",
@@ -6871,6 +6966,7 @@ class HubPollSerializer(serializers.ModelSerializer):
             "platform_hub",
             "scope_type",
             "scope_target_id",
+            "author",
             "created_at",
             "updated_at",
             "closes_at",
@@ -6882,6 +6978,10 @@ class HubPollSerializer(serializers.ModelSerializer):
             "created_by",
             "can_vote",
             "can_manage",
+            "comment_count",
+            "reaction_summary",
+            "viewer_reaction",
+            "recent_comments",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -6987,54 +7087,165 @@ class HubPollSerializer(serializers.ModelSerializer):
 
     def get_has_voted(self, obj):
         membership = self._get_membership()
-        if not membership:
-            return False
+        request = self.context.get("request")
+        request_user = getattr(request, "user", None)
         votes = getattr(obj, "_prefetched_votes", None)
-        if votes is None:
-            return obj.votes.filter(membership=membership).exists()
-        return any(v.membership_id == membership.id for v in votes)
+        if membership:
+            if votes is None:
+                return obj.votes.filter(membership=membership).exists()
+            return any(v.membership_id == membership.id for v in votes)
+        if request_user and request_user.is_authenticated:
+            if votes is None:
+                return obj.votes.filter(user=request_user).exists()
+            return any(v.user_id == request_user.id for v in votes)
+        return False
 
     def get_selected_option_id(self, obj):
         membership = self._get_membership()
-        if not membership:
-            return None
+        request = self.context.get("request")
+        request_user = getattr(request, "user", None)
         votes = getattr(obj, "_prefetched_votes", None)
-        if votes is None:
-            return (
-                obj.votes.filter(membership=membership)
-                .values_list("option_id", flat=True)
-                .first()
-            )
-        for vote in votes:
-            if vote.membership_id == membership.id:
-                return vote.option_id
+        if membership:
+            if votes is None:
+                return (
+                    obj.votes.filter(membership=membership)
+                    .values_list("option_id", flat=True)
+                    .first()
+                )
+            for vote in votes:
+                if vote.membership_id == membership.id:
+                    return vote.option_id
+        elif request_user and request_user.is_authenticated:
+            if votes is None:
+                return (
+                    obj.votes.filter(user=request_user)
+                    .values_list("option_id", flat=True)
+                    .first()
+                )
+            for vote in votes:
+                if vote.user_id == request_user.id:
+                    return vote.option_id
         return None
 
     def get_created_by(self, obj):
-        membership = getattr(obj, "created_by_membership", None)
-        if membership:
-            return HubMembershipSerializer(membership).data
-        creator = getattr(obj, "created_by", None)
-        if not creator:
-            return None
-        full_name = creator.get_full_name().strip()
-        return {
-            "id": creator.id,
-            "firstName": creator.first_name,
-            "lastName": creator.last_name,
-            "email": creator.email,
-            "fullName": full_name or creator.email,
-        }
+        return self.get_author(obj)
+
+    def get_author(self, obj):
+        return _serialize_hub_author(
+            getattr(obj, "created_by_membership", None),
+            getattr(obj, "created_by", None),
+            self.context.get("request"),
+        )
 
     def get_can_vote(self, obj):
         membership = self._get_membership()
-        return bool(membership) and not obj.is_closed
+        request = self.context.get("request")
+        request_user = getattr(request, "user", None)
+        return bool(membership or (request_user and request_user.is_authenticated)) and not obj.is_closed
 
     def get_can_manage(self, obj):
         membership = self._get_membership()
         is_creator = membership and getattr(obj, "created_by_membership_id", None) == membership.id
         has_admin = bool(self.context.get("has_admin_permissions") or self.context.get("has_group_admin_permissions"))
-        return bool(is_creator or has_admin)
+        request = self.context.get("request")
+        request_user = getattr(request, "user", None)
+        return bool(is_creator or has_admin or (request_user and obj.created_by_id == request_user.id))
+
+    def get_viewer_reaction(self, obj):
+        request = self.context.get("request")
+        request_user = getattr(request, "user", None)
+        if not request_user or not request_user.is_authenticated:
+            return None
+        return (
+            obj.reactions.filter(user=request_user)
+            .values_list("reaction_type", flat=True)
+            .first()
+        )
+
+    def get_recent_comments(self, obj):
+        comments_qs = (
+            obj.comments.filter(deleted_at__isnull=True)
+            .select_related("author_membership__user", "author_user")
+            .order_by("-created_at")[:2]
+        )
+        serializer = HubPollCommentSerializer(
+            comments_qs,
+            many=True,
+            context=self.context,
+        )
+        return list(reversed(serializer.data))
+
+
+class HubPollCommentSerializer(serializers.ModelSerializer):
+    author = serializers.SerializerMethodField()
+    can_edit = serializers.SerializerMethodField()
+    is_edited = serializers.BooleanField(read_only=True)
+    original_body = serializers.CharField(read_only=True)
+    edited_at = serializers.DateTimeField(source="last_edited_at", read_only=True)
+    edited_by = serializers.SerializerMethodField()
+    is_deleted = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PharmacyHubPollComment
+        fields = [
+            "id",
+            "poll",
+            "author",
+            "body",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+            "can_edit",
+            "is_edited",
+            "original_body",
+            "edited_at",
+            "edited_by",
+            "is_deleted",
+        ]
+        read_only_fields = [
+            "id",
+            "poll",
+            "author",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+            "can_edit",
+            "is_edited",
+            "original_body",
+            "edited_at",
+            "edited_by",
+            "is_deleted",
+        ]
+
+    def get_author(self, obj):
+        return _serialize_hub_author(
+            getattr(obj, "author_membership", None),
+            getattr(obj, "author_user", None),
+            self.context.get("request"),
+        )
+
+    def get_can_edit(self, obj):
+        membership = self.context.get("request_membership")
+        if membership and membership == obj.author_membership:
+            return True
+        request = self.context.get("request")
+        request_user = getattr(request, "user", None)
+        if request_user and obj.author_user_id == request_user.id:
+            return True
+        return self.context.get("has_admin_permissions", False)
+
+    def get_edited_by(self, obj):
+        user = getattr(obj, "last_edited_by", None)
+        return _serialize_user_summary(user, self.context.get("request"))
+
+    def get_is_deleted(self, obj):
+        return obj.deleted_at is not None
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if data.get("is_deleted"):
+            data["body"] = "This comment has been deleted."
+        return data
 
 
 class HubReactionSerializer(serializers.ModelSerializer):

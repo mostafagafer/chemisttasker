@@ -25,6 +25,7 @@ export type CamelCasedPropertiesDeep<T> =
 
 export interface UserSummaryApi {
     id: number;
+    username?: string | null;
     first_name: string | null;
     last_name: string | null;
     email: string | null;
@@ -38,6 +39,7 @@ export interface MembershipApi {
     job_title?: string | null;
     user_details: {
         id: number;
+        username?: string | null;
         first_name: string | null;
         last_name: string | null;
         email: string;
@@ -129,8 +131,11 @@ export interface HubPollApi {
     pharmacy: number | null;
     organization: number | null;
     community_group: number | null;
+    platform_hub?: string | null;
     scope_type: "pharmacy" | "group" | "organization" | null;
-    scope_target_id: number | null;
+    scope_target_id: number | string | null;
+    author?: MembershipApi | null;
+    created_by?: MembershipApi | null;
     created_at: string;
     updated_at: string;
     closes_at: string | null;
@@ -140,6 +145,11 @@ export interface HubPollApi {
     has_voted: boolean;
     selected_option_id: number | null;
     can_vote: boolean;
+    can_manage?: boolean;
+    comment_count?: number;
+    reaction_summary?: Record<string, number>;
+    viewer_reaction?: string | null;
+    recent_comments?: PollCommentApi[];
 }
 
 export interface GroupMemberApi {
@@ -200,6 +210,22 @@ export interface HubContextApi {
     default_organization_id: number | null;
 }
 
+export interface PollCommentApi {
+    id: number;
+    poll: number;
+    body: string;
+    created_at: string;
+    updated_at: string;
+    deleted_at: string | null;
+    can_edit: boolean;
+    author: MembershipApi;
+    is_edited: boolean;
+    original_body: string;
+    edited_at: string | null;
+    edited_by: UserSummaryApi | null;
+    is_deleted: boolean;
+}
+
 export interface HubChemistTaskerHubApi {
     key: string;
     label: string;
@@ -217,6 +243,7 @@ export type HubReactionType =
 
 export type HubUserSummary = {
     id: number;
+    username?: string | null;
     firstName: string | null;
     lastName: string | null;
     email: string | null;
@@ -238,6 +265,7 @@ export type HubMembership = {
     jobTitle?: string | null;
     userDetails: {
         id: number;
+        username?: string | null;
         firstName: string | null;
         lastName: string | null;
         email: string;
@@ -323,6 +351,11 @@ export type HubPoll = {
     selectedOptionId: number | null;
     canVote: boolean;
     canManage?: boolean;
+    author: HubMembership;
+    commentCount: number;
+    reactionSummary: Record<string, number>;
+    viewerReaction: HubReactionType | null;
+    recentComments: HubComment[];
     createdAt: string;
     updatedAt: string;
     closesAt: string | null;

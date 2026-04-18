@@ -126,6 +126,7 @@ export function HomePageContent({
       />
       <Box sx={{ mt: 3 }}>
         <ScopeFeed
+          key={`${scope.type}:${scope.id}`}
           scope={scope}
           canCreatePost={canCreatePost}
           membersLoader={membersLoader}
@@ -346,6 +347,7 @@ export function OrgHomePageContent({
       />
       <Box sx={{ mt: 3 }}>
         <ScopeFeed
+          key={`${scope.type}:${scope.id}`}
           scope={scope}
           canCreatePost={canCreatePost}
           membersLoader={membersLoader}
@@ -424,6 +426,7 @@ export function ChemistTaskerHubContent({ hub, scope, targetPostId, onTargetPost
       </Card>
       <Box sx={{ mt: 3 }}>
         <ScopeFeed
+          key={`${scope.type}:${scope.id}`}
           scope={scope}
           canCreatePost
           emptyTitle="No updates yet."
@@ -503,6 +506,7 @@ export function GroupContent({ pharmacy, group, scope, onEditGroup, onDeleteGrou
       </Card>
 
       <ScopeFeed
+        key={`${scope.type}:${scope.id}`}
         scope={scope}
         canCreatePost
         membersLoader={membersLoader}
@@ -579,6 +583,7 @@ export function OrgGroupContent({ group, scope, onEditGroup, onDeleteGroup, targ
       </Card>
 
       <ScopeFeed
+        key={`${scope.type}:${scope.id}`}
         scope={scope}
         canCreatePost
         membersLoader={membersLoader}

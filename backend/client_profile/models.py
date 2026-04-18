@@ -2535,6 +2535,13 @@ class PharmacyHubPost(models.Model):
         blank=True,
     )
     author_membership = models.ForeignKey(Membership, on_delete=models.SET_NULL, null=True, blank=True)
+    author_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pharmacy_hub_posts",
+    )
 
     body = models.TextField()
     visibility = models.CharField(
@@ -2603,6 +2610,7 @@ class PharmacyHubPost(models.Model):
         indexes = [
             models.Index(fields=["pharmacy", "created_at"]),
             models.Index(fields=["author_membership"]),
+            models.Index(fields=["author_user"]),
             models.Index(fields=["is_pinned", "pinned_at"]),
             models.Index(fields=["organization", "created_at"]),
             models.Index(fields=["community_group", "created_at"]),
@@ -2749,6 +2757,13 @@ class PharmacyHubComment(models.Model):
         related_name="comments",
     )
     author_membership = models.ForeignKey(Membership, on_delete=models.SET_NULL, null=True, blank=True)
+    author_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="hub_comments",
+    )
 
     body = models.TextField()
     reaction_summary = models.JSONField(default=dict, blank=True)
@@ -2778,6 +2793,13 @@ class PharmacyHubComment(models.Model):
         indexes = [
             models.Index(fields=["post", "created_at"]),
             models.Index(fields=["author_membership"]),
+            models.Index(fields=["author_user"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(author_membership__isnull=False) | Q(author_user__isnull=False),
+                name="hub_comment_has_author_membership_or_user",
+            )
         ]
 
     def soft_delete(self):
@@ -2820,6 +2842,15 @@ class PharmacyHubCommentReaction(models.Model):
         "client_profile.Membership",
         on_delete=models.CASCADE,
         related_name="hub_comment_reactions",
+        null=True,
+        blank=True,
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="hub_comment_reactions",
+        null=True,
+        blank=True,
     )
     reaction_type = models.CharField(
         max_length=16,
@@ -2830,10 +2861,29 @@ class PharmacyHubCommentReaction(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("comment", "member")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["comment", "member"],
+                condition=Q(member__isnull=False),
+                name="unique_hub_comment_reaction_member",
+            ),
+            models.UniqueConstraint(
+                fields=["comment", "user"],
+                condition=Q(user__isnull=False),
+                name="unique_hub_comment_reaction_user",
+            ),
+            models.CheckConstraint(
+                check=(
+                    (Q(member__isnull=False) & Q(user__isnull=True))
+                    | (Q(member__isnull=True) & Q(user__isnull=False))
+                ),
+                name="hub_comment_reaction_member_xor_user",
+            ),
+        ]
         indexes = [
             models.Index(fields=["comment"]),
             models.Index(fields=["member"]),
+            models.Index(fields=["user"]),
         ]
 
     def __str__(self):
@@ -2852,6 +2902,15 @@ class PharmacyHubReaction(models.Model):
         "client_profile.Membership",
         on_delete=models.CASCADE,
         related_name="hub_reactions",
+        null=True,
+        blank=True,
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="hub_reactions",
+        null=True,
+        blank=True,
     )
     reaction_type = models.CharField(
         max_length=16,
@@ -2862,10 +2921,29 @@ class PharmacyHubReaction(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("post", "member")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["post", "member"],
+                condition=Q(member__isnull=False),
+                name="unique_hub_post_reaction_member",
+            ),
+            models.UniqueConstraint(
+                fields=["post", "user"],
+                condition=Q(user__isnull=False),
+                name="unique_hub_post_reaction_user",
+            ),
+            models.CheckConstraint(
+                check=(
+                    (Q(member__isnull=False) & Q(user__isnull=True))
+                    | (Q(member__isnull=True) & Q(user__isnull=False))
+                ),
+                name="hub_post_reaction_member_xor_user",
+            ),
+        ]
         indexes = [
             models.Index(fields=["post"]),
             models.Index(fields=["member"]),
+            models.Index(fields=["user"]),
         ]
 
     def __str__(self):
@@ -2952,6 +3030,8 @@ class PharmacyHubPoll(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     closes_at = models.DateTimeField(null=True, blank=True)
     is_closed = models.BooleanField(default=False)
+    comment_count = models.PositiveIntegerField(default=0)
+    reaction_summary = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
@@ -2961,6 +3041,8 @@ class PharmacyHubPoll(models.Model):
             models.Index(fields=["community_group", "created_at"]),
             models.Index(fields=["platform_hub", "created_at"]),
             models.Index(fields=["is_closed", "closes_at"]),
+            models.Index(fields=["created_by"]),
+            models.Index(fields=["created_by_membership"]),
         ]
         constraints = [
             models.CheckConstraint(
@@ -3029,6 +3111,31 @@ class PharmacyHubPoll(models.Model):
             return f"HubPoll#{self.pk} pharmacy={self.pharmacy_id}"
         return f"HubPoll#{self.pk} organization={self.organization_id}"
 
+    def recompute_comment_count(self):
+        from django.db.models import Count
+
+        total = (
+            self.comments.filter(deleted_at__isnull=True)
+            .aggregate(total=Count("id"))
+            .get("total", 0)
+        )
+        if total != self.comment_count:
+            self.comment_count = total
+            self.save(update_fields=["comment_count"])
+
+    def recompute_reaction_summary(self):
+        from django.db.models import Count
+
+        summary = {
+            row["reaction_type"]: row["total"]
+            for row in self.reactions.values("reaction_type")
+            .order_by()
+            .annotate(total=Count("id"))
+        }
+        if summary != self.reaction_summary:
+            self.reaction_summary = summary
+            self.save(update_fields=["reaction_summary"])
+
 
 class PharmacyHubPollOption(models.Model):
     poll = models.ForeignKey(
@@ -3065,19 +3172,129 @@ class PharmacyHubPollVote(models.Model):
         Membership,
         on_delete=models.CASCADE,
         related_name="hub_poll_votes",
+        null=True,
+        blank=True,
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="hub_poll_votes",
+        null=True,
+        blank=True,
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("poll", "membership")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["poll", "membership"],
+                condition=Q(membership__isnull=False),
+                name="unique_hub_poll_vote_membership",
+            ),
+            models.UniqueConstraint(
+                fields=["poll", "user"],
+                condition=Q(user__isnull=False),
+                name="unique_hub_poll_vote_user",
+            ),
+            models.CheckConstraint(
+                check=(
+                    (Q(membership__isnull=False) & Q(user__isnull=True))
+                    | (Q(membership__isnull=True) & Q(user__isnull=False))
+                ),
+                name="hub_poll_vote_membership_xor_user",
+            ),
+        ]
         indexes = [
             models.Index(fields=["poll"]),
             models.Index(fields=["option"]),
             models.Index(fields=["membership"]),
+            models.Index(fields=["user"]),
         ]
 
     def __str__(self):
         return f"HubPollVote#{self.pk} poll={self.poll_id} option={self.option_id} membership={self.membership_id}"
+
+
+class PharmacyHubPollComment(models.Model):
+    poll = models.ForeignKey(
+        PharmacyHubPoll,
+        on_delete=models.CASCADE,
+        related_name="comments",
+    )
+    author_membership = models.ForeignKey(
+        Membership,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="hub_poll_comments",
+    )
+    author_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="hub_poll_comments",
+    )
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    original_body = models.TextField(blank=True, default="")
+    is_edited = models.BooleanField(default=False)
+    last_edited_at = models.DateTimeField(null=True, blank=True)
+    last_edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="edited_pharmacy_hub_poll_comments",
+    )
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["poll", "created_at"]),
+            models.Index(fields=["author_membership"]),
+            models.Index(fields=["author_user"]),
+        ]
+
+    def soft_delete(self):
+        if not self.deleted_at:
+            self.deleted_at = timezone.now()
+            self.save(update_fields=["deleted_at"])
+
+    def __str__(self):
+        return f"HubPollComment#{self.pk} poll={self.poll_id}"
+
+
+class PharmacyHubPollReaction(models.Model):
+    poll = models.ForeignKey(
+        PharmacyHubPoll,
+        on_delete=models.CASCADE,
+        related_name="reactions",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="hub_poll_reactions",
+    )
+    reaction_type = models.CharField(
+        max_length=16,
+        choices=HubReactionType.choices,
+        default=HubReactionType.LIKE,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("poll", "user")
+        indexes = [
+            models.Index(fields=["poll"]),
+            models.Index(fields=["user"]),
+        ]
+
+    def __str__(self):
+        return f"HubPollReaction#{self.pk} poll={self.poll_id} user={self.user_id}"
 
 
 

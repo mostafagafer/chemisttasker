@@ -37,7 +37,9 @@ from ..models import (
     PharmacyHubPost,
     PharmacyHubReaction,
     PharmacyHubPoll,
+    PharmacyHubPollComment,
     PharmacyHubPollOption,
+    PharmacyHubPollReaction,
     PharmacyHubPollVote,
 )
 from ..serializers import (
@@ -50,6 +52,7 @@ from ..serializers import (
     HubPostSerializer,
     HubReactionSerializer,
     HubPollSerializer,
+    HubPollCommentSerializer,
 )
 from ..file_validation import ATTACHMENT_UPLOAD_POLICY, validate_uploaded_file
 
@@ -125,6 +128,8 @@ def _build_hub_post_action_url(post):
 
 def _notify_hub_post_owner(*, post, actor_user, title, body="", payload=None):
     post_author = getattr(getattr(post, "author_membership", None), "user", None)
+    if not post_author:
+        post_author = getattr(post, "author_user", None)
     if not post_author or not post_author.is_active:
         return
     if actor_user and post_author.id == actor_user.id:
@@ -1016,6 +1021,7 @@ class HubPostViewSet(HubAttachmentMixin, HubScopedViewSetMixin, viewsets.ModelVi
             PharmacyHubPost.objects.filter(deleted_at__isnull=True)
             .select_related(
                 "author_membership__user",
+                "author_user",
                 "pharmacy",
                 "organization",
                 "community_group",
@@ -1131,7 +1137,10 @@ class HubPostViewSet(HubAttachmentMixin, HubScopedViewSetMixin, viewsets.ModelVi
         data = self._normalize_params(request.data)
         self.scope_context = self._resolve_scope_from_params(data)
         resolver = HubScopeResolver(request.user)
-        membership = resolver.ensure_author_membership(self.scope_context)
+        membership = self.scope_context.get("request_membership")
+        is_platform_post = self.scope_context.get("scope_type") == "platform"
+        if membership is None and not is_platform_post:
+            membership = resolver.ensure_author_membership(self.scope_context)
         self._prepare_serializer_context(self.scope_context)
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
@@ -1156,6 +1165,7 @@ class HubPostViewSet(HubAttachmentMixin, HubScopedViewSetMixin, viewsets.ModelVi
             community_group=community_group,
             platform_hub=platform_hub,
             author_membership=membership,
+            author_user=request.user,
             original_body=serializer.validated_data.get("body", ""),
             is_edited=False,
             last_edited_at=None,
@@ -1172,7 +1182,14 @@ class HubPostViewSet(HubAttachmentMixin, HubScopedViewSetMixin, viewsets.ModelVi
         scope = resolver.from_post(instance)
         self._prepare_serializer_context(scope)
         membership = scope.get("request_membership")
-        if instance.author_membership_id != getattr(membership, "id", None):
+        is_author = False
+        if instance.author_membership_id and instance.author_membership_id == getattr(
+            membership, "id", None
+        ):
+            is_author = True
+        elif instance.author_user_id == self.request.user.id:
+            is_author = True
+        if not is_author:
             raise PermissionDenied("Only the author can edit this post.")
         if instance.deleted_at:
             raise PermissionDenied("You cannot edit a deleted post.")
@@ -1196,7 +1213,14 @@ class HubPostViewSet(HubAttachmentMixin, HubScopedViewSetMixin, viewsets.ModelVi
         resolver = HubScopeResolver(request.user)
         scope = resolver.from_post(instance)
         membership = scope.get("request_membership")
-        if instance.author_membership_id != getattr(membership, "id", None):
+        is_author = False
+        if instance.author_membership_id and instance.author_membership_id == getattr(
+            membership, "id", None
+        ):
+            is_author = True
+        elif instance.author_user_id == request.user.id:
+            is_author = True
+        if not is_author:
             raise PermissionDenied("Only the author can delete this post.")
         if not instance.deleted_at:
             instance.soft_delete()
@@ -1262,7 +1286,13 @@ class HubPollViewSet(
                 "created_by",
                 "created_by_membership__user",
             )
-            .prefetch_related("options", "votes__membership")
+            .prefetch_related(
+                "options",
+                "votes__membership",
+                "reactions",
+                "comments__author_membership__user",
+                "comments__author_user",
+            )
             .order_by("-created_at")
         )
 
@@ -1389,7 +1419,9 @@ class HubPollViewSet(
             raise ValidationError({"option_id": "This field is required."})
         resolver = HubScopeResolver(request.user)
         scope = resolver.from_poll(poll)
-        membership = scope.get("request_membership") or resolver.ensure_author_membership(scope)
+        membership = scope.get("request_membership")
+        if membership is None and scope.get("scope_type") != "platform":
+            membership = resolver.ensure_author_membership(scope)
         try:
             option_id = int(option_id)
         except (TypeError, ValueError):
@@ -1402,12 +1434,12 @@ class HubPollViewSet(
             )
             if not option:
                 raise ValidationError({"option_id": "Invalid option."})
-            vote = (
-                PharmacyHubPollVote.objects.select_for_update()
-                .filter(poll=poll, membership=membership)
-                .select_related("option")
-                .first()
-            )
+            vote_qs = PharmacyHubPollVote.objects.select_for_update().select_related("option")
+            if membership:
+                vote_qs = vote_qs.filter(poll=poll, membership=membership)
+            else:
+                vote_qs = vote_qs.filter(poll=poll, user=request.user)
+            vote = vote_qs.first()
             if vote and vote.option_id == option.id:
                 pass
             else:
@@ -1418,11 +1450,15 @@ class HubPollViewSet(
                     vote.option = option
                     vote.save(update_fields=["option"])
                 else:
-                    PharmacyHubPollVote.objects.create(
-                        poll=poll,
-                        option=option,
-                        membership=membership,
-                    )
+                    create_kwargs = {
+                        "poll": poll,
+                        "option": option,
+                    }
+                    if membership:
+                        create_kwargs["membership"] = membership
+                    else:
+                        create_kwargs["user"] = request.user
+                    PharmacyHubPollVote.objects.create(**create_kwargs)
                 PharmacyHubPollOption.objects.filter(pk=option.id).update(
                     vote_count=F("vote_count") + 1
                 )
@@ -1490,7 +1526,7 @@ class HubCommentViewSet(
         post = self._get_post()
         return (
             post.comments.filter(deleted_at__isnull=True)
-            .select_related("author_membership__user")
+            .select_related("author_membership__user", "author_user")
             .prefetch_related("reactions")
             .order_by("created_at")
         )
@@ -1517,19 +1553,22 @@ class HubCommentViewSet(
         if not post.allow_comments:
             raise ValidationError({"detail": "Comments are disabled for this post."})
         resolver = getattr(self, "resolver", HubScopeResolver(request.user))
-        membership = resolver.ensure_author_membership(self.scope_context)
+        membership = self.scope_context.get("request_membership")
+        if membership is None and self.scope_context.get("scope_type") != "platform":
+            membership = resolver.ensure_author_membership(self.scope_context)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         comment = serializer.save(
             post=post,
             author_membership=membership,
+            author_user=request.user,
             original_body=serializer.validated_data.get("body", ""),
             is_edited=False,
             last_edited_at=None,
             last_edited_by=None,
         )
         post.recompute_comment_count()
-        actor_user = getattr(membership, "user", None)
+        actor_user = getattr(membership, "user", None) or request.user
         actor_name = _get_user_display_name(actor_user)
         _notify_hub_post_owner(
             post=post,
@@ -1545,9 +1584,11 @@ class HubCommentViewSet(
         comment = self.get_object()
         membership = self.scope_context.get("request_membership")
         can_manage = self.scope_context.get("has_admin_permissions")
-        if not can_manage and comment.author_membership_id != getattr(
-            membership, "id", None
-        ):
+        is_author = (
+            comment.author_membership_id == getattr(membership, "id", None)
+            or comment.author_user_id == getattr(self.request.user, "id", None)
+        )
+        if not can_manage and not is_author:
             raise PermissionDenied("You cannot edit this comment.")
         extra = {}
         new_body = serializer.validated_data.get("body")
@@ -1563,9 +1604,11 @@ class HubCommentViewSet(
         comment = self.get_object()
         membership = self.scope_context.get("request_membership")
         can_manage = self.scope_context.get("has_admin_permissions")
-        if not can_manage and comment.author_membership_id != getattr(
-            membership, "id", None
-        ):
+        is_author = (
+            comment.author_membership_id == getattr(membership, "id", None)
+            or comment.author_user_id == getattr(request.user, "id", None)
+        )
+        if not can_manage and not is_author:
             raise PermissionDenied("You cannot delete this comment.")
         if not comment.deleted_at:
             comment.soft_delete()
@@ -1580,6 +1623,7 @@ class HubReactionView(APIView):
         post = get_object_or_404(
             PharmacyHubPost.objects.select_related(
                 "author_membership__user",
+                "author_user",
                 "pharmacy",
                 "organization",
                 "community_group",
@@ -1589,20 +1633,24 @@ class HubReactionView(APIView):
         )
         resolver = HubScopeResolver(request.user)
         scope = resolver.from_post(post)
-        membership = resolver.ensure_author_membership(scope)
+        membership = scope.get("request_membership")
         serializer = HubReactionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         reaction_type = serializer.validated_data["reaction_type"]
+        lookup = {"post": post}
+        if membership:
+            lookup["member"] = membership
+        else:
+            lookup["user"] = request.user
         PharmacyHubReaction.objects.update_or_create(
-            post=post,
-            member=membership,
+            **lookup,
             defaults={
                 "reaction_type": reaction_type,
                 "updated_at": timezone.now(),
             },
         )
         post.recompute_reaction_summary()
-        actor_user = getattr(membership, "user", None)
+        actor_user = getattr(membership, "user", None) or request.user
         actor_name = _get_user_display_name(actor_user)
         _notify_hub_post_owner(
             post=post,
@@ -1633,6 +1681,9 @@ class HubReactionView(APIView):
         membership = scope.get("request_membership")
         if membership:
             PharmacyHubReaction.objects.filter(post=post, member=membership).delete()
+        else:
+            PharmacyHubReaction.objects.filter(post=post, user=request.user).delete()
+        if membership or request.user.is_authenticated:
             post.recompute_reaction_summary()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1668,13 +1719,17 @@ class HubCommentReactionView(APIView):
         comment = self._get_comment(post_pk, comment_pk)
         resolver = HubScopeResolver(request.user)
         scope = resolver.from_post(comment.post)
-        membership = resolver.ensure_author_membership(scope)
+        membership = scope.get("request_membership")
         serializer = HubReactionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         reaction_type = serializer.validated_data["reaction_type"]
+        lookup = {"comment": comment}
+        if membership:
+            lookup["member"] = membership
+        else:
+            lookup["user"] = request.user
         PharmacyHubCommentReaction.objects.update_or_create(
-            comment=comment,
-            member=membership,
+            **lookup,
             defaults={
                 "reaction_type": reaction_type,
                 "updated_at": timezone.now(),
@@ -1689,13 +1744,181 @@ class HubCommentReactionView(APIView):
         comment = self._get_comment(post_pk, comment_pk)
         resolver = HubScopeResolver(request.user)
         scope = resolver.from_post(comment.post)
-        membership = resolver.ensure_author_membership(scope)
-        PharmacyHubCommentReaction.objects.filter(
-            comment=comment, member=membership
-        ).delete()
+        membership = scope.get("request_membership")
+        if membership:
+            PharmacyHubCommentReaction.objects.filter(
+                comment=comment, member=membership
+            ).delete()
+        else:
+            PharmacyHubCommentReaction.objects.filter(
+                comment=comment, user=request.user
+            ).delete()
         comment.recompute_reaction_summary()
         serializer_context = self._serializer_context(scope, membership)
         response = HubCommentSerializer(comment, context=serializer_context)
+        return Response(response.data, status=status.HTTP_200_OK)
+
+
+class HubPollCommentViewSet(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    serializer_class = HubPollCommentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_poll(self):
+        if hasattr(self, "_cached_poll"):
+            return self._cached_poll
+        poll = get_object_or_404(
+            PharmacyHubPoll.objects.select_related(
+                "pharmacy",
+                "organization",
+                "community_group",
+            ),
+            pk=self.kwargs["poll_pk"],
+        )
+        resolver = HubScopeResolver(self.request.user)
+        scope = resolver.from_poll(poll)
+        self._cached_poll = poll
+        self.scope_context = scope
+        self.resolver = resolver
+        return poll
+
+    def get_queryset(self):
+        poll = self._get_poll()
+        return (
+            poll.comments.filter(deleted_at__isnull=True)
+            .select_related("author_membership__user", "author_user")
+            .order_by("created_at")
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        scope = getattr(self, "scope_context", {})
+        context.update(
+            {
+                "request_membership": scope.get("request_membership"),
+                "has_admin_permissions": scope.get("has_admin_permissions", False)
+                or scope.get("has_group_admin_permissions", False),
+            }
+        )
+        return context
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def create(self, request, *args, **kwargs):
+        poll = self._get_poll()
+        scope = self.scope_context
+        resolver = getattr(self, "resolver", HubScopeResolver(request.user))
+        membership = scope.get("request_membership")
+        if membership is None and scope.get("scope_type") != "platform":
+            membership = resolver.ensure_author_membership(scope)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        comment = PharmacyHubPollComment.objects.create(
+            poll=poll,
+            author_membership=membership,
+            author_user=request.user,
+            body=serializer.validated_data.get("body", ""),
+            original_body=serializer.validated_data.get("body", ""),
+            is_edited=False,
+            last_edited_at=None,
+            last_edited_by=None,
+        )
+        poll.recompute_comment_count()
+        output = self.get_serializer(comment)
+        return Response(output.data, status=status.HTTP_201_CREATED)
+
+    def perform_update(self, serializer):
+        comment = self.get_object()
+        membership = self.scope_context.get("request_membership")
+        can_manage = self.scope_context.get("has_admin_permissions")
+        request_user = getattr(self.request, "user", None)
+        is_author = (
+            comment.author_membership_id == getattr(membership, "id", None)
+            or comment.author_user_id == getattr(request_user, "id", None)
+        )
+        if not can_manage and not is_author:
+            raise PermissionDenied("You cannot edit this comment.")
+        extra = {}
+        new_body = serializer.validated_data.get("body")
+        if new_body is not None and new_body != comment.body:
+            extra["is_edited"] = True
+            if not comment.original_body:
+                extra["original_body"] = comment.body
+            extra["last_edited_at"] = timezone.now()
+            extra["last_edited_by"] = self.request.user
+        serializer.save(**extra)
+
+    def destroy(self, request, *args, **kwargs):
+        comment = self.get_object()
+        membership = self.scope_context.get("request_membership")
+        can_manage = self.scope_context.get("has_admin_permissions")
+        is_author = (
+            comment.author_membership_id == getattr(membership, "id", None)
+            or comment.author_user_id == request.user.id
+        )
+        if not can_manage and not is_author:
+            raise PermissionDenied("You cannot delete this comment.")
+        if not comment.deleted_at:
+            comment.soft_delete()
+            comment.poll.recompute_comment_count()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class HubPollReactionView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, poll_pk: int):
+        poll = get_object_or_404(PharmacyHubPoll, pk=poll_pk)
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.from_poll(poll)
+        serializer = HubReactionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reaction_type = serializer.validated_data["reaction_type"]
+        PharmacyHubPollReaction.objects.update_or_create(
+            poll=poll,
+            user=request.user,
+            defaults={
+                "reaction_type": reaction_type,
+                "updated_at": timezone.now(),
+            },
+        )
+        poll.recompute_reaction_summary()
+        context = {
+            "request": request,
+            "request_membership": scope.get("request_membership"),
+            "has_admin_permissions": scope.get("has_admin_permissions", False),
+            "has_group_admin_permissions": scope.get(
+                "has_group_admin_permissions", False
+            ),
+            "request_user": request.user,
+        }
+        response = HubPollSerializer(poll, context=context)
+        return Response(response.data)
+
+    def delete(self, request, poll_pk: int):
+        poll = get_object_or_404(PharmacyHubPoll, pk=poll_pk)
+        resolver = HubScopeResolver(request.user)
+        scope = resolver.from_poll(poll)
+        PharmacyHubPollReaction.objects.filter(poll=poll, user=request.user).delete()
+        poll.recompute_reaction_summary()
+        context = {
+            "request": request,
+            "request_membership": scope.get("request_membership"),
+            "has_admin_permissions": scope.get("has_admin_permissions", False),
+            "has_group_admin_permissions": scope.get(
+                "has_group_admin_permissions", False
+            ),
+            "request_user": request.user,
+        }
+        response = HubPollSerializer(poll, context=context)
         return Response(response.data, status=status.HTTP_200_OK)
 
 

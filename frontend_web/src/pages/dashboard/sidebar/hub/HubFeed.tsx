@@ -44,16 +44,20 @@ import ThumbUpAltOutlinedIcon from '@mui/icons-material/ThumbUpAltOutlined';
 
 import {
   createHubComment,
+  createHubPollComment,
   createHubPoll,
   createHubPost,
   deleteHubPoll,
   deleteHubPost,
   fetchHubComments,
+  fetchHubPollComments,
   fetchHubPolls,
   fetchHubPosts,
   reactToHubComment,
+  reactToHubPoll,
   reactToHubPost,
   removeHubCommentReaction,
+  removeHubPollReaction,
   updateHubPoll,
   updateHubPost,
   voteHubPoll,
@@ -70,7 +74,7 @@ import type {
   HubScopeSelection,
 } from '../../../../types/hub';
 import { useAuth } from '../../../../contexts/AuthContext';
-import { formatHubDate, formatMemberLabel } from './hubUtils';
+import { formatHubAuthorLabel, formatHubDate, getHubAuthorName } from './hubUtils';
 
 const reactionEmojis: Record<HubReactionType, string> = {
   LIKE: '\u{1F44D}',
@@ -78,6 +82,23 @@ const reactionEmojis: Record<HubReactionType, string> = {
   SUPPORT: '\u{1F64C}',
   INSIGHTFUL: '\u{1F4A1}',
   LOVE: '\u{2764}\u{FE0F}',
+};
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  const responseDetail = (
+    error as { response?: { data?: { detail?: string } } } | null
+  )?.response?.data?.detail;
+  if (typeof responseDetail === 'string' && responseDetail.trim()) {
+    return responseDetail.trim();
+  }
+  const detail = (error as { detail?: string } | null)?.detail;
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail.trim();
+  }
+  return fallback;
 };
 
 type CommentNode = HubComment & { replies: CommentNode[] };
@@ -268,11 +289,10 @@ function PostCard({ post, onUpdate, onEdit, onDelete, highlighted = false }: Pos
     }
   };
 
-  const authorName = `${post.author.user.firstName || ''} ${post.author.user.lastName || ''}`.trim() || 'Unknown User';
+  const authorName = getHubAuthorName(post.author.user, 'Unknown User');
   const authorAvatar = post.author.user.profilePhotoUrl || null;
   const authorRole = post.author.role?.trim() || null;
-  const authorJobTitle = post.author.jobTitle?.trim() || null;
-  const authorLabel = formatMemberLabel(authorName, authorRole, authorJobTitle, 'Unknown User');
+  const authorLabel = formatHubAuthorLabel(post.author.user, authorRole, 'Unknown User');
   const isAuthor = Boolean(user?.id && post.author?.user?.id === user.id);
   const canEditDelete = isAuthor; // backend now restricts edit/delete to the author only
   const postTimestamp = formatHubDate(post.createdAt);
@@ -330,11 +350,10 @@ function PostCard({ post, onUpdate, onEdit, onDelete, highlighted = false }: Pos
   };
 
   const renderCommentNode = (node: CommentNode, depth = 0) => {
-    const commenterName = `${node.author.user.firstName || ''} ${node.author.user.lastName || ''}`.trim() || 'Member';
+    const commenterName = getHubAuthorName(node.author.user, 'Member');
     const commenterAvatar = node.author.user.profilePhotoUrl || null;
     const commenterRole = node.author.role?.trim() || null;
-    const commenterJobTitle = node.author.jobTitle?.trim() || null;
-    const commenterLabel = formatMemberLabel(commenterName, commenterRole, commenterJobTitle, 'Member');
+    const commenterLabel = formatHubAuthorLabel(node.author.user, commenterRole, 'Member');
     const reactionEntries = Object.entries(node.reactionSummary || {}).filter(([, count]) => count > 0);
     const viewerReaction = node.viewerReaction;
     const replyKey = `reply-${node.id}`;
@@ -737,6 +756,10 @@ interface ScopeFeedProps {
   onTargetPostHandled?: () => void;
 }
 
+type FeedItem =
+  | { kind: 'post'; sortAt: number; item: HubPost }
+  | { kind: 'poll'; sortAt: number; item: HubPoll };
+
 export function ScopeFeed({
   scope,
   canCreatePost,
@@ -763,21 +786,40 @@ export function ScopeFeed({
   const [editingContent, setEditingContent] = useState('');
   const [editingError, setEditingError] = useState<string | null>(null);
   const [editingSaving, setEditingSaving] = useState(false);
+  const [composerError, setComposerError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const stableScope = useMemo<HubScopeSelection>(
     () => ({ type: scope.type, id: scope.id }),
     [scope.id, scope.type],
   );
+  const feedItems = useMemo<FeedItem[]>(() => {
+    const postItems = posts.map((item) => ({
+      kind: 'post' as const,
+      sortAt: new Date(item.createdAt).getTime() || 0,
+      item,
+    }));
+    const pollItems = polls.map((item) => ({
+      kind: 'poll' as const,
+      sortAt: new Date(item.createdAt).getTime() || 0,
+      item,
+    }));
+    return [...postItems, ...pollItems].sort((a, b) => b.sortAt - a.sortAt);
+  }, [polls, posts]);
   useEffect(() => {
     setTaggedMembers([]);
+    setComposerError(null);
   }, [stableScope]);
 
   useEffect(() => {
+    setPosts([]);
+    setPolls([]);
+    setPostsError(null);
+    setPollsError(null);
+    setLoadingPosts(true);
+    setPollsLoading(true);
     let isMounted = true;
     const loadPosts = async () => {
       try {
-        setLoadingPosts(true);
-        setPostsError(null);
         const fetchedPosts = await fetchHubPosts(stableScope);
         if (isMounted) {
           setPosts(fetchedPosts.posts);
@@ -800,7 +842,7 @@ export function ScopeFeed({
   }, [stableScope]);
 
   useEffect(() => {
-    if (!targetPostId || loadingPosts || posts.length === 0) {
+    if (!targetPostId || loadingPosts || feedItems.length === 0) {
       return;
     }
     const targetPost = posts.find((item) => item.id === targetPostId);
@@ -814,14 +856,12 @@ export function ScopeFeed({
         onTargetPostHandled?.();
       }, 120);
     }
-  }, [loadingPosts, onTargetPostHandled, posts, targetPostId]);
+  }, [feedItems.length, loadingPosts, onTargetPostHandled, posts, targetPostId]);
 
   useEffect(() => {
     let isMounted = true;
     const loadPolls = async () => {
       try {
-        setPollsLoading(true);
-        setPollsError(null);
         const fetchedPolls = await fetchHubPolls(stableScope);
         if (isMounted) {
           setPolls(fetchedPolls);
@@ -861,9 +901,10 @@ export function ScopeFeed({
       setPostContent('');
       setAttachments([]);
       setTaggedMembers([]);
+      setComposerError(null);
     } catch (err) {
       console.error('Failed to create post:', err);
-      setPostsError('Failed to create the post. Please try again.');
+      setComposerError(getErrorMessage(err, 'Failed to create the post. Please try again.'));
     }
   };
 
@@ -992,6 +1033,10 @@ export function ScopeFeed({
     setPosts((prev) => prev.map((post) => (post.id === updatedPost.id ? updatedPost : post)));
   };
 
+  const updatePoll = (updatedPoll: HubPoll) => {
+    setPolls((prev) => prev.map((poll) => (poll.id === updatedPoll.id ? updatedPoll : poll)));
+  };
+
   return (
     <>
       <Stack spacing={3}>
@@ -1003,13 +1048,23 @@ export function ScopeFeed({
             </Typography>
           </Box>
           <Box sx={{ p: 2 }}>
+            {composerError && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {composerError}
+              </Alert>
+            )}
             <TextField
               fullWidth
               multiline
               rows={4}
               placeholder="Announce new roster updates, reminders, or shout-outs..."
               value={postContent}
-              onChange={(e) => setPostContent(e.target.value)}
+              onChange={(e) => {
+                setPostContent(e.target.value);
+                if (composerError) {
+                  setComposerError(null);
+                }
+              }}
               variant="outlined"
               sx={{
                 '& .MuiOutlinedInput-root': {
@@ -1092,49 +1147,43 @@ export function ScopeFeed({
         </Card>
       )}
 
-      {pollsLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-          <CircularProgress size={24} />
-        </Box>
-      ) : pollsError ? (
+      {postsError ? (
+        <Alert severity="error">{postsError}</Alert>
+      ) : null}
+      {pollsError ? (
         <Alert severity="error">{pollsError}</Alert>
-      ) : polls.length > 0 ? (
-        <Stack spacing={2}>
-          {polls.map((poll) => (
-            <PollCard
-              key={poll.id}
-              poll={poll}
-              onVote={handlePollVote}
-              onEdit={poll.canManage ? () => openPollModal(poll) : undefined}
-              onDelete={poll.canManage ? () => handleDeletePoll(poll) : undefined}
-            />
-          ))}
-        </Stack>
       ) : null}
 
-      {loadingPosts ? (
+      {(loadingPosts || pollsLoading) && feedItems.length === 0 ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
           <CircularProgress />
         </Box>
-      ) : postsError ? (
-        <Alert severity="error" sx={{ mt: 3 }}>
-          {postsError}
-        </Alert>
-      ) : posts.length > 0 ? (
+      ) : feedItems.length > 0 ? (
         <Stack spacing={2}>
-          {posts.map((post) => (
-            <Box key={post.id} id={`hub-post-${post.id}`}>
-              <PostCard
-                post={post}
-                onUpdate={updatePost}
-                onEdit={handleStartEditPost}
-                onDelete={handleDeletePost}
-                highlighted={targetPostId === post.id}
+          {feedItems.map((entry) =>
+            entry.kind === 'post' ? (
+              <Box key={`post-${entry.item.id}`} id={`hub-post-${entry.item.id}`}>
+                <PostCard
+                  post={entry.item}
+                  onUpdate={updatePost}
+                  onEdit={handleStartEditPost}
+                  onDelete={handleDeletePost}
+                  highlighted={targetPostId === entry.item.id}
+                />
+              </Box>
+            ) : (
+              <PollCard
+                key={`poll-${entry.item.id}`}
+                poll={entry.item}
+                onUpdate={updatePoll}
+                onVote={handlePollVote}
+                onEdit={entry.item.canManage ? () => openPollModal(entry.item) : undefined}
+                onDelete={entry.item.canManage ? () => handleDeletePoll(entry.item) : undefined}
               />
-            </Box>
-          ))}
+            ),
+          )}
         </Stack>
-      ) : polls.length === 0 ? (
+      ) : (
         <Card sx={{ borderRadius: 2, border: '1px solid', borderColor: 'grey.200', bgcolor: 'white', p: 3, textAlign: 'center', boxShadow: 1 }}>
           <GroupIcon sx={{ fontSize: 40, margin: '0 auto', marginBottom: 1.5, color: 'grey.400' }} />
           <Typography variant="h6" sx={{ fontWeight: 'semibold', color: 'text.primary' }}>
@@ -1144,7 +1193,7 @@ export function ScopeFeed({
             {emptyDescription}
           </Typography>
         </Card>
-      ) : null}
+      )}
       </Stack>
       {isPollModalOpen && (
         <StartPollModal
@@ -1411,14 +1460,27 @@ function TagMembersSelector({ loadMembers, value, onChange }: TagMembersSelector
 
 interface PollCardProps {
   poll: HubPoll;
+  onUpdate: (poll: HubPoll) => void;
   onVote: (pollId: number, optionId: number) => void;
   onEdit?: (poll: HubPoll) => void;
   onDelete?: (poll: HubPoll) => void;
 }
 
-function PollCard({ poll, onVote, onEdit, onDelete }: PollCardProps) {
+function PollCard({ poll, onUpdate, onVote, onEdit, onDelete }: PollCardProps) {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  const [reactionAnchorEl, setReactionAnchorEl] = useState<null | HTMLElement>(null);
+  const [comments, setComments] = useState<HubComment[]>(poll.recentComments ?? []);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [commentError, setCommentError] = useState<string | null>(null);
   const totalVotes = poll.totalVotes;
+  const authorName = getHubAuthorName(poll.author?.user, 'Member');
+  const authorLabel = formatHubAuthorLabel(poll.author?.user, poll.author?.role, 'Member');
+  const authorAvatar = poll.author?.user?.profilePhotoUrl || null;
+  const pollTimestamp = formatHubDate(poll.createdAt);
+  const reactionEntries = Object.entries(poll.reactionSummary || {}).filter(([, count]) => count > 0);
+  const viewerReaction = poll.viewerReaction;
 
   const handleVote = (optionId: number) => {
     if (!poll.canVote) return;
@@ -1441,18 +1503,95 @@ function PollCard({ poll, onVote, onEdit, onDelete }: PollCardProps) {
     onDelete?.(poll);
   };
 
+  const loadComments = async () => {
+    if (commentsLoading) return;
+    setCommentsLoading(true);
+    setCommentError(null);
+    try {
+      const data = await fetchHubPollComments(poll.id);
+      setComments(data);
+    } catch (error) {
+      console.error('Failed to load poll comments:', error);
+      setCommentError('Failed to load comments.');
+    } finally {
+      setCommentsLoading(false);
+    }
+  };
+
+  const toggleComments = async () => {
+    const next = !commentsOpen;
+    setCommentsOpen(next);
+    if (next) {
+      await loadComments();
+    }
+  };
+
+  const handleSelectReaction = async (reaction: HubReactionType) => {
+    setReactionAnchorEl(null);
+    try {
+      const updated = await reactToHubPoll(poll.id, reaction);
+      onUpdate(updated);
+    } catch (error) {
+      console.error('Failed to react to poll:', error);
+    }
+  };
+
+  const handleRemoveReaction = async () => {
+    setReactionAnchorEl(null);
+    try {
+      const updated = await removeHubPollReaction(poll.id);
+      onUpdate(updated);
+    } catch (error) {
+      console.error('Failed to remove reaction from poll:', error);
+    }
+  };
+
+  const handleSubmitComment = async () => {
+    const body = commentDraft.trim();
+    if (!body) return;
+    setCommentError(null);
+    try {
+      const created = await createHubPollComment(poll.id, { body });
+      setCommentDraft('');
+      setComments((prev) => [...prev, created]);
+      onUpdate({
+        ...poll,
+        commentCount: poll.commentCount + 1,
+        recentComments: [...(poll.recentComments ?? []), created].slice(-2),
+      });
+    } catch (error) {
+      console.error('Failed to create poll comment:', error);
+      setCommentError(getErrorMessage(error, 'Failed to add comment.'));
+    }
+  };
+
   return (
     <Card sx={{ borderRadius: 2, boxShadow: 1 }}>
       <CardContent sx={{ p: 3 }}>
         <Stack spacing={2}>
           <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
-            <Stack spacing={0.5}>
+            <Stack spacing={1} sx={{ flex: 1 }}>
+              <Stack direction="row" spacing={1.5} alignItems="center">
+                <Avatar src={authorAvatar || undefined} alt={authorName}>
+                  {!authorAvatar && authorName.charAt(0)}
+                </Avatar>
+                <Stack spacing={0.25}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                    {authorLabel}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {pollTimestamp}
+                  </Typography>
+                </Stack>
+              </Stack>
+              <Stack spacing={0.5}>
               <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 1.2 }}>
                 Poll
               </Typography>
               <Typography variant="h6" sx={{ fontWeight: 600 }}>
                 {poll.question}
               </Typography>
+              </Stack>
             </Stack>
             {(onEdit || onDelete) && (
               <>
@@ -1533,13 +1672,95 @@ function PollCard({ poll, onVote, onEdit, onDelete }: PollCardProps) {
             })}
           </Stack>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="caption" color="text.secondary">
-              {totalVotes} {totalVotes === 1 ? 'vote' : 'votes'}
-            </Typography>
-            {poll.hasVoted && (
-              <Chip label="You voted" size="small" color="primary" variant="outlined" sx={{ fontWeight: 600 }} />
-            )}
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Button
+                size="small"
+                onClick={(event) => setReactionAnchorEl(event.currentTarget)}
+                startIcon={poll.viewerReaction ? <ThumbUpAltIcon fontSize="small" /> : <ThumbUpAltOutlinedIcon fontSize="small" />}
+                sx={{ textTransform: 'none' }}
+              >
+                {viewerReaction ? `${reactionEmojis[viewerReaction]} ${viewerReaction}` : 'React'}
+              </Button>
+              <Button
+                size="small"
+                onClick={toggleComments}
+                startIcon={<ChatBubbleOutlineIcon fontSize="small" />}
+                sx={{ textTransform: 'none' }}
+              >
+                Comment{poll.commentCount ? ` (${poll.commentCount})` : ''}
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                {totalVotes} {totalVotes === 1 ? 'vote' : 'votes'}
+              </Typography>
+            </Stack>
+            <Stack direction="row" spacing={1} alignItems="center">
+              {reactionEntries.map(([reaction, count]) => (
+                <Chip key={reaction} size="small" label={`${reactionEmojis[reaction as HubReactionType] || ''} ${count}`} />
+              ))}
+              {poll.hasVoted && (
+                <Chip label="You voted" size="small" color="primary" variant="outlined" sx={{ fontWeight: 600 }} />
+              )}
+            </Stack>
           </Stack>
+          <Menu anchorEl={reactionAnchorEl} open={Boolean(reactionAnchorEl)} onClose={() => setReactionAnchorEl(null)}>
+            <Box sx={{ display: 'flex', flexDirection: 'row', alignItems: 'center', px: 1, py: 0.5, gap: 0.5 }}>
+              {Object.keys(reactionEmojis).map((reaction) => (
+                <IconButton
+                  key={reaction}
+                  size="small"
+                  onClick={() => handleSelectReaction(reaction as HubReactionType)}
+                >
+                  <Typography component="span" sx={{ fontSize: 18 }}>
+                    {reactionEmojis[reaction as HubReactionType]}
+                  </Typography>
+                </IconButton>
+              ))}
+            </Box>
+            {poll.viewerReaction && <MenuItem onClick={handleRemoveReaction}>Remove reaction</MenuItem>}
+          </Menu>
+          {commentsOpen && (
+            <Stack spacing={1.5}>
+              <Divider />
+              {commentsLoading ? (
+                <CircularProgress size={20} />
+              ) : comments.length ? (
+                comments.map((comment) => (
+                  <Stack key={comment.id} direction="row" spacing={1.5} alignItems="flex-start">
+                    <Avatar src={comment.author.user.profilePhotoUrl || undefined} alt={getHubAuthorName(comment.author.user, 'Member')} sx={{ width: 32, height: 32 }}>
+                      {!comment.author.user.profilePhotoUrl && getHubAuthorName(comment.author.user, 'Member').charAt(0)}
+                    </Avatar>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                        {formatHubAuthorLabel(comment.author.user, comment.author.role, 'Member')}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {formatHubDate(comment.createdAt)}
+                      </Typography>
+                      <Typography variant="body2" sx={{ mt: 0.5 }}>
+                        {comment.body}
+                      </Typography>
+                    </Box>
+                  </Stack>
+                ))
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No comments yet.
+                </Typography>
+              )}
+              <Paper sx={{ p: '2px 4px', display: 'flex', alignItems: 'center', borderRadius: 5, border: '1px solid', borderColor: 'grey.300', boxShadow: 'none' }}>
+                <InputBase
+                  sx={{ ml: 1, flex: 1 }}
+                  placeholder="Write a comment..."
+                  value={commentDraft}
+                  onChange={(event) => setCommentDraft(event.target.value)}
+                />
+                <IconButton onClick={handleSubmitComment} disabled={!commentDraft.trim()}>
+                  <SendIcon />
+                </IconButton>
+              </Paper>
+              {commentError && <Alert severity="error">{commentError}</Alert>}
+            </Stack>
+          )}
         </Stack>
       </CardContent>
     </Card>

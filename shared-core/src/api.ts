@@ -1503,6 +1503,27 @@ export function voteOnHubPoll(id, optionId) {
         body: JSON.stringify({ option_id: optionId }),
     });
 }
+export function getHubPollComments(pollId) {
+    return fetchApi(`/client-profile/hub/polls/${pollId}/comments/`);
+}
+export function createHubPollComment(pollId, data) {
+    return fetchApi(`/client-profile/hub/polls/${pollId}/comments/`, { method: 'POST', body: JSON.stringify(data) });
+}
+export function updateHubPollComment(pollId, commentId, data) {
+    return fetchApi(`/client-profile/hub/polls/${pollId}/comments/${commentId}/`, { method: 'PATCH', body: JSON.stringify(data) });
+}
+export function deleteHubPollComment(pollId, commentId) {
+    return fetchApi(`/client-profile/hub/polls/${pollId}/comments/${commentId}/`, { method: 'DELETE' });
+}
+export function reactToHubPoll(pollId, reaction) {
+    return fetchApi(`/client-profile/hub/polls/${pollId}/reactions/`, {
+        method: 'POST',
+        body: JSON.stringify({ reaction_type: reaction }),
+    });
+}
+export function removeHubPollReaction(pollId) {
+    return fetchApi(`/client-profile/hub/polls/${pollId}/reactions/`, { method: 'DELETE' });
+}
 export function updateHubPoll(id, data) {
     return fetchApi(`/client-profile/hub/polls/${id}/`, { method: 'PATCH', body: JSON.stringify(data) });
 }
@@ -1520,6 +1541,7 @@ const mapUserSummary = (api) => {
         return null;
     return {
         id: api.id,
+        username: api.username ?? null,
         firstName: api.first_name,
         lastName: api.last_name,
         email: api.email,
@@ -1547,6 +1569,7 @@ const mapMembership = (api) => ({
     jobTitle: api.job_title ?? null,
     userDetails: {
         id: api.user_details.id,
+        username: api.user_details.username ?? null,
         firstName: api.user_details.first_name,
         lastName: api.user_details.last_name,
         email: api.user_details.email,
@@ -1554,6 +1577,7 @@ const mapMembership = (api) => ({
     },
     user: mapUserSummary(api.user_details) ?? {
         id: api.user_details.id,
+        username: api.user_details.username ?? null,
         firstName: api.user_details.first_name,
         lastName: api.user_details.last_name,
         email: api.user_details.email,
@@ -1634,6 +1658,11 @@ const mapPoll = (api) => ({
     selectedOptionId: api.selected_option_id,
     canVote: api.can_vote,
     canManage: api.can_manage ?? false,
+    author: mapMembership(api.author ?? api.created_by),
+    commentCount: api.comment_count ?? 0,
+    reactionSummary: api.reaction_summary ?? {},
+    viewerReaction: api.viewer_reaction ?? null,
+    recentComments: (api.recent_comments ?? []).map(mapComment),
     createdAt: api.created_at,
     updatedAt: api.updated_at,
     closesAt: api.closes_at,
@@ -1799,8 +1828,33 @@ export async function createHubPollService(scope, payload) {
     const data = await createHubPoll(body);
     return mapPoll(data);
 }
+export async function fetchHubPollComments(pollId) {
+    const data = await getHubPollComments(pollId);
+    return asList(data).map(mapComment);
+}
+export async function createHubPollCommentService(pollId, payload) {
+    const data = await createHubPollComment(pollId, {
+        body: payload.body,
+    });
+    return mapComment(data);
+}
+export async function updateHubPollCommentService(pollId, commentId, payload) {
+    const data = await updateHubPollComment(pollId, commentId, { body: payload.body });
+    return mapComment(data);
+}
+export async function deleteHubPollCommentService(pollId, commentId) {
+    await deleteHubPollComment(pollId, commentId);
+}
 export async function voteHubPollService(pollId, optionId) {
     const data = await voteOnHubPoll(pollId, optionId);
+    return mapPoll(data);
+}
+export async function reactToHubPollService(pollId, reaction) {
+    const data = await reactToHubPoll(pollId, reaction);
+    return mapPoll(data);
+}
+export async function removeHubPollReactionService(pollId) {
+    const data = await removeHubPollReaction(pollId);
     return mapPoll(data);
 }
 export async function updateHubPollService(pollId, payload) {

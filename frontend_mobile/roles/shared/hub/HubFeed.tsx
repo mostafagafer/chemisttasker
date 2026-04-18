@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState, useCallback } from 'react';
 import { ActivityIndicator, Animated, FlatList, Image, RefreshControl, View, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import { Button, Text, IconButton, Menu, Modal, Portal, TextInput, HelperText, Divider, Chip, Avatar } from 'react-native-paper';
-import { fetchHubPosts, fetchHubPolls, createHubComment, deleteHubComment, fetchHubComments, reactToHubComment, removeHubCommentReaction, voteHubPoll, updateHubComment, updateHubPoll, deleteHubPoll } from './api';
+import { fetchHubPosts, fetchHubPolls, createHubComment, createHubPollComment, deleteHubComment, fetchHubComments, fetchHubPollComments, reactToHubComment, reactToHubPoll, removeHubCommentReaction, removeHubPollReaction, voteHubPoll, updateHubComment, updateHubPoll, deleteHubPoll } from './api';
 import type { HubPost, HubPoll, HubReactionType } from './types';
 import { PostCard } from './PostCard';
 import { PostComposer } from './PostComposer';
@@ -30,6 +30,10 @@ type Props = {
   };
 };
 
+type FeedItem =
+  | { kind: 'post'; sortAt: number; item: HubPost }
+  | { kind: 'poll'; sortAt: number; item: HubPoll };
+
 const HUB_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
   month: 'short',
   day: 'numeric',
@@ -42,6 +46,14 @@ const HUB_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
   hour12: true,
 });
 
+const reactionEmojis: Record<string, string> = {
+  LIKE: '\uD83D\uDC4D',
+  LOVE: '\u2764\uFE0F',
+  CELEBRATE: '\uD83C\uDF89',
+  SUPPORT: '\uD83D\uDE4C',
+  INSIGHTFUL: '\uD83D\uDCA1',
+};
+
 const formatDate = (value?: string) => {
   if (!value) return '';
   const parsed = new Date(value);
@@ -51,13 +63,201 @@ const formatDate = (value?: string) => {
   return `${datePart} ${timePart}`;
 };
 
-const formatMemberLabel = (name: string, role?: string | null, jobTitle?: string | null, fallback = 'Member') => {
-  const display = name?.trim() || fallback;
-  const parts = [display];
-  if (role && role.trim()) parts.push(role.trim());
-  if (jobTitle && jobTitle.trim()) parts.push(jobTitle.trim());
-  return parts.join(' | ');
+const getAuthorName = (user: any, fallback = 'Member') => {
+  const username = (user?.username || '').trim();
+  if (username) return username;
+  const firstName = user?.firstName || user?.first_name || '';
+  const lastName = user?.lastName || user?.last_name || '';
+  const fullName = `${firstName} ${lastName}`.trim();
+  if (fullName) return fullName;
+  const email = (user?.email || '').trim();
+  if (email) return email;
+  return fallback;
 };
+
+const formatMemberLabel = (name: string, role?: string | null, fallback = 'Member') => {
+  const display = name?.trim() || fallback;
+  return role && role.trim() ? `${display} | ${role.trim()}` : display;
+};
+
+function PollCardMobile({
+  poll,
+  onVote,
+  onUpdate,
+  onEdit,
+  onDelete,
+}: {
+  poll: HubPoll;
+  onVote: (pollId: number, optionId: number) => Promise<void> | void;
+  onUpdate: (poll: HubPoll) => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+}) {
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [reactionMenuVisible, setReactionMenuVisible] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [comments, setComments] = useState<any[]>(((poll as any).recentComments ?? []));
+  const [commentDraft, setCommentDraft] = useState('');
+  const [commentError, setCommentError] = useState<string | null>(null);
+
+  const author = (poll as any).author || (poll as any).createdBy || {};
+  const user = author.user || author.userDetails || author.user_details || {};
+  const authorName = getAuthorName(user, 'Member');
+  const authorLabel = formatMemberLabel(authorName, author.role, 'Member');
+  const authorAvatar = user.profilePhotoUrl || user.profile_photo_url || null;
+  const reactionSummary = (poll as any).reactionSummary || {};
+  const reactionEntries = Object.entries(reactionSummary).filter(([, v]) => Number(v) > 0);
+  const viewerReaction = (poll as any).viewerReaction as HubReactionType | null | undefined;
+  const totalReactions = Object.values(reactionSummary).reduce((sum: number, value: any) => sum + Number(value ?? 0), 0);
+
+  const loadComments = async () => {
+    if (commentsLoading) return;
+    setCommentsLoading(true);
+    setCommentError(null);
+    try {
+      const data = await fetchHubPollComments(poll.id);
+      setComments(data);
+    } catch {
+      setCommentError('Failed to load comments');
+    } finally {
+      setCommentsLoading(false);
+    }
+  };
+
+  return (
+    <View style={pollStyles.card}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+        <View style={{ flexDirection: 'row', flex: 1, gap: 10 }}>
+          {authorAvatar ? <Avatar.Image size={36} source={{ uri: authorAvatar }} /> : <Avatar.Text size={36} label={authorName.charAt(0) || 'U'} />}
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontWeight: '700', color: '#111827' }}>{authorLabel}</Text>
+            <Text style={{ color: '#6B7280', fontSize: 12 }}>{formatDate(poll.createdAt)}</Text>
+            <Text style={[pollStyles.question, { marginTop: 6 }]}>{poll.question}</Text>
+          </View>
+        </View>
+        {poll.canManage ? (
+          <Menu
+            visible={menuVisible}
+            onDismiss={() => setMenuVisible(false)}
+            anchor={<IconButton icon="dots-vertical" size={20} onPress={() => setMenuVisible(true)} />}
+          >
+            {onEdit ? <Menu.Item onPress={() => { setMenuVisible(false); onEdit(); }} title="Edit" /> : null}
+            {onDelete ? <Menu.Item onPress={() => { setMenuVisible(false); onDelete(); }} title="Delete" /> : null}
+          </Menu>
+        ) : null}
+      </View>
+      {poll.options
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .map((opt) => {
+          const isSelected = poll.selectedOptionId === opt.id;
+          return (
+            <TouchableOpacity
+              key={opt.id}
+              style={[pollStyles.option, isSelected ? pollStyles.optionSelected : null]}
+              disabled={!poll.canVote}
+              onPress={() => onVote(poll.id, opt.id)}
+            >
+              <Text style={pollStyles.optionLabel}>{opt.label}</Text>
+              <Text style={pollStyles.optionMeta}>{opt.percentage ?? 0}% • {opt.voteCount} votes</Text>
+            </TouchableOpacity>
+          );
+        })}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <Menu
+            visible={reactionMenuVisible}
+            onDismiss={() => setReactionMenuVisible(false)}
+            anchor={
+              <Button compact onPress={() => setReactionMenuVisible(true)}>
+                {totalReactions ? `${totalReactions}` : viewerReaction ? (reactionEmojis[viewerReaction] || 'React') : 'React'}
+              </Button>
+            }
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6, paddingVertical: 4, gap: 10 }}>
+                {Object.keys(reactionEmojis).map((key) => (
+                <TouchableOpacity
+                  key={key}
+                  onPress={async () => {
+                    setReactionMenuVisible(false);
+                    try {
+                      const updated = await reactToHubPoll(poll.id, key as HubReactionType);
+                      onUpdate(updated);
+                    } catch {
+                      setCommentError('Failed to react');
+                    }
+                  }}
+                  style={{ padding: 6 }}
+                >
+                  <Text style={{ fontSize: 16 }}>{reactionEmojis[key as keyof typeof reactionEmojis] || ''}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {viewerReaction ? <Menu.Item onPress={async () => {
+              setReactionMenuVisible(false);
+              try {
+                const updated = await removeHubPollReaction(poll.id);
+                onUpdate(updated);
+              } catch {
+                setCommentError('Failed to remove reaction');
+              }
+            }} title="Remove reaction" /> : null}
+          </Menu>
+          <Button compact onPress={async () => { const next = !commentsOpen; setCommentsOpen(next); if (next) await loadComments(); }}>
+            Comment{(poll as any).commentCount ? ` (${(poll as any).commentCount})` : ''}
+          </Button>
+          <Text style={{ color: '#6B7280', fontSize: 12 }}>{poll.totalVotes} votes</Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {reactionEntries.map(([reaction, count]) => (
+            <Chip key={reaction} compact>{`${reactionEmojis[reaction as keyof typeof reactionEmojis] || ''} ${count}`}</Chip>
+          ))}
+          {poll.hasVoted ? <Chip compact>You voted</Chip> : null}
+        </View>
+      </View>
+      {commentsOpen ? (
+        <View style={{ marginTop: 12, gap: 8 }}>
+          {commentsLoading ? (
+            <ActivityIndicator />
+          ) : comments.length ? (
+            comments.map((comment: any) => {
+              const commentAuthor = comment.author || {};
+              const commentUser = commentAuthor.user || commentAuthor.userDetails || commentAuthor.user_details || {};
+              const commentName = getAuthorName(commentUser, 'Member');
+              return (
+                <View key={comment.id} style={{ paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E5E7EB' }}>
+                  <Text style={{ fontWeight: '600', color: '#111827' }}>
+                    {formatMemberLabel(commentName, commentAuthor.role, 'Member')}
+                  </Text>
+                  <Text style={{ color: '#6B7280', fontSize: 12 }}>{formatDate(comment.createdAt || comment.created_at)}</Text>
+                  <Text style={{ color: '#111827', marginTop: 4 }}>{comment.body}</Text>
+                </View>
+              );
+            })
+          ) : (
+            <Text style={{ color: '#6B7280' }}>No comments yet.</Text>
+          )}
+          <TextInput mode="outlined" label="Add a comment" value={commentDraft} onChangeText={setCommentDraft} multiline />
+          {commentError ? <HelperText type="error">{commentError}</HelperText> : null}
+          <Button mode="contained" onPress={async () => {
+            if (!commentDraft.trim()) return;
+            try {
+              const created = await createHubPollComment(poll.id, { body: commentDraft.trim() } as any);
+              setComments((prev) => [...prev, created]);
+              setCommentDraft('');
+              onUpdate({ ...(poll as any), commentCount: ((poll as any).commentCount || 0) + 1, recentComments: [...(((poll as any).recentComments ?? [])), created].slice(-2) } as any);
+            } catch {
+              setCommentError('Failed to add comment');
+            }
+          }}>
+            Post comment
+          </Button>
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 export function HubFeed({ scope, onBack, targetPostId, onTargetPostHandled, header }: Props) {
   const stableScope = React.useMemo(() => {
@@ -113,16 +313,20 @@ export function HubFeed({ scope, onBack, targetPostId, onTargetPostHandled, head
   const [pollsError, setPollsError] = useState<string | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
   const [editingPoll, setEditingPoll] = useState<HubPoll | null>(null);
-  const [pollMenuId, setPollMenuId] = useState<number | null>(null);
-  const listRef = React.useRef<FlatList<HubPost>>(null);
-  const reactionEmojis: Record<string, string> = {
-    LIKE: '\uD83D\uDC4D',
-    LOVE: '\u2764\uFE0F',
-    CELEBRATE: '\uD83C\uDF89',
-    SUPPORT: '\uD83D\uDE4C',
-    INSIGHTFUL: '\uD83D\uDCA1',
-  };
-
+  const listRef = React.useRef<FlatList<FeedItem>>(null);
+  const feedItems = React.useMemo<FeedItem[]>(() => {
+    const postItems = posts.map((item) => ({
+      kind: 'post' as const,
+      sortAt: new Date(item.createdAt).getTime() || 0,
+      item,
+    }));
+    const pollItems = polls.map((item) => ({
+      kind: 'poll' as const,
+      sortAt: new Date(item.createdAt).getTime() || 0,
+      item,
+    }));
+    return [...postItems, ...pollItems].sort((a, b) => b.sortAt - a.sortAt);
+  }, [polls, posts]);
   const buildCommentTree = (list: any[]) => {
     if (!list?.length) return [];
     const nodes = list.map((c) => ({ ...c, replies: [] as any[] }));
@@ -145,15 +349,8 @@ export function HubFeed({ scope, onBack, targetPostId, onTargetPostHandled, head
     const author = c.author || {};
     const user = author.user_details || author.user || {};
     const role = author.role || null;
-    const jobTitle = author.job_title || author.jobTitle || null;
-    const baseName =
-      `${user.first_name || user.firstName || ''} ${user.last_name || user.lastName || ''}`.trim() ||
-      user.fullName ||
-      user.email ||
-      author.display_name ||
-      author.displayName ||
-      '';
-    const displayName = formatMemberLabel(baseName, role, jobTitle, 'Member');
+    const baseName = getAuthorName(user, 'Member');
+    const displayName = formatMemberLabel(baseName, role, 'Member');
     const initials = displayName ? (displayName.trim().charAt(0) || 'M').toUpperCase() : 'M';
     const viewerReaction = c.viewer_reaction || c.viewerReaction;
     const summary = c.reaction_summary || c.reactionSummary || {};
@@ -363,6 +560,12 @@ export function HubFeed({ scope, onBack, targetPostId, onTargetPostHandled, head
   useEffect(() => {
     setPosts([]);
     setNext(null);
+    setCommentPost(null);
+    setComments([]);
+    setCommentDraft('');
+    setCommentError(null);
+    setEditingCommentId(null);
+    setReplyToId(null);
     void load();
     setPolls([]);
     setPollsError(null);
@@ -377,15 +580,15 @@ export function HubFeed({ scope, onBack, targetPostId, onTargetPostHandled, head
   }, [scope, load]);
 
   useEffect(() => {
-    if (!targetPostId || !posts.length) return;
-    const index = posts.findIndex((item) => item.id === targetPostId);
+    if (!targetPostId || !feedItems.length) return;
+    const index = feedItems.findIndex((entry) => entry.kind === 'post' && entry.item.id === targetPostId);
     if (index < 0) return;
     const timer = setTimeout(() => {
       listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.1 });
       onTargetPostHandled?.();
     }, 150);
     return () => clearTimeout(timer);
-  }, [onTargetPostHandled, posts, targetPostId]);
+  }, [feedItems, onTargetPostHandled, targetPostId]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -491,132 +694,87 @@ export function HubFeed({ scope, onBack, targetPostId, onTargetPostHandled, head
 
       <Animated.FlatList
         ref={listRef}
-        data={posts}
-        keyExtractor={(item) => String(item.id)}
-        renderItem={({ item }) => (
-          <PostCard
-            post={item}
-            onEdit={(p) => { setEditing(p); setComposerVisible(true); }}
-            onComment={() => {
-              setCommentPost(item);
-              setComments([]);
-              setCommentDraft('');
-              setCommentError(null);
-              setCommentsLoading(true);
-              fetchHubComments(item.id)
-                .then((data: any) => {
-                  const list = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
-                  const withPost = list.map((c: any) => ({ ...c, post: c.post || c.postId || item.id }));
-                  setComments(withPost);
-                })
-                .catch(() => setCommentError('Failed to load comments'))
-                .finally(() => setCommentsLoading(false));
-            }}
-            onRefresh={onRefresh}
-            highlighted={targetPostId === item.id}
-          />
-        )}
+        key={stableScope ? `${stableScope.type}:${stableScope.id}` : 'empty-scope'}
+        data={feedItems}
+        keyExtractor={(entry) => `${entry.kind}-${entry.item.id}`}
+        renderItem={({ item: entry }) =>
+          entry.kind === 'post' ? (
+            <PostCard
+              post={entry.item}
+              onEdit={(p) => { setEditing(p); setComposerVisible(true); }}
+              onComment={() => {
+                setCommentPost(entry.item);
+                setComments([]);
+                setCommentDraft('');
+                setCommentError(null);
+                setCommentsLoading(true);
+                fetchHubComments(entry.item.id)
+                  .then((data: any) => {
+                    const list = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
+                    const withPost = list.map((c: any) => ({ ...c, post: c.post || c.postId || entry.item.id }));
+                    setComments(withPost);
+                  })
+                  .catch(() => setCommentError('Failed to load comments'))
+                  .finally(() => setCommentsLoading(false));
+              }}
+              onRefresh={onRefresh}
+              highlighted={targetPostId === entry.item.id}
+            />
+          ) : (
+            <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+              <PollCardMobile
+                poll={entry.item}
+                onUpdate={(updated) => setPolls((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))}
+                onVote={async (pollId, optionId) => {
+                  if (!entry.item.canVote) return;
+                  try {
+                    setPolls((prev) =>
+                      prev.map((p) =>
+                        p.id === pollId ? { ...p, selectedOptionId: optionId, hasVoted: true } : p,
+                      ),
+                    );
+                    const updated = await voteHubPoll(pollId, optionId);
+                    setPolls((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+                  } catch {
+                    setPollsError('Failed to vote');
+                  }
+                }}
+                onEdit={entry.item.canManage ? () => {
+                  setEditingPoll(entry.item);
+                  setPollVisible(true);
+                } : undefined}
+                onDelete={entry.item.canManage ? () => {
+                  Alert.alert('Delete poll', 'Are you sure you want to delete this poll?', [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete',
+                      style: 'destructive',
+                      onPress: async () => {
+                        try {
+                          await deleteHubPoll(entry.item.id);
+                          setPolls((prev) => prev.filter((p) => p.id !== entry.item.id));
+                        } catch {
+                          setPollError('Failed to delete poll');
+                        }
+                      },
+                    },
+                  ]);
+                } : undefined}
+              />
+            </View>
+          )
+        }
         ListHeaderComponent={
           <>
             {listHeader()}
-            {pollsLoading ? (
-              <View style={{ padding: 16, alignItems: 'center' }}>
-                <ActivityIndicator />
-              </View>
-            ) : pollsError ? (
-              <HelperText type="error">{pollsError}</HelperText>
-            ) : polls.length ? (
-              <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 12 }}>
-                {polls.map((poll) => (
-                  <View key={poll.id} style={pollStyles.card}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                      <Text style={pollStyles.question}>{poll.question}</Text>
-                      {poll.canManage ? (
-                        <Menu
-                          visible={pollMenuId === poll.id}
-                          onDismiss={() => setPollMenuId(null)}
-                          anchor={
-                            <IconButton
-                              icon="dots-vertical"
-                              size={20}
-                              onPress={() => setPollMenuId((prev) => (prev === poll.id ? null : poll.id))}
-                            />
-                          }
-                        >
-                          <Menu.Item
-                            onPress={() => {
-                              setPollMenuId(null);
-                              setEditingPoll(poll);
-                              setPollVisible(true);
-                            }}
-                            title="Edit"
-                          />
-                          <Menu.Item
-                            onPress={() => {
-                              setPollMenuId(null);
-                              Alert.alert('Delete poll', 'Are you sure you want to delete this poll?', [
-                                { text: 'Cancel', style: 'cancel' },
-                                {
-                                  text: 'Delete',
-                                  style: 'destructive',
-                                  onPress: async () => {
-                                    try {
-                                      await deleteHubPoll(poll.id);
-                                      setPolls((prev) => prev.filter((p) => p.id !== poll.id));
-                                    } catch {
-                                      setPollError('Failed to delete poll');
-                                    }
-                                  },
-                                },
-                              ]);
-                            }}
-                            title="Delete"
-                          />
-                        </Menu>
-                      ) : null}
-                    </View>
-                    {poll.options
-                      .slice()
-                      .sort((a, b) => a.position - b.position)
-                      .map((opt) => {
-                        const isSelected = poll.selectedOptionId === opt.id;
-                        return (
-                          <TouchableOpacity
-                            key={opt.id}
-                            style={[pollStyles.option, isSelected ? pollStyles.optionSelected : null]}
-                            disabled={!poll.canVote}
-                            onPress={async () => {
-                              if (!poll.canVote) return;
-                              try {
-                                setPolls((prev) =>
-                                  prev.map((p) =>
-                                    p.id === poll.id ? { ...p, selectedOptionId: opt.id, hasVoted: true } : p,
-                                  ),
-                                );
-                                const updated = await voteHubPoll(poll.id, opt.id);
-                                setPolls((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-                              } catch {
-                                setPollsError('Failed to vote');
-                              }
-                            }}
-                          >
-                            <Text style={pollStyles.optionLabel}>{opt.label}</Text>
-                            <Text style={pollStyles.optionMeta}>{opt.percentage ?? 0}% â€¢ {opt.voteCount} votes</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    {poll.hasVoted ? <Chip compact style={{ alignSelf: 'flex-start', marginTop: 6 }}>You voted</Chip> : null}
-                  </View>
-                ))}
-                {pollError ? <HelperText type="error">{pollError}</HelperText> : null}
-              </View>
-            ) : null}
+            {pollsError ? <HelperText type="error">{pollsError}</HelperText> : null}
+            {pollError ? <HelperText type="error">{pollError}</HelperText> : null}
           </>
         }
         ListFooterComponent={renderFooter}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
-          loading ? (
+          (loading || pollsLoading) && feedItems.length === 0 ? (
             <View style={{ padding: 16, alignItems: 'center' }}>
               <ActivityIndicator />
             </View>

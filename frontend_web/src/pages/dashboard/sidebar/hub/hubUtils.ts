@@ -39,3 +39,44 @@ export const formatMemberLabel = (
   }
   return parts.join(' | ');
 };
+
+export const getHubAuthorName = (
+  user?: {
+    username?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+  } | null,
+  fallback = 'Member',
+) => {
+  if (!user) {
+    return fallback;
+  }
+  const username = user.username?.trim();
+  if (username) {
+    return username;
+  }
+  const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+  if (fullName) {
+    return fullName;
+  }
+  const email = user.email?.trim();
+  if (email) {
+    return email;
+  }
+  return fallback;
+};
+
+export const formatHubAuthorLabel = (
+  user?: {
+    username?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+  } | null,
+  role?: string | null,
+  fallback = 'Member',
+) => {
+  const name = getHubAuthorName(user, fallback);
+  return role?.trim() ? `${name} | ${role.trim()}` : name;
+};

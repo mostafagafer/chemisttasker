@@ -41,11 +41,20 @@ const formatDate = (value?: string) => {
   return `${datePart} ${timePart}`;
 };
 
-const formatMemberLabel = (name: string, role?: string | null, jobTitle?: string | null) => {
-  const parts = [name];
-  if (role) parts.push(role);
-  if (jobTitle) parts.push(jobTitle);
-  return parts.join(' | ');
+const getAuthorName = (user: any, fallback = 'Member') => {
+  const username = (user?.username || '').trim();
+  if (username) return username;
+  const firstName = user?.firstName || user?.first_name || '';
+  const lastName = user?.lastName || user?.last_name || '';
+  const fullName = `${firstName} ${lastName}`.trim();
+  if (fullName) return fullName;
+  const email = (user?.email || '').trim();
+  if (email) return email;
+  return fallback;
+};
+
+const formatMemberLabel = (name: string, role?: string | null) => {
+  return role ? `${name} | ${role}` : name;
 };
 
 export function PostCard({ post, onEdit, onComment, onRefresh, highlighted = false }: Props) {
@@ -226,17 +235,9 @@ export function PostCard({ post, onEdit, onComment, onRefresh, highlighted = fal
     (author as any).user_details ||
     (author as any).userDetails ||
     {};
-  const firstName = user.firstName || user.first_name || '';
-  const lastName = user.lastName || user.last_name || '';
-  const email = user.email || '';
-  const authorName =
-    `${firstName} ${lastName}`.trim() ||
-    user.fullName ||
-    email ||
-    'Member';
+  const authorName = getAuthorName(user, 'Member');
   const authorAvatar = (user as any).profile_photo_url || (user as any).profilePhotoUrl || (user as any).profilePhoto;
   const role = (author as any).role || null;
-  const jobTitle = (author as any).job_title || (author as any).jobTitle || null;
   const createdAt = (post as any).createdAt || (post as any).created_at;
   const scopeLabel =
     (post as any).pharmacy_name ||
@@ -271,7 +272,7 @@ export function PostCard({ post, onEdit, onComment, onRefresh, highlighted = fal
             )}
             <View style={{ flex: 1 }}>
               <Text variant="titleMedium" numberOfLines={1}>
-                {formatMemberLabel(authorName, role, jobTitle)}
+                {formatMemberLabel(authorName, role)}
               </Text>
               <Text style={styles.muted} numberOfLines={1}>
                 {formatDate(createdAt)}

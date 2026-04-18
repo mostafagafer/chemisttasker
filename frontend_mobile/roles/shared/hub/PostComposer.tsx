@@ -12,6 +12,23 @@ import {
 } from './api';
 import type { HubPost, HubPostPayload } from './types';
 
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  const responseDetail = (
+    error as { response?: { data?: { detail?: string } } } | null
+  )?.response?.data?.detail;
+  if (typeof responseDetail === 'string' && responseDetail.trim()) {
+    return responseDetail.trim();
+  }
+  const detail = (error as { detail?: string } | null)?.detail;
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail.trim();
+  }
+  return fallback;
+};
+
 type Scope =
   | { type: 'pharmacy'; id: number }
   | { type: 'organization'; id: number }
@@ -170,7 +187,7 @@ export function PostComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
       setAttachments([]);
       setTaggedMemberIds([]);
     } catch (err: any) {
-      setError(err?.message || 'Save failed');
+      setError(getErrorMessage(err, 'Save failed'));
     } finally {
       setSaving(false);
     }
@@ -183,10 +200,20 @@ export function PostComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
           <Text variant="titleMedium">{editing ? 'Edit post' : 'New post'}</Text>
           <IconButton icon="close" onPress={onDismiss} />
         </View>
+        {error ? (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorBannerText}>{error}</Text>
+          </View>
+        ) : null}
         <TextInput
           label="Share an update"
           value={body}
-          onChangeText={setBody}
+          onChangeText={(value) => {
+            setBody(value);
+            if (error) {
+              setError(null);
+            }
+          }}
           multiline
           mode="outlined"
           numberOfLines={4}
@@ -268,7 +295,6 @@ export function PostComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
             </View>
           ) : null}
         </View>
-        {error ? <HelperText type="error">{error}</HelperText> : null}
         <Button
           mode="contained"
           onPress={handleSave}
@@ -295,4 +321,17 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   muted: { color: '#6B7280' },
   attachmentRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  errorBanner: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FCA5A5',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  errorBannerText: {
+    color: '#B91C1C',
+    fontWeight: '600',
+  },
 });

@@ -16,6 +16,8 @@ from .hub.api import (
     HubCommentReactionView,
     HubReactionView,
     HubPollViewSet,
+    HubPollCommentViewSet,
+    HubPollReactionView,
 )
 from rest_framework.routers import DefaultRouter
 
@@ -94,6 +96,10 @@ hub_poll_detail = HubPollViewSet.as_view(
     {"get": "retrieve", "patch": "partial_update", "put": "update", "delete": "destroy"}
 )
 hub_poll_vote = HubPollViewSet.as_view({"post": "vote"})
+hub_poll_comment_list = HubPollCommentViewSet.as_view({"get": "list", "post": "create"})
+hub_poll_comment_detail = HubPollCommentViewSet.as_view(
+    {"patch": "partial_update", "delete": "destroy"}
+)
 
 urlpatterns = [
     path('owner/onboarding/me/', OwnerOnboardingV2MeView.as_view(), name='owner-onboarding-me'),
@@ -155,6 +161,9 @@ urlpatterns = [
     path('hub/polls/', hub_poll_list, name='hub-poll-list'),
     path('hub/polls/<int:pk>/', hub_poll_detail, name='hub-poll-detail'),
     path('hub/polls/<int:pk>/vote/', hub_poll_vote, name='hub-poll-vote'),
+    path('hub/polls/<int:poll_pk>/comments/', hub_poll_comment_list, name='hub-poll-comment-list'),
+    path('hub/polls/<int:poll_pk>/comments/<int:pk>/', hub_poll_comment_detail, name='hub-poll-comment-detail'),
+    path('hub/polls/<int:poll_pk>/reactions/', HubPollReactionView.as_view(), name='hub-poll-reaction'),
     path('hub/posts/<int:post_pk>/comments/', hub_comment_list, name='hub-comment-list'),
     path(
         'hub/posts/<int:post_pk>/comments/<int:pk>/',

@@ -74,7 +74,7 @@ import type {
   HubScopeSelection,
 } from '../../../../types/hub';
 import { useAuth } from '../../../../contexts/AuthContext';
-import { formatHubAuthorLabel, formatHubDate, getHubAuthorName } from './hubUtils';
+import { formatHubAuthorLabel, formatHubDate, formatMemberLabel, getHubAuthorName } from './hubUtils';
 
 const reactionEmojis: Record<HubReactionType, string> = {
   LIKE: '\u{1F44D}',

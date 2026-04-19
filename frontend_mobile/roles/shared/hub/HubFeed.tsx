@@ -6,6 +6,7 @@ import type { HubPost, HubPoll, HubReactionType } from './types';
 import { PostCard } from './PostCard';
 import { PostComposer } from './PostComposer';
 import { PollComposer } from './PollComposer';
+import { formatHubDate, formatMemberLabel, getHubAuthorName, reactionEmojis } from './hubUtils';
 
 type ScopeBase =
   | { type: 'pharmacy'; id: number }
@@ -34,52 +35,6 @@ type FeedItem =
   | { kind: 'post'; sortAt: number; item: HubPost }
   | { kind: 'poll'; sortAt: number; item: HubPoll };
 
-const HUB_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
-  month: 'short',
-  day: 'numeric',
-  year: 'numeric',
-});
-
-const HUB_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
-  hour: 'numeric',
-  minute: '2-digit',
-  hour12: true,
-});
-
-const reactionEmojis: Record<string, string> = {
-  LIKE: '\uD83D\uDC4D',
-  LOVE: '\u2764\uFE0F',
-  CELEBRATE: '\uD83C\uDF89',
-  SUPPORT: '\uD83D\uDE4C',
-  INSIGHTFUL: '\uD83D\uDCA1',
-};
-
-const formatDate = (value?: string) => {
-  if (!value) return '';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
-  const datePart = HUB_DATE_FORMATTER.format(parsed);
-  const timePart = HUB_TIME_FORMATTER.format(parsed).replace('AM', 'am').replace('PM', 'pm');
-  return `${datePart} ${timePart}`;
-};
-
-const getAuthorName = (user: any, fallback = 'Member') => {
-  const username = (user?.username || '').trim();
-  if (username) return username;
-  const firstName = user?.firstName || user?.first_name || '';
-  const lastName = user?.lastName || user?.last_name || '';
-  const fullName = `${firstName} ${lastName}`.trim();
-  if (fullName) return fullName;
-  const email = (user?.email || '').trim();
-  if (email) return email;
-  return fallback;
-};
-
-const formatMemberLabel = (name: string, role?: string | null, fallback = 'Member') => {
-  const display = name?.trim() || fallback;
-  return role && role.trim() ? `${display} | ${role.trim()}` : display;
-};
-
 function PollCardMobile({
   poll,
   onVote,
@@ -103,8 +58,8 @@ function PollCardMobile({
 
   const author = (poll as any).author || (poll as any).createdBy || {};
   const user = author.user || author.userDetails || author.user_details || {};
-  const authorName = getAuthorName(user, 'Member');
-  const authorLabel = formatMemberLabel(authorName, author.role, 'Member');
+  const authorName = getHubAuthorName(user, 'Member');
+  const authorLabel = formatMemberLabel(authorName, author.role, null, 'Member');
   const authorAvatar = user.profilePhotoUrl || user.profile_photo_url || null;
   const reactionSummary = (poll as any).reactionSummary || {};
   const reactionEntries = Object.entries(reactionSummary).filter(([, v]) => Number(v) > 0);
@@ -132,7 +87,7 @@ function PollCardMobile({
           {authorAvatar ? <Avatar.Image size={36} source={{ uri: authorAvatar }} /> : <Avatar.Text size={36} label={authorName.charAt(0) || 'U'} />}
           <View style={{ flex: 1 }}>
             <Text style={{ fontWeight: '700', color: '#111827' }}>{authorLabel}</Text>
-            <Text style={{ color: '#6B7280', fontSize: 12 }}>{formatDate(poll.createdAt)}</Text>
+            <Text style={{ color: '#6B7280', fontSize: 12 }}>{formatHubDate(poll.createdAt)}</Text>
             <Text style={[pollStyles.question, { marginTop: 6 }]}>{poll.question}</Text>
           </View>
         </View>
@@ -224,13 +179,13 @@ function PollCardMobile({
             comments.map((comment: any) => {
               const commentAuthor = comment.author || {};
               const commentUser = commentAuthor.user || commentAuthor.userDetails || commentAuthor.user_details || {};
-              const commentName = getAuthorName(commentUser, 'Member');
+              const commentName = getHubAuthorName(commentUser, 'Member');
               return (
                 <View key={comment.id} style={{ paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E5E7EB' }}>
                   <Text style={{ fontWeight: '600', color: '#111827' }}>
-                    {formatMemberLabel(commentName, commentAuthor.role, 'Member')}
+                    {formatMemberLabel(commentName, commentAuthor.role, null, 'Member')}
                   </Text>
-                  <Text style={{ color: '#6B7280', fontSize: 12 }}>{formatDate(comment.createdAt || comment.created_at)}</Text>
+                  <Text style={{ color: '#6B7280', fontSize: 12 }}>{formatHubDate(comment.createdAt || comment.created_at)}</Text>
                   <Text style={{ color: '#111827', marginTop: 4 }}>{comment.body}</Text>
                 </View>
               );
@@ -349,8 +304,8 @@ export function HubFeed({ scope, onBack, targetPostId, onTargetPostHandled, head
     const author = c.author || {};
     const user = author.user_details || author.user || {};
     const role = author.role || null;
-    const baseName = getAuthorName(user, 'Member');
-    const displayName = formatMemberLabel(baseName, role, 'Member');
+    const baseName = getHubAuthorName(user, 'Member');
+    const displayName = formatMemberLabel(baseName, role, null, 'Member');
     const initials = displayName ? (displayName.trim().charAt(0) || 'M').toUpperCase() : 'M';
     const viewerReaction = c.viewer_reaction || c.viewerReaction;
     const summary = c.reaction_summary || c.reactionSummary || {};
@@ -375,7 +330,7 @@ export function HubFeed({ scope, onBack, targetPostId, onTargetPostHandled, head
           <Avatar.Text size={28} label={initials} style={{ backgroundColor: '#4B5563' }} />
           <View style={{ flex: 1 }}>
             <Text style={{ fontWeight: '700', color: '#111827' }}>{displayName}</Text>
-            {created ? <Text style={{ color: '#6B7280', fontSize: 12 }}>{formatDate(created)}</Text> : null}
+            {created ? <Text style={{ color: '#6B7280', fontSize: 12 }}>{formatHubDate(created)}</Text> : null}
           </View>
         </View>
 

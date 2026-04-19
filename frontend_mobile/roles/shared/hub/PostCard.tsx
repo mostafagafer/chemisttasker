@@ -1,8 +1,23 @@
 import React, { useMemo, useState, useCallback } from 'react';
-import { View, StyleSheet, TouchableOpacity, Linking, Image, ScrollView, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  TouchableOpacity,
+  Linking,
+  Image,
+  ScrollView,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+} from 'react-native';
 import { Card, Text, Button, IconButton, Chip, Divider, Avatar, Menu } from 'react-native-paper';
 import { deleteHubPost, reactToHubPost, removeHubReaction } from './api';
 import type { HubPost, HubAttachment, HubReactionType } from './types';
+import {
+  formatHubDate,
+  formatMemberLabel,
+  getHubAuthorName,
+  reactionEmojis,
+} from './hubUtils';
 
 type Props = {
   post: HubPost;
@@ -12,51 +27,6 @@ type Props = {
   highlighted?: boolean;
 };
 
-const reactionEmojis: Record<string, string> = {
-  LIKE: '👍',
-  LOVE: '❤️',
-  CELEBRATE: '🎉',
-  SUPPORT: '🙌',
-  INSIGHTFUL: '💡',
-};
-
-const HUB_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
-  month: 'short',
-  day: 'numeric',
-  year: 'numeric',
-});
-
-const HUB_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
-  hour: 'numeric',
-  minute: '2-digit',
-  hour12: true,
-});
-
-const formatDate = (value?: string) => {
-  if (!value) return '';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
-  const datePart = HUB_DATE_FORMATTER.format(parsed);
-  const timePart = HUB_TIME_FORMATTER.format(parsed).replace('AM', 'am').replace('PM', 'pm');
-  return `${datePart} ${timePart}`;
-};
-
-const getAuthorName = (user: any, fallback = 'Member') => {
-  const username = (user?.username || '').trim();
-  if (username) return username;
-  const firstName = user?.firstName || user?.first_name || '';
-  const lastName = user?.lastName || user?.last_name || '';
-  const fullName = `${firstName} ${lastName}`.trim();
-  if (fullName) return fullName;
-  const email = (user?.email || '').trim();
-  if (email) return email;
-  return fallback;
-};
-
-const formatMemberLabel = (name: string, role?: string | null) => {
-  return role ? `${name} | ${role}` : name;
-};
-
 export function PostCard({ post, onEdit, onComment, onRefresh, highlighted = false }: Props) {
   const [working, setWorking] = useState(false);
   const [reactionMenuVisible, setReactionMenuVisible] = useState(false);
@@ -64,7 +34,6 @@ export function PostCard({ post, onEdit, onComment, onRefresh, highlighted = fal
   const [activeAttachment, setActiveAttachment] = useState(0);
 
   const isAuthor = useMemo(() => {
-    // Prefer explicit canManage flag from backend; fallback to id check
     if ((post as any).canManage) return true;
     const authorUserId =
       (post as any).author?.user_details?.id ||
@@ -85,7 +54,6 @@ export function PostCard({ post, onEdit, onComment, onRefresh, highlighted = fal
       await deleteHubPost(post.id);
       onRefresh();
     } catch (err) {
-      // surface a minimal message; you can replace with a Toast/Alert if desired
       console.warn('Unable to delete this post.', err);
     } finally {
       setWorking(false);
@@ -169,7 +137,9 @@ export function PostCard({ post, onEdit, onComment, onRefresh, highlighted = fal
     }
 
     const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const index = Math.round(e.nativeEvent.contentOffset.x / e.nativeEvent.layoutMeasurement.width);
+      const index = Math.round(
+        e.nativeEvent.contentOffset.x / e.nativeEvent.layoutMeasurement.width,
+      );
       if (!Number.isNaN(index)) setActiveAttachment(index);
     };
 
@@ -235,8 +205,11 @@ export function PostCard({ post, onEdit, onComment, onRefresh, highlighted = fal
     (author as any).user_details ||
     (author as any).userDetails ||
     {};
-  const authorName = getAuthorName(user, 'Member');
-  const authorAvatar = (user as any).profile_photo_url || (user as any).profilePhotoUrl || (user as any).profilePhoto;
+  const authorName = getHubAuthorName(user, 'Member');
+  const authorAvatar =
+    (user as any).profile_photo_url ||
+    (user as any).profilePhotoUrl ||
+    (user as any).profilePhoto;
   const role = (author as any).role || null;
   const createdAt = (post as any).createdAt || (post as any).created_at;
   const scopeLabel =
@@ -246,7 +219,10 @@ export function PostCard({ post, onEdit, onComment, onRefresh, highlighted = fal
     '';
   const reactionSummary = (post as any).reactionSummary || {};
   const reactionEntries = Object.entries(reactionSummary).filter(([, v]) => Number(v) > 0);
-  const totalReactions = Object.values(reactionSummary).reduce((sum: number, v: any) => sum + Number(v ?? 0), 0);
+  const totalReactions = Object.values(reactionSummary).reduce(
+    (sum: number, v: any) => sum + Number(v ?? 0),
+    0,
+  );
   const viewerReaction = (post as any).viewerReaction as HubReactionType | null | undefined;
   const viewerReactionLabel = viewerReaction
     ? `${reactionEmojis[viewerReaction] || ''} ${viewerReaction.toLowerCase()}`
@@ -275,7 +251,7 @@ export function PostCard({ post, onEdit, onComment, onRefresh, highlighted = fal
                 {formatMemberLabel(authorName, role)}
               </Text>
               <Text style={styles.muted} numberOfLines={1}>
-                {formatDate(createdAt)}
+                {formatHubDate(createdAt)}
               </Text>
             </View>
           </View>
@@ -348,22 +324,22 @@ export function PostCard({ post, onEdit, onComment, onRefresh, highlighted = fal
             }
           >
             <View style={styles.reactionMenuRow}>
-                {Object.keys(reactionEmojis).map((key) => (
-                  <IconButton
-                    key={key}
-                    icon={() => <Text style={{ fontSize: 20 }}>{reactionEmojis[key] || ''}</Text>}
-                    onPress={() => handleSelectReaction(key as HubReactionType)}
-                  />
-                ))}
-                {viewerReaction ? (
-                  <IconButton
-                    icon="delete"
-                    onPress={handleReact}
-                    accessibilityLabel="Remove reaction"
-                  />
-                ) : null}
-              </View>
-            </Menu>
+              {Object.keys(reactionEmojis).map((key) => (
+                <IconButton
+                  key={key}
+                  icon={() => <Text style={{ fontSize: 20 }}>{reactionEmojis[key] || ''}</Text>}
+                  onPress={() => handleSelectReaction(key as HubReactionType)}
+                />
+              ))}
+              {viewerReaction ? (
+                <IconButton
+                  icon="delete"
+                  onPress={handleReact}
+                  accessibilityLabel="Remove reaction"
+                />
+              ) : null}
+            </View>
+          </Menu>
           <Button compact icon="comment-text-outline" onPress={() => onComment(post)}>
             {post.commentCount || 0} Comments
           </Button>

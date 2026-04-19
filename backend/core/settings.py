@@ -1,6 +1,8 @@
 from pathlib import Path
 import os
 import ssl
+import socket
+import ipaddress
 from environ import Env
 from datetime import timedelta
 import dj_database_url
@@ -21,36 +23,77 @@ SECRET_KEY = env('SECRET_KEY')
 DEBUG = env.bool("DEBUG", default=False)
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+ALLOWED_HOSTS = [host.split(":", 1)[0].strip() for host in ALLOWED_HOSTS if host.strip()]
+
+
+def _is_private_host(value: str) -> bool:
+    try:
+        return ipaddress.ip_address(value).is_private
+    except ValueError:
+        return value in {"localhost"}
+
+
+def _detect_local_hosts() -> list[str]:
+    hosts: set[str] = {"localhost", "127.0.0.1"}
+    hostname = socket.gethostname().strip()
+    fqdn = socket.getfqdn().strip()
+    if hostname:
+        hosts.add(hostname)
+    if fqdn:
+        hosts.add(fqdn)
+
+    candidates = set()
+    for name in filter(None, {hostname, fqdn, "localhost"}):
+        try:
+            _, _, ips = socket.gethostbyname_ex(name)
+            candidates.update(ip.strip() for ip in ips if ip and ip.strip())
+        except OSError:
+            pass
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            candidates.add(sock.getsockname()[0])
+    except OSError:
+        pass
+
+    for candidate in candidates:
+        if _is_private_host(candidate):
+            hosts.add(candidate)
+    return sorted(hosts)
+
+
+def _build_dev_origins(hosts: list[str]) -> list[str]:
+    dev_ports = [5173, 5174, 5175, 5176, 19006, 8081]
+    origins: set[str] = set()
+    for host in hosts:
+        for port in dev_ports:
+            origins.add(f"http://{host}:{port}")
+        origins.add(f"exp://{host}:8081")
+    return sorted(origins)
 
 # Only send cookies when they’re on an explicitly allowed origin:
 CORS_ALLOW_CREDENTIALS = True
 
-# Development: trust your Vite/Expo local ports
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5174",
-    "http://localhost:5175",
-    "http://127.0.0.1:5175",
-    "http://localhost:5176",
-    "http://127.0.0.1:5176",
-    "http://localhost:19006",
-    "http://127.0.0.1:19006",
-    "http://localhost:8081",        # Your Django server (for completeness)
-]
-
 if DEBUG:
-    # Add private IPs only in development
-    CORS_ALLOWED_ORIGINS.extend([
-        "http://192.168.1.7:19006",       # Expo Go dev server
-        "exp://192.168.1.7:8081",        # Sometimes Expo uses exp:// protocol
-        "http://192.168.1.9:19006",       # Expo Go dev server
-        "exp://192.168.1.9:8081",        # Sometimes Expo uses exp:// protocol
-        "http://192.168.1.10:19006",
-        "http://192.168.1.10:8081",
-        "exp://192.168.1.10:8081",
-    ])
+    # Dev-only auto-detection for localhost + current private/LAN addresses.
+    _dev_hosts = _detect_local_hosts()
+    ALLOWED_HOSTS = sorted(set(ALLOWED_HOSTS + _dev_hosts))
+    CORS_ALLOWED_ORIGINS = _build_dev_origins(_dev_hosts)
+else:
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5175",
+        "http://localhost:5176",
+        "http://127.0.0.1:5176",
+        "http://localhost:19006",
+        "http://127.0.0.1:19006",
+        "http://localhost:8081",
+    ]
 
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 

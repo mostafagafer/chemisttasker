@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Box, Typography, Checkbox, FormControlLabel, Button, Alert, Snackbar } from '@mui/material';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
+import { useUnsavedChangesGuard } from '../../../hooks/useUnsavedChangesGuard';
 
 const INTEREST_CHOICES: Array<{ value: string; label: string }> = [
   { value: 'SHADOWING',    label: 'Shadowing' },
@@ -21,6 +22,10 @@ export default function InterestsV2() {
   const [snack, setSnack] = React.useState('');
   const [error, setError] = React.useState('');
   const [selected, setSelected] = React.useState<string[]>([]);
+  const unsaved = useUnsavedChangesGuard({
+    disabled: loading || saving,
+    value: selected,
+  });
 
   React.useEffect(() => {
     let mounted = true;
@@ -31,6 +36,7 @@ export default function InterestsV2() {
         if (!mounted) return;
         const d: ApiData = (res as any) || {};
         setSelected(d.interests || []);
+        unsaved.markClean(d.interests || []);
       } catch (e: any) {
         setError(e?.response?.data?.detail || e.message || 'Failed to load');
       } finally {
@@ -54,6 +60,7 @@ export default function InterestsV2() {
       const res = await updateOnboardingForm(roleKey, fd);
       const d: ApiData = (res as any) || {};
       setSelected(d.interests || []);
+      unsaved.markClean(d.interests || []);
       setSnack('Interests saved.');
     } catch (e: any) {
       const resp = e?.response?.data;

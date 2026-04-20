@@ -11,6 +11,7 @@ import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import { useUnsavedChangesGuard } from '../../../hooks/useUnsavedChangesGuard';
 
 dayjs.extend(utc);
 
@@ -69,6 +70,10 @@ export default function PaymentV2() {
   const [tfnInput, setTfnInput] = React.useState('');
   const [abnInput, setAbnInput] = React.useState('');
   const [showSuperABN, setShowSuperABN] = React.useState(false); // ABN-only toggle
+  const unsaved = useUnsavedChangesGuard({
+    disabled: loading || saving || checkingABN,
+    value: { abnInput, data, showSuperABN, tfnInput },
+  });
 
   // ---- local derived validation state ----
   const abnDigits = React.useMemo(() => onlyDigits(abnInput), [abnInput]);
@@ -91,16 +96,20 @@ export default function PaymentV2() {
       const res = await getOnboardingDetail(roleKey);
       const d: ApiData = (res as any) || {};
       setData(d);
+      let nextData = d;
 
       // preselect preference if empty
       const pref = (d.payment_preference || '').toUpperCase();
       if (!pref) {
         if (d.tfn_masked || d.super_fund_name || d.super_usi || d.super_member_number) {
-          setData(prev => ({ ...prev, payment_preference: 'TFN' }));
+          nextData = { ...d, payment_preference: 'TFN' };
+          setData(nextData);
         } else if (d.abn) {
-          setData(prev => ({ ...prev, payment_preference: 'ABN' }));
+          nextData = { ...d, payment_preference: 'ABN' };
+          setData(nextData);
         } else {
-          setData(prev => ({ ...prev, payment_preference: 'TFN' }));
+          nextData = { ...d, payment_preference: 'TFN' };
+          setData(nextData);
         }
       }
 
@@ -108,7 +117,14 @@ export default function PaymentV2() {
       setAbnInput(d.abn || '');
 
       // show super section for TFN; ABN depends on toggle
-    setShowSuperABN(Boolean(d.super_fund_name || d.super_usi || d.super_member_number));
+      const nextShowSuperABN = Boolean(d.super_fund_name || d.super_usi || d.super_member_number);
+      setShowSuperABN(nextShowSuperABN);
+      unsaved.markClean({
+        abnInput: d.abn || '',
+        data: nextData,
+        showSuperABN: nextShowSuperABN,
+        tfnInput: '',
+      });
     } catch (e: any) {
       setError(e.response?.data?.detail || e.message || 'Failed to load');
     } finally {
@@ -192,8 +208,15 @@ export default function PaymentV2() {
       fd.append('submitted_for_verification', 'true');
 
       const res = await updateOnboardingForm(roleKey, fd);
-      setData(res as any);
+      const nextData = res as any;
+      setData(nextData);
       setTfnInput(''); // do not persist raw TFN in UI
+      unsaved.markClean({
+        abnInput,
+        data: nextData,
+        showSuperABN,
+        tfnInput: '',
+      });
       setSnack('TFN & Super saved.');
     } catch (e: any) {
       const resp = e.response?.data;
@@ -219,7 +242,14 @@ export default function PaymentV2() {
       if (data.super_member_number != null) fd.append('super_member_number', String(data.super_member_number));
 
       const res = await updateOnboardingForm(roleKey, fd);
-      setData(res as any);
+      const nextData = res as any;
+      setData(nextData);
+      unsaved.markClean({
+        abnInput,
+        data: nextData,
+        showSuperABN,
+        tfnInput,
+      });
       setSnack('Saved.');
     } catch (e: any) {
       const resp = e.response?.data;
@@ -244,7 +274,14 @@ export default function PaymentV2() {
       fd.append('submitted_for_verification', 'true'); // trigger scrape task
 
       const res = await updateOnboardingForm(roleKey, fd);
-      setData(res as any);
+      const nextData = res as any;
+      setData(nextData);
+      unsaved.markClean({
+        abnInput,
+        data: nextData,
+        showSuperABN,
+        tfnInput,
+      });
       setSnack('ABN check queued. Refreshing…');
       // small refetch loop to pull results (simple & pragmatic)
       setTimeout(load, 1200);
@@ -270,7 +307,14 @@ export default function PaymentV2() {
       fd.append('abn_entity_confirmed', 'true');
 
       const res = await updateOnboardingForm(roleKey, fd);
-      setData(res as any);
+      const nextData = res as any;
+      setData(nextData);
+      unsaved.markClean({
+        abnInput,
+        data: nextData,
+        showSuperABN,
+        tfnInput,
+      });
       setSnack('ABN confirmed.');
     } catch (e: any) {
       const resp = e.response?.data;

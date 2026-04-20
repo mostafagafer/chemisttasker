@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Chip, HelperText, Switch, Text, TextInput } from 'react-native-paper';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { roleKey } from './shared';
+import { useUnsavedChangesGuard } from '../../shared/forms/useUnsavedChangesGuard';
 
 type ApiData = {
   payment_preference?: 'ABN' | 'TFN' | string;
@@ -33,6 +34,10 @@ export default function PharmacistPaymentScreen() {
   const [tfnInput, setTfnInput] = useState('');
   const [abnInput, setAbnInput] = useState('');
   const [showSuperABN, setShowSuperABN] = useState(false);
+  const unsaved = useUnsavedChangesGuard(
+    { data, tfnInput, abnInput, showSuperABN },
+    { enabled: !loading, saving: saving || checkingABN }
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -46,7 +51,17 @@ export default function PharmacistPaymentScreen() {
           payment_preference: (pref || (res?.abn ? 'ABN' : 'TFN')) as any,
         });
         setAbnInput(res?.abn || '');
-        setShowSuperABN(Boolean(res?.super_fund_name || res?.super_usi || res?.super_member_number));
+        const nextShowSuperABN = Boolean(res?.super_fund_name || res?.super_usi || res?.super_member_number);
+        setShowSuperABN(nextShowSuperABN);
+        unsaved.markClean({
+          data: {
+            ...res,
+            payment_preference: (pref || (res?.abn ? 'ABN' : 'TFN')) as any,
+          },
+          tfnInput: '',
+          abnInput: res?.abn || '',
+          showSuperABN: nextShowSuperABN,
+        });
       } catch (err: any) {
         if (!mounted) return;
         setError(err?.response?.data?.detail || err?.message || 'Failed to load payment.');
@@ -85,6 +100,7 @@ export default function PharmacistPaymentScreen() {
       const res: ApiData = (await updateOnboardingForm(roleKey, fd as any)) as any;
       setData(res || {});
       setTfnInput('');
+      unsaved.markClean({ data: res || {}, tfnInput: '', abnInput, showSuperABN });
       Alert.alert('Saved', 'TFN & Super saved.');
     } catch (err: any) {
       const resp = err?.response?.data;
@@ -111,6 +127,7 @@ export default function PharmacistPaymentScreen() {
       if (data.super_member_number != null) fd.append('super_member_number', String(data.super_member_number));
       const res: ApiData = (await updateOnboardingForm(roleKey, fd as any)) as any;
       setData(res || {});
+      unsaved.markClean({ data: res || {}, tfnInput, abnInput, showSuperABN });
       Alert.alert('Saved', 'ABN payment details saved.');
     } catch (err: any) {
       const resp = err?.response?.data;
@@ -135,6 +152,7 @@ export default function PharmacistPaymentScreen() {
       fd.append('submitted_for_verification', 'true');
       const res: ApiData = (await updateOnboardingForm(roleKey, fd as any)) as any;
       setData(res || {});
+      unsaved.markClean({ data: res || {}, tfnInput, abnInput, showSuperABN });
       Alert.alert('ABN', 'ABN check queued.');
     } catch (err: any) {
       const resp = err?.response?.data;
@@ -158,6 +176,7 @@ export default function PharmacistPaymentScreen() {
       fd.append('abn_entity_confirmed', 'true');
       const res: ApiData = (await updateOnboardingForm(roleKey, fd as any)) as any;
       setData(res || {});
+      unsaved.markClean({ data: res || {}, tfnInput, abnInput, showSuperABN });
       Alert.alert('Saved', 'ABN confirmed.');
     } catch (err: any) {
       const resp = err?.response?.data;
@@ -276,4 +295,3 @@ const styles = StyleSheet.create({
   abnBox: { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 12, padding: 10, backgroundColor: '#FFFFFF', gap: 2 },
   abnText: { color: '#374151' },
 });
-

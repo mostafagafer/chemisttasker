@@ -5,6 +5,7 @@ import { Button, Chip, HelperText, Text, TextInput } from 'react-native-paper';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { roleKey, boolChipProps } from './shared';
 import GooglePlacesInput from '../../shared/pharmacies/GooglePlacesInput';
+import { useUnsavedChangesGuard } from '../../shared/forms/useUnsavedChangesGuard';
 
 type ApiData = {
   username?: string;
@@ -30,6 +31,7 @@ export default function PharmacistBasicInfoScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState<ApiData>({});
+  const unsaved = useUnsavedChangesGuard(form, { enabled: !loading, saving });
   useEffect(() => {
     let mounted = true;
     const load = async () => {
@@ -37,6 +39,7 @@ export default function PharmacistBasicInfoScreen() {
         const data: any = await getOnboardingDetail(roleKey);
         if (!mounted) return;
         setForm(data || {});
+        unsaved.markClean(data || {});
       } catch (err: any) {
         if (!mounted) return;
         setError(err?.response?.data?.detail || err?.message || 'Unable to load basic info.');
@@ -106,6 +109,7 @@ export default function PharmacistBasicInfoScreen() {
 
       const res: any = await updateOnboardingForm(roleKey, fd as any);
       setForm(res || {});
+      unsaved.markClean(res || {});
       Alert.alert('Saved', submitForVerification ? 'Submitted for verification.' : 'Basic info saved.');
     } catch (err: any) {
       const resp = err?.response?.data;

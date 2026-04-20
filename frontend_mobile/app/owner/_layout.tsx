@@ -8,6 +8,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
 import { resolveCalendarNotificationRoute, resolveChatNotificationRoomId, resolveShiftNotificationRoute } from '@/utils/notificationNavigation';
 import { getMessageDetailRoute } from '@/utils/chatRoutes';
+import { useUnsavedChangesRegistry } from '../../roles/shared/forms/UnsavedChangesRegistryProvider';
 
 const tabTitles: Record<string, string> = {
   dashboard: 'Home',
@@ -33,13 +34,21 @@ const sidebarItems = [
   { label: 'Profile', icon: 'account-circle', route: '/owner/profile' },
 ];
 
-function OwnerSidebar({ visible, onDismiss }: { visible: boolean; onDismiss: () => void }) {
+function OwnerSidebar({
+  visible,
+  onDismiss,
+  onNavigate,
+}: {
+  visible: boolean;
+  onDismiss: () => void;
+  onNavigate: (route: string) => void;
+}) {
   const router = useRouter();
   const { logout } = useAuth();
 
   const handleNav = (route: string) => {
     onDismiss();
-    router.push(route as any);
+    onNavigate(route);
   };
 
   const handleLogout = async () => {
@@ -72,10 +81,52 @@ function OwnerSidebar({ visible, onDismiss }: { visible: boolean; onDismiss: () 
 
 export default function OwnerLayout() {
   const router = useRouter();
+  const unsavedRegistry = useUnsavedChangesRegistry();
   const { user, isLoading } = useAuth();
   const pathname = usePathname();
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  const requestNavigation = useCallback(
+    (action: () => void) => {
+      if (!unsavedRegistry) {
+        action();
+        return;
+      }
+      void unsavedRegistry.requestNavigation(action);
+    },
+    [unsavedRegistry]
+  );
+
+  const pushWithGuard = useCallback(
+    (route: string) => {
+      requestNavigation(() => router.push(route as any));
+    },
+    [requestNavigation, router]
+  );
+
+  const replaceWithGuard = useCallback(
+    (route: string) => {
+      requestNavigation(() => router.replace(route as any));
+    },
+    [requestNavigation, router]
+  );
+
+  const goBackWithGuard = useCallback(
+    (fallbackRoute?: string | null) => {
+      requestNavigation(() => {
+        const canGoBack = typeof router.canGoBack === 'function' ? router.canGoBack() : false;
+        if (canGoBack) {
+          router.back();
+          return;
+        }
+        if (fallbackRoute) {
+          router.push(fallbackRoute as any);
+        }
+      });
+    },
+    [requestNavigation, router]
+  );
 
   const loadUnread = useCallback(async () => {
     try {
@@ -183,9 +234,9 @@ export default function OwnerLayout() {
     } catch {
       // ignore errors; navigate anyway
     } finally {
-      router.push('/owner/notifications' as any);
+      pushWithGuard('/owner/notifications');
     }
-  }, [router]);
+  }, [pushWithGuard]);
 
   const { isDashboard, backTarget, isPharmacyDetail } = useMemo(() => {
     if (!pathname) return { isTabRoot: true, backTarget: null };
@@ -212,7 +263,11 @@ export default function OwnerLayout() {
 
   return (
     <>
-      <OwnerSidebar visible={sidebarVisible} onDismiss={() => setSidebarVisible(false)} />
+      <OwnerSidebar
+        visible={sidebarVisible}
+        onDismiss={() => setSidebarVisible(false)}
+        onNavigate={pushWithGuard}
+      />
       <Tabs
         screenOptions={({ route }) => ({
           tabBarActiveTintColor: '#6366F1',
@@ -246,15 +301,13 @@ export default function OwnerLayout() {
                     icon="arrow-left"
                     onPress={() => {
                       if (isPharmacyDetail) {
-                        router.push('/owner/pharmacies');
+                        pushWithGuard('/owner/pharmacies');
                       } else if (backTarget === '/owner/profile') {
-                        router.push('/owner/profile' as any);
-                      } else if (canGoBack) {
-                        router.back();
-                      } else if (backTarget) {
-                        router.push(backTarget as any);
+                        pushWithGuard('/owner/profile');
+                      } else if (canGoBack || backTarget) {
+                        goBackWithGuard(backTarget);
                       } else {
-                        router.push('/owner/profile' as any);
+                        pushWithGuard('/owner/profile');
                       }
                     }}
                   />
@@ -265,7 +318,7 @@ export default function OwnerLayout() {
                     {unreadCount > 0 && <View style={styles.badgeDot} />}
                   </View>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => router.push('/owner/profile' as any)}>
+                <TouchableOpacity onPress={() => pushWithGuard('/owner/profile')}>
                   {photo ? (
                     <Avatar.Image size={32} source={{ uri: photo as string }} />
                   ) : (
@@ -284,6 +337,12 @@ export default function OwnerLayout() {
       >
         <Tabs.Screen
           name="dashboard"
+          listeners={{
+            tabPress: (event) => {
+              event.preventDefault();
+              replaceWithGuard('/owner/dashboard');
+            },
+          }}
           options={{
             title: 'Home',
             tabBarAccessibilityLabel: 'Home tab',
@@ -294,6 +353,12 @@ export default function OwnerLayout() {
         />
         <Tabs.Screen
           name="shifts/index"
+          listeners={{
+            tabPress: (event) => {
+              event.preventDefault();
+              replaceWithGuard('/owner/shifts');
+            },
+          }}
           options={{
             title: 'Shifts',
             tabBarAccessibilityLabel: 'Shifts tab',
@@ -304,6 +369,12 @@ export default function OwnerLayout() {
         />
         <Tabs.Screen
           name="post-shift"
+          listeners={{
+            tabPress: (event) => {
+              event.preventDefault();
+              replaceWithGuard('/owner/post-shift');
+            },
+          }}
           options={{
             title: 'Post',
             tabBarAccessibilityLabel: 'Post shift tab',
@@ -323,6 +394,12 @@ export default function OwnerLayout() {
         />
         <Tabs.Screen
           name="hub"
+          listeners={{
+            tabPress: (event) => {
+              event.preventDefault();
+              replaceWithGuard('/owner/hub');
+            },
+          }}
           options={{
             title: 'Hub',
             tabBarAccessibilityLabel: 'Hub tab',
@@ -333,6 +410,12 @@ export default function OwnerLayout() {
         />
         <Tabs.Screen
           name="chat"
+          listeners={{
+            tabPress: (event) => {
+              event.preventDefault();
+              replaceWithGuard('/owner/chat');
+            },
+          }}
           options={{
             title: 'Chat',
             tabBarAccessibilityLabel: 'Chat tab',

@@ -1,6 +1,6 @@
 // Pharmacy Form - Create/Edit Pharmacy
 // Full Parity with Web Dashboard
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     KeyboardAvoidingView,
     Platform,
@@ -35,6 +35,7 @@ import {
 } from '@chemisttasker/shared-core';
 import { surfaceTokens } from './types';
 import GooglePlacesInput from './GooglePlacesInput';
+import { useUnsavedChangesGuard } from '../forms/useUnsavedChangesGuard';
 
 type Mode = 'create' | 'edit';
 
@@ -66,6 +67,46 @@ const TABS = [
 
 export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: Props) {
     const router = useRouter();
+    const initialStateRef = useRef({
+        employmentTypes: [] as string[],
+        existingFiles: { approval: null, sops: null, induction: null, sump: null } as {
+            approval: string | null;
+            sops: string | null;
+            induction: string | null;
+            sump: string | null;
+        },
+        form: {
+            name: '',
+            email: '',
+            street_address: '',
+            suburb: '',
+            state: 'NSW',
+            postcode: '',
+            abn: '',
+            google_place_id: '',
+            latitude: null as number | null,
+            longitude: null as number | null,
+            auto_publish_worker_requests: false,
+            about: '',
+            default_rate_type: '' as '' | 'FIXED' | 'FLEXIBLE' | 'PHARMACIST_PROVIDED',
+            default_fixed_rate: '',
+            rate_weekday: '',
+            rate_saturday: '',
+            rate_sunday: '',
+            rate_public_holiday: '',
+            rate_early_morning: '',
+            rate_late_night: '',
+            weekdays_start: '',
+            weekdays_end: '',
+            saturdays_start: '',
+            saturdays_end: '',
+            sundays_start: '',
+            sundays_end: '',
+            public_holidays_start: '',
+            public_holidays_end: '',
+        },
+        rolesNeeded: [] as string[],
+    });
     const [loading, setLoading] = useState(mode === 'edit');
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
@@ -124,6 +165,24 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
     // UI Menus
     const [rateMenuVisible, setRateMenuVisible] = useState(false);
     const [stateMenuVisible, setStateMenuVisible] = useState(false);
+    const resetToSavedState = async () => {
+        const initial = initialStateRef.current;
+        setForm(initial.form);
+        setEmploymentTypes(initial.employmentTypes);
+        setRolesNeeded(initial.rolesNeeded);
+        setExistingFiles(initial.existingFiles);
+        setFiles({ approval: null, sops: null, induction: null, sump: null });
+        unsaved.markClean({
+            employmentTypes: initial.employmentTypes,
+            files: { approval: null, sops: null, induction: null, sump: null },
+            form: initial.form,
+            rolesNeeded: initial.rolesNeeded,
+        });
+    };
+    const unsaved = useUnsavedChangesGuard(
+        { form, employmentTypes, rolesNeeded, files },
+        { enabled: !loading, onDiscard: resetToSavedState, saving }
+    );
 
     const normalizeCoord = (value: number | null) => {
         if (value === null || value === undefined) return value;
@@ -157,7 +216,7 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                 const data = (await getPharmacyById(pharmacyId)) as any;
                 if (cancelled || !data) return;
 
-                setForm({
+                const nextForm = {
                     name: data.name || '',
                     email: data.email || '',
                     street_address: data.street_address || '',
@@ -186,15 +245,32 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                     sundays_end: data.sundays_end || '',
                     public_holidays_start: data.public_holidays_start || '',
                     public_holidays_end: data.public_holidays_end || '',
-                });
+                };
 
-                setEmploymentTypes(data.employment_types || []);
-                setRolesNeeded(data.roles_needed || []);
-                setExistingFiles({
+                const nextEmploymentTypes = data.employment_types || [];
+                const nextRolesNeeded = data.roles_needed || [];
+                const nextExistingFiles = {
                     approval: data.approval_certificate || null,
                     sops: data.sops || null,
                     induction: data.induction_guides || null,
                     sump: data.qld_sump_docs || null,
+                };
+
+                setForm(nextForm);
+                setEmploymentTypes(nextEmploymentTypes);
+                setRolesNeeded(nextRolesNeeded);
+                setExistingFiles(nextExistingFiles);
+                initialStateRef.current = {
+                    employmentTypes: nextEmploymentTypes,
+                    existingFiles: nextExistingFiles,
+                    form: nextForm,
+                    rolesNeeded: nextRolesNeeded,
+                };
+                unsaved.markClean({
+                    form: nextForm,
+                    employmentTypes: nextEmploymentTypes,
+                    rolesNeeded: nextRolesNeeded,
+                    files: { approval: null, sops: null, induction: null, sump: null },
                 });
 
             } catch (err: any) {
@@ -205,6 +281,17 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
         })();
         return () => { cancelled = true; };
     }, [mode, pharmacyId]);
+
+    useEffect(() => {
+        if (mode !== 'create') return;
+        initialStateRef.current = {
+            employmentTypes,
+            existingFiles,
+            form,
+            rolesNeeded,
+        };
+        unsaved.markClean({ form, employmentTypes, rolesNeeded, files });
+    }, []);
 
     const handlePickFile = async (key: keyof typeof files) => {
         try {
@@ -351,6 +438,18 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                 }
             }
 
+            unsaved.markClean({
+                form,
+                employmentTypes,
+                rolesNeeded,
+                files: { approval: null, sops: null, induction: null, sump: null },
+            });
+            initialStateRef.current = {
+                employmentTypes,
+                existingFiles,
+                form,
+                rolesNeeded,
+            };
             if (onSuccess) onSuccess();
             else router.back();
 
@@ -687,7 +786,17 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
 
                         {/* ACTIONS */}
                         <View style={styles.actions}>
-                            <Button mode="outlined" onPress={() => { if (onCancel) onCancel(); else router.back(); }} disabled={saving} style={{ flex: 1 }}>
+                            <Button
+                                mode="outlined"
+                                onPress={() => {
+                                    unsaved.confirmDiscard(() => {
+                                        if (onCancel) onCancel();
+                                        else router.back();
+                                    });
+                                }}
+                                disabled={saving}
+                                style={{ flex: 1 }}
+                            >
                                 Cancel
                             </Button>
                             <Button mode="contained" onPress={handleSave} loading={saving} disabled={saving} style={{ flex: 1 }}>

@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Checkbox, HelperText, Text, TextInput } from 'react-native-paper';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { roleKey } from './shared';
+import { useUnsavedChangesGuard } from '../../shared/forms/useUnsavedChangesGuard';
 
 type RatePref = {
   weekday: string;
@@ -32,6 +33,7 @@ export default function PharmacistRateScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [rates, setRates] = useState<RatePref>(emptyRates);
+  const unsaved = useUnsavedChangesGuard(rates, { enabled: !loading, saving });
 
   useEffect(() => {
     let mounted = true;
@@ -39,7 +41,9 @@ export default function PharmacistRateScreen() {
       try {
         const res: any = await getOnboardingDetail(roleKey);
         if (!mounted) return;
-        setRates((p) => ({ ...p, ...(res?.rate_preference || {}) }));
+        const nextRates = { ...emptyRates, ...(res?.rate_preference || {}) };
+        setRates(nextRates);
+        unsaved.markClean(nextRates);
       } catch (err: any) {
         if (!mounted) return;
         setError(err?.response?.data?.detail || err?.message || 'Failed to load rates.');
@@ -66,7 +70,9 @@ export default function PharmacistRateScreen() {
       fd.append('tab', 'rate');
       fd.append('rate_preference', JSON.stringify(rates));
       const res: any = await updateOnboardingForm(roleKey, fd as any);
-      setRates((p) => ({ ...p, ...(res?.rate_preference || {}) }));
+      const nextRates = { ...emptyRates, ...(res?.rate_preference || {}) };
+      setRates(nextRates);
+      unsaved.markClean(nextRates);
       Alert.alert('Saved', 'Rates saved.');
     } catch (err: any) {
       const resp = err?.response?.data;
@@ -139,4 +145,3 @@ const styles = StyleSheet.create({
   title: { fontWeight: '700', color: '#111827' },
   checkboxRow: { flexDirection: 'row', alignItems: 'center', marginTop: -6 },
 });
-

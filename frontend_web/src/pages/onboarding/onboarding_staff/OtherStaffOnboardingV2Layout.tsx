@@ -12,6 +12,7 @@ import {
 import { alpha } from "@mui/material/styles";
 import { getOnboardingDetail } from "@chemisttasker/shared-core";
 import AccountDeletionSection from "../../../components/AccountDeletionSection";
+import { UnsavedChangesBoundary } from "../../../hooks/useUnsavedChangesGuard";
 
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
@@ -49,8 +50,6 @@ export default function OtherStaffOnboardingV2Layout() {
   const [step, setStep] = React.useState<StepKey>("basic");
   const [progress, setProgress] = React.useState<number>(0);
   const idx = STEPS.findIndex(s => s.key === step);
-  const goNext = () => setStep(STEPS[Math.min(idx + 1, STEPS.length - 1)].key);
-  const goBack = () => setStep(STEPS[Math.max(idx - 1, 0)].key);
   // const stepLabel = STEPS[idx]?.label ?? "";
 
   // Load real progress from backend on mount
@@ -68,6 +67,17 @@ export default function OtherStaffOnboardingV2Layout() {
 return (
   <ThemeProvider theme={theme}>
     <CssBaseline />
+    <UnsavedChangesBoundary>
+      {({ confirmIfNeeded }) => {
+        const requestStepChange = async (nextStep: StepKey) => {
+          if (nextStep === step || (await confirmIfNeeded())) {
+            setStep(nextStep);
+          }
+        };
+        const goNext = () => void requestStepChange(STEPS[Math.min(idx + 1, STEPS.length - 1)].key);
+        const goBack = () => void requestStepChange(STEPS[Math.max(idx - 1, 0)].key);
+
+        return (
     <Container maxWidth="lg" sx={{ py: 3 }}>
       <Paper elevation={3} sx={{ p: { xs: 2, md: 3 } }}>
         {/* Header + ONLY progress bar here */}
@@ -101,7 +111,7 @@ return (
             return (
               <Button
                 key={s.key}
-                onClick={() => setStep(s.key)}
+                onClick={() => void requestStepChange(s.key)}
                 sx={{
                   textTransform: "none",
                   fontWeight: 700,
@@ -141,7 +151,7 @@ return (
                 return (
                   <Button
                     key={s.key}
-                    onClick={() => setStep(s.key)}
+                    onClick={() => void requestStepChange(s.key)}
                     fullWidth
                     size="large"
                     variant={active ? "contained" : "outlined"}
@@ -227,6 +237,9 @@ return (
         <AccountDeletionSection />
       </Paper>
     </Container>
+        );
+      }}
+    </UnsavedChangesBoundary>
   </ThemeProvider>
 );
 }

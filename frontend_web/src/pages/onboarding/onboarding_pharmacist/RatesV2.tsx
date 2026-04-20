@@ -14,6 +14,7 @@ import {
   Stack,
 } from '@mui/material';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
+import { useUnsavedChangesGuard } from '../../../hooks/useUnsavedChangesGuard';
 
 type RatePref = {
   weekday: string;
@@ -51,6 +52,10 @@ export default function RatesV2() {
   const [snack, setSnack] = React.useState('');
 
   const [rates, setRates] = React.useState<RatePref>(emptyRates);
+  const unsaved = useUnsavedChangesGuard({
+    disabled: loading || saving,
+    value: rates,
+  });
 
   React.useEffect(() => {
     let mounted = true;
@@ -61,7 +66,9 @@ export default function RatesV2() {
         const res = await getOnboardingDetail(roleKey);
         if (!mounted) return;
         const d: ApiData = (res as any) || {};
-        setRates(prev => ({ ...prev, ...(d.rate_preference || {}) }));
+        const nextRates = { ...emptyRates, ...(d.rate_preference || {}) };
+        setRates(nextRates);
+        unsaved.markClean(nextRates);
       } catch (e: any) {
         setError(e.response?.data?.detail || e.message || 'Failed to load rates');
       } finally {
@@ -92,7 +99,9 @@ export default function RatesV2() {
       const res = await updateOnboardingForm(roleKey, form);
 
       const d: ApiData = (res as any) || {};
-      setRates(prev => ({ ...prev, ...(d.rate_preference || {}) }));
+      const nextRates = { ...emptyRates, ...(d.rate_preference || {}) };
+      setRates(nextRates);
+      unsaved.markClean(nextRates);
       setSnack('Rates saved.');
     } catch (e: any) {
       const resp = e.response?.data;

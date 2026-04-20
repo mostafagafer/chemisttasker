@@ -3,6 +3,7 @@ import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Checkbox, HelperText, Text } from 'react-native-paper';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
+import { useUnsavedChangesGuard } from '../../shared/forms/useUnsavedChangesGuard';
 
 const INTEREST_CHOICES: Array<{ value: string; label: string }> = [
   { value: 'SHADOWING', label: 'Shadowing' },
@@ -18,6 +19,7 @@ export default function ExplorerInterestsScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
+  const unsaved = useUnsavedChangesGuard(selected, { enabled: !loading, saving });
 
   useEffect(() => {
     let mounted = true;
@@ -26,6 +28,7 @@ export default function ExplorerInterestsScreen() {
         const res: any = await getOnboardingDetail(roleKey);
         if (!mounted) return;
         setSelected(res?.interests || []);
+        unsaved.markClean(res?.interests || []);
       } catch (err: any) {
         if (!mounted) return;
         setError(err?.response?.data?.detail || err?.message || 'Failed to load interests.');
@@ -52,6 +55,7 @@ export default function ExplorerInterestsScreen() {
       fd.append('interests', JSON.stringify(selected));
       const res: any = await updateOnboardingForm(roleKey, fd as any);
       setSelected(res?.interests || []);
+      unsaved.markClean(res?.interests || []);
       Alert.alert('Saved', 'Interests saved.');
     } catch (err: any) {
       const resp = err?.response?.data;
@@ -98,4 +102,3 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   rowText: { color: '#111827' },
 });
-

@@ -14,6 +14,7 @@ import {
 } from "@mui/material";
 import { API_BASE_URL } from "../../../constants/api";
 import { getOnboardingDetail, updateOnboardingForm } from "@chemisttasker/shared-core";
+import { useUnsavedChangesGuard } from "../../../hooks/useUnsavedChangesGuard";
 
 /**
  * Mirrors legacy dependent selects and docs:
@@ -108,6 +109,10 @@ export default function RegulatoryV2() {
     s8_certificate: null,
     _existing: {},
   });
+  const unsaved = useUnsavedChangesGuard({
+    disabled: loading,
+    value: data,
+  });
 
   // hydrate form with current server values (and existing file URLs)
   useEffect(() => {
@@ -119,7 +124,7 @@ export default function RegulatoryV2() {
         const res = await getOnboardingDetail(roleKey);
         if (!isMounted) return;
         const d: any = res || {};
-        setData({
+        const nextData = {
           role_type: (d.role_type as Role) || "",
           classification_level: d.classification_level || "",
           student_year: d.student_year || "",
@@ -138,7 +143,9 @@ export default function RegulatoryV2() {
             cpr_certificate: d.cpr_certificate || "",
             s8_certificate: d.s8_certificate || "",
           },
-        });
+        };
+        setData(nextData);
+        unsaved.markClean(nextData);
       } catch (err: any) {
         if (err.response?.status !== 404) {
           setError(err.response?.data?.detail || err.message);
@@ -210,17 +217,25 @@ export default function RegulatoryV2() {
 
       // keep any new file urls returned
       const d: any = res || {};
-      setData((prev) => ({
-        ...prev,
+      const nextData = {
+        ...data,
+        ahpra_proof: null,
+        hours_proof: null,
+        certificate: null,
+        university_id: null,
+        cpr_certificate: null,
+        s8_certificate: null,
         _existing: {
-          ahpra_proof: d.ahpra_proof || prev._existing.ahpra_proof,
-          hours_proof: d.hours_proof || prev._existing.hours_proof,
-          certificate: d.certificate || prev._existing.certificate,
-          university_id: d.university_id || prev._existing.university_id,
-          cpr_certificate: d.cpr_certificate || prev._existing.cpr_certificate,
-          s8_certificate: d.s8_certificate || prev._existing.s8_certificate,
+          ahpra_proof: d.ahpra_proof || data._existing.ahpra_proof,
+          hours_proof: d.hours_proof || data._existing.hours_proof,
+          certificate: d.certificate || data._existing.certificate,
+          university_id: d.university_id || data._existing.university_id,
+          cpr_certificate: d.cpr_certificate || data._existing.cpr_certificate,
+          s8_certificate: d.s8_certificate || data._existing.s8_certificate,
         },
-      }));
+      };
+      setData(nextData);
+      unsaved.markClean(nextData);
       setSnackbarOpen(true);
     } catch (err: any) {
       const resp = err.response?.data;

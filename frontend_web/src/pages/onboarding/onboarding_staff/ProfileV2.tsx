@@ -16,6 +16,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 
 import { API_BASE_URL } from '../../../constants/api';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
+import { useUnsavedChangesGuard } from '../../../hooks/useUnsavedChangesGuard';
 
 type ApiData = {
   short_bio?: string | null;
@@ -33,6 +34,10 @@ export default function ProfileV2() {
   const [shortBio, setShortBio] = React.useState('');
   const [resumeExistingUrl, setResumeExistingUrl] = React.useState<string>('');
   const [resumePending, setResumePending] = React.useState<File | null>(null);
+  const unsaved = useUnsavedChangesGuard({
+    disabled: loading || saving,
+    value: { resumeExistingUrl, resumePending, shortBio },
+  });
 
   const getFileUrl = (path?: string | null) =>
     path ? (path.startsWith('http') ? path : `${API_BASE_URL}${path}`) : '';
@@ -47,7 +52,13 @@ export default function ProfileV2() {
         if (!mounted) return;
         const d: ApiData = (res as any) || {};
         setShortBio(d.short_bio || '');
-        setResumeExistingUrl(getFileUrl(d.resume || ''));
+        const nextResumeUrl = getFileUrl(d.resume || '');
+        setResumeExistingUrl(nextResumeUrl);
+        unsaved.markClean({
+          resumeExistingUrl: nextResumeUrl,
+          resumePending: null,
+          shortBio: d.short_bio || '',
+        });
       } catch (e: any) {
         setError(e.response?.data?.detail || e.message || 'Failed to load profile');
       } finally {
@@ -83,8 +94,14 @@ export default function ProfileV2() {
       const res = await updateOnboardingForm(roleKey, fd);
       const d: ApiData = (res as any) || {};
       setShortBio(d.short_bio || '');
-      setResumeExistingUrl(getFileUrl(d.resume || ''));
+      const nextResumeUrl = getFileUrl(d.resume || '');
+      setResumeExistingUrl(nextResumeUrl);
       setResumePending(null);
+      unsaved.markClean({
+        resumeExistingUrl: nextResumeUrl,
+        resumePending: null,
+        shortBio: d.short_bio || '',
+      });
       setSnack('Profile saved.');
     } catch (e: any) {
       const resp = e.response?.data;

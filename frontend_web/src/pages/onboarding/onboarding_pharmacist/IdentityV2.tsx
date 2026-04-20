@@ -6,6 +6,7 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 import { API_BASE_URL } from '../../../constants/api';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
+import { useUnsavedChangesGuard } from '../../../hooks/useUnsavedChangesGuard';
 
 type ApiData = {
   government_id?: string | null;
@@ -47,6 +48,10 @@ export default function IdentityV2() {
   const [error, setError] = React.useState('');
   const [secondaryFile, setSecondaryFile] = React.useState<File | null>(null);
   const [meta, setMeta] = React.useState<Record<string, string>>({});
+  const unsaved = useUnsavedChangesGuard({
+    disabled: loading || saving,
+    value: { data, file, meta, secondaryFile },
+  });
 
   const getFileUrl = (path?: string | null) =>
     path ? (path.startsWith('http') ? path : `${API_BASE_URL}${path}`) : '';
@@ -58,7 +63,11 @@ export default function IdentityV2() {
       try {
         const res = await getOnboardingDetail(roleKey);
         if (!mounted) return;
-        setData(res as any || {});
+        const nextData = (res as any) || {};
+        const nextMeta = (nextData.identity_meta as Record<string, string> | null) || {};
+        setData(nextData);
+        setMeta(nextMeta);
+        unsaved.markClean({ data: nextData, file: null, meta: nextMeta, secondaryFile: null });
       } catch (e: any) {
         setError(e?.message || 'Failed to load');
       } finally {
@@ -88,9 +97,13 @@ export default function IdentityV2() {
       }
 
       const res = await updateOnboardingForm(roleKey, fd);
-      setData(res as any || {});
+      const nextData = (res as any) || {};
+      const nextMeta = (nextData.identity_meta as Record<string, string> | null) || {};
+      setData(nextData);
+      setMeta(nextMeta);
       setFile(null);
       setSecondaryFile(null);
+      unsaved.markClean({ data: nextData, file: null, meta: nextMeta, secondaryFile: null });
       setSnack(submitForVerification ? 'Submitted for verification.' : 'Saved.');
     } catch (e: any) {
       const resp = (e as any)?.response?.data;

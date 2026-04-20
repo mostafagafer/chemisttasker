@@ -5,6 +5,7 @@ import { Button, HelperText, Text, TextInput } from 'react-native-paper';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { API_BASE_URL } from '@/constants/api';
 import { pickSingleDocument, roleKey, toRNFile } from './shared';
+import { useUnsavedChangesGuard } from '../../shared/forms/useUnsavedChangesGuard';
 
 type ApiData = {
   short_bio?: string | null;
@@ -24,6 +25,10 @@ export default function PharmacistBioScreen() {
   const [shortBio, setShortBio] = useState('');
   const [resumeExistingUrl, setResumeExistingUrl] = useState('');
   const [resumePending, setResumePending] = useState<any>(null);
+  const unsaved = useUnsavedChangesGuard(
+    { shortBio, resumeExistingUrl, resumePending },
+    { enabled: !loading, saving }
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -33,6 +38,11 @@ export default function PharmacistBioScreen() {
         if (!mounted) return;
         setShortBio(res?.short_bio || '');
         setResumeExistingUrl(fileUrl(res?.resume || ''));
+        unsaved.markClean({
+          shortBio: res?.short_bio || '',
+          resumeExistingUrl: fileUrl(res?.resume || ''),
+          resumePending: null,
+        });
       } catch (err: any) {
         if (!mounted) return;
         setError(err?.response?.data?.detail || err?.message || 'Failed to load profile.');
@@ -63,6 +73,11 @@ export default function PharmacistBioScreen() {
       setShortBio(res?.short_bio || '');
       setResumeExistingUrl(fileUrl(res?.resume || ''));
       setResumePending(null);
+      unsaved.markClean({
+        shortBio: res?.short_bio || '',
+        resumeExistingUrl: fileUrl(res?.resume || ''),
+        resumePending: null,
+      });
       Alert.alert('Saved', 'Profile saved.');
     } catch (err: any) {
       const resp = err?.response?.data;
@@ -122,4 +137,3 @@ const styles = StyleSheet.create({
   content: { padding: 16, gap: 12, paddingBottom: 32 },
   title: { fontWeight: '700', color: '#111827' },
 });
-

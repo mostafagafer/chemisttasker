@@ -5,6 +5,7 @@ import { Button, Chip, HelperText, Menu, Text, TextInput } from 'react-native-pa
 import { getOnboarding, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
+import { useUnsavedChangesGuard } from '../shared/forms/useUnsavedChangesGuard';
 
 type OwnerRole = 'MANAGER' | 'PHARMACIST';
 type OwnerFormData = {
@@ -35,7 +36,6 @@ const ROLE_OPTIONS: Array<{ value: OwnerRole; label: string }> = [
 export default function OwnerProfileDetailScreen({
   standalone = false,
   onSuccessPath,
-  onCancelPath,
 }: Props) {
   const router = useRouter();
   const { user, refreshUser } = useAuth();
@@ -57,6 +57,38 @@ export default function OwnerProfileDetailScreen({
     ahpra_verified: null,
     ahpra_verification_note: null,
   });
+  const buildFormFromResponse = (data: any): OwnerFormData => ({
+    username: data?.username || '',
+    first_name: data?.first_name || '',
+    last_name: data?.last_name || '',
+    phone_number: data?.phone_number || user?.mobile_number || '',
+    role: (data?.role as OwnerRole) || 'MANAGER',
+    chain_pharmacy: Boolean(data?.chain_pharmacy),
+    number_of_pharmacies: Math.max(1, Number(data?.number_of_pharmacies) || 1),
+    ahpra_number: data?.ahpra_number || '',
+    ahpra_years_since_first_registration: data?.ahpra_years_since_first_registration ?? null,
+    ahpra_verified: typeof data?.ahpra_verified === 'boolean' ? data.ahpra_verified : null,
+    ahpra_verification_note: data?.ahpra_verification_note || null,
+  });
+  const reloadSavedForm = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data: any = await getOnboarding('owner');
+      const resetForm = buildFormFromResponse(data);
+      setForm(resetForm);
+      unsaved.markClean(resetForm);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || err?.message || 'Unable to reload owner profile detail.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  const unsaved = useUnsavedChangesGuard(form, {
+    enabled: !loading,
+    onDiscard: standalone ? reloadSavedForm : undefined,
+    saving,
+  });
 
   const roleLabel = useMemo(
     () => ROLE_OPTIONS.find((o) => o.value === form.role)?.label || 'Select role',
@@ -67,19 +99,9 @@ export default function OwnerProfileDetailScreen({
     const load = async () => {
       try {
         const data: any = await getOnboarding('owner');
-        setForm({
-          username: data?.username || '',
-          first_name: data?.first_name || '',
-          last_name: data?.last_name || '',
-          phone_number: data?.phone_number || user?.mobile_number || '',
-          role: (data?.role as OwnerRole) || 'MANAGER',
-          chain_pharmacy: Boolean(data?.chain_pharmacy),
-          number_of_pharmacies: Math.max(1, Number(data?.number_of_pharmacies) || 1),
-          ahpra_number: data?.ahpra_number || '',
-          ahpra_years_since_first_registration: data?.ahpra_years_since_first_registration ?? null,
-          ahpra_verified: typeof data?.ahpra_verified === 'boolean' ? data.ahpra_verified : null,
-          ahpra_verification_note: data?.ahpra_verification_note || null,
-        });
+        const nextForm = buildFormFromResponse(data);
+        setForm(nextForm);
+        unsaved.markClean(nextForm);
       } catch (err: any) {
         setError(err?.response?.data?.detail || err?.message || 'Unable to load owner profile detail.');
       } finally {
@@ -114,6 +136,7 @@ export default function OwnerProfileDetailScreen({
     setSaving(true);
     try {
       await updateOnboardingForm('owner', payload);
+      unsaved.markClean(form);
       await refreshUser();
       if (standalone) {
         if (onSuccessPath) {
@@ -236,11 +259,9 @@ export default function OwnerProfileDetailScreen({
           <Button
             mode="outlined"
             onPress={() => {
-              if (onCancelPath) {
-                router.replace(onCancelPath as any);
-                return;
-              }
-              router.back();
+              unsaved.confirmDiscard(() => {
+                router.back();
+              });
             }}
           >
             Cancel

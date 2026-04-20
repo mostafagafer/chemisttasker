@@ -5,6 +5,7 @@ import { Button, HelperText, Menu, Text, TextInput } from 'react-native-paper';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { API_BASE_URL } from '@/constants/api';
 import { pickSingleDocument, toRNFile } from './shared';
+import { useUnsavedChangesGuard } from '../../shared/forms/useUnsavedChangesGuard';
 
 type Role = 'INTERN' | 'TECHNICIAN' | 'ASSISTANT' | 'STUDENT' | '';
 
@@ -50,6 +51,10 @@ export default function OtherStaffRegulatoryScreen() {
     intern_half: '',
   });
   const [files, setFiles] = useState<Record<string, any>>({});
+  const unsaved = useUnsavedChangesGuard(
+    { data, files },
+    { enabled: !loading, saving }
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -68,6 +73,21 @@ export default function OtherStaffRegulatoryScreen() {
           university_id: res?.university_id || '',
           cpr_certificate: res?.cpr_certificate || '',
           s8_certificate: res?.s8_certificate || '',
+        });
+        unsaved.markClean({
+          data: {
+            role_type: (res?.role_type as Role) || '',
+            classification_level: res?.classification_level || '',
+            student_year: res?.student_year || '',
+            intern_half: res?.intern_half || '',
+            ahpra_proof: res?.ahpra_proof || '',
+            hours_proof: res?.hours_proof || '',
+            certificate: res?.certificate || '',
+            university_id: res?.university_id || '',
+            cpr_certificate: res?.cpr_certificate || '',
+            s8_certificate: res?.s8_certificate || '',
+          },
+          files: {},
         });
       } catch (err: any) {
         if (!mounted) return;
@@ -111,6 +131,13 @@ export default function OtherStaffRegulatoryScreen() {
       const res: any = await updateOnboardingForm(roleKey, form as any);
       setData((p: any) => ({ ...p, ...res }));
       setFiles({});
+      unsaved.markClean({
+        data: {
+          ...data,
+          ...res,
+        },
+        files: {},
+      });
       Alert.alert('Saved', submitForVerification ? 'Regulatory details submitted.' : 'Regulatory details saved.');
     } catch (err: any) {
       const resp = err?.response?.data;
@@ -200,4 +227,3 @@ const styles = StyleSheet.create({
   fileRow: { gap: 4 },
   actions: { marginTop: 4, flexDirection: 'row', justifyContent: 'space-between' },
 });
-

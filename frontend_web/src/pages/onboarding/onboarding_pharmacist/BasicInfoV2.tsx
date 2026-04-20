@@ -15,6 +15,7 @@ import { getOnboardingDetail, updateOnboardingForm, mobileRequestOtp, mobileVeri
 import ProfilePhotoUploader from '../../../components/profilePhoto/ProfilePhotoUploader';
 import { useAuth } from '../../../contexts/AuthContext';
 import type { User } from '../../../contexts/AuthContext';
+import { useUnsavedChangesGuard } from '../../../hooks/useUnsavedChangesGuard';
 
 
 type ApiData = {
@@ -76,6 +77,16 @@ export default function BasicInfoV2() {
   const [otpBusy, setOtpBusy] = React.useState(false);
   const [otpMsg, setOtpMsg] = React.useState('');
   const [otpErr, setOtpErr] = React.useState('');
+  const unsaved = useUnsavedChangesGuard({
+    disabled: loading || saving,
+    value: {
+      addressDisplay,
+      data,
+      profilePhotoCleared,
+      profilePhotoFile,
+      profilePhotoPreview,
+    },
+  });
 
   // Google Places
   const { isLoaded, loadError } = useJsApiLoader({
@@ -93,17 +104,24 @@ export default function BasicInfoV2() {
     getOnboardingDetail(roleKey)
       .then(res => {
         if (!mounted) return;
-        setData(res as any);
+        const nextData = res as any;
+        setData(nextData);
         const nextPhoto =
-          (res as any)?.profile_photo_url ||
-          ((res as any)?.profile_photo ? `${API_BASE_URL}${(res as any).profile_photo}` : null);
+          nextData?.profile_photo_url ||
+          (nextData?.profile_photo ? `${API_BASE_URL}${nextData.profile_photo}` : null);
         setProfilePhotoPreview(nextPhoto);
         setProfilePhotoFile(null);
         setProfilePhotoCleared(false);
-        // Pre-fill the visible address from parts so it never looks blank
-        const s = [(res as any)?.street_address, (res as any)?.suburb, (res as any)?.state, (res as any)?.postcode]
+        const s = [nextData?.street_address, nextData?.suburb, nextData?.state, nextData?.postcode]
           .filter(Boolean).join(', ');
         setAddressDisplay(s);
+        unsaved.markClean({
+          addressDisplay: s,
+          data: nextData,
+          profilePhotoCleared: false,
+          profilePhotoFile: null,
+          profilePhotoPreview: nextPhoto,
+        });
       })
       .catch(e => setError((e as any)?.message || 'Unable to load onboarding'))
       .finally(() => setLoading(false));
@@ -193,18 +211,25 @@ export default function BasicInfoV2() {
       // government id file
 
       const res = await updateOnboardingForm(roleKey, fd as any);
-      setData(res as any || {});
+      const nextData = (res as any) || {};
+      setData(nextData);
       const updatedPhoto =
-        (res as any)?.profile_photo_url ||
-        ((res as any)?.profile_photo ? `${API_BASE_URL}${(res as any).profile_photo}` : null);
+        nextData?.profile_photo_url ||
+        (nextData?.profile_photo ? `${API_BASE_URL}${nextData.profile_photo}` : null);
       setProfilePhotoPreview(updatedPhoto);
       setProfilePhotoCleared(false);
       setProfilePhotoFile(null);
 
-      // refresh the visible address line from saved parts (in case backend normalizes)
-      const s = [(res as any)?.street_address, (res as any)?.suburb, (res as any)?.state, (res as any)?.postcode]
+      const s = [nextData?.street_address, nextData?.suburb, nextData?.state, nextData?.postcode]
         .filter(Boolean).join(', ');
       if (s) setAddressDisplay(s);
+      unsaved.markClean({
+        addressDisplay: s,
+        data: nextData,
+        profilePhotoCleared: false,
+        profilePhotoFile: null,
+        profilePhotoPreview: updatedPhoto,
+      });
 
       setSnack(submitForVerification ? 'Submitted for verification.' : 'Saved.');
     } catch (e: any) {

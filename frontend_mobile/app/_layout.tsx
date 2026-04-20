@@ -11,6 +11,8 @@ import OfflineBanner from '../components/OfflineBanner';
 import '../config/api'; // Configure shared-core on app load
 import { getOwnerSetupStatus, ownerSetupPaths } from '../utils/ownerSetup';
 import { initializeMobileSslPinning } from '../utils/sslPinning';
+import { UnsavedChangesDialogProvider } from '../roles/shared/forms/UnsavedChangesDialogProvider';
+import { UnsavedChangesRegistryProvider } from '../roles/shared/forms/UnsavedChangesRegistryProvider';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -178,19 +180,23 @@ export default function RootLayout() {
         <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }} edges={['top', 'left', 'right']}>
           <StatusBar barStyle="dark-content" />
           <PaperProvider theme={theme}>
-            <AuthProvider>
-              <WorkspaceProvider>
-                <AuthGate />
-                <OfflineBanner />
-                <Stack
-                  screenOptions={{
-                    headerShown: false,
-                    gestureEnabled: true,
-                    animation: 'slide_from_right',
-                  }}
-                />
-              </WorkspaceProvider>
-            </AuthProvider>
+            <UnsavedChangesDialogProvider>
+              <UnsavedChangesRegistryProvider>
+                <AuthProvider>
+                  <WorkspaceProvider>
+                    <AuthGate />
+                    <OfflineBanner />
+                    <Stack
+                      screenOptions={{
+                        headerShown: false,
+                        gestureEnabled: true,
+                        animation: 'slide_from_right',
+                      }}
+                    />
+                  </WorkspaceProvider>
+                </AuthProvider>
+              </UnsavedChangesRegistryProvider>
+            </UnsavedChangesDialogProvider>
           </PaperProvider>
         </SafeAreaView>
       </SafeAreaProvider>

@@ -10,6 +10,7 @@ import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import { useUnsavedChangesGuard } from '../../../hooks/useUnsavedChangesGuard';
 
 dayjs.extend(utc);
 
@@ -61,6 +62,10 @@ export default function RefereesV2() {
   const [saving, setSaving] = React.useState(false);
   const [snack, setSnack] = React.useState<string>('');
   const [error, setError] = React.useState<string>('');
+  const unsaved = useUnsavedChangesGuard({
+    disabled: loading || saving,
+    value: data,
+  });
 
   // ---------- load ----------
   const load = React.useCallback(async () => {
@@ -68,7 +73,9 @@ export default function RefereesV2() {
     setError('');
     try {
       const res = await getOnboardingDetail(roleKey);
-      setData((res as any) || {});
+      const nextData = (res as any) || {};
+      setData(nextData);
+      unsaved.markClean(nextData);
     } catch (e: any) {
       setError(e.response?.data?.detail || e.message || 'Failed to load');
     } finally {
@@ -105,7 +112,9 @@ export default function RefereesV2() {
       });
 
       const res = await updateOnboardingForm(roleKey, fd);
-      setData((res as any) || {});
+      const nextData = (res as any) || {};
+      setData(nextData);
+      unsaved.markClean(nextData);
       setSnack('Saved.');
     } catch (e: any) {
       const resp = e.response?.data;
@@ -135,7 +144,9 @@ export default function RefereesV2() {
       });
 
       const res = await updateOnboardingForm(roleKey, fd);
-      setData((res as any) || {});
+      const nextData = (res as any) || {};
+      setData(nextData);
+      unsaved.markClean(nextData);
       setSnack('Reference emails sent.');
       // optional: small refresh delay, in case last_sent is updated async
       setTimeout(load, 900);

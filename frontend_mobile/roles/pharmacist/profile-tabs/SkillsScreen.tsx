@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Checkbox, Chip, HelperText, SegmentedButtons, Text } from 'react-native-paper';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { pickSingleDocument, roleKey, toRNFile } from './shared';
+import { useUnsavedChangesGuard } from '../../shared/forms/useUnsavedChangesGuard';
 
 type SkillItem = {
   code: string;
@@ -44,6 +45,10 @@ export default function PharmacistSkillsScreen() {
   const [selected, setSelected] = useState<string[]>([]);
   const [existingCerts, setExistingCerts] = useState<Record<string, CertRow>>({});
   const [pendingFiles, setPendingFiles] = useState<Record<string, any>>({});
+  const unsaved = useUnsavedChangesGuard(
+    { selected, pendingFiles },
+    { enabled: !loading, saving }
+  );
 
   const allItems = useMemo(
     () => [...roleCatalog.dispense_software, ...roleCatalog.clinical_services, ...roleCatalog.expanded_scope],
@@ -66,6 +71,7 @@ export default function PharmacistSkillsScreen() {
         const map: Record<string, CertRow> = {};
         (res?.skill_certificates || []).forEach((row) => { map[row.skill_code] = row; });
         setExistingCerts(map);
+        unsaved.markClean({ selected: skills, pendingFiles: {} });
       } catch (err: any) {
         if (!mounted) return;
         setError(err?.response?.data?.detail || err?.message || 'Failed to load skills.');
@@ -119,6 +125,7 @@ export default function PharmacistSkillsScreen() {
       (res?.skill_certificates || []).forEach((row) => { map[row.skill_code] = row; });
       setExistingCerts(map);
       setPendingFiles({});
+      unsaved.markClean({ selected: res?.skills || [], pendingFiles: {} });
       Alert.alert('Saved', 'Skills saved.');
     } catch (err: any) {
       const resp = err?.response?.data;
@@ -206,4 +213,3 @@ const styles = StyleSheet.create({
   itemLabel: { color: '#111827', fontWeight: '600' },
   itemDesc: { color: '#6B7280', marginTop: 2 },
 });
-

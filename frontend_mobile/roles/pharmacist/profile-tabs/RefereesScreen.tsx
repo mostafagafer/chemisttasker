@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Chip, HelperText, Menu, Text, TextInput } from 'react-native-paper';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { REL_CHOICES, roleKey } from './shared';
+import { useUnsavedChangesGuard } from '../../shared/forms/useUnsavedChangesGuard';
 
 type ApiData = {
   referee1_name?: string | null;
@@ -35,6 +36,7 @@ export default function PharmacistRefereesScreen() {
   const [data, setData] = useState<ApiData>({});
   const [menu1, setMenu1] = useState(false);
   const [menu2, setMenu2] = useState(false);
+  const unsaved = useUnsavedChangesGuard(data, { enabled: !loading, saving });
 
   useEffect(() => {
     let mounted = true;
@@ -43,6 +45,7 @@ export default function PharmacistRefereesScreen() {
         const res: any = await getOnboardingDetail(roleKey);
         if (!mounted) return;
         setData(res || {});
+        unsaved.markClean(res || {});
       } catch (err: any) {
         if (!mounted) return;
         setError(err?.response?.data?.detail || err?.message || 'Failed to load referees.');
@@ -79,6 +82,7 @@ export default function PharmacistRefereesScreen() {
       });
       const res: any = await updateOnboardingForm(roleKey, fd as any);
       setData(res || {});
+      unsaved.markClean(res || {});
       Alert.alert('Saved', sendForVerification ? 'Reference requests sent.' : 'Referees saved.');
     } catch (err: any) {
       const resp = err?.response?.data;
@@ -153,4 +157,3 @@ const styles = StyleSheet.create({
   cardTitle: { fontWeight: '700', color: '#111827' },
   actions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
 });
-

@@ -5,6 +5,7 @@ import { Button, Chip, HelperText, Menu, Text, TextInput } from 'react-native-pa
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { API_BASE_URL } from '@/constants/api';
 import { AUS_STATES, DOC_TYPES, boolChipProps, pickSingleDocument, roleKey, toRNFile } from './shared';
+import { useUnsavedChangesGuard } from '../../shared/forms/useUnsavedChangesGuard';
 
 type ApiData = {
   government_id?: string | null;
@@ -31,6 +32,10 @@ export default function PharmacistIdentityScreen() {
   const [stateMenuVisible, setStateMenuVisible] = useState(false);
   const [primaryFile, setPrimaryFile] = useState<any>(null);
   const [secondaryFile, setSecondaryFile] = useState<any>(null);
+  const unsaved = useUnsavedChangesGuard(
+    { data, meta, primaryFile, secondaryFile },
+    { enabled: !loading, saving }
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -40,6 +45,12 @@ export default function PharmacistIdentityScreen() {
         if (!mounted) return;
         setData(res || {});
         setMeta((res?.identity_meta as Record<string, string>) || {});
+        unsaved.markClean({
+          data: res || {},
+          meta: (res?.identity_meta as Record<string, string>) || {},
+          primaryFile: null,
+          secondaryFile: null,
+        });
       } catch (err: any) {
         if (!mounted) return;
         setError(err?.response?.data?.detail || err?.message || 'Failed to load identity.');
@@ -78,6 +89,12 @@ export default function PharmacistIdentityScreen() {
       setMeta((res?.identity_meta as Record<string, string>) || {});
       setPrimaryFile(null);
       setSecondaryFile(null);
+      unsaved.markClean({
+        data: res || {},
+        meta: (res?.identity_meta as Record<string, string>) || {},
+        primaryFile: null,
+        secondaryFile: null,
+      });
       Alert.alert('Saved', submitForVerification ? 'Identity submitted for verification.' : 'Identity saved.');
     } catch (err: any) {
       const resp = err?.response?.data;
@@ -217,4 +234,3 @@ const styles = StyleSheet.create({
   muted: { color: '#6B7280' },
   actions: { marginTop: 4, flexDirection: 'row', justifyContent: 'space-between' },
 });
-

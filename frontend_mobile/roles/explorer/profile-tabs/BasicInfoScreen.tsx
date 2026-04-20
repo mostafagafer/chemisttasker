@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, HelperText, Menu, Text, TextInput } from 'react-native-paper';
 import { getOnboarding, updateOnboarding } from '@chemisttasker/shared-core';
 import GooglePlacesInput from '../../shared/pharmacies/GooglePlacesInput';
+import { useUnsavedChangesGuard } from '../../shared/forms/useUnsavedChangesGuard';
 
 type ExplorerRole = 'STUDENT' | 'JUNIOR' | 'CAREER_SWITCHER' | '';
 type ApiData = {
@@ -36,6 +37,7 @@ export default function ExplorerBasicInfoScreen() {
   const [error, setError] = useState('');
   const [roleMenuVisible, setRoleMenuVisible] = useState(false);
   const [form, setForm] = useState<ApiData>({});
+  const unsaved = useUnsavedChangesGuard(form, { enabled: !loading, saving });
 
   useEffect(() => {
     let mounted = true;
@@ -44,6 +46,7 @@ export default function ExplorerBasicInfoScreen() {
         const data: any = await getOnboarding(roleKey as any);
         if (!mounted) return;
         setForm(data || {});
+        unsaved.markClean(data || {});
       } catch (err: any) {
         if (!mounted) return;
         setError(err?.response?.data?.detail || err?.message || 'Unable to load basic info.');
@@ -102,6 +105,7 @@ export default function ExplorerBasicInfoScreen() {
       });
       const res: any = await updateOnboarding(roleKey as any, fd as any);
       setForm(res || {});
+      unsaved.markClean(res || {});
       Alert.alert('Saved', submitForVerification ? 'Submitted for verification.' : 'Basic info saved.');
     } catch (err: any) {
       const resp = err?.response?.data;

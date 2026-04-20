@@ -11,6 +11,7 @@ import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 import { API_BASE_URL } from '../../../constants/api';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import skillsCatalog from '../../../../../shared-core/skills_catalog.json';
+import { useUnsavedChangesGuard } from '../../../hooks/useUnsavedChangesGuard';
 
 type SkillItem = {
   code: string;
@@ -69,6 +70,10 @@ export default function SkillsV2() {
   const [selected, setSelected] = React.useState<string[]>([]);
   const [existingCerts, setExistingCerts] = React.useState<Record<string, CertRow>>({});
   const [pendingFiles, setPendingFiles] = React.useState<Record<string, File | null>>({}); // newly chosen (not yet uploaded)
+  const unsaved = useUnsavedChangesGuard({
+    disabled: loading || saving,
+    value: { existingCerts, pendingFiles, selected, yearsExperience },
+  });
 
   const tabs = [
     { key: 'dispense_software', label: 'Dispense Software', items: roleCatalog.dispense_software },
@@ -101,6 +106,12 @@ export default function SkillsV2() {
         const byCode: Record<string, CertRow> = {};
         (d.skill_certificates || []).forEach(row => { byCode[row.skill_code] = row; });
         setExistingCerts(byCode);
+        unsaved.markClean({
+          existingCerts: byCode,
+          pendingFiles: {},
+          selected: d.skills || [],
+          yearsExperience: d.years_experience || '',
+        });
       } catch (e: any) {
         setError(e?.response?.data?.detail || e.message || 'Failed to load');
       } finally {
@@ -174,6 +185,12 @@ export default function SkillsV2() {
         const next = { ...prev };
         selected.forEach(code => { if (next[code]) delete next[code]; });
         return next;
+      });
+      unsaved.markClean({
+        existingCerts: byCode,
+        pendingFiles: {},
+        selected: d.skills || [],
+        yearsExperience: d.years_experience || '',
       });
 
       setSnack('Skills saved.');

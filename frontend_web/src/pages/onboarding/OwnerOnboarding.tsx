@@ -27,6 +27,7 @@ import ProfilePhotoUploader from '../../components/profilePhoto/ProfilePhotoUplo
 import AccountDeletionSection from '../../components/AccountDeletionSection';
 import apiClient from '../../utils/apiClient';
 import { useAuth, type User } from '../../contexts/AuthContext';
+import { UnsavedChangesBoundary, useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 
 interface FormData {
   username: string;
@@ -54,7 +55,7 @@ type OwnerOnboardingProps = {
   onSuccessPath?: string;
 };
 
-export default function OwnerOnboarding({
+function OwnerOnboardingContent({
   standalone = false,
   onSuccessPath,
 }: OwnerOnboardingProps) {
@@ -85,12 +86,21 @@ export default function OwnerOnboarding({
     staffCount: number;
     extraSeatCount: number;
   } | null>(null);
+  const unsaved = useUnsavedChangesGuard({
+    disabled: loading,
+    value: {
+      data,
+      profilePhotoCleared,
+      profilePhotoFile,
+      profilePhotoPreview,
+    },
+  });
 
   useEffect(() => {
     getOnboardingDetail(roleKey)
       .then(res => {
         const d: any = res;
-        setData({
+        const nextData = {
           username: d.username || '',
           first_name: d.first_name || '',
           last_name: d.last_name || '',
@@ -102,12 +112,19 @@ export default function OwnerOnboarding({
           ahpra_years_since_first_registration: d.ahpra_years_since_first_registration ?? null,
           ahpra_verified: typeof d.ahpra_verified === 'boolean' ? d.ahpra_verified : null,
           ahpra_verification_note: d.ahpra_verification_note || null,
-        });
+        };
+        setData(nextData);
         const nextPhoto =
           d.profile_photo_url || (d.profile_photo ? `${API_BASE_URL}${d.profile_photo}` : null);
         setProfilePhotoPreview(nextPhoto);
         setProfilePhotoFile(null);
         setProfilePhotoCleared(false);
+        unsaved.markClean({
+          data: nextData,
+          profilePhotoCleared: false,
+          profilePhotoFile: null,
+          profilePhotoPreview: nextPhoto,
+        });
       })
       .catch(err => {
         if (err.response?.status !== 404) {
@@ -188,6 +205,12 @@ const handleSubmit = async (e: React.FormEvent) => {
     setLoading(false);
     setProfilePhotoFile(null);
     setProfilePhotoCleared(false);
+    unsaved.markClean({
+      data: normalizedData,
+      profilePhotoCleared: false,
+      profilePhotoFile: null,
+      profilePhotoPreview,
+    });
   } catch (err: any) {
     setError(err.response?.data?.detail || err.message);
     setLoading(false);
@@ -209,6 +232,8 @@ const handleSubmit = async (e: React.FormEvent) => {
   if (loading) return <Typography>Loading…</Typography>;
 
   return (
+    <UnsavedChangesBoundary>
+      {() => (
     <Container maxWidth="lg">
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
@@ -420,5 +445,15 @@ const handleSubmit = async (e: React.FormEvent) => {
         )}
       </Paper>
     </Container>
+      )}
+    </UnsavedChangesBoundary>
+  );
+}
+
+export default function OwnerOnboarding(props: OwnerOnboardingProps) {
+  return (
+    <UnsavedChangesBoundary>
+      {() => <OwnerOnboardingContent {...props} />}
+    </UnsavedChangesBoundary>
   );
 }

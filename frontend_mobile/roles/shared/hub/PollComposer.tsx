@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { Button, Modal, Portal, Text, TextInput, IconButton, HelperText } from 'react-native-paper';
 import { createHubPoll, updateHubPoll } from './api';
 import type { HubPollPayload, HubPoll } from './types';
+import { SubmissionNotice, useSubmissionGuard } from './submissionGuard';
 
 type Scope =
   | { type: 'pharmacy'; id: number }
@@ -23,8 +24,8 @@ type Props = {
 export function PollComposer({ visible, onDismiss, scope, onSaved, editing }: Props) {
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState<string[]>(['', '']);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const submission = useSubmissionGuard();
 
   const stableScope = useMemo(() => {
     if (!scope || scope.id == null) return null;
@@ -51,7 +52,6 @@ export function PollComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
       setOptions(['', '']);
     }
     setError(null);
-    setSaving(false);
   };
 
   useEffect(() => {
@@ -79,7 +79,9 @@ export function PollComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
       setError('You can specify up to five options.');
       return;
     }
-    setSaving(true);
+    if (!submission.start()) {
+      return;
+    }
     setError(null);
     try {
       const payload: HubPollPayload = {
@@ -98,29 +100,42 @@ export function PollComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
     } catch (err: any) {
       setError(err?.message || 'Save poll failed');
     } finally {
-      setSaving(false);
+      submission.finish();
     }
+  };
+
+  const handleDismiss = () => {
+    if (submission.submitting) {
+      return;
+    }
+    resetForm();
+    onDismiss();
   };
 
   return (
     <Portal>
       <Modal
         visible={visible}
-        onDismiss={() => {
-          resetForm();
-          onDismiss();
-        }}
+        onDismiss={handleDismiss}
+        dismissable={!submission.submitting}
+        dismissableBackButton={!submission.submitting}
         contentContainerStyle={styles.modal}
       >
         <View style={styles.header}>
           <Text variant="titleMedium">{editing ? 'Edit poll' : 'New poll'}</Text>
-          <IconButton icon="close" onPress={onDismiss} />
+          <IconButton icon="close" onPress={handleDismiss} disabled={submission.submitting} />
         </View>
+        {submission.submitting ? (
+          <SubmissionNotice
+            message={editing ? 'Updating your poll. Please wait and keep this screen open.' : 'Creating your poll. Please wait and keep this screen open.'}
+          />
+        ) : null}
         <TextInput
           label="Question"
           value={question}
           onChangeText={setQuestion}
           mode="outlined"
+          disabled={submission.submitting}
           style={{ marginBottom: 8 }}
         />
         <Text variant="titleSmall" style={{ marginBottom: 4 }}>
@@ -133,11 +148,12 @@ export function PollComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
             value={opt}
             onChangeText={(text) => updateOption(idx, text)}
             mode="outlined"
+            disabled={submission.submitting}
             style={{ marginBottom: 6 }}
           />
         ))}
         {options.length < 5 ? (
-          <Button compact mode="text" onPress={addOption}>
+          <Button compact mode="text" onPress={addOption} disabled={submission.submitting}>
             Add option
           </Button>
         ) : null}
@@ -145,11 +161,11 @@ export function PollComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
         <Button
           mode="contained"
           onPress={handleSave}
-          disabled={!question.trim() || saving || !stableScope}
-          loading={saving}
+          disabled={!question.trim() || submission.submitting || !stableScope}
+          loading={submission.submitting}
           style={{ marginTop: 8 }}
         >
-          {saving ? (editing ? 'Updating...' : 'Creating...') : editing ? 'Update poll' : 'Create poll'}
+          {submission.submitting ? (editing ? 'Updating...' : 'Creating...') : editing ? 'Update poll' : 'Create poll'}
         </Button>
       </Modal>
     </Portal>

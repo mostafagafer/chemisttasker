@@ -751,7 +751,16 @@ export function HubFeed({ scope, onBack, targetPostId, onTargetPostHandled, head
         visible={composerVisible}
         onDismiss={() => { setComposerVisible(false); setEditing(null); }}
         scope={scope}
-        onSaved={onRefresh}
+        onSaved={async (post, mode) => {
+          setPosts((prev) => {
+            if (mode === 'edit') {
+              return prev.map((item) => (item.id === post.id ? post : item));
+            }
+            const withoutDuplicate = prev.filter((item) => item.id !== post.id);
+            return [post, ...withoutDuplicate];
+          });
+          await onRefresh();
+        }}
         editing={editing || undefined}
       />
       <PollComposer

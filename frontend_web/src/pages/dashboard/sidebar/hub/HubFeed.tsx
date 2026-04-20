@@ -101,6 +101,41 @@ const getErrorMessage = (error: unknown, fallback: string) => {
   return fallback;
 };
 
+const useSubmissionGuard = () => {
+  const lockRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const start = () => {
+    if (lockRef.current) {
+      return false;
+    }
+    lockRef.current = true;
+    setSubmitting(true);
+    return true;
+  };
+
+  const finish = () => {
+    lockRef.current = false;
+    setSubmitting(false);
+  };
+
+  return { submitting, start, finish };
+};
+
+function SubmissionStatusNotice({ message }: { message: string }) {
+  return (
+    <Box sx={{ px: 2, pb: 2 }}>
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
+        <CircularProgress size={18} />
+        <Typography variant="body2" color="text.secondary">
+          {message}
+        </Typography>
+      </Stack>
+      <LinearProgress />
+    </Box>
+  );
+}
+
 type CommentNode = HubComment & { replies: CommentNode[] };
 
 const buildCommentTree = (list: HubComment[]): CommentNode[] => {
@@ -778,7 +813,6 @@ export function ScopeFeed({
   const [polls, setPolls] = useState<HubPoll[]>([]);
   const [pollsLoading, setPollsLoading] = useState(true);
   const [pollsError, setPollsError] = useState<string | null>(null);
-  const [pollSubmitting, setPollSubmitting] = useState(false);
   const [pollError, setPollError] = useState<string | null>(null);
   const [editingPoll, setEditingPoll] = useState<HubPoll | null>(null);
   const [isPollModalOpen, setPollModalOpen] = useState(false);
@@ -788,6 +822,8 @@ export function ScopeFeed({
   const [editingSaving, setEditingSaving] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerGuard = useSubmissionGuard();
+  const pollGuard = useSubmissionGuard();
   const stableScope = useMemo<HubScopeSelection>(
     () => ({ type: scope.type, id: scope.id }),
     [scope.id, scope.type],
@@ -885,7 +921,11 @@ export function ScopeFeed({
 
   const handleCreatePost = async () => {
     if (!canCreatePost) return;
-    if (!postContent.trim() && attachments.length === 0) return;
+    if (!postContent.trim() && attachments.length === 0) {
+      setComposerError('Add some text or at least one attachment before posting.');
+      return;
+    }
+    if (!composerGuard.start()) return;
     const payload: HubPostPayload = { body: postContent };
     if (attachments.length > 0) {
       payload.attachments = attachments;
@@ -895,16 +935,18 @@ export function ScopeFeed({
         new Set(taggedMembers.map((member) => member.membershipId)),
       );
     }
+    setComposerError(null);
     try {
       const newPost = await createHubPost(stableScope, payload);
       setPosts((prev) => [newPost, ...prev]);
       setPostContent('');
       setAttachments([]);
       setTaggedMembers([]);
-      setComposerError(null);
     } catch (err) {
       console.error('Failed to create post:', err);
       setComposerError(getErrorMessage(err, 'Failed to create the post. Please try again.'));
+    } finally {
+      composerGuard.finish();
     }
   };
 
@@ -941,7 +983,7 @@ export function ScopeFeed({
       setPollError('Please provide a question and at least two options.');
       return;
     }
-    setPollSubmitting(true);
+    if (!pollGuard.start()) return;
     setPollError(null);
     try {
       if (editingPoll) {
@@ -959,7 +1001,7 @@ export function ScopeFeed({
       console.error('Failed to save poll:', err);
       setPollError('Failed to save poll. Please try again.');
     } finally {
-      setPollSubmitting(false);
+      pollGuard.finish();
     }
   };
 
@@ -1065,6 +1107,7 @@ export function ScopeFeed({
                   setComposerError(null);
                 }
               }}
+              disabled={composerGuard.submitting}
               variant="outlined"
               sx={{
                 '& .MuiOutlinedInput-root': {
@@ -1080,28 +1123,37 @@ export function ScopeFeed({
           {attachments.length > 0 && (
             <Stack direction="row" spacing={1} sx={{ p: 2, pt: 0, flexWrap: 'wrap', gap: 1 }}>
               {attachments.map((file, index) => (
-                <Chip
-                  key={index}
-                  icon={<InsertDriveFileIcon />}
-                  label={file.name}
-                  onDelete={() => removeAttachment(file)}
-                  deleteIcon={<CancelIcon />}
-                />
-              ))}
-            </Stack>
-          )}
+                  <Chip
+                    key={index}
+                    icon={<InsertDriveFileIcon />}
+                    label={file.name}
+                    onDelete={composerGuard.submitting ? undefined : () => removeAttachment(file)}
+                    deleteIcon={composerGuard.submitting ? undefined : <CancelIcon />}
+                  />
+                ))}
+              </Stack>
+            )}
           <input
             type="file"
-            multiple
-            ref={fileInputRef}
-            onChange={handleFileSelect}
-            style={{ display: 'none' }}
-          />
-          {membersLoader && (
-            <Box sx={{ px: 2, pb: 2 }}>
-              <TagMembersSelector loadMembers={membersLoader} value={taggedMembers} onChange={setTaggedMembers} />
-            </Box>
-          )}
+              multiple
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              disabled={composerGuard.submitting}
+              style={{ display: 'none' }}
+            />
+            {composerGuard.submitting ? (
+              <SubmissionStatusNotice message="Posting your update. Please wait and keep this window open." />
+            ) : null}
+            {membersLoader && (
+              <Box sx={{ px: 2, pb: 2 }}>
+                <TagMembersSelector
+                  loadMembers={membersLoader}
+                  value={taggedMembers}
+                  onChange={setTaggedMembers}
+                  disabled={composerGuard.submitting}
+                />
+              </Box>
+            )}
           <Box
             sx={{
               display: 'flex',
@@ -1119,6 +1171,7 @@ export function ScopeFeed({
               <Button
                 onClick={() => fileInputRef.current?.click()}
                 startIcon={<AttachFileIcon sx={{ fontSize: 16 }} />}
+                disabled={composerGuard.submitting}
                 sx={{ textTransform: 'none', color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
               >
                 Add attachments
@@ -1129,18 +1182,19 @@ export function ScopeFeed({
                 onClick={() => openPollModal()}
                 variant="outlined"
                 startIcon={<BarChartIcon sx={{ fontSize: 16 }} />}
+                disabled={composerGuard.submitting}
                 sx={{ textTransform: 'none', borderColor: 'grey.300', color: 'text.primary', '&:hover': { bgcolor: 'grey.50' } }}
               >
                 Start Poll
               </Button>
               <Button
                 onClick={handleCreatePost}
-                disabled={!postContent.trim() && attachments.length === 0}
+                disabled={composerGuard.submitting}
                 variant="contained"
-                startIcon={<SendIcon sx={{ fontSize: 16 }} />}
+                startIcon={composerGuard.submitting ? <CircularProgress size={16} color="inherit" /> : <SendIcon sx={{ fontSize: 16 }} />}
                 sx={{ textTransform: 'none', bgcolor: 'primary.main', '&:hover': { bgcolor: 'primary.dark' } }}
               >
-                Post to Hub
+                {composerGuard.submitting ? 'Posting...' : 'Post to Hub'}
               </Button>
             </Box>
           </Box>
@@ -1199,7 +1253,7 @@ export function ScopeFeed({
         <StartPollModal
           onClose={closePollModal}
           onCreate={handleCreatePoll}
-          submitting={pollSubmitting}
+          submitting={pollGuard.submitting}
           error={pollError}
           editingPoll={editingPoll}
         />
@@ -1223,6 +1277,7 @@ interface TagMembersSelectorProps {
   loadMembers?: () => Promise<HubGroupMemberOption[]>;
   value: HubGroupMemberOption[];
   onChange: (members: HubGroupMemberOption[]) => void;
+  disabled?: boolean;
 }
 
 type AggregatedMemberOption = {
@@ -1235,7 +1290,7 @@ type AggregatedMemberOption = {
   pharmacyNames: string[];
 };
 
-function TagMembersSelector({ loadMembers, value, onChange }: TagMembersSelectorProps) {
+function TagMembersSelector({ loadMembers, value, onChange, disabled = false }: TagMembersSelectorProps) {
   const [options, setOptions] = useState<HubGroupMemberOption[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -1355,7 +1410,7 @@ function TagMembersSelector({ loadMembers, value, onChange }: TagMembersSelector
         <Button
           size="small"
           onClick={() => (isSelectAll ? onChange([]) : applyAggregatedSelection(aggregatedOptions))}
-          disabled={!aggregatedOptions.length}
+          disabled={disabled || !aggregatedOptions.length}
         >
           {isSelectAll ? 'Clear all' : 'Select all'}
         </Button>
@@ -1398,6 +1453,7 @@ function TagMembersSelector({ loadMembers, value, onChange }: TagMembersSelector
         value={aggregatedValue}
         loading={loading}
         openOnFocus
+        disabled={disabled}
         onChange={(_, newValue) => applyAggregatedSelection(newValue as AggregatedMemberOption[])}
         isOptionEqualToValue={(option, selected) => option.key === selected.key}
         getOptionLabel={(option) =>
@@ -1869,11 +1925,11 @@ function StartPollModal({ onClose, onCreate, submitting = false, error, editingP
   };
 
   return (
-    <Dialog open onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open onClose={submitting ? undefined : onClose} maxWidth="md" fullWidth>
       <DialogTitle>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6">{editingPoll ? 'Edit Poll' : 'Start a New Poll'}</Typography>
-          <IconButton onClick={onClose} size="small"> {/* Use CloseIcon for X */}
+          <IconButton onClick={onClose} size="small" disabled={submitting}>
             <CloseIcon sx={{ fontSize: 20 }} />
           </IconButton>
         </Box>
@@ -1884,6 +1940,11 @@ function StartPollModal({ onClose, onCreate, submitting = false, error, editingP
             {error}
           </Alert>
         )}
+        {submitting ? (
+          <SubmissionStatusNotice
+            message={editingPoll ? 'Updating your poll. Please wait and keep this window open.' : 'Creating your poll. Please wait and keep this window open.'}
+          />
+        ) : null}
         <TextField
           autoFocus
           margin="dense"

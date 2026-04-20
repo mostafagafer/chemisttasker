@@ -11,6 +11,7 @@ import {
   updateHubPost,
 } from './api';
 import type { HubPost, HubPostPayload } from './types';
+import { SubmissionNotice, useSubmissionGuard } from './submissionGuard';
 
 const getErrorMessage = (error: unknown, fallback: string) => {
   if (error instanceof Error && error.message.trim()) {
@@ -41,7 +42,7 @@ type Props = {
   visible: boolean;
   onDismiss: () => void;
   scope: Scope;
-  onSaved: () => void;
+  onSaved: (post: HubPost, mode: 'create' | 'edit') => void | Promise<void>;
   editing?: HubPost | null;
 };
 
@@ -49,11 +50,11 @@ export function PostComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
   const [body, setBody] = useState(editing?.body || '');
   const [attachments, setAttachments] = useState<DocumentPicker.DocumentPickerAsset[]>([]);
   const [taggedMemberIds, setTaggedMemberIds] = useState<number[]>([]);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [members, setMembers] = useState<any[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [memberError, setMemberError] = useState<string | null>(null);
+  const submission = useSubmissionGuard();
 
   const stableScope = useMemo(() => {
     if (!scope || scope.id == null) return null;
@@ -157,10 +158,12 @@ export function PostComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
       return;
     }
     if (!body.trim()) {
-      setError('Body is required.');
+      setError('Add some text before posting.');
       return;
     }
-    setSaving(true);
+    if (!submission.start()) {
+      return;
+    }
     setError(null);
     try {
       const files = await normalizeAttachments();
@@ -176,12 +179,13 @@ export function PostComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
       if (files.length) {
         payload.attachments = files as any;
       }
+      let savedPost: HubPost;
       if (editing?.id) {
-        await updateHubPost(editing.id, payload as any);
+        savedPost = await updateHubPost(editing.id, payload as any);
       } else {
-        await createHubPost(stableScope as any, payload as any);
+        savedPost = await createHubPost(stableScope as any, payload as any);
       }
-      onSaved();
+      await onSaved(savedPost, editing?.id ? 'edit' : 'create');
       onDismiss();
       setBody('');
       setAttachments([]);
@@ -189,21 +193,37 @@ export function PostComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
     } catch (err: any) {
       setError(getErrorMessage(err, 'Save failed'));
     } finally {
-      setSaving(false);
+      submission.finish();
     }
+  };
+
+  const handleDismiss = () => {
+    if (submission.submitting) {
+      return;
+    }
+    onDismiss();
   };
 
   return (
     <Portal>
-      <Modal visible={visible} onDismiss={onDismiss} contentContainerStyle={styles.modal}>
+      <Modal
+        visible={visible}
+        onDismiss={handleDismiss}
+        dismissable={!submission.submitting}
+        dismissableBackButton={!submission.submitting}
+        contentContainerStyle={styles.modal}
+      >
         <View style={styles.header}>
           <Text variant="titleMedium">{editing ? 'Edit post' : 'New post'}</Text>
-          <IconButton icon="close" onPress={onDismiss} />
+          <IconButton icon="close" onPress={handleDismiss} disabled={submission.submitting} />
         </View>
         {error ? (
           <View style={styles.errorBanner}>
             <Text style={styles.errorBannerText}>{error}</Text>
           </View>
+        ) : null}
+        {submission.submitting ? (
+          <SubmissionNotice message="Posting your update. Please wait and keep this screen open." />
         ) : null}
         <TextInput
           label="Share an update"
@@ -217,10 +237,11 @@ export function PostComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
           multiline
           mode="outlined"
           numberOfLines={4}
+          disabled={submission.submitting}
           style={{ marginBottom: 8 }}
         />
         <View style={styles.attachmentRow}>
-          <Button compact mode="text" icon="paperclip" onPress={pickFiles}>
+          <Button compact mode="text" icon="paperclip" onPress={pickFiles} disabled={submission.submitting}>
             Attach
           </Button>
           <Text style={styles.muted}>{attachments.length ? `${attachments.length} file(s)` : 'No attachments'}</Text>
@@ -231,9 +252,7 @@ export function PostComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
               <Chip
                 key={`${file.name}-${index}`}
                 icon="file"
-                onClose={() => {
-                  setAttachments((prev) => prev.filter((_, i) => i !== index));
-                }}
+                onClose={submission.submitting ? undefined : () => setAttachments((prev) => prev.filter((_, i) => i !== index))}
               >
                 {file.name}
               </Chip>
@@ -256,6 +275,7 @@ export function PostComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
                   <View key={id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, gap: 8 }}>
                     <Checkbox
                       status={checked ? 'checked' : 'unchecked'}
+                      disabled={submission.submitting}
                       onPress={() =>
                         setTaggedMemberIds((prev) =>
                           prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
@@ -287,7 +307,11 @@ export function PostComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
                     }`
                   : `Member #${id}`;
                 return (
-                  <Chip key={id} onClose={() => setTaggedMemberIds((prev) => prev.filter((x) => x !== id))} compact>
+                  <Chip
+                    key={id}
+                    onClose={submission.submitting ? undefined : () => setTaggedMemberIds((prev) => prev.filter((x) => x !== id))}
+                    compact
+                  >
                     {label}
                   </Chip>
                 );
@@ -298,11 +322,11 @@ export function PostComposer({ visible, onDismiss, scope, onSaved, editing }: Pr
         <Button
           mode="contained"
           onPress={handleSave}
-          disabled={!body.trim() || saving || !stableScope}
-          loading={saving}
+          disabled={submission.submitting || !stableScope}
+          loading={submission.submitting}
           style={{ marginTop: 8 }}
         >
-          {editing ? 'Save changes' : 'Post'}
+          {submission.submitting ? (editing ? 'Saving...' : 'Posting...') : editing ? 'Save changes' : 'Post'}
         </Button>
       </Modal>
     </Portal>

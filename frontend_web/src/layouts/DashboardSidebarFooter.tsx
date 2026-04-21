@@ -9,6 +9,7 @@ import Typography from "@mui/material/Typography";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { alpha, useTheme } from "@mui/material/styles";
 import { SidebarFooterProps } from "@toolpad/core/DashboardLayout";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useWorkspace } from "../contexts/WorkspaceContext";
 
@@ -51,6 +52,7 @@ const ADMIN_STAFF_ROLE_LABELS: Record<string, string> = {
 export default function DashboardSidebarFooter({ mini }: SidebarFooterProps) {
   const footerRef = useRef<HTMLDivElement | null>(null);
   const theme = useTheme();
+  const navigate = useNavigate();
   const {
     user,
     adminAssignments,
@@ -190,8 +192,19 @@ export default function DashboardSidebarFooter({ mini }: SidebarFooterProps) {
   const handlePersonaSelect = (option: PersonaMenuOption) => {
     if (option.kind === "ROLE") {
       selectRolePersona(option.role);
+      const targetPath =
+        option.role === "PHARMACIST"
+          ? "/dashboard/pharmacist/overview"
+          : option.role === "OTHER_STAFF"
+          ? "/dashboard/otherstaff/overview"
+          : "/dashboard/explorer/overview";
+      navigate(targetPath);
     } else {
       selectAdminPersona(option.assignmentId);
+      const assignment = adminAssignments.find((item) => item.id === option.assignmentId);
+      if (assignment?.pharmacy_id != null) {
+        navigate(`/dashboard/admin/${assignment.pharmacy_id}/overview`, { replace: true });
+      }
     }
     setPersonaAnchor(null);
   };

@@ -27,6 +27,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import BarChartIcon from '@mui/icons-material/BarChart';
@@ -804,6 +805,8 @@ export function ScopeFeed({
   targetPostId,
   onTargetPostHandled,
 }: ScopeFeedProps) {
+  const theme = useTheme();
+  const isDarkMode = theme.palette.mode === 'dark';
   const [posts, setPosts] = useState<HubPost[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [postsError, setPostsError] = useState<string | null>(null);
@@ -1083,9 +1086,23 @@ export function ScopeFeed({
     <>
       <Stack spacing={3}>
       {canCreatePost && (
-        <Card sx={{ borderRadius: 2, border: '1px solid', borderColor: 'grey.200', boxShadow: 1 }}>
-          <Box sx={{ borderBottom: '1px solid', borderColor: 'grey.200', p: 2 }}>
-            <Typography variant="h6" sx={{ fontWeight: 'semibold', color: 'text.primary' }}>
+        <Card
+          sx={{
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: isDarkMode ? alpha(theme.palette.common.white, 0.12) : 'grey.200',
+            boxShadow: 1,
+            bgcolor: isDarkMode ? alpha(theme.palette.background.paper, 0.96) : 'background.paper',
+          }}
+        >
+          <Box
+            sx={{
+              borderBottom: '1px solid',
+              borderColor: isDarkMode ? alpha(theme.palette.common.white, 0.12) : 'grey.200',
+              p: 2,
+            }}
+          >
+            <Typography variant="h6" sx={{ fontWeight: 700, color: 'text.primary' }}>
               Share an update with your team
             </Typography>
           </Box>
@@ -1112,8 +1129,20 @@ export function ScopeFeed({
               sx={{
                 '& .MuiOutlinedInput-root': {
                   borderRadius: 1,
-                  bgcolor: 'grey.50',
-                  '& fieldset': { borderColor: 'grey.300' },
+                  alignItems: 'flex-start',
+                  bgcolor: isDarkMode ? alpha(theme.palette.common.white, 0.06) : 'grey.50',
+                  color: 'text.primary',
+                  '& textarea::placeholder': {
+                    color: isDarkMode
+                      ? alpha(theme.palette.text.primary, 0.58)
+                      : undefined,
+                    opacity: 1,
+                  },
+                  '& fieldset': {
+                    borderColor: isDarkMode
+                      ? alpha(theme.palette.common.white, 0.18)
+                      : 'grey.300',
+                  },
                   '&:hover fieldset': { borderColor: 'primary.main' },
                   '&.Mui-focused fieldset': { borderColor: 'primary.main' },
                 },
@@ -1162,8 +1191,8 @@ export function ScopeFeed({
               justifyContent: 'space-between',
               gap: 1,
               borderTop: '1px solid',
-              borderColor: 'grey.200',
-              bgcolor: 'grey.50',
+              borderColor: isDarkMode ? alpha(theme.palette.common.white, 0.12) : 'grey.200',
+              bgcolor: isDarkMode ? alpha(theme.palette.common.white, 0.04) : 'grey.50',
               p: 1.5,
             }}
           >
@@ -1172,7 +1201,11 @@ export function ScopeFeed({
                 onClick={() => fileInputRef.current?.click()}
                 startIcon={<AttachFileIcon sx={{ fontSize: 16 }} />}
                 disabled={composerGuard.submitting}
-                sx={{ textTransform: 'none', color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+                sx={{
+                  textTransform: 'none',
+                  color: isDarkMode ? 'grey.200' : 'text.secondary',
+                  '&:hover': { color: 'primary.main' },
+                }}
               >
                 Add attachments
               </Button>
@@ -1183,7 +1216,14 @@ export function ScopeFeed({
                 variant="outlined"
                 startIcon={<BarChartIcon sx={{ fontSize: 16 }} />}
                 disabled={composerGuard.submitting}
-                sx={{ textTransform: 'none', borderColor: 'grey.300', color: 'text.primary', '&:hover': { bgcolor: 'grey.50' } }}
+                sx={{
+                  textTransform: 'none',
+                  borderColor: isDarkMode ? alpha(theme.palette.common.white, 0.18) : 'grey.300',
+                  color: 'text.primary',
+                  '&:hover': {
+                    bgcolor: isDarkMode ? alpha(theme.palette.common.white, 0.06) : 'grey.50',
+                  },
+                }}
               >
                 Start Poll
               </Button>
@@ -1291,6 +1331,8 @@ type AggregatedMemberOption = {
 };
 
 function TagMembersSelector({ loadMembers, value, onChange, disabled = false }: TagMembersSelectorProps) {
+  const theme = useTheme();
+  const isDarkMode = theme.palette.mode === 'dark';
   const [options, setOptions] = useState<HubGroupMemberOption[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -1406,16 +1448,25 @@ function TagMembersSelector({ loadMembers, value, onChange, disabled = false }: 
   return (
     <Stack spacing={1.5}>
       <Stack direction="row" alignItems="center" justifyContent="space-between">
-        <Typography variant="subtitle2">Tag members</Typography>
+        <Typography variant="subtitle2" sx={{ color: 'text.primary' }}>Tag members</Typography>
         <Button
           size="small"
           onClick={() => (isSelectAll ? onChange([]) : applyAggregatedSelection(aggregatedOptions))}
           disabled={disabled || !aggregatedOptions.length}
+          sx={{ color: isDarkMode ? 'primary.light' : undefined }}
         >
           {isSelectAll ? 'Clear all' : 'Select all'}
         </Button>
       </Stack>
-      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+      <Paper
+        variant="outlined"
+        sx={{
+          p: 1.5,
+          borderRadius: 2,
+          bgcolor: isDarkMode ? alpha(theme.palette.common.white, 0.03) : 'background.paper',
+          borderColor: isDarkMode ? alpha(theme.palette.common.white, 0.12) : undefined,
+        }}
+      >
         {loading && !options.length ? (
           <LinearProgress />
         ) : aggregatedOptions.length ? (
@@ -1428,6 +1479,11 @@ function TagMembersSelector({ loadMembers, value, onChange, disabled = false }: 
                   label={formatMemberLabel(baseName, member.role, member.jobTitle)}
                   size="small"
                   variant="outlined"
+                  sx={{
+                    color: 'text.primary',
+                    borderColor: isDarkMode ? alpha(theme.palette.common.white, 0.14) : undefined,
+                    bgcolor: isDarkMode ? alpha(theme.palette.common.white, 0.03) : undefined,
+                  }}
                 />
               );
             })}
@@ -1492,6 +1548,21 @@ function TagMembersSelector({ loadMembers, value, onChange, disabled = false }: 
             {...params}
             label="Tag members"
             placeholder="@mention"
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                bgcolor: isDarkMode ? alpha(theme.palette.common.white, 0.03) : undefined,
+                color: 'text.primary',
+                '& fieldset': {
+                  borderColor: isDarkMode ? alpha(theme.palette.common.white, 0.18) : undefined,
+                },
+              },
+              '& .MuiInputLabel-root': {
+                color: isDarkMode ? alpha(theme.palette.text.primary, 0.72) : undefined,
+              },
+              '& .MuiSvgIcon-root': {
+                color: isDarkMode ? theme.palette.common.white : undefined,
+              },
+            }}
             InputProps={{
               ...params.InputProps,
               endAdornment: (
@@ -1505,7 +1576,7 @@ function TagMembersSelector({ loadMembers, value, onChange, disabled = false }: 
         )}
         ListboxProps={{ style: { maxHeight: 320 } }}
       />
-      <FormHelperText>
+      <FormHelperText sx={{ color: isDarkMode ? alpha(theme.palette.text.primary, 0.72) : undefined }}>
         {loading
           ? 'Loading members…'
           : `${aggregatedOptions.length} member${aggregatedOptions.length === 1 ? '' : 's'} available`}

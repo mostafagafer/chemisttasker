@@ -1,4 +1,4 @@
-﻿import {
+import {
   Box,
   Divider,
   Drawer,
@@ -18,9 +18,12 @@ import AddIcon from '@mui/icons-material/Add';
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import CloseIcon from '@mui/icons-material/Close';
 import GroupIcon from '@mui/icons-material/Group';
 import HomeIcon from '@mui/icons-material/Home';
 import TagIcon from '@mui/icons-material/Tag';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 
 import type {
   HubChemistTaskerHub,
@@ -28,9 +31,12 @@ import type {
   HubOrganization,
   HubPharmacy,
 } from '../../../../types/hub';
+
 interface InternalSidebarProps {
   isOpen: boolean;
   toggleSidebar: () => void;
+  mobileOpen: boolean;
+  onMobileClose: () => void;
   chemisttaskerHubs: HubChemistTaskerHub[];
   pharmacies: HubPharmacy[];
   selectedPharmacyId: number | null;
@@ -39,7 +45,10 @@ interface InternalSidebarProps {
   organizationGroups: HubGroup[];
   organizations: HubOrganization[];
   selectedViewId: number | string;
-  onSelectView: (view: { type: 'home' | 'orgHome' | 'group' | 'orgGroup' | 'platformHome'; id: number | string }) => void;
+  onSelectView: (view: {
+    type: 'home' | 'orgHome' | 'group' | 'orgGroup' | 'platformHome';
+    id: number | string;
+  }) => void;
   canCreateCommunityGroup: boolean;
   canCreateOrganizationGroup: boolean;
   onRequestCreateCommunityGroup: () => void;
@@ -50,6 +59,8 @@ interface InternalSidebarProps {
 export function InternalSidebar({
   isOpen,
   toggleSidebar,
+  mobileOpen,
+  onMobileClose,
   chemisttaskerHubs,
   pharmacies,
   selectedPharmacyId,
@@ -65,37 +76,42 @@ export function InternalSidebar({
   onRequestCreateOrganizationGroup,
   activeOrganizationId,
 }: InternalSidebarProps) {
-  const drawerWidth = isOpen ? 380 : 80; // Match chat sidebar sizing
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const showExpandedContent = isMobile || isOpen;
+  const drawerWidth = isMobile ? 328 : isOpen ? 380 : 80;
+  const mobileDrawerTopOffset = 96;
   const primaryOrganizationId = activeOrganizationId ?? (organizations[0]?.id ?? null);
-  const sidebarHeight = {
-    xs: 'calc(100vh - 48px)',
-    md: 'calc(100vh - 64px)',
-  } as const;
 
   return (
     <Drawer
-      variant="permanent"
-      open={isOpen}
+      variant={isMobile ? 'temporary' : 'permanent'}
+      open={isMobile ? mobileOpen : isOpen}
+      onClose={isMobile ? onMobileClose : undefined}
+      ModalProps={isMobile ? { keepMounted: true } : undefined}
       sx={{
         width: drawerWidth,
         flexShrink: 0,
         alignSelf: 'stretch',
-        height: sidebarHeight,
-        maxHeight: sidebarHeight,
-        minHeight: sidebarHeight,
+        display: isMobile ? undefined : 'block',
         [`& .MuiDrawer-paper`]: {
           width: drawerWidth,
           boxSizing: 'border-box',
           position: 'relative',
-          transition: (theme) => theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),
+          transition: isMobile
+            ? undefined
+            : theme.transitions.create('width', {
+                duration: theme.transitions.duration.shorter,
+              }),
           overflowX: 'hidden',
           overflowY: 'hidden',
-          boxShadow: 3,
-          borderRadius: 3,
-          height: '100%',
-          maxHeight: '100%',
+          boxShadow: isMobile ? 16 : 3,
+          borderRadius: isMobile ? 0 : 3,
+          top: isMobile ? `${mobileDrawerTopOffset}px` : 0,
+          height: isMobile ? `calc(100% - ${mobileDrawerTopOffset}px)` : '100%',
+          maxHeight: isMobile ? `calc(100% - ${mobileDrawerTopOffset}px)` : '100%',
           margin: 0,
-          border: '1px solid',
+          border: isMobile ? 'none' : '1px solid',
           borderColor: 'grey.200',
           display: 'flex',
           flexDirection: 'column',
@@ -106,52 +122,67 @@ export function InternalSidebar({
         sx={{
           display: 'flex',
           flexDirection: 'column',
-          height: '100%', // keep scroll area bounded by parent
+          height: '100%',
           width: '100%',
         }}
       >
-        {/* --- Top Section: Switcher and Collapse Button --- */}
         <Box
           sx={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            p: 1.5,
-            pl: isOpen ? 1.5 : 0.75,
+            p: isMobile ? 2 : 1.5,
+            pl: showExpandedContent ? 1.5 : 0.75,
             gap: 1,
             width: '100%',
             flexShrink: 0,
           }}
         >
-          {isOpen ? (
+          {showExpandedContent ? (
             <PharmacySwitcher
               pharmacies={pharmacies}
               selectedId={selectedPharmacyId}
               onChange={onPharmacyChange}
             />
           ) : null}
-          <Tooltip title={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}>
-            <IconButton
-              onClick={toggleSidebar}
-              aria-label={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-              size="small"
-              sx={{ ml: isOpen ? 'auto' : 0, mr: isOpen ? 0 : 'auto' }}
-            >
-              {isOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
-            </IconButton>
-          </Tooltip>
+
+          {isMobile ? (
+            <Tooltip title="Close hub navigation">
+              <IconButton onClick={onMobileClose} aria-label="Close hub navigation" size="small">
+                <CloseIcon />
+              </IconButton>
+            </Tooltip>
+          ) : (
+            <Tooltip title={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}>
+              <IconButton
+                onClick={toggleSidebar}
+                aria-label={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+                size="small"
+                sx={{ ml: isOpen ? 'auto' : 0, mr: isOpen ? 0 : 'auto' }}
+              >
+                {isOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+              </IconButton>
+            </Tooltip>
+          )}
         </Box>
 
-        {/* --- Scrollable Middle Section --- */}
-        <Box sx={{ flexGrow: 1, width: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
-          {/* --- Home Button (Pharmacy) --- */}
+        <Box
+          sx={{
+            flexGrow: 1,
+            width: '100%',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            px: isMobile ? 1.5 : 0,
+            pb: isMobile ? 2 : 0,
+          }}
+        >
           <ListItemButton
             onClick={() => onSelectView({ type: 'home', id: selectedPharmacyId || 'home' })}
             selected={selectedViewId === (selectedPharmacyId || 'home')}
             sx={{
               borderRadius: 1,
               mb: 1,
-              justifyContent: isOpen ? 'flex-start' : 'center',
+              justifyContent: showExpandedContent ? 'flex-start' : 'center',
               '&.Mui-selected': {
                 bgcolor: 'primary.light',
                 color: 'primary.dark',
@@ -159,21 +190,25 @@ export function InternalSidebar({
               },
             }}
           >
-            <ListItemIcon sx={{ minWidth: isOpen ? 36 : 'auto', color: 'inherit' }}> {/* minWidth for icon alignment */}
+            <ListItemIcon sx={{ minWidth: showExpandedContent ? 36 : 'auto', color: 'inherit' }}>
               <HomeIcon sx={{ fontSize: 20 }} />
             </ListItemIcon>
-            {isOpen && <ListItemText primary="Pharmacy Home" primaryTypographyProps={{ fontWeight: 'medium' }} />}
+            {showExpandedContent ? (
+              <ListItemText
+                primary="Pharmacy Home"
+                primaryTypographyProps={{ fontWeight: 'medium' }}
+              />
+            ) : null}
           </ListItemButton>
 
           <Divider sx={{ my: 2, width: '100%' }} />
 
-          {/* --- Community Groups --- */}
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-            {isOpen && (
+            {showExpandedContent ? (
               <Typography variant="overline" color="text.secondary" sx={{ pl: 1 }}>
                 Community Groups
               </Typography>
-            )}
+            ) : null}
             <Tooltip
               title={
                 canCreateCommunityGroup
@@ -189,12 +224,11 @@ export function InternalSidebar({
                   sx={{
                     color: 'grey.500',
                     '&:hover': { bgcolor: 'grey.100', color: 'grey.900' },
-                    width: isOpen ? 'auto' : '100%',
-                    justifyContent: isOpen ? 'flex-start' : 'center',
+                    width: showExpandedContent ? 'auto' : '100%',
+                    justifyContent: showExpandedContent ? 'flex-start' : 'center',
                   }}
                 >
                   <AddIcon sx={{ fontSize: 20 }} />
-                  {!isOpen && <Typography variant="caption" sx={{ ml: 1, display: 'none' }}>Add</Typography>}
                 </IconButton>
               </span>
             </Tooltip>
@@ -210,7 +244,7 @@ export function InternalSidebar({
                 sx={{
                   borderRadius: 1,
                   mb: 0.5,
-                  justifyContent: isOpen ? 'flex-start' : 'center',
+                  justifyContent: showExpandedContent ? 'flex-start' : 'center',
                   '&.Mui-selected': {
                     bgcolor: 'grey.200',
                     fontWeight: 'medium',
@@ -219,27 +253,29 @@ export function InternalSidebar({
                   },
                 }}
               >
-                <ListItemIcon sx={{ minWidth: isOpen ? 36 : 'auto', color: 'grey.400' }}>
+                <ListItemIcon sx={{ minWidth: showExpandedContent ? 36 : 'auto', color: 'grey.400' }}>
                   <TagIcon sx={{ fontSize: 20 }} />
                 </ListItemIcon>
-                {isOpen && (
-                  <ListItemText primary={group.name} primaryTypographyProps={{ variant: 'body2', noWrap: true }} />
-                )}
+                {showExpandedContent ? (
+                  <ListItemText
+                    primary={group.name}
+                    primaryTypographyProps={{ variant: 'body2', noWrap: true }}
+                  />
+                ) : null}
               </ListItemButton>
             ))}
           </List>
 
           <Divider sx={{ my: 2, width: '100%' }} />
 
-          {/* --- Organization Home Button --- */}
-          {organizations.length > 0 && primaryOrganizationId && (
+          {organizations.length > 0 && primaryOrganizationId ? (
             <ListItemButton
               onClick={() => onSelectView({ type: 'orgHome', id: primaryOrganizationId })}
               selected={selectedViewId === primaryOrganizationId}
               sx={{
                 borderRadius: 1,
                 mb: 1,
-                justifyContent: isOpen ? 'flex-start' : 'center',
+                justifyContent: showExpandedContent ? 'flex-start' : 'center',
                 '&.Mui-selected': {
                   bgcolor: 'info.light',
                   color: 'info.dark',
@@ -247,20 +283,24 @@ export function InternalSidebar({
                 },
               }}
             >
-              <ListItemIcon sx={{ minWidth: isOpen ? 36 : 'auto', color: 'inherit' }}> {/* minWidth for icon alignment */}
+              <ListItemIcon sx={{ minWidth: showExpandedContent ? 36 : 'auto', color: 'inherit' }}>
                 <BusinessCenterIcon sx={{ fontSize: 20 }} />
               </ListItemIcon>
-              {isOpen && <ListItemText primary="Organization Home" primaryTypographyProps={{ fontWeight: 'medium' }} />}
+              {showExpandedContent ? (
+                <ListItemText
+                  primary="Organization Home"
+                  primaryTypographyProps={{ fontWeight: 'medium' }}
+                />
+              ) : null}
             </ListItemButton>
-          )}
+          ) : null}
 
-          {/* --- Organization Hub Groups --- */}
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, mt: 2 }}>
-            {isOpen && (
+            {showExpandedContent ? (
               <Typography variant="overline" color="text.secondary" sx={{ pl: 1 }}>
                 Organization Hub
               </Typography>
-            )}
+            ) : null}
             <Tooltip
               title={
                 canCreateOrganizationGroup
@@ -276,12 +316,11 @@ export function InternalSidebar({
                   sx={{
                     color: 'grey.500',
                     '&:hover': { bgcolor: 'grey.100', color: 'grey.900' },
-                    width: isOpen ? 'auto' : '100%',
-                    justifyContent: isOpen ? 'flex-start' : 'center',
+                    width: showExpandedContent ? 'auto' : '100%',
+                    justifyContent: showExpandedContent ? 'flex-start' : 'center',
                   }}
                 >
                   <AddIcon sx={{ fontSize: 20 }} />
-                  {!isOpen && <Typography variant="caption" sx={{ ml: 1, display: 'none' }}>Add</Typography>}
                 </IconButton>
               </span>
             </Tooltip>
@@ -297,7 +336,7 @@ export function InternalSidebar({
                 sx={{
                   borderRadius: 1,
                   mb: 0.5,
-                  justifyContent: isOpen ? 'flex-start' : 'center',
+                  justifyContent: showExpandedContent ? 'flex-start' : 'center',
                   '&.Mui-selected': {
                     bgcolor: 'grey.200',
                     fontWeight: 'medium',
@@ -306,25 +345,28 @@ export function InternalSidebar({
                   },
                 }}
               >
-                <ListItemIcon sx={{ minWidth: isOpen ? 36 : 'auto', color: 'grey.400' }}>
+                <ListItemIcon sx={{ minWidth: showExpandedContent ? 36 : 'auto', color: 'grey.400' }}>
                   <TagIcon sx={{ fontSize: 20 }} />
                 </ListItemIcon>
-                {isOpen && (
-                  <ListItemText primary={group.name} primaryTypographyProps={{ variant: 'body2', noWrap: true }} />
-                )}
+                {showExpandedContent ? (
+                  <ListItemText
+                    primary={group.name}
+                    primaryTypographyProps={{ variant: 'body2', noWrap: true }}
+                  />
+                ) : null}
               </ListItemButton>
             ))}
           </List>
 
-          {!!chemisttaskerHubs.length && (
+          {!!chemisttaskerHubs.length ? (
             <>
               <Divider sx={{ my: 2, width: '100%' }} />
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                {isOpen && (
+                {showExpandedContent ? (
                   <Typography variant="overline" color="text.secondary" sx={{ pl: 1 }}>
                     ChemistTasker Hub
                   </Typography>
-                )}
+                ) : null}
               </Box>
 
               <List dense disablePadding>
@@ -337,7 +379,7 @@ export function InternalSidebar({
                     sx={{
                       borderRadius: 1,
                       mb: 0.5,
-                      justifyContent: isOpen ? 'flex-start' : 'center',
+                      justifyContent: showExpandedContent ? 'flex-start' : 'center',
                       '&.Mui-selected': {
                         bgcolor: 'warning.light',
                         color: 'warning.dark',
@@ -345,29 +387,28 @@ export function InternalSidebar({
                       },
                     }}
                   >
-                    <ListItemIcon sx={{ minWidth: isOpen ? 36 : 'auto', color: 'inherit' }}>
+                    <ListItemIcon sx={{ minWidth: showExpandedContent ? 36 : 'auto', color: 'inherit' }}>
                       <GroupIcon sx={{ fontSize: 20 }} />
                     </ListItemIcon>
-                    {isOpen && (
+                    {showExpandedContent ? (
                       <ListItemText
                         primary={hub.label}
                         secondary={hub.audienceType.replace(/_/g, ' ')}
                         primaryTypographyProps={{ variant: 'body2', noWrap: true }}
                         secondaryTypographyProps={{ variant: 'caption', noWrap: true }}
                       />
-                    )}
+                    ) : null}
                   </ListItemButton>
                 ))}
               </List>
             </>
-          )}
+          ) : null}
         </Box>
       </Box>
     </Drawer>
   );
 }
 
-// --- Pharmacy Switcher Dropdown ---
 interface PharmacySwitcherProps {
   pharmacies: HubPharmacy[];
   selectedId: number | null;
@@ -383,23 +424,57 @@ function PharmacySwitcher({ pharmacies, selectedId, onChange }: PharmacySwitcher
       <Select
         labelId="pharmacy-select-label"
         value={selectedId || ''}
-        label="Pharmacy" // Ensure label prop matches InputLabel
+        label="Pharmacy"
         onChange={(e) => onChange(e.target.value as number)}
-        renderValue={(_value) => (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box sx={{ display: 'flex', height: 24, width: 24, alignItems: 'center', justifyContent: 'center', borderRadius: 1, bgcolor: 'primary.main', color: 'white', fontSize: '0.8rem' }}>
+        renderValue={() => (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+            <Box
+              sx={{
+                display: 'flex',
+                height: 24,
+                width: 24,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 1,
+                bgcolor: 'primary.main',
+                color: 'white',
+                fontSize: '0.8rem',
+                flexShrink: 0,
+              }}
+            >
               {selected?.name.charAt(0)}
             </Box>
-            <Typography variant="body2" sx={{ flexGrow: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <Typography
+              variant="body2"
+              sx={{
+                flexGrow: 1,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                minWidth: 0,
+              }}
+            >
               {selected?.name}
             </Typography>
           </Box>
-        )} // Renamed 'value' to '_value' to suppress unused variable warning
+        )}
       >
         {pharmacies.map((pharmacy) => (
           <MenuItem key={pharmacy.id} value={pharmacy.id}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Box sx={{ display: 'flex', height: 24, width: 24, alignItems: 'center', justifyContent: 'center', borderRadius: 1, bgcolor: 'grey.200', fontSize: '0.8rem' }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  height: 24,
+                  width: 24,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 1,
+                  bgcolor: 'grey.200',
+                  fontSize: '0.8rem',
+                  flexShrink: 0,
+                }}
+              >
                 {pharmacy.name.charAt(0)}
               </Box>
               <Typography variant="body2">{pharmacy.name}</Typography>
@@ -410,6 +485,3 @@ function PharmacySwitcher({ pharmacies, selectedId, onChange }: PharmacySwitcher
     </FormControl>
   );
 }
-
-
-

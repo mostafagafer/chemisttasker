@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Box, CircularProgress, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, Stack, Typography } from '@mui/material';
+import TuneIcon from '@mui/icons-material/Tune';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import { useSearchParams } from 'react-router-dom';
 
 import {
@@ -46,6 +49,8 @@ type SelectedView =
   | { type: 'platformHome'; id: number | string };
 
 export default function HubPage() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [searchParams, setSearchParams] = useSearchParams();
   const [hubContext, setHubContext] = useState<HubContext | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +58,7 @@ export default function HubPage() {
   const [selectedPharmacyId, setSelectedPharmacyId] = useState<number | null>(null);
   const [selectedView, setSelectedView] = useState<SelectedView>({ type: 'home', id: 'home' });
   const [isInternalSidebarOpen, setIsInternalSidebarOpen] = useState(true);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [groupModal, setGroupModal] = useState<ActiveGroupModal | null>(null);
   const [pharmacyProfileModalOpen, setPharmacyProfileModalOpen] = useState(false);
   const [organizationProfileModalOpen, setOrganizationProfileModalOpen] = useState(false);
@@ -184,6 +190,32 @@ export default function HubPage() {
     return chemisttaskerHubs.find((hub) => hub.key === selectedView.id) ?? null;
   }, [chemisttaskerHubs, selectedView]);
 
+  const selectedViewLabel = useMemo(() => {
+    if (selectedView.type === 'home') {
+      return selectedPharmacy?.name ?? 'Pharmacy Home';
+    }
+    if (selectedView.type === 'orgHome') {
+      return selectedOrganization?.name ?? 'Organization Home';
+    }
+    if (selectedView.type === 'group') {
+      return filteredCommunityGroups.find((group) => group.id === selectedView.id)?.name ?? 'Community Group';
+    }
+    if (selectedView.type === 'orgGroup') {
+      return organizationGroups.find((group) => group.id === selectedView.id)?.name ?? 'Organization Group';
+    }
+    if (selectedView.type === 'platformHome') {
+      return selectedChemistTaskerHub?.label ?? 'ChemistTasker Hub';
+    }
+    return 'Hub';
+  }, [
+    filteredCommunityGroups,
+    organizationGroups,
+    selectedChemistTaskerHub,
+    selectedOrganization,
+    selectedPharmacy,
+    selectedView,
+  ]);
+
   const isOrganizationContext = selectedView.type === 'orgHome' || selectedView.type === 'orgGroup';
   const filteredOrganizationGroups = useMemo(() => {
     if (!selectedOrganization) return organizationGroups;
@@ -245,6 +277,12 @@ export default function HubPage() {
   const handlePharmacyChange = useCallback((id: number) => {
     setSelectedPharmacyId(id);
     setSelectedView({ type: 'home', id });
+    setIsMobileSidebarOpen(false);
+  }, []);
+
+  const handleSelectView = useCallback((view: SelectedView) => {
+    setSelectedView(view);
+    setIsMobileSidebarOpen(false);
   }, []);
 
   const pharmacyMembersLoader = useCallback(() => {
@@ -259,6 +297,7 @@ export default function HubPage() {
 
   const openCommunityGroupModal = useCallback(() => {
     if (!selectedPharmacyId || !canCreateCommunityGroup) return;
+    setIsMobileSidebarOpen(false);
     setGroupModal({
       title: 'Create New Community Group',
       scope: { type: 'pharmacy', pharmacyId: selectedPharmacyId },
@@ -268,6 +307,7 @@ export default function HubPage() {
 
   const openOrganizationGroupModal = useCallback(() => {
     if (!selectedOrganization || !canCreateOrganizationGroup) return;
+    setIsMobileSidebarOpen(false);
     setGroupModal({
       title: 'Create New Organization Group',
       scope: { type: 'organization', organizationId: selectedOrganization.id },
@@ -435,15 +475,17 @@ export default function HubPage() {
         display: 'flex',
         width: '100%',
         minHeight: '100%',
-        bgcolor: 'grey.50',
+        bgcolor: 'transparent',
         fontFamily: 'Inter',
-        gap: { xs: 2, lg: 3 },
+        gap: { xs: 0, lg: 3 },
         alignItems: 'stretch',
       }}
     >
       <InternalSidebar
         isOpen={isInternalSidebarOpen}
         toggleSidebar={() => setIsInternalSidebarOpen(!isInternalSidebarOpen)}
+        mobileOpen={isMobileSidebarOpen}
+        onMobileClose={() => setIsMobileSidebarOpen(false)}
         chemisttaskerHubs={chemisttaskerHubs}
         pharmacies={pharmacies}
         selectedPharmacyId={selectedPharmacyId}
@@ -451,7 +493,7 @@ export default function HubPage() {
         communityGroups={filteredCommunityGroups}
         organizationGroups={filteredOrganizationGroups}
         selectedViewId={selectedView.id}
-        onSelectView={setSelectedView}
+        onSelectView={handleSelectView}
         canCreateCommunityGroup={canCreateCommunityGroup}
         canCreateOrganizationGroup={canCreateOrganizationGroup}
         onRequestCreateCommunityGroup={openCommunityGroupModal}
@@ -466,15 +508,45 @@ export default function HubPage() {
           flexGrow: 1,
           minWidth: 0,
           overflowY: 'auto',
-          px: { xs: 1.5, md: 3 },
-          py: { xs: 1.5, md: 3 },
+          px: { xs: 0, md: 3 },
+          py: { xs: 1, md: 3 },
           transition: 'all 300ms ease-in-out',
           bgcolor: 'transparent',
           display: 'flex',
           flexDirection: 'column',
-          gap: 3,
+          gap: { xs: 1.5, md: 3 },
         }}
       >
+        {isMobile && (
+          <Stack
+            direction="row"
+            alignItems="center"
+            justifyContent="space-between"
+            spacing={1.5}
+            sx={{
+              px: 1,
+              py: 0.5,
+            }}
+          >
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="overline" color="text.secondary">
+                Hub View
+              </Typography>
+              <Typography variant="body1" fontWeight={700} noWrap>
+                {selectedViewLabel}
+              </Typography>
+            </Box>
+            <Button
+              variant="outlined"
+              startIcon={<TuneIcon />}
+              onClick={() => setIsMobileSidebarOpen(true)}
+              sx={{ flexShrink: 0, borderRadius: 999, textTransform: 'none' }}
+            >
+              Hub Menu
+            </Button>
+          </Stack>
+        )}
+
         {selectedView.type === 'home' && currentPharmacyDetails ? (
           <HomePageContent
             details={currentPharmacyDetails}

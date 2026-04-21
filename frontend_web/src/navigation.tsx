@@ -21,6 +21,11 @@ import ReceiptIcon from '@mui/icons-material/Receipt';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 // import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import Chip from "@mui/material/Chip";
+import Box from "@mui/material/Box";
+// import Typography from "@mui/material/Typography";
+import Tooltip from "@mui/material/Tooltip";
+import VerifiedRoundedIcon from "@mui/icons-material/VerifiedRounded";
+import HourglassEmptyRoundedIcon from "@mui/icons-material/HourglassEmptyRounded";
 import type { AdminAssignment } from "./contexts/AuthContext";
 import {
   ADMIN_CAPABILITY_MANAGE_ADMINS,
@@ -28,6 +33,8 @@ import {
   ADMIN_CAPABILITY_MANAGE_ROSTER,
   ADMIN_CAPABILITY_MANAGE_STAFF,
 } from "./constants/adminCapabilities";
+import { useEffect, useState } from "react";
+import { getOnboarding } from "@chemisttasker/shared-core";
 
 // Helper component for the "NEW" badge
 const NewMessagesChip = () => (
@@ -38,6 +45,75 @@ const NewMessagesChip = () => (
     sx={{ ml: 0.5, fontWeight: 700, height: '18px', fontSize: '10px' }}
   />
 );
+
+function ProfileStatusAction({
+  onboardingKey,
+  progressPercent,
+}: {
+  onboardingKey: "pharmacist" | "otherstaff" | "explorer";
+  progressPercent: number;
+}) {
+  const [verified, setVerified] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    const load = async () => {
+      try {
+        const res: any = await getOnboarding(onboardingKey as any);
+        if (!active) {
+          return;
+        }
+        setVerified(!!(res?.verified ?? res?.is_verified ?? res?.isVerified ?? false));
+      } catch {
+        if (active) {
+          setVerified(false);
+        }
+      }
+    };
+
+    void load();
+
+    const handler = () => {
+      void load();
+    };
+
+    window.addEventListener("onboarding-updated", handler);
+    return () => {
+      active = false;
+      window.removeEventListener("onboarding-updated", handler);
+    };
+  }, [onboardingKey]);
+
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, ml: 0.5 }}>
+      <Chip
+        size="small"
+        label={`${progressPercent}%`}
+        color={progressPercent === 100 ? "success" : "default"}
+        sx={{ fontWeight: 700, height: "18px", fontSize: "10px" }}
+      />
+      <Tooltip title={verified ? "Verified" : "Pending verification"} arrow>
+        <Box
+          component="span"
+          sx={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: verified ? "success.main" : "text.secondary",
+            lineHeight: 0,
+          }}
+        >
+          {verified ? (
+            <VerifiedRoundedIcon sx={{ fontSize: 16 }} />
+          ) : (
+            <HourglassEmptyRoundedIcon sx={{ fontSize: 15 }} />
+          )}
+        </Box>
+      </Tooltip>
+    </Box>
+  );
+}
 
 export function getOrganizationNav(hasUnreadMessages: boolean): Navigation {
   return [
@@ -255,7 +331,7 @@ export function getAdminNav({
 }
 
 
-export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'internal' | 'platform', hasUnreadMessages: boolean) {
+export function getOtherStaffNavDynamic(_progress_percent: number, workspace: 'internal' | 'platform', hasUnreadMessages: boolean) {
   // 1. Define dynamic children for the "Shifts" section, changing based on workspace
   const shiftsChildren = workspace === 'internal'
     ? [
@@ -292,14 +368,7 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
       segment: 'dashboard/otherstaff/onboarding',
       title: 'Profile',
       icon: <ManageAccountsSharpIcon />,
-      action: (
-        <Chip
-          size="small"
-          label={`${progress_percent}%`}
-          color={progress_percent === 100 ? "success" : "default"}
-          sx={{ ml: 0.5, fontWeight: 700 }}
-        />
-      ),
+      action: <ProfileStatusAction onboardingKey="otherstaff" progressPercent={_progress_percent} />,
     },
     {
       segment: 'dashboard/otherstaff/chat',
@@ -335,7 +404,7 @@ export function getOtherStaffNavDynamic(progress_percent: number, workspace: 'in
 }
 
 
-export function getPharmacistNavDynamic(progress_percent: number, workspace: 'internal' | 'platform', hasUnreadMessages: boolean) {
+export function getPharmacistNavDynamic(_progress_percent: number, workspace: 'internal' | 'platform', hasUnreadMessages: boolean) {
   const shiftsChildren = workspace === 'internal'
     ? [
       { segment: 'roster', title: 'My Roster', icon: <EventAvailableIcon /> },
@@ -358,14 +427,7 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
       segment: 'dashboard/pharmacist/onboarding',
       title: 'Profile',
       icon: <ManageAccountsSharpIcon />,
-      action: (
-        <Chip
-          size="small"
-          label={`${progress_percent}%`}
-          color={progress_percent === 100 ? "success" : "default"}
-          sx={{ ml: 0.5, fontWeight: 700 }}
-        />
-      ),
+      action: <ProfileStatusAction onboardingKey="pharmacist" progressPercent={_progress_percent} />,
     },
     {
       segment: 'dashboard/pharmacist/chat',
@@ -395,7 +457,7 @@ export function getPharmacistNavDynamic(progress_percent: number, workspace: 'in
 }
 
 
-export function getExplorerNav(progress_percent: number, hasUnreadMessages: boolean) {
+export function getExplorerNav(_progress_percent: number, hasUnreadMessages: boolean) {
   return [
     { kind: 'header' as const, title: 'Profile settings' },
     { segment: 'dashboard/explorer/overview', title: 'Overview', icon: <DashboardIcon /> },
@@ -404,14 +466,7 @@ export function getExplorerNav(progress_percent: number, hasUnreadMessages: bool
       segment: 'dashboard/explorer/onboarding',
       title: 'Profile',
       icon: <ManageAccountsSharpIcon />,
-      action: (
-        <Chip
-          size="small"
-          label={`${progress_percent}%`}
-          color={progress_percent === 100 ? "success" : "default"}
-          sx={{ ml: 0.5, fontWeight: 700 }}
-        />
-      ),
+      action: <ProfileStatusAction onboardingKey="explorer" progressPercent={_progress_percent} />,
     },
 
     {

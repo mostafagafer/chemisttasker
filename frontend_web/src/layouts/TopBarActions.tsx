@@ -488,8 +488,6 @@ export default function TopBarActions() {
   const theme = useTheme();
   const { mode, toggleColorMode } = useColorMode();
   const { user, refreshUnreadCount, adminAssignments, activePersona, activeAdminAssignment, selectRolePersona, selectAdminPersona, isAdminUser } = useAuth();
-
-
   const navigate = useNavigate();
   const downSm = useMediaQuery(theme.breakpoints.down("sm"));
   const [query, setQuery] = React.useState("");
@@ -1199,77 +1197,6 @@ export default function TopBarActions() {
         minWidth: 0,
       }}
     >
-      {showPersonaSwitcher && (
-        <>
-          <Button
-            size="small"
-            variant="outlined"
-            color="inherit"
-            onClick={handleOpenPersonaMenu}
-            endIcon={<KeyboardArrowDownIcon fontSize="small" />}
-            sx={{
-              textTransform: "none",
-              borderRadius: 999,
-              px: { xs: 1, sm: 1.5 },
-              py: { xs: 0.375, sm: 0.5 },
-              borderColor: alpha(theme.palette.text.primary, 0.3),
-              color: "inherit",
-              maxWidth: { xs: 140, sm: 260 },
-              minWidth: 0,
-            }}
-          >
-            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.2, minWidth: 0 }}>
-              {!downSm && (
-                <Typography variant="caption" sx={{ color: alpha(theme.palette.text.primary, 0.7), mb: 0.25 }}>
-                  Viewing as
-                </Typography>
-              )}
-              <Typography variant="body2" fontWeight={600} noWrap>
-                {activePersonaOption?.label ?? "Select persona"}
-              </Typography>
-            </Box>
-          </Button>
-          <Menu
-            anchorEl={personaAnchor}
-            open={Boolean(personaAnchor)}
-            onClose={handleClosePersonaMenu}
-            anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-            transformOrigin={{ vertical: "top", horizontal: "left" }}
-            MenuListProps={{ dense: true }}
-          >
-            {personaOptions.map((option) => {
-              const selected = option.key === activePersonaKey;
-              return (
-                <MenuItem
-                  key={option.key}
-                  selected={selected}
-                  onClick={() => handlePersonaSelect(option)}
-                  sx={{ minWidth: 240, alignItems: "flex-start", py: 1 }}
-                >
-                  <Box sx={{ display: "flex", flexDirection: "column" }}>
-                    <Typography variant="body2" fontWeight={selected ? 700 : 500}>
-                      {option.label}
-                    </Typography>
-                    {option.helper && (
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          color: "text.secondary",
-                          whiteSpace: "normal",
-                          wordBreak: "break-word",
-                          maxWidth: 260,
-                        }}
-                      >
-                        {option.helper}
-                      </Typography>
-                    )}
-                  </Box>
-                </MenuItem>
-              );
-            })}
-          </Menu>
-        </>
-      )}
       {downSm ? (
         <>
           <Tooltip title="Search">
@@ -1439,6 +1366,3 @@ export default function TopBarActions() {
     </Stack>
   );
 }
-
-
-

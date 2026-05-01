@@ -5,6 +5,12 @@ import apiClient from '../utils/apiClient';
 import { registerForPushNotificationsAsync, registerDeviceTokenWithBackend } from '../utils/pushNotifications';
 import * as Device from 'expo-device';
 import { clearStoredSession, getValidAccessToken, primeInMemorySession, readStoredSession, writeStoredSession } from '../utils/authSession';
+import {
+  addNetworkDiagnostic,
+  describeRequestError,
+  getNetworkDiagnosticsSnapshot,
+  networkDiagnosticsEnabled,
+} from '../utils/networkDiagnostics';
 
 // --- Types ---
 export interface OrgMembership {
@@ -217,6 +223,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const loginWithCredentials = async (email: string, password: string) => {
     try {
+      addNetworkDiagnostic('login-attempt', { api: process.env.EXPO_PUBLIC_API_URL });
       const response: any = await apiClient.post('/users/login/', { email, password }, { withCredentials: true });
       const payload = response?.data ?? response;
       const userData = payload.user || payload.userData || payload.profile;
@@ -231,6 +238,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       await login(newAccess, newRefresh, userData);
       return userData;
     } catch (directError: any) {
+      addNetworkDiagnostic('login-axios-error', describeRequestError('axios', directError));
       try {
         // Fallback to shared-core login shape
         const response: any = await sharedLogin({ email, password });
@@ -244,6 +252,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
         await login(newAccess, newRefresh, userData);
         return userData;
       } catch (error: any) {
+        addNetworkDiagnostic('login-shared-core-error', describeRequestError('shared-core', error));
+        if (networkDiagnosticsEnabled) {
+          throw new Error([
+            error?.message || directError?.message || 'Login failed',
+            '',
+            getNetworkDiagnosticsSnapshot(),
+          ].join('\n'));
+        }
         throw new Error(error?.message || directError?.message || 'Login failed');
       }
     }

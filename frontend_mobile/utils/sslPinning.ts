@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { addNetworkDiagnostic } from './networkDiagnostics';
 
 type SslPinningInitializer = (config: Record<string, { includeSubdomains?: boolean; publicKeyHashes: string[] }>) => Promise<void>;
 
@@ -26,15 +27,28 @@ function isPrivateIp(hostname: string): boolean {
 
 function shouldEnablePinning(hostname: string, protocol: string): boolean {
   if (Platform.OS === 'web' || __DEV__) {
+    addNetworkDiagnostic('ssl-pinning-skip', { reason: 'web-or-dev', platform: Platform.OS, dev: __DEV__ });
     return false;
   }
-  if (PINNING_ENABLED === 'false') {
+
+  // Pinning is release-risky: a stale or incomplete pin set bricks all API calls
+  // before the backend can respond. Keep it opt-in only after pins are verified.
+  if (PINNING_ENABLED !== 'true') {
+    addNetworkDiagnostic('ssl-pinning-skip', { reason: 'not-enabled', value: PINNING_ENABLED ?? '(unset)' });
     return false;
   }
+
   if (protocol !== 'https:' || isLocalHost(hostname) || isPrivateIp(hostname)) {
+    addNetworkDiagnostic('ssl-pinning-skip', { reason: 'non-public-https', hostname, protocol });
     return false;
   }
-  return PUBLIC_KEY_HASHES.length > 0;
+  const enabled = PUBLIC_KEY_HASHES.length > 0;
+  addNetworkDiagnostic(enabled ? 'ssl-pinning-enable' : 'ssl-pinning-skip', {
+    reason: enabled ? 'enabled' : 'no-pins',
+    hostname,
+    pinCount: PUBLIC_KEY_HASHES.length,
+  });
+  return enabled;
 }
 
 export async function initializeMobileSslPinning(): Promise<void> {
@@ -45,6 +59,7 @@ export async function initializeMobileSslPinning(): Promise<void> {
   initPromise = (async () => {
     const baseURL = normalizeApiBaseUrl(process.env.EXPO_PUBLIC_API_URL);
     if (!baseURL) {
+      addNetworkDiagnostic('ssl-pinning-skip', { reason: 'missing-api-url' });
       return;
     }
 
@@ -52,6 +67,7 @@ export async function initializeMobileSslPinning(): Promise<void> {
     try {
       parsed = new URL(baseURL);
     } catch {
+      addNetworkDiagnostic('ssl-pinning-skip', { reason: 'invalid-api-url', baseURL });
       console.warn('SSL pinning skipped: invalid EXPO_PUBLIC_API_URL');
       return;
     }
@@ -68,6 +84,7 @@ export async function initializeMobileSslPinning(): Promise<void> {
         initializeSslPinning?: SslPinningInitializer;
       };
       if (typeof pinningModule.initializeSslPinning !== 'function') {
+        addNetworkDiagnostic('ssl-pinning-skip', { reason: 'native-module-unavailable' });
         console.warn('SSL pinning skipped: native pinning module is unavailable.');
         return;
       }
@@ -78,7 +95,9 @@ export async function initializeMobileSslPinning(): Promise<void> {
           publicKeyHashes: PUBLIC_KEY_HASHES,
         },
       });
+      addNetworkDiagnostic('ssl-pinning-initialized', { hostname: parsed.hostname });
     } catch (error) {
+      addNetworkDiagnostic('ssl-pinning-init-error', error instanceof Error ? error.message : String(error));
       console.error('SSL pinning initialization failed', error);
       throw error;
     }

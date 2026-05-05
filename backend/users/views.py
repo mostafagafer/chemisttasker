@@ -35,6 +35,7 @@ import logging
 from rest_framework.exceptions import ValidationError
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from django.db.models import Max, Sum
 from django.contrib.sessions.models import Session
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
 from .serializers import (
@@ -108,6 +109,105 @@ def _register_mobile_otp_failure(user):
 def _reset_mobile_otp_security_state(user):
     user.mobile_otp_failed_attempts = 0
     user.mobile_otp_locked_until = None
+
+
+def _reset_login_lockout_state(user):
+    if not getattr(settings, "AXES_ENABLED", False):
+        return
+    email = (getattr(user, "email", "") or "").strip()
+    if not email:
+        return
+    try:
+        from axes.utils import reset as reset_axes_attempts
+
+        reset_axes_attempts(username=email)
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to reset login lockout state for user %s", user.id)
+
+
+def _get_login_attempt_state(request, credentials):
+    if not getattr(settings, "AXES_ENABLED", False):
+        return None
+    try:
+        from axes.attempts import get_user_attempts
+        from axes.handlers.proxy import AxesProxyHandler
+        from axes.helpers import get_cool_off, get_failure_limit
+
+        AxesProxyHandler.update_request(request)
+        attempts_list = get_user_attempts(request, credentials)
+        failures = 0
+        latest_attempt = None
+        for attempts in attempts_list:
+            aggregate = attempts.aggregate(
+                failures=Sum("failures_since_start"),
+                latest=Max("attempt_time"),
+            )
+            failures = max(failures, int(aggregate["failures"] or 0))
+            latest = aggregate["latest"]
+            if latest and (latest_attempt is None or latest > latest_attempt):
+                latest_attempt = latest
+
+        failure_limit = int(get_failure_limit(request, credentials))
+        remaining = max(failure_limit - failures, 0)
+        locked = bool(getattr(settings, "AXES_LOCK_OUT_AT_FAILURE", True) and failures >= failure_limit)
+        retry_after_seconds = None
+        locked_until = None
+
+        cool_off = get_cool_off(request)
+        if locked and cool_off and latest_attempt:
+            locked_until = latest_attempt + cool_off
+            retry_after_seconds = int(max((locked_until - timezone.now()).total_seconds(), 0))
+
+        return {
+            "failure_limit": failure_limit,
+            "failures": failures,
+            "attempts_remaining": remaining,
+            "locked": locked,
+            "locked_until": locked_until,
+            "retry_after_seconds": retry_after_seconds,
+        }
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to calculate login attempt state")
+        return None
+
+
+def _login_failure_response(attempt_state):
+    if not attempt_state:
+        return Response({"detail": "Invalid email or password."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    if attempt_state["locked"]:
+        retry_after = attempt_state.get("retry_after_seconds")
+        if retry_after is not None:
+            minutes = max(1, (retry_after + 59) // 60)
+            detail = f"Too many failed login attempts. Try again in {minutes} minute{'s' if minutes != 1 else ''}, or reset your password."
+        else:
+            detail = "Too many failed login attempts. Try again later, or reset your password."
+        return Response(
+            {
+                "detail": detail,
+                "code": "login_locked",
+                "failure_limit": attempt_state["failure_limit"],
+                "attempts_remaining": 0,
+                "locked_until": attempt_state["locked_until"],
+                "retry_after_seconds": retry_after,
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
+    attempts_remaining = attempt_state["attempts_remaining"]
+    detail = (
+        f"Invalid email or password. {attempts_remaining} attempt"
+        f"{'s' if attempts_remaining != 1 else ''} remaining before temporary lockout."
+    )
+    return Response(
+        {
+            "detail": detail,
+            "code": "invalid_credentials",
+            "failure_limit": attempt_state["failure_limit"],
+            "attempts_remaining": attempts_remaining,
+        },
+        status=status.HTTP_401_UNAUTHORIZED,
+    )
 
 
 def _cookie_kwargs():
@@ -738,9 +838,15 @@ class CustomLoginView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
     def post(self, request, *args, **kwargs):
+        credentials = {"username": (request.data.get("email") or "").strip().lower()}
+        attempt_state = _get_login_attempt_state(request, credentials)
+        if attempt_state and attempt_state["locked"]:
+            return _login_failure_response(attempt_state)
+
         response = super().post(request, *args, **kwargs)
         if response.status_code >= 400:
-            return response
+            attempt_state = _get_login_attempt_state(request, credentials)
+            return _login_failure_response(attempt_state)
         access = response.data.get("access")
         refresh = response.data.get("refresh")
         if access and refresh:
@@ -838,6 +944,7 @@ class PasswordResetConfirmAPIView(APIView):
         user.set_password(pw1)
         user.is_otp_verified = True
         user.save()
+        _reset_login_lockout_state(user)
         return Response({'detail':'Password has been reset.'})
 
 class PasswordResetRequestAPIView(APIView):

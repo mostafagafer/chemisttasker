@@ -194,6 +194,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return normalizeUser(merged);
   };
 
+  const getLoginErrorMessage = (error: any) => {
+    const data = error?.response?.data ?? error?.data;
+    const detail = data?.detail || data?.message;
+    if (typeof detail === 'string' && detail.trim()) return detail;
+    if (Array.isArray(data?.non_field_errors) && data.non_field_errors[0]) return data.non_field_errors[0];
+    if (Array.isArray(data?.email) && data.email[0]) return data.email[0];
+    return error?.message || 'Login failed';
+  };
+
   const login = async (newAccess: string, newRefresh: string, userInfo: User) => {
     authMutationIdRef.current += 1;
     const baseUser = normalizeUser(userInfo);
@@ -239,6 +248,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return userData;
     } catch (directError: any) {
       addNetworkDiagnostic('login-axios-error', describeRequestError('axios', directError));
+      const status = directError?.response?.status;
+      if ([400, 401, 403, 429].includes(status)) {
+        throw new Error(getLoginErrorMessage(directError));
+      }
       try {
         // Fallback to shared-core login shape
         const response: any = await sharedLogin({ email, password });

@@ -6,6 +6,7 @@ import { getOnboarding, updateOnboardingForm } from '@chemisttasker/shared-core'
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { useUnsavedChangesGuard } from '../shared/forms/useUnsavedChangesGuard';
+import { AHPRA_CONSENT_TEXT } from '../../constants/ahpraConsent';
 
 type OwnerRole = 'MANAGER' | 'PHARMACIST';
 type OwnerFormData = {
@@ -237,6 +238,7 @@ export default function OwnerProfileDetailScreen({
               onChangeText={(v) => setForm((p) => ({ ...p, ahpra_number: v }))}
               left={<TextInput.Affix text="PHA" />}
             />
+            <HelperText type="info">{AHPRA_CONSENT_TEXT}</HelperText>
             <TextInput
               mode="outlined"
               label="Years Since First Registration"

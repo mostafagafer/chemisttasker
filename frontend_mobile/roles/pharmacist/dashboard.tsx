@@ -263,50 +263,6 @@ export default function PharmacistOverviewScreen() {
 </View>
         </Animated.View>
 
-        {/* Hero Card */}
-        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-          <Card style={styles.heroCard}>
-            <LinearGradient
-              colors={['#2563EB', '#4F46E5', '#7C3AED']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.gradientCard}
-            >
-              <View style={styles.heroContent}>
-                <View style={styles.heroStats}>
-                  <View style={styles.heroStatItem}>
-                    <Text variant="displaySmall" style={styles.heroStatValue}>
-                      {data?.upcoming_shifts_count ?? 0}
-                    </Text>
-                    <Text variant="bodySmall" style={styles.heroStatLabel}>
-                      Upcoming
-                    </Text>
-                  </View>
-                  <View style={styles.heroDivider} />
-                  <View style={styles.heroStatItem}>
-                    <Text variant="displaySmall" style={styles.heroStatValue}>
-                      {data?.confirmed_shifts_count ?? 0}
-                    </Text>
-                    <Text variant="bodySmall" style={styles.heroStatLabel}>
-                      Confirmed
-                    </Text>
-                  </View>
-                </View>
-
-                <TouchableOpacity style={styles.heroButton} onPress={() => router.push('/pharmacist/shifts')}>
-                  <LinearGradient
-                    colors={['rgba(255,255,255,0.3)', 'rgba(255,255,255,0.1)']}
-                    style={styles.heroButtonGradient}
-                  >
-                    <IconButton icon="calendar-search" size={20} iconColor="#FFFFFF" />
-                    <Text style={styles.heroButtonText}>Find New Shifts</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            </LinearGradient>
-          </Card>
-        </Animated.View>
-
         {/* Stats Grid */}
         {/* <View style={styles.statsContainer}>
           <View style={styles.sectionHeader}>

@@ -28,6 +28,7 @@ import AccountDeletionSection from '../../components/AccountDeletionSection';
 import apiClient from '../../utils/apiClient';
 import { useAuth, type User } from '../../contexts/AuthContext';
 import { UnsavedChangesBoundary, useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
+import { AHPRA_CONSENT_TEXT } from '../../constants/ahpraConsent';
 
 interface FormData {
   username: string;
@@ -364,6 +365,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                 value={data.ahpra_number}
                 onChange={handleChange}
                 required
+                helperText={AHPRA_CONSENT_TEXT}
                 InputProps={{
                   startAdornment: <InputAdornment position="start">PHA</InputAdornment>,
                 }}

@@ -25,6 +25,7 @@ import {
 import { API_BASE_URL } from '../../constants/api';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { useNavigate } from 'react-router-dom';
+import { AHPRA_CONSENT_TEXT } from '../../constants/ahpraConsent';
 // import { useRef } from 'react';
 
 interface RatePreference {
@@ -309,6 +310,7 @@ export default function PharmacistOnboardingForm() {
         value={data.ahpra_number}
         onChange={handleChange}
         required
+        helperText={AHPRA_CONSENT_TEXT}
         InputProps={{
           startAdornment: <InputAdornment position="start">PHA</InputAdornment>,
         }}

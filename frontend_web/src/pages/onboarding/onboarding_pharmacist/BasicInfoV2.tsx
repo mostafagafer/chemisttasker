@@ -16,6 +16,7 @@ import ProfilePhotoUploader from '../../../components/profilePhoto/ProfilePhotoU
 import { useAuth } from '../../../contexts/AuthContext';
 import type { User } from '../../../contexts/AuthContext';
 import { useUnsavedChangesGuard } from '../../../hooks/useUnsavedChangesGuard';
+import { AHPRA_CONSENT_TEXT } from '../../../constants/ahpraConsent';
 
 
 type ApiData = {
@@ -444,6 +445,7 @@ export default function BasicInfoV2() {
           value={data.ahpra_number || ''}
           onChange={e => setField('ahpra_number', e.target.value)}
           InputProps={{ startAdornment: <InputAdornment position="start">PHA</InputAdornment> }}
+          helperText={AHPRA_CONSENT_TEXT}
           sx={{ flex: '1 1 320px', minWidth: 240, maxWidth: 420 }}
         />
         <TextField

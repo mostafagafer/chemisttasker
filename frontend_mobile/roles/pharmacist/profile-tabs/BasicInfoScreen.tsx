@@ -6,6 +6,7 @@ import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared
 import { roleKey, boolChipProps } from './shared';
 import GooglePlacesInput from '../../shared/pharmacies/GooglePlacesInput';
 import { useUnsavedChangesGuard } from '../../shared/forms/useUnsavedChangesGuard';
+import { AHPRA_CONSENT_TEXT } from '../../../constants/ahpraConsent';
 
 type ApiData = {
   username?: string;
@@ -166,6 +167,7 @@ export default function PharmacistBasicInfoScreen() {
           onChangeText={(v) => setField('ahpra_number', v)}
           left={<TextInput.Affix text="PHA" />}
         />
+        <HelperText type="info">{AHPRA_CONSENT_TEXT}</HelperText>
         <TextInput
           mode="outlined"
           label="Years Since First Registration"

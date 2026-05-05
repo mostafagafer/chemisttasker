@@ -227,10 +227,10 @@ LOGIN_URL = "/account/login/"
 LOGIN_REDIRECT_URL = "/"
 
 AXES_ENABLED = env.bool("AXES_ENABLED", default=True)
-AXES_FAILURE_LIMIT = env.int("AXES_FAILURE_LIMIT", default=5)
+AXES_FAILURE_LIMIT = env.int("AXES_FAILURE_LIMIT", default=20)
 AXES_COOLOFF_TIME = timedelta(hours=1)
 AXES_RESET_ON_SUCCESS = True
-AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
+AXES_LOCKOUT_PARAMETERS = [["username", "ip_address"]]
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',

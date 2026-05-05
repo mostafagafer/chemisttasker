@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { getOnboarding, updateOnboarding } from '@chemisttasker/shared-core';
 import { useAuth } from '../../context/AuthContext';
 import { StepSection, StepField, StepActions } from '../../components/pharmacistOnboardingSteps';
+import { AHPRA_CONSENT_TEXT } from '../../constants/ahpraConsent';
 
 export default function PharmacistOnboardingScreen() {
   const router = useRouter();
@@ -177,7 +178,7 @@ export default function PharmacistOnboardingScreen() {
         {stepIndex === 1 && (
           <StepSection title="Professional Details" description="Credentials and registration">
             <StepField label="ABN" value={abn} onChangeText={setAbn} keyboardType="numeric" placeholder="XX XXX XXX XXX" />
-            <StepField label="AHPRA Number" value={ahpraNumber} onChangeText={setAhpraNumber} placeholder="PHAXXXXXX" />
+            <StepField label="AHPRA Number" value={ahpraNumber} onChangeText={setAhpraNumber} placeholder="PHAXXXXXX" helperText={AHPRA_CONSENT_TEXT} />
             <StepActions onPrev={() => setStepIndex(0)} onNext={() => handleSave(2)} loading={submitting} nextLabel="Next: Skills" />
           </StepSection>
         )}

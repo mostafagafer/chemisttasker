@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ProgressStepper from '../../../components/ProgressStepper';
 import { useOnboarding } from './_context';
+import { AHPRA_CONSENT_TEXT } from '../../../constants/ahpraConsent';
 
 const ONBOARDING_STEPS = ['Basic Info', 'Role Details', 'Profile Photo', 'Review'];
 
@@ -114,7 +115,7 @@ export default function OwnerOnboardingStep2() {
                                     />
 
                                     <Text variant="bodySmall" style={styles.helperText}>
-                                        Enter your Australian Health Practitioner Regulation Agency number
+                                        {AHPRA_CONSENT_TEXT}
                                     </Text>
 
                                     <Divider style={styles.divider} />

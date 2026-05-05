@@ -178,41 +178,6 @@ export default function OwnerDashboard() {
           </View>
         </Animated.View>
 
-        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-          <Card style={styles.heroCard}>
-            <LinearGradient colors={['#6366F1', '#8B5CF6', '#EC4899']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.gradientCard}>
-              <View style={styles.heroContent}>
-                <View style={styles.heroStats}>
-                  <View style={styles.heroStatItem}>
-                    <Text variant="displaySmall" style={styles.heroStatValue}>
-                      {dashboardData?.upcoming_shifts_count ?? 0}
-                    </Text>
-                    <Text variant="bodySmall" style={styles.heroStatLabel}>
-                      Active Shifts
-                    </Text>
-                  </View>
-                  <View style={styles.heroDivider} />
-                  <View style={styles.heroStatItem}>
-                    <Text variant="displaySmall" style={styles.heroStatValue}>
-                      {dashboardData?.confirmed_shifts_count ?? 0}
-                    </Text>
-                    <Text variant="bodySmall" style={styles.heroStatLabel}>
-                      Confirmed
-                    </Text>
-                  </View>
-                </View>
-
-                <TouchableOpacity style={styles.heroButton} onPress={() => router.push('/owner/post-shift' as any)}>
-                  <LinearGradient colors={['rgba(255,255,255,0.3)', 'rgba(255,255,255,0.1)']} style={styles.heroButtonGradient}>
-                    <IconButton icon="plus-circle" size={20} iconColor="#FFFFFF" />
-                    <Text style={styles.heroButtonText}>Post New Shift</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            </LinearGradient>
-          </Card>
-        </Animated.View>
-
         {/* <View style={styles.statsContainer}>
           <View style={styles.sectionHeader}>
             <Text variant="titleMedium" style={styles.sectionTitle}>

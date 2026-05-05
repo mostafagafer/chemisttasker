@@ -459,6 +459,7 @@ export default function OwnerLayout() {
         <Tabs.Screen name="onboarding" options={{ href: null }} />
         <Tabs.Screen name="profile-detail" options={{ href: null }} />
         <Tabs.Screen name="subscription-seats" options={{ href: null }} />
+        <Tabs.Screen name="messages/[id]" options={{ href: null }} />
       </Tabs>
     </>
   );

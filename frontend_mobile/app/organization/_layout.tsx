@@ -55,12 +55,20 @@ export default function OrganizationTabs() {
         options={{ title: 'Shifts', tabBarAccessibilityLabel: 'Shifts tab' }}
       />
         <Tabs.Screen
+          name="chat"
+          options={{
+            title: 'Chat',
+            href: null,
+          }}
+        />
+        <Tabs.Screen
           name="notifications"
           options={{
             title: 'Notifications',
             href: null,
           }}
         />
+        <Tabs.Screen name="messages/[id]" options={{ href: null }} />
         <Tabs.Screen name="pharmacies/[id]/staff" options={{ href: null }} />
         <Tabs.Screen name="pharmacies/[id]/locums" options={{ href: null }} />
         <Tabs.Screen name="pharmacies/add" options={{ href: null }} />

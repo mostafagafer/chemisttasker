@@ -18,13 +18,13 @@ const tabTitles: Record<string, string> = {
   calendar: 'Calendar',
   'talent-board': 'Talent Board',
   availability: 'Availability',
-  'profile-basic-info': 'Basic Info',
-  'profile-identity': 'Identity',
-  'profile-regulatory': 'Regulatory Docs',
-  'profile-skills': 'Skills',
-  'profile-payment': 'Payment',
-  'profile-referees': 'Referees',
-  'profile-bio': 'Bio',
+  'profile-basic-info': 'Profile',
+  'profile-identity': 'Profile',
+  'profile-regulatory': 'Profile',
+  'profile-skills': 'Profile',
+  'profile-payment': 'Profile',
+  'profile-referees': 'Profile',
+  'profile-bio': 'Profile',
 };
 
 const sidebarItems = [

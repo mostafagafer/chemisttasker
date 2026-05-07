@@ -278,6 +278,17 @@ export default function SetAvailabilityScreen() {
       ),
     []
   );
+  const nativeMapPreviewEnabled = useMemo(
+    () => !__DEV__ || process.env.EXPO_PUBLIC_ENABLE_NATIVE_MAP_PREVIEW === 'true',
+    []
+  );
+  const nativeMapPreviewCoordinates =
+    locationForm.latitude != null &&
+    locationForm.longitude != null &&
+    nativeMapsKeyConfigured &&
+    nativeMapPreviewEnabled
+      ? { latitude: locationForm.latitude, longitude: locationForm.longitude }
+      : null;
 
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMsg, setSnackbarMsg] = useState('');
@@ -520,19 +531,21 @@ export default function SetAvailabilityScreen() {
 
           {Platform.OS !== 'web' ? (
             <View style={styles.mapWrap}>
-              {locationForm.latitude != null &&
-              locationForm.longitude != null &&
-              nativeMapsKeyConfigured ? (
+              {nativeMapPreviewCoordinates ? (
                 <AvailabilityRadiusMap
-                  latitude={locationForm.latitude}
-                  longitude={locationForm.longitude}
+                  latitude={nativeMapPreviewCoordinates.latitude}
+                  longitude={nativeMapPreviewCoordinates.longitude}
                   radiusKm={locationForm.coverageRadiusKm}
                   style={styles.nativeMap}
                 />
               ) : (
                 <View style={styles.mapFallback}>
                   <Text style={styles.hint}>
-                    {nativeMapsKeyConfigured
+                    {locationForm.latitude == null || locationForm.longitude == null
+                      ? 'Select an address to preview the travel radius.'
+                      : !nativeMapPreviewEnabled
+                      ? 'Map preview is disabled in local development until the Android dev build is rebuilt with the native Google Maps key. You can still save your address and radius.'
+                      : nativeMapsKeyConfigured
                       ? 'Select an address to preview the travel radius.'
                       : 'Native Google Maps key is not configured for this build yet. Save your address and rebuild the app to enable the map preview.'}
                   </Text>

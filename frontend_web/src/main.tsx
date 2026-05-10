@@ -70,6 +70,7 @@ initSharedCoreApi();
 // owner stub pages
 // import OverviewPageOwner          from './pages/dashboard/sidebar/OverviewPageOwner';
 import OwnerOverviewContainer from './pages/dashboard/sidebar/owner/OwnerOverviewContainer';
+import PillsPage from './pages/dashboard/sidebar/rewards/PillsPage';
 
 import OverviewPageStaff from './pages/dashboard/sidebar/OverviewPageStaff';
 import ChainPage from './pages/dashboard/sidebar/ChainPage';
@@ -148,6 +149,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <OrganizationOverviewPage /> },
           { path: 'overview', element: <OrganizationOverviewPage /> },
+          { path: 'pills', element: <PillsPage /> },
           { path: 'invite', element: <InviteStaffPage /> },
           {
             path: 'manage-pharmacies',
@@ -207,6 +209,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <AdminOverview /> },
           { path: 'overview', element: <AdminOverview /> },
+          { path: 'pills', element: <PillsPage /> },
           { path: 'manage-pharmacies', element: <AdminManagePharmaciesPage /> },
           { path: 'manage-pharmacies/my-pharmacies', element: <AdminManagePharmaciesPage /> },
           { path: 'manage-pharmacies/roster', element: <AdminRosterPage /> },
@@ -292,6 +295,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <OwnerOverviewContainer /> },
           { path: 'overview', element: <OwnerOverviewContainer /> },
+          { path: 'pills', element: <PillsPage /> },
           { path: 'onboarding', element: <OwnerOnboarding /> },
           {
             path: 'manage-pharmacies',

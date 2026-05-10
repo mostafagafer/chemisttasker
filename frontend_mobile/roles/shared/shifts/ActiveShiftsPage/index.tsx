@@ -132,6 +132,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
 
     const [snackbarOpen, setSnackbarOpen] = useState(false);
     const [snackbarMessage, setSnackbarMessage] = useState('');
+    const [pillPayingShiftId, setPillPayingShiftId] = useState<number | null>(null);
 
     const showSnackbar = useCallback((msg: string) => {
         setSnackbarMessage(msg);
@@ -169,6 +170,25 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
 
     const { shifts, setShifts, loading: shiftsLoading, loadShifts } = useShiftsData({ selectedPharmacyId, shiftId });
     const { tabData, setTabData, loadTabDataForShift } = useTabData(shifts, selectedLevelByShift, getTabKey);
+    const handlePayWithPills = useCallback(async (shift: Shift) => {
+        setPillPayingShiftId(shift.id);
+        try {
+            const { data: res } = await apiClient.post('/client-profile/pill-rewards/pay-shift/', {
+                shift_id: shift.id,
+            });
+            showSnackbar(res?.detail || 'Shift paid with pills.');
+            await loadShifts();
+        } catch (err: any) {
+            const data = err?.response?.data;
+            const detail = Array.isArray(data?.detail) ? data.detail[0] : data?.detail;
+            const message = data?.code === 'insufficient_pills'
+                ? `Not enough pills. You have ${data?.balance ?? 0}; this shift needs ${data?.required ?? 'more'} pills.`
+                : detail || err?.message || 'Failed to pay with pills.';
+            showSnackbar(message);
+        } finally {
+            setPillPayingShiftId(null);
+        }
+    }, [loadShifts, showSnackbar]);
     const {
         counterOffersByShift,
         counterOffersLoadingByShift,
@@ -861,29 +881,42 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                                 <Text style={styles.paymentRequiredText}>
                                                     A candidate confirmed this shift. Complete payment to finalise their booking.
                                                 </Text>
-                                                <Button
-                                                    mode="contained"
-                                                    buttonColor={customTheme.colors.error}
-                                                    onPress={async () => {
-                                                        try {
-                                                            const { data: res } = await apiClient.post(`/billing/charge-fulfillment/${shift.id}/`, {
-                                                                platform: 'mobile',
-                                                            });
-                                                            if (res?.url) {
-                                                                await Linking.openURL(res.url);
-                                                            } else if (res?.free) {
-                                                                showSnackbar(res?.message || 'Shift finalized without payment.');
-                                                                await loadShifts();
-                                                            } else {
-                                                                showSnackbar('Payment session was not returned.');
+                                                <View style={styles.paymentButtonRow}>
+                                                    <Button
+                                                        mode="contained"
+                                                        buttonColor={customTheme.colors.error}
+                                                        style={styles.paymentButton}
+                                                        onPress={async () => {
+                                                            try {
+                                                                const { data: res } = await apiClient.post(`/billing/charge-fulfillment/${shift.id}/`, {
+                                                                    platform: 'mobile',
+                                                                });
+                                                                if (res?.url) {
+                                                                    await Linking.openURL(res.url);
+                                                                } else if (res?.free) {
+                                                                    showSnackbar(res?.message || 'Shift finalized without payment.');
+                                                                    await loadShifts();
+                                                                } else {
+                                                                    showSnackbar('Payment session was not returned.');
+                                                                }
+                                                            } catch (err: any) {
+                                                                showSnackbar(err?.message || 'Failed to initiate payment.');
                                                             }
-                                                        } catch (err: any) {
-                                                            showSnackbar(err?.message || 'Failed to initiate payment.');
-                                                        }
-                                                    }}
-                                                >
-                                                    Pay Now
-                                                </Button>
+                                                        }}
+                                                    >
+                                                        Pay with Stripe
+                                                    </Button>
+                                                    <Button
+                                                        mode="contained"
+                                                        buttonColor="#4F46E5"
+                                                        style={styles.paymentButton}
+                                                        loading={pillPayingShiftId === shift.id}
+                                                        disabled={pillPayingShiftId === shift.id}
+                                                        onPress={() => handlePayWithPills(shift)}
+                                                    >
+                                                        Pay with Pills
+                                                    </Button>
+                                                </View>
                                             </View>
                                         )}
 
@@ -1148,6 +1181,14 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: customTheme.colors.text,
         lineHeight: 18,
+    },
+    paymentButtonRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: customTheme.spacing.sm,
+    },
+    paymentButton: {
+        flexGrow: 1,
     },
     sectionHeader: {
         flexDirection: 'row',

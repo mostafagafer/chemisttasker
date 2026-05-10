@@ -162,6 +162,7 @@ export default function OwnerOverviewContainer() {
   const goToProfile = () => navigate(resolvePath("onboarding"));
   const goToInterests = () => navigate(resolvePath("interests"));
   const goToManagePharmacies = () => navigate(resolvePath("manage-pharmacies/my-pharmacies"));
+  const goToPills = () => navigate("/dashboard/owner/pills");
   const goToSettings = () => undefined;
   const goToPharmacyManager = (query: string) =>
     navigate(`${resolvePath("manage-pharmacies/my-pharmacies")}${query}`);
@@ -196,6 +197,7 @@ export default function OwnerOverviewContainer() {
             onOpenProfile={goToProfile}
             onOpenInterests={goToInterests}
             onOpenSettings={goToSettings}
+            onOpenPills={goToPills}
           />
         </>
       )}

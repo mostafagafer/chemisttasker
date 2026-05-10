@@ -6,6 +6,17 @@ import AuthLayout from '../components/AuthLayout';
 import { useAuth } from '../context/AuthContext';
 import { getOwnerSetupStatus } from '../utils/ownerSetup';
 
+const ORG_ROLES = new Set(['ORGANIZATION', 'ORG_ADMIN', 'ORG_OWNER', 'ORG_STAFF', 'CHIEF_ADMIN', 'REGION_ADMIN']);
+
+function hasOrganizationAccess(user: any) {
+  const role = String(user?.role || '').toUpperCase();
+  if (ORG_ROLES.has(role)) return true;
+  return Array.isArray(user?.memberships) && user.memberships.some((membership: any) => {
+    const membershipRole = String(membership?.role || '').toUpperCase();
+    return ORG_ROLES.has(membershipRole);
+  });
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
@@ -33,7 +44,9 @@ export default function HomeScreen() {
     let active = true;
     const routeUser = async () => {
       const role = String(user.role || '').toUpperCase();
-      if (role === 'OWNER') {
+      if (hasOrganizationAccess(user)) {
+        router.replace('/organization/dashboard' as any);
+      } else if (role === 'OWNER') {
         const setupStatus = await getOwnerSetupStatus();
         if (active) {
           router.replace((setupStatus.nextPath || '/owner/dashboard') as any);
@@ -44,8 +57,6 @@ export default function HomeScreen() {
         router.replace('/otherstaff/dashboard' as any);
       } else if (role === 'EXPLORER') {
         router.replace('/explorer/dashboard' as any);
-      } else if (role === 'ORGANIZATION') {
-        router.replace('/organization' as any);
       }
     };
     void routeUser();

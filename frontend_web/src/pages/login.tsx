@@ -69,21 +69,24 @@ export default function Login() {
         return;
       }
 
+      const isOrgMember = Array.isArray(userInfo?.memberships)
+        ? userInfo.memberships.some((m: any) => {
+            const membershipRole = String(m?.role || '').toUpperCase();
+            return ORG_ROLES.includes(membershipRole as any);
+          })
+        : false;
+
+      if (isOrgMember || ORG_ROLES.includes(String(userInfo?.role || '').toUpperCase() as any)) {
+        navigate('/dashboard/organization/overview');
+        return;
+      }
+
       if (userInfo?.role === 'OWNER') {
         const ownerSetup = await getOwnerSetupStatus();
         if (ownerSetup.nextPath) {
           navigate(ownerSetup.nextPath);
           return;
         }
-      }
-
-      const isOrgMember = Array.isArray(userInfo?.memberships)
-        ? userInfo.memberships.some((m: any) => m?.role && ORG_ROLES.includes(m.role))
-        : false;
-
-      if (isOrgMember) {
-        navigate('/dashboard/organization/overview');
-        return;
       }
 
       const personaKey =

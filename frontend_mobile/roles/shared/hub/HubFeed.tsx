@@ -28,6 +28,12 @@ type Props = {
     cover?: string | null;
     canEditProfile?: boolean;
     onEditProfile?: () => void;
+    actions?: Array<{
+      title: string;
+      icon?: string;
+      onPress: () => void;
+      destructive?: boolean;
+    }>;
   };
 };
 
@@ -611,7 +617,7 @@ export function HubFeed({ scope, onBack, targetPostId, onTargetPostHandled, head
                 style={{ margin: 0 }}
               />
             ) : null}
-            {header.canEditProfile && header.onEditProfile ? (
+            {(header.canEditProfile && header.onEditProfile) || header.actions?.length ? (
               <Animated.View style={{ opacity: heroOpacity }}>
                 <Menu
                   visible={profileMenuVisible}
@@ -625,14 +631,28 @@ export function HubFeed({ scope, onBack, targetPostId, onTargetPostHandled, head
                     />
                   }
                 >
-                  <Menu.Item
-                    onPress={() => {
-                      setProfileMenuVisible(false);
-                      header.onEditProfile?.();
-                    }}
-                    title="Edit profile"
-                    leadingIcon="pencil"
-                  />
+                  {header.canEditProfile && header.onEditProfile ? (
+                    <Menu.Item
+                      onPress={() => {
+                        setProfileMenuVisible(false);
+                        header.onEditProfile?.();
+                      }}
+                      title="Edit profile"
+                      leadingIcon="pencil"
+                    />
+                  ) : null}
+                  {(header.actions ?? []).map((action) => (
+                    <Menu.Item
+                      key={action.title}
+                      onPress={() => {
+                        setProfileMenuVisible(false);
+                        action.onPress();
+                      }}
+                      title={action.title}
+                      leadingIcon={action.icon}
+                      titleStyle={action.destructive ? { color: '#DC2626' } : undefined}
+                    />
+                  ))}
                 </Menu>
               </Animated.View>
             ) : null}

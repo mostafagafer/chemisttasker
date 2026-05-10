@@ -9,10 +9,11 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, Toke
 from rest_framework_simplejwt.tokens      import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 from client_profile.models import Organization
+from client_profile.rewards import RewardError, claim_referral_code
 from .models import OrganizationMembership, ContactMessage
 import secrets
 from django.utils import timezone
-from client_profile.models import Pharmacy, Membership as PharmacyMembership
+from client_profile.models import Pharmacy, Membership as PharmacyMembership, Shift
 from client_profile.admin_helpers import admin_assignments_for
 from .org_roles import (
     ADMIN_LEVEL_DEFINITIONS,
@@ -70,10 +71,22 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
     confirm_password = serializers.CharField(write_only=True)
     accepted_terms = serializers.BooleanField(write_only=True)
+    referral_code = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    referral_shift_id = serializers.IntegerField(required=False, write_only=True)
+    referral_event_id = serializers.IntegerField(required=False, write_only=True)
 
     class Meta:
         model = User
-        fields = ['email', 'password', 'confirm_password', 'role', 'accepted_terms']
+        fields = [
+            'email',
+            'password',
+            'confirm_password',
+            'role',
+            'accepted_terms',
+            'referral_code',
+            'referral_shift_id',
+            'referral_event_id',
+        ]
 
     def validate(self, attrs):
         if attrs.get('password') != attrs.pop('confirm_password'):
@@ -104,6 +117,9 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         if User.objects.filter(email__iexact=validated_data['email']).exists():
             raise serializers.ValidationError("Registration could not be completed with the provided details.")
         accepted_terms = validated_data.pop('accepted_terms')
+        referral_code = validated_data.pop('referral_code', '')
+        referral_shift_id = validated_data.pop('referral_shift_id', None)
+        referral_event_id = validated_data.pop('referral_event_id', None)
         user = User.objects.create_user(
             email=validated_data['email'],
             password=validated_data['password'],
@@ -122,6 +138,21 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         user.save()
         user._plain_email_otp = otp
         # ---- END NEW BLOCK ----
+
+        if referral_code:
+            shift = None
+            if referral_shift_id:
+                shift = Shift.objects.filter(pk=referral_shift_id).first()
+            try:
+                claim_referral_code(
+                    referred_user=user,
+                    code=referral_code,
+                    shift=shift,
+                    referral_event_id=referral_event_id,
+                    award=False,
+                )
+            except RewardError:
+                pass
 
         return user
 

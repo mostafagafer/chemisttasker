@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert, Linking } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, Linking, Share } from 'react-native';
 import { Text, Avatar, List, Button, Surface, Divider, Switch, IconButton, Card, Portal, Dialog, TextInput } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -31,6 +31,7 @@ export default function OwnerProfileScreen() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteText, setDeleteText] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [referralLoading, setReferralLoading] = useState(false);
   const [subscriptionSummary, setSubscriptionSummary] = useState<{
     active: boolean;
     status: string;
@@ -152,6 +153,22 @@ export default function OwnerProfileScreen() {
       },
       { text: 'Cancel', style: 'cancel' },
     ]);
+  };
+
+  const shareFriendReferral = async () => {
+    setReferralLoading(true);
+    try {
+      const { data } = await apiClient.post('/client-profile/pill-rewards/refer-friend/', {});
+      const code = data?.referral_code;
+      if (!code) throw new Error('Referral code was not returned.');
+      const baseUrl = process.env.EXPO_PUBLIC_WEB_URL?.trim() || webBaseUrl;
+      const url = `${baseUrl.replace(/\/+$/, '')}/register?referral_code=${encodeURIComponent(code)}`;
+      await Share.share({ message: url, url });
+    } catch (err: any) {
+      Alert.alert('Referral failed', err?.response?.data?.detail || err?.message || 'Failed to create referral link.');
+    } finally {
+      setReferralLoading(false);
+    }
   };
 
   if (loading) {
@@ -278,6 +295,24 @@ export default function OwnerProfileScreen() {
               }}
             />
           </Surface>
+        </View>
+
+        <View style={styles.section}>
+          <Text variant="titleSmall" style={styles.sectionTitle}>Rewards</Text>
+          <Card style={styles.menuCard} onPress={shareFriendReferral}>
+            <Card.Content style={styles.menuContent}>
+              <View style={styles.menuIcon}>
+                <IconButton icon="account-plus-outline" size={24} iconColor="#6366F1" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="titleMedium" style={styles.menuTitle}>Refer a friend</Text>
+                <Text variant="bodySmall" style={styles.menuDesc}>
+                  Share a referral link and earn pills when they register.
+                </Text>
+              </View>
+              <IconButton icon={referralLoading ? 'progress-clock' : 'share-variant'} size={24} iconColor="#9CA3AF" />
+            </Card.Content>
+          </Card>
         </View>
 
         <View style={styles.section}>

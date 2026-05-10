@@ -18,7 +18,7 @@ import {
   Divider,
 } from 'react-native-paper';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { useAuth } from '../context/AuthContext';
 import AuthLayout from '../components/AuthLayout';
@@ -40,6 +40,11 @@ const PRIVACY_URL = 'https://www.chemisttasker.com.au/privacy-policy';
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    referral_code?: string | string[];
+    referral_shift_id?: string | string[];
+    referral_event_id?: string | string[];
+  }>();
   const { register } = useAuth();
   const recaptchaSiteKey = process.env.EXPO_PUBLIC_RECAPTCHA_SITE_KEY?.trim() || '';
 
@@ -57,6 +62,17 @@ export default function RegisterScreen() {
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaModalVisible, setCaptchaModalVisible] = useState(false);
   const [captchaLoading, setCaptchaLoading] = useState(true);
+  const referralCode = Array.isArray(params.referral_code)
+    ? params.referral_code[0]
+    : params.referral_code;
+  const referralShiftId = Array.isArray(params.referral_shift_id)
+    ? params.referral_shift_id[0]
+    : params.referral_shift_id;
+  const referralEventId = Array.isArray(params.referral_event_id)
+    ? params.referral_event_id[0]
+    : params.referral_event_id;
+  const parsedReferralShiftId = referralShiftId ? Number(referralShiftId) : null;
+  const parsedReferralEventId = referralEventId ? Number(referralEventId) : null;
 
   const captchaHtml = useMemo(() => {
     if (!recaptchaSiteKey) {
@@ -142,6 +158,13 @@ export default function RegisterScreen() {
         role: formData.role,
         accepted_terms: formData.accepted_terms,
         captcha_token: captchaToken,
+        referral_code: referralCode || undefined,
+        referral_shift_id: Number.isFinite(parsedReferralShiftId) && parsedReferralShiftId
+          ? parsedReferralShiftId
+          : undefined,
+        referral_event_id: Number.isFinite(parsedReferralEventId) && parsedReferralEventId
+          ? parsedReferralEventId
+          : undefined,
       });
       router.replace({ pathname: '/verify-otp', params: { email: formData.email } } as any);
     } catch (err: any) {

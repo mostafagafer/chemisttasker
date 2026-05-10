@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Animated, Dimensions, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Animated, Dimensions, Image, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Avatar, Card, Chip, Divider, IconButton, Surface, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -7,6 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
 import { getActiveShifts, getOnboarding } from '@chemisttasker/shared-core';
 import getShiftPharmacyName from '@/roles/shared/shifts/utils/getShiftPharmacyName';
+import apiClient from '@/utils/apiClient';
 
 const { width } = Dimensions.get('window');
 
@@ -29,12 +30,18 @@ type OwnerProfile = {
   username?: string;
 };
 
+type PillSummary = {
+  balance: number;
+  shift_post_cost: number;
+};
+
 export default function OwnerDashboard() {
   const router = useRouter();
   const { access, user, logout, isLoading: authLoading } = useAuth();
   const normalizedRole = String(user?.role || '').toUpperCase();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [ownerProfile, setOwnerProfile] = useState<OwnerProfile | null>(null);
+  const [pillSummary, setPillSummary] = useState<PillSummary>({ balance: 0, shift_post_cost: 0 });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
@@ -70,9 +77,10 @@ export default function OwnerDashboard() {
     if (normalizedRole !== 'OWNER' || !access) return;
     setRefreshing(true);
     try {
-      const [shiftsRes, profileRes] = await Promise.all([
+      const [shiftsRes, profileRes, pillRes] = await Promise.all([
         getActiveShifts() as any,
         getOnboarding('owner' as any).catch(() => null),
+        apiClient.get('/client-profile/pill-rewards/balance/').catch(() => null),
       ]);
 
       const shiftList: any[] = Array.isArray(shiftsRes?.results)
@@ -95,6 +103,12 @@ export default function OwnerDashboard() {
         shifts: normalizedShifts.slice(0, 5),
       });
       setOwnerProfile(profileRes as any);
+      if (pillRes?.data) {
+        setPillSummary({
+          balance: Number(pillRes.data?.balance ?? 0),
+          shift_post_cost: Number(pillRes.data?.shift_post_cost ?? 0),
+        });
+      }
 
       Animated.parallel([
         Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
@@ -206,6 +220,40 @@ export default function OwnerDashboard() {
             ))}
           </View>
         </View> */}
+
+        <TouchableOpacity
+          style={styles.pillHero}
+          onPress={() => router.push('/owner/pills' as any)}
+          activeOpacity={0.82}
+        >
+          <LinearGradient colors={['#4F46E5', '#0EA5E9']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.pillHeroGradient}>
+            <View style={styles.pillHeroCopy}>
+              <Text variant="labelMedium" style={styles.pillHeroEyebrow}>
+                Owner rewards
+              </Text>
+              <View style={styles.pillBalanceRow}>
+                <Text variant="displaySmall" style={styles.pillBalanceValue}>
+                  {pillSummary.balance}
+                </Text>
+                <Text variant="titleMedium" style={styles.pillBalanceLabel}>
+                  pills
+                </Text>
+              </View>
+              <Text variant="bodySmall" style={styles.pillHeroText}>
+                Use pills toward owner actions instead of paying every time.
+              </Text>
+              <View style={styles.pillMetaRow}>
+                <Chip compact style={styles.pillMetaChip} textStyle={styles.pillMetaChipText}>
+                  {pillSummary.shift_post_cost} pills per shift post
+                </Chip>
+                <Chip compact style={styles.pillMetaChip} textStyle={styles.pillMetaChipText}>
+                  View activity
+                </Chip>
+              </View>
+            </View>
+            <Image source={require('@/assets/images/drugs.png')} style={styles.pillHeroImage} resizeMode="contain" />
+          </LinearGradient>
+        </TouchableOpacity>
 
         <View style={styles.section}>
           <Text variant="titleMedium" style={styles.sectionHeaderText}>
@@ -352,6 +400,39 @@ const styles = StyleSheet.create({
   notificationBadge: { position: 'absolute', top: 8, right: 8, backgroundColor: '#EF4444' },
   avatar: { backgroundColor: '#6366F1' },
   avatarLabel: { color: '#FFFFFF', fontWeight: 'bold' },
+  pillHero: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+    borderRadius: 22,
+    overflow: 'hidden',
+    elevation: 5,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+  },
+  pillHeroGradient: {
+    minHeight: 176,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  pillHeroCopy: { flex: 1, paddingRight: 8 },
+  pillHeroEyebrow: {
+    color: 'rgba(255, 255, 255, 0.78)',
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    marginBottom: 8,
+  },
+  pillBalanceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  pillBalanceValue: { color: '#FFFFFF', fontWeight: '900', lineHeight: 48 },
+  pillBalanceLabel: { color: 'rgba(255, 255, 255, 0.9)', fontWeight: '700' },
+  pillHeroText: { color: 'rgba(255, 255, 255, 0.88)', marginTop: 6, maxWidth: 230 },
+  pillMetaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  pillMetaChip: { backgroundColor: 'rgba(255, 255, 255, 0.18)' },
+  pillMetaChipText: { color: '#FFFFFF', fontWeight: '700', fontSize: 11 },
+  pillHeroImage: { width: 126, height: 126, marginRight: -8 },
   heroCard: {
     marginHorizontal: 20,
     marginBottom: 24,

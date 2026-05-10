@@ -5,6 +5,7 @@ export function resolveDashboardPath(role?: string | null) {
     case "ORG_OWNER":
     case "CHIEF_ADMIN":
     case "REGION_ADMIN":
+    case "ORGANIZATION":
       return "/dashboard/organization/overview";
     case "OWNER":
       return "/dashboard/owner/overview";

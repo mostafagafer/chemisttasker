@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   Box,
   Paper,
@@ -9,6 +9,7 @@ import {
   IconButton,
   Chip,
   useTheme,
+  CircularProgress,
 } from "@mui/material";
 import StoreIcon from "@mui/icons-material/Store";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
@@ -19,6 +20,7 @@ import PeopleIcon from "@mui/icons-material/People";
 import SettingsIcon from "@mui/icons-material/Settings";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import { alpha } from "@mui/material/styles";
+import apiClient from "../../../../utils/apiClient";
 
 type QuickAction = {
   title: string;
@@ -41,6 +43,7 @@ export default function OwnerOverviewHome({
   onOpenProfile,
   onOpenInterests,
   onOpenSettings,
+  onOpenPills,
 }: {
   totalPharmacies: number;
   onOpenManage: () => void;
@@ -50,9 +53,31 @@ export default function OwnerOverviewHome({
   onOpenProfile: () => void;
   onOpenInterests: () => void;
   onOpenSettings: () => void;
+  onOpenPills: () => void;
 }) {
   const theme = useTheme();
   const primary = theme.palette.primary.main;
+  const [pillBalance, setPillBalance] = useState<number | null>(null);
+  const [shiftPostCost, setShiftPostCost] = useState<number | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    apiClient
+      .get("/client-profile/pill-rewards/balance/")
+      .then(({ data }) => {
+        if (!mounted) return;
+        setPillBalance(Number(data?.balance ?? 0));
+        setShiftPostCost(Number(data?.shift_post_cost ?? 0));
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setPillBalance(0);
+        setShiftPostCost(null);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const quickActions: QuickAction[] = [
     {
@@ -164,13 +189,65 @@ export default function OwnerOverviewHome({
               </Button>
             </Stack>
           </Box>
-          <Stack direction="column" spacing={1} sx={{ position: "relative", zIndex: 1, minWidth: 200 }}>
-            <Typography variant="body2" sx={{ textTransform: "uppercase", letterSpacing: ".08em", opacity: 0.65 }}>
-              Highlights
-            </Typography>
-            <Stack direction="row" spacing={1}>
-              <Chip label={`${totalPharmacies} pharmacies`} color="default" sx={{ bgcolor: alpha("#ffffff", 0.15), color: "#fff" }} />
-              <Chip label="Usage up 12%" sx={{ bgcolor: alpha("#ffffff", 0.15), color: "#fff" }} />
+          <Stack
+            role="button"
+            onClick={onOpenPills}
+            direction="row"
+            spacing={2}
+            alignItems="center"
+            sx={{
+              position: "relative",
+              zIndex: 1,
+              minWidth: { xs: "100%", md: 300 },
+              p: 2,
+              borderRadius: 3,
+              cursor: "pointer",
+              bgcolor: alpha("#ffffff", 0.16),
+              border: `1px solid ${alpha("#ffffff", 0.24)}`,
+              boxShadow: `inset 0 1px 0 ${alpha("#ffffff", 0.18)}`,
+              transition: "transform 0.18s ease, background-color 0.18s ease",
+              "&:hover": {
+                transform: "translateY(-2px)",
+                bgcolor: alpha("#ffffff", 0.22),
+              },
+            }}
+          >
+            <Box
+              component="img"
+              src="/images/drugs.png"
+              alt=""
+              sx={{
+                width: 98,
+                height: 98,
+                objectFit: "contain",
+                flexShrink: 0,
+                filter: `contrast(1.08) saturate(1.08) drop-shadow(0 14px 22px ${alpha("#111827", 0.26)})`,
+              }}
+            />
+            <Stack spacing={0.75} sx={{ minWidth: 0 }}>
+              <Typography variant="body2" sx={{ textTransform: "uppercase", letterSpacing: ".08em", opacity: 0.72 }}>
+                Pill balance
+              </Typography>
+              <Stack direction="row" spacing={1} alignItems="baseline">
+                {pillBalance == null ? (
+                  <CircularProgress size={22} sx={{ color: "#fff" }} />
+                ) : (
+                  <Typography variant="h4" fontWeight={900} lineHeight={1}>
+                    {pillBalance}
+                  </Typography>
+                )}
+                <Typography variant="body2" sx={{ opacity: 0.86 }}>
+                  pills
+                </Typography>
+              </Stack>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Chip
+                  size="small"
+                  label={shiftPostCost != null ? `${shiftPostCost} pills per shift post` : "Custom rates"}
+                  sx={{ bgcolor: alpha("#ffffff", 0.18), color: "#fff" }}
+                />
+                <Chip size="small" label="View activity" sx={{ bgcolor: alpha("#ffffff", 0.18), color: "#fff" }} />
+              </Stack>
             </Stack>
           </Stack>
         </Stack>

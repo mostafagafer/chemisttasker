@@ -16,6 +16,7 @@ const tabTitles: Record<string, string> = {
   'post-shift': 'Post Shift',
   'pharmacies/index': 'Pharmacies',
   hub: 'Hub',
+  pills: 'Pills',
   notifications: 'Notifications',
   calendar: 'Calendar',
   'talent-board': 'Talent Board',
@@ -182,7 +183,7 @@ export default function OwnerLayout() {
           router.replace('/explorer/dashboard' as any);
           break;
         case 'ORGANIZATION':
-          router.replace('/organization' as any);
+          router.replace('/organization/dashboard' as any);
           break;
         default:
           router.replace('/login' as any);
@@ -456,6 +457,7 @@ export default function OwnerLayout() {
         />
         <Tabs.Screen name="calendar" options={{ href: null }} />
         <Tabs.Screen name="talent-board" options={{ href: null }} />
+        <Tabs.Screen name="pills" options={{ href: null }} />
         <Tabs.Screen name="onboarding" options={{ href: null }} />
         <Tabs.Screen name="profile-detail" options={{ href: null }} />
         <Tabs.Screen name="subscription-seats" options={{ href: null }} />

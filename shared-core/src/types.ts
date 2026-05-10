@@ -117,6 +117,59 @@ export interface TaggedMemberApi {
     job_title?: string | null;
 }
 
+export interface PillRewardRuleApi {
+    id: number;
+    code: string;
+    name: string;
+    description: string;
+    event_type: "EARN" | "SPEND";
+    audience: "ANY" | "SHIFT_POSTER" | "WORKER";
+    pill_amount: number;
+    is_active: boolean;
+    starts_at: string | null;
+    ends_at: string | null;
+    metadata: Record<string, unknown>;
+}
+
+export interface PillBalanceApi {
+    balance: number;
+    shift_post_cost: number;
+}
+
+export interface PillReferralCodeApi {
+    code: string;
+    is_active: boolean;
+    created_at: string;
+}
+
+export interface PillReferralEventApi {
+    id: number;
+    referral_code: string;
+    referral_type: "FRIEND" | "SHIFT";
+    status: "PENDING" | "CLAIMED" | "AWARDED" | "CANCELLED";
+    referrer_email: string;
+    referred_user_email?: string | null;
+    referred_email: string;
+    shift_id?: number | null;
+    claimed_at?: string | null;
+    awarded_at?: string | null;
+    created_at: string;
+}
+
+export interface PillLedgerEntryApi {
+    id: number;
+    entry_type: "EARN" | "SPEND" | "ADJUSTMENT" | "REVERSAL";
+    source: "FRIEND_REFERRAL" | "SHIFT_REFERRAL" | "SHIFT_POST" | "PAYMENT_CREDIT" | "MANUAL";
+    delta: number;
+    balance_after: number;
+    description: string;
+    rule_code?: string | null;
+    referral_type?: string | null;
+    shift_id?: number | null;
+    metadata: Record<string, unknown>;
+    created_at: string;
+}
+
 export interface PollOptionApi {
     id: number;
     label: string;

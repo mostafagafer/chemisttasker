@@ -80,6 +80,9 @@ export default function App() {
 
   const hasOrgRole = useMemo(() => {
     if (!user) return false;
+    if (["ORGANIZATION", "ORG_ADMIN", "ORG_OWNER", "ORG_STAFF", "CHIEF_ADMIN", "REGION_ADMIN"].includes(String(user.role || "").toUpperCase())) {
+      return true;
+    }
     const memberships = Array.isArray(user.memberships) ? user.memberships : [];
     return memberships.some(
       (m: any) =>
@@ -94,6 +97,10 @@ export default function App() {
   useEffect(() => {
     if (!user || !hasOrgRole) return;
     const path = location.pathname || "";
+    if (path.startsWith("/setup/owner")) {
+      navigate("/dashboard/organization/overview", { replace: true });
+      return;
+    }
     // Only redirect when the user is on a dashboard area.
     if (!path.startsWith("/dashboard")) return;
     const isOrgPath = path.includes("/dashboard/organization/");

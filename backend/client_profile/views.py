@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, SAFE_METHODS, AllowAny
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.exceptions import NotFound, APIException, PermissionDenied, ValidationError, NotAuthenticated
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.decorators import action, api_view, permission_classes
 from .models import *
@@ -61,6 +62,18 @@ from django.core.signing import TimestampSigner, BadSignature
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
 from client_profile.tasks import cancel_referee_reminder, schedule_referee_reminder, cancel_all_referee_reminders
+from client_profile.rewards import (
+    RewardError,
+    claim_referral_code,
+    create_friend_referral,
+    create_shift_referral,
+    get_or_create_referral_code,
+    get_pill_balance,
+    get_shift_post_pill_cost,
+    seed_default_reward_rules,
+    spend_pills_for_shift_post,
+    user_is_referral_reward_eligible,
+)
 from django.db import transaction, IntegrityError
 from django.db.models.deletion import ProtectedError
 from datetime import timedelta                   # used in TimestampSigner max_age
@@ -6776,6 +6789,151 @@ class UserAvailabilityViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+
+class PillRewardsViewSet(viewsets.GenericViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def get_throttles(self):
+        if self.action in {"refer_friend", "refer_shift"}:
+            self.throttle_scope = "pill_referral_create"
+        elif self.action == "claim":
+            self.throttle_scope = "pill_referral_claim"
+        elif self.action == "pay_shift":
+            self.throttle_scope = "pill_payment"
+        return super().get_throttles()
+
+    def get_serializer_class(self):
+        if self.action == "history":
+            return PillLedgerEntrySerializer
+        if self.action == "rules":
+            return PillRewardRuleSerializer
+        if self.action == "referrals":
+            return PillReferralEventSerializer
+        if self.action == "refer_friend":
+            return CreateFriendReferralSerializer
+        if self.action == "refer_shift":
+            return CreateShiftReferralSerializer
+        if self.action == "claim":
+            return ClaimReferralSerializer
+        return PillBalanceSerializer
+
+    @action(detail=False, methods=["get"])
+    def balance(self, request):
+        seed_default_reward_rules()
+        return Response({
+            "balance": get_pill_balance(request.user),
+            "shift_post_cost": get_shift_post_pill_cost(),
+        })
+
+    @action(detail=False, methods=["get"])
+    def rules(self, request):
+        seed_default_reward_rules()
+        qs = PillRewardRule.objects.filter(is_active=True).order_by("code")
+        return Response(PillRewardRuleSerializer(qs, many=True).data)
+
+    @action(detail=False, methods=["get"], url_path="referral-code")
+    def referral_code(self, request):
+        code = get_or_create_referral_code(request.user)
+        return Response(PillReferralCodeSerializer(code).data)
+
+    @action(detail=False, methods=["get"])
+    def history(self, request):
+        qs = PillLedgerEntry.objects.filter(user=request.user).select_related("rule", "referral_event", "shift")
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            return self.get_paginated_response(PillLedgerEntrySerializer(page, many=True).data)
+        return Response(PillLedgerEntrySerializer(qs, many=True).data)
+
+    @action(detail=False, methods=["get"])
+    def referrals(self, request):
+        qs = (
+            PillReferralEvent.objects.filter(Q(referrer=request.user) | Q(referred_user=request.user))
+            .select_related("referral_code", "referrer", "referred_user", "shift")
+            .order_by("-created_at")
+        )
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            return self.get_paginated_response(PillReferralEventSerializer(page, many=True).data)
+        return Response(PillReferralEventSerializer(qs, many=True).data)
+
+    @action(detail=False, methods=["post"], url_path="refer-friend")
+    def refer_friend(self, request):
+        serializer = CreateFriendReferralSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        event = create_friend_referral(
+            referrer=request.user,
+            referred_email=serializer.validated_data.get("referred_email", ""),
+        )
+        return Response(PillReferralEventSerializer(event).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="refer-shift")
+    def refer_shift(self, request):
+        serializer = CreateShiftReferralSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        shift = get_object_or_404(Shift.objects.select_related("pharmacy"), pk=serializer.validated_data["shift_id"])
+        if not BaseShiftViewSet._user_can_manage_pharmacy(request.user, shift.pharmacy):
+            raise PermissionDenied("You do not have permission to create a referral link for this shift.")
+        event = create_shift_referral(
+            referrer=request.user,
+            shift=shift,
+            referred_email=serializer.validated_data.get("referred_email", ""),
+        )
+        return Response(PillReferralEventSerializer(event).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"])
+    def claim(self, request):
+        serializer = ClaimReferralSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        shift = None
+        if serializer.validated_data.get("shift_id"):
+            shift = get_object_or_404(Shift, pk=serializer.validated_data["shift_id"])
+        try:
+            event = claim_referral_code(
+                referred_user=request.user,
+                code=serializer.validated_data["code"],
+                shift=shift,
+                referral_event_id=serializer.validated_data.get("referral_event_id"),
+                award=user_is_referral_reward_eligible(request.user),
+            )
+        except RewardError as exc:
+            raise ValidationError({"detail": str(exc)})
+        return Response(PillReferralEventSerializer(event).data)
+
+    @action(detail=False, methods=["post"], url_path="pay-shift")
+    def pay_shift(self, request):
+        shift_id = request.data.get("shift_id") or request.data.get("shiftId")
+        if not shift_id:
+            raise DRFValidationError({"shift_id": "This field is required."})
+        shift = get_object_or_404(Shift.objects.select_related("pharmacy", "pharmacy__owner"), pk=shift_id)
+        if not BaseShiftViewSet._user_can_manage_pharmacy(request.user, shift.pharmacy):
+            raise PermissionDenied("You do not have permission to pay for this shift.")
+        if shift.payment_status == "PAID":
+            return Response({
+                "detail": "Shift is already paid.",
+                "balance": get_pill_balance(request.user),
+                "payment_status": shift.payment_status,
+            })
+        if shift.payment_status != "PENDING":
+            raise DRFValidationError({"detail": "This shift does not require payment."})
+        try:
+            ledger = spend_pills_for_shift_post(user=request.user, shift=shift)
+        except RewardError as exc:
+            raise DRFValidationError({
+                "detail": str(exc),
+                "code": "insufficient_pills" if "Insufficient" in str(exc) else "pill_payment_failed",
+                "balance": get_pill_balance(request.user),
+                "required": get_shift_post_pill_cost(),
+            })
+        shift.payment_status = "PAID"
+        shift.save(update_fields=["payment_status"])
+        return Response({
+            "detail": "Shift paid with pills.",
+            "balance": get_pill_balance(request.user),
+            "payment_status": shift.payment_status,
+            "ledger_entry": PillLedgerEntrySerializer(ledger).data,
+        })
+
 
 # Invoices
 class InvoiceListView(generics.ListCreateAPIView):

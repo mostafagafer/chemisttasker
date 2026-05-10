@@ -129,7 +129,7 @@ export default function ExplorerTabs() {
       }
     });
     return () => sub.remove();
-  }, [router]);
+  }, [router, user?.role]);
 
   const openNotifications = useCallback(async () => {
     try {
@@ -165,7 +165,7 @@ export default function ExplorerTabs() {
           router.replace('/otherstaff' as any);
           break;
         case 'ORGANIZATION':
-          router.replace('/organization' as any);
+          router.replace('/organization/dashboard' as any);
           break;
         default:
           router.replace('/login');

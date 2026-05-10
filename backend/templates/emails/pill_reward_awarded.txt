@@ -1,0 +1,16 @@
+Congrats{% if user_first_name %}, {{ user_first_name }}{% endif %}!
+
+You earned {{ pill_amount }} pills from a {{ reward_label }}.
+
+Your new balance is {{ balance_after }} pills.
+
+What can pills do?
+Pills can be used toward eligible owner actions in ChemistTasker, including paying for shift posts instead of paying through Stripe when enough pills are available.
+
+View pill activity:
+{{ pills_url }}
+
+Reward: {{ rule_name }}{% if shift %}
+Related shift: #{{ shift.id }}{% endif %}
+
+The ChemistTasker Team

@@ -44,6 +44,9 @@ interface RegisterData {
   role: string;
   accepted_terms: boolean;
   captcha_token?: string | null;
+  referral_code?: string;
+  referral_shift_id?: number;
+  referral_event_id?: number;
 }
 
 type AuthContextType = {

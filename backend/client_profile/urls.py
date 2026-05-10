@@ -39,6 +39,7 @@ router.register(r'community-shifts', CommunityShiftViewSet, basename='community-
 router.register(r'public-shifts',    PublicShiftViewSet,    basename='public-shifts')
 # My shifts by status for posters
 router.register(r'user-availability', UserAvailabilityViewSet, basename='user-availability')
+router.register(r'pill-rewards', PillRewardsViewSet, basename='pill-rewards')
 router.register(r'shifts/active',    ActiveShiftViewSet,    basename='active-shifts')
 router.register(r'shifts/confirmed', ConfirmedShiftViewSet, basename='confirmed-shifts')
 router.register(r'shifts/history',   HistoryShiftViewSet,   basename='history-shifts')

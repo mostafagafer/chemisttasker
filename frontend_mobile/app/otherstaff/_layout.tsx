@@ -191,7 +191,7 @@ export default function OtherStaffTabs() {
           router.replace('/explorer' as any);
           break;
         case 'ORGANIZATION':
-          router.replace('/organization' as any);
+          router.replace('/organization/dashboard' as any);
           break;
         default:
           router.replace('/login');

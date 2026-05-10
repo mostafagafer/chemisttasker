@@ -1200,6 +1200,51 @@ export async function updateUserAvailabilityService(id, payload) {
 export async function deleteUserAvailabilityService(id) {
     await deleteUserAvailability(id);
 }
+
+// ============ PILL REWARDS ============
+export async function fetchPillBalanceService() {
+    return fetchApi('/client-profile/pill-rewards/balance/');
+}
+
+export async function fetchPillRewardRulesService() {
+    return fetchApi('/client-profile/pill-rewards/rules/');
+}
+
+export async function fetchPillReferralCodeService() {
+    return fetchApi('/client-profile/pill-rewards/referral-code/');
+}
+
+export async function fetchPillHistoryService(params) {
+    const query = buildQuery(params);
+    return fetchApi(`/client-profile/pill-rewards/history/${query}`);
+}
+
+export async function fetchPillReferralsService(params) {
+    const query = buildQuery(params);
+    return fetchApi(`/client-profile/pill-rewards/referrals/${query}`);
+}
+
+export async function createFriendPillReferralService(payload) {
+    return fetchApi('/client-profile/pill-rewards/refer-friend/', {
+        method: 'POST',
+        body: payload,
+    });
+}
+
+export async function createShiftPillReferralService(payload) {
+    return fetchApi('/client-profile/pill-rewards/refer-shift/', {
+        method: 'POST',
+        body: payload,
+    });
+}
+
+export async function claimPillReferralService(payload) {
+    return fetchApi('/client-profile/pill-rewards/claim/', {
+        method: 'POST',
+        body: payload,
+    });
+}
+
 // ============ INVOICES ============
 export function getInvoices() {
     return fetchApi('/client-profile/invoices/');

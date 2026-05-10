@@ -159,6 +159,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
     // Snackbar
     const [snackbarOpen, setSnackbarOpen] = useState(false);
     const [snackbarMessage, setSnackbarMessage] = useState('');
+    const [pillPayingShiftId, setPillPayingShiftId] = useState<number | null>(null);
 
     const showSnackbar = useCallback((msg: string) => {
         setSnackbarMessage(msg);
@@ -202,6 +203,26 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
     // Data hooks
     const { shifts, setShifts, loading: shiftsLoading, loadShifts } = useShiftsData({ selectedPharmacyId, shiftId });
     const { tabData, setTabData, loadTabDataForShift } = useTabData(shifts, selectedLevelByShift, getTabKey);
+    const handlePayWithPills = useCallback(async (shift: Shift) => {
+        setPillPayingShiftId(shift.id);
+        try {
+            const { data: res } = await apiClient.post('/client-profile/pill-rewards/pay-shift/', {
+                shift_id: shift.id,
+            });
+            showSnackbar(res?.detail || 'Shift paid with pills.');
+            await loadShifts();
+        } catch (err: any) {
+            console.error(err);
+            const data = err?.response?.data;
+            const detail = Array.isArray(data?.detail) ? data.detail[0] : data?.detail;
+            const message = data?.code === 'insufficient_pills'
+                ? `Not enough pills. You have ${data?.balance ?? 0}; this shift needs ${data?.required ?? 'more'} pills.`
+                : detail || err?.message || 'Failed to pay with pills.';
+            showSnackbar(message);
+        } finally {
+            setPillPayingShiftId(null);
+        }
+    }, [loadShifts, showSnackbar]);
     const {
         counterOffersByShift,
         counterOffersLoadingByShift,
@@ -848,7 +869,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                     <Typography variant="body2" sx={{ mb: 2 }}>
                                         A candidate has accepted the shift, but payment is required to finalize the assignment.
                                     </Typography>
-                                    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                                    <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, flexWrap: 'wrap' }}>
                                         <button
                                             style={{
                                                 padding: '8px 16px',
@@ -878,7 +899,27 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                                 }
                                             }}
                                         >
-                                            Pay Now
+                                            Pay with Stripe
+                                        </button>
+                                        <button
+                                            style={{
+                                                padding: '8px 16px',
+                                                backgroundColor: '#4f46e5',
+                                                color: 'white',
+                                                border: 'none',
+                                                borderRadius: '4px',
+                                                cursor: pillPayingShiftId === shift.id ? 'wait' : 'pointer',
+                                                fontWeight: 'bold',
+                                                fontFamily: 'inherit',
+                                                opacity: pillPayingShiftId === shift.id ? 0.7 : 1,
+                                            }}
+                                            disabled={pillPayingShiftId === shift.id}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                void handlePayWithPills(shift);
+                                            }}
+                                        >
+                                            {pillPayingShiftId === shift.id ? 'Paying...' : 'Pay with Pills'}
                                         </button>
                                     </Box>
                                 </Box>

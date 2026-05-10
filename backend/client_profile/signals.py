@@ -10,7 +10,16 @@ import logging
 from client_profile.serializers import MessageSerializer
 from client_profile.notifications import broadcast_message_badge, notify_users
 
-from .models import Membership, Conversation, Participant, Notification
+from .models import (
+    Membership,
+    Conversation,
+    Participant,
+    Notification,
+    OwnerOnboarding,
+    PharmacistOnboarding,
+    OtherStaffOnboarding,
+    ExplorerOnboarding,
+)
 
 log = logging.getLogger("client_profile.signals")
 
@@ -152,3 +161,30 @@ def sync_membership_to_community_chat(sender, instance, created, **kwargs):
             conversation=community_chat,
             membership=instance
         )
+
+
+def _award_verified_referrals_after_commit(instance):
+    if not getattr(instance, "verified", False):
+        return
+    user_id = getattr(instance, "user_id", None)
+    if not user_id:
+        return
+
+    def _award():
+        try:
+            from django.contrib.auth import get_user_model
+            from client_profile.rewards import award_verified_referrals_for_user
+            user = get_user_model().objects.get(id=user_id)
+            award_verified_referrals_for_user(user)
+        except Exception:
+            log.exception("Failed to award verified referral pills for user %s", user_id)
+
+    transaction.on_commit(_award)
+
+
+@receiver(post_save, sender=OwnerOnboarding)
+@receiver(post_save, sender=PharmacistOnboarding)
+@receiver(post_save, sender=OtherStaffOnboarding)
+@receiver(post_save, sender=ExplorerOnboarding)
+def award_pill_referrals_when_onboarding_verified(sender, instance, **kwargs):
+    _award_verified_referrals_after_commit(instance)

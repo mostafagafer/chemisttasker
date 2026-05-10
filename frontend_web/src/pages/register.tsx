@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate, Link as RouterLink } from "react-router-dom";
+import { useNavigate, useSearchParams, Link as RouterLink } from "react-router-dom";
 import axios from "axios";
 import ReCAPTCHA from "react-google-recaptcha";
 import {
@@ -27,6 +27,12 @@ type Role = "OWNER" | "PHARMACIST" | "OTHER_STAFF" | "EXPLORER";
 
 export default function Register() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const referralCode = searchParams.get("referral_code") || "";
+  const referralShiftId = searchParams.get("referral_shift_id") || "";
+  const referralEventId = searchParams.get("referral_event_id") || "";
+  const parsedReferralShiftId = referralShiftId ? Number(referralShiftId) : null;
+  const parsedReferralEventId = referralEventId ? Number(referralEventId) : null;
   useEffect(() => {
     setRobotsMeta("noindex,follow");
     return () => setRobotsMeta();
@@ -73,6 +79,13 @@ export default function Register() {
         role: formData.role,
         accepted_terms: acceptedTerms,
         captcha_token: captchaValue,
+        referral_code: referralCode || undefined,
+        referral_shift_id: Number.isFinite(parsedReferralShiftId) && parsedReferralShiftId
+          ? parsedReferralShiftId
+          : undefined,
+        referral_event_id: Number.isFinite(parsedReferralEventId) && parsedReferralEventId
+          ? parsedReferralEventId
+          : undefined,
       };
       await axios.post(`${API_BASE_URL}${API_ENDPOINTS.register}`, payload);
       alert("Account created successfully! Please check your email for the verification code.");

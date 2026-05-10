@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import {
   Box,
   Button,
   Chip,
+  CircularProgress,
   Grid,
   IconButton,
   Paper,
@@ -19,6 +21,7 @@ import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import { alpha } from "@mui/material/styles";
 import { useNavigate } from "react-router-dom";
 import { useAdminScope } from "../../../contexts/AdminScopeContext";
+import apiClient from "../../../utils/apiClient";
 
 type QuickAction = {
   title: string;
@@ -33,6 +36,26 @@ export default function AdminOverview() {
   const theme = useTheme();
   const primary = theme.palette.primary.main;
   const adminBasePath = `/dashboard/admin/${pharmacyId}`;
+  const [pillSummary, setPillSummary] = useState<{ balance: number; shift_post_cost: number } | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    apiClient
+      .get("/client-profile/pill-rewards/balance/")
+      .then(({ data }) => {
+        if (!mounted) return;
+        setPillSummary({
+          balance: Number(data?.balance ?? 0),
+          shift_post_cost: Number(data?.shift_post_cost ?? 0),
+        });
+      })
+      .catch(() => {
+        if (mounted) setPillSummary({ balance: 0, shift_post_cost: 0 });
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const quickActions: QuickAction[] = [
     {
@@ -153,14 +176,66 @@ export default function AdminOverview() {
               </Button>
             </Stack>
           </Box>
-          <Stack spacing={1.5} sx={{ position: "relative", zIndex: 1, minWidth: 220 }}>
-            <InfoBadge
-              title="Role"
-              value={formatAdminLevel(assignment.admin_level)}
-              tone="light"
-            />
-            <InfoBadge title="Job Title" value={assignment.job_title || "-"} tone="light" />
-            <InfoBadge title="Staff Role" value={assignment.staff_role || "-"} tone="light" />
+          <Stack spacing={2} sx={{ position: "relative", zIndex: 1, minWidth: { xs: "100%", md: 320 } }}>
+            <Stack
+              role="button"
+              onClick={() => navigate(`${adminBasePath}/pills`)}
+              direction="row"
+              spacing={2}
+              alignItems="center"
+              sx={{
+                p: 2,
+                borderRadius: 3,
+                cursor: "pointer",
+                bgcolor: alpha("#ffffff", 0.16),
+                border: `1px solid ${alpha("#ffffff", 0.24)}`,
+                transition: "transform 0.18s ease, background-color 0.18s ease",
+                "&:hover": { transform: "translateY(-2px)", bgcolor: alpha("#ffffff", 0.22) },
+              }}
+            >
+              <Box
+                component="img"
+                src="/images/drugs.png"
+                alt=""
+                sx={{
+                  width: 92,
+                  height: 92,
+                  objectFit: "contain",
+                  flexShrink: 0,
+                  filter: `contrast(1.08) saturate(1.08) drop-shadow(0 14px 22px ${alpha("#111827", 0.26)})`,
+                }}
+              />
+              <Stack spacing={0.75} sx={{ minWidth: 0 }}>
+                <Typography variant="body2" sx={{ textTransform: "uppercase", letterSpacing: ".08em", opacity: 0.72 }}>
+                  Pharmacy admin pills
+                </Typography>
+                <Stack direction="row" spacing={1} alignItems="baseline">
+                  {pillSummary == null ? (
+                    <CircularProgress size={22} sx={{ color: "#fff" }} />
+                  ) : (
+                    <Typography variant="h4" fontWeight={900} lineHeight={1}>
+                      {pillSummary.balance}
+                    </Typography>
+                  )}
+                  <Typography variant="body2" sx={{ opacity: 0.86 }}>
+                    pills
+                  </Typography>
+                </Stack>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  <Chip
+                    size="small"
+                    label={pillSummary ? `${pillSummary.shift_post_cost} pills per shift post` : "Custom rates"}
+                    sx={{ bgcolor: alpha("#ffffff", 0.18), color: "#fff" }}
+                  />
+                  <Chip size="small" label={`Pharmacy #${pharmacyId}`} sx={{ bgcolor: alpha("#ffffff", 0.18), color: "#fff" }} />
+                </Stack>
+              </Stack>
+            </Stack>
+            <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+              <InfoBadge title="Role" value={formatAdminLevel(assignment.admin_level)} tone="light" />
+              <InfoBadge title="Job Title" value={assignment.job_title || "-"} tone="light" />
+              <InfoBadge title="Staff Role" value={assignment.staff_role || "-"} tone="light" />
+            </Stack>
           </Stack>
         </Stack>
       </Paper>

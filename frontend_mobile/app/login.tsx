@@ -6,6 +6,17 @@ import { useAuth } from '../context/AuthContext';
 import AuthLayout from '../components/AuthLayout';
 import { getOwnerSetupStatus } from '../utils/ownerSetup';
 
+const ORG_ROLES = new Set(['ORGANIZATION', 'ORG_ADMIN', 'ORG_OWNER', 'ORG_STAFF', 'CHIEF_ADMIN', 'REGION_ADMIN']);
+
+function hasOrganizationAccess(user: any) {
+  const role = String(user?.role || '').toUpperCase();
+  if (ORG_ROLES.has(role)) return true;
+  return Array.isArray(user?.memberships) && user.memberships.some((membership: any) => {
+    const membershipRole = String(membership?.role || '').toUpperCase();
+    return ORG_ROLES.has(membershipRole);
+  });
+}
+
 export default function LoginScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ email?: string }>();
@@ -34,8 +45,10 @@ export default function LoginScreen() {
         return;
       }
 
-      // Navigate directly to appropriate dashboard based on role
-      if (userData.role === 'OWNER') {
+      // Organization access must win before owner setup because org accounts can still carry OWNER as their base role.
+      if (hasOrganizationAccess(userData)) {
+        router.replace('/organization/dashboard' as never);
+      } else if (userData.role === 'OWNER') {
         const setupStatus = await getOwnerSetupStatus();
         router.replace((setupStatus.nextPath || '/owner/dashboard') as never);
       } else if (userData.role === 'PHARMACIST') {
@@ -44,8 +57,6 @@ export default function LoginScreen() {
         router.replace('/otherstaff/dashboard' as never);
       } else if (userData.role === 'EXPLORER') {
         router.replace('/explorer' as never);
-      } else if (userData.role === 'ORGANIZATION') {
-        router.replace('/organization' as never);
       } else {
         router.replace('/login' as never);
       }

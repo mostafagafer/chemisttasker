@@ -20,6 +20,7 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
+import PersonAddAltIcon from '@mui/icons-material/PersonAddAlt';
 import { API_BASE_URL } from '../../constants/api';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { useNavigate } from 'react-router-dom';
@@ -78,6 +79,7 @@ function OwnerOnboardingContent({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('Profile saved successfully!');
   const [profilePhotoFile, setProfilePhotoFile] = useState<File | null>(null);
   const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(null);
   const [profilePhotoCleared, setProfilePhotoCleared] = useState(false);
@@ -87,6 +89,7 @@ function OwnerOnboardingContent({
     staffCount: number;
     extraSeatCount: number;
   } | null>(null);
+  const [referralLoading, setReferralLoading] = useState(false);
   const unsaved = useUnsavedChangesGuard({
     disabled: loading,
     value: {
@@ -202,6 +205,7 @@ const handleSubmit = async (e: React.FormEvent) => {
         : prev
     ));
 
+    setSnackbarMessage('Profile saved successfully!');
     setSnackbarOpen(true);
     setLoading(false);
     setProfilePhotoFile(null);
@@ -222,6 +226,25 @@ const handleSubmit = async (e: React.FormEvent) => {
   const handleCloseSnackbar = () => {
     setSnackbarOpen(false);
     navigate(onSuccessPath || '/dashboard/owner');
+  };
+
+  const handleCopyFriendReferral = async () => {
+    setReferralLoading(true);
+    try {
+      const { data: referral } = await apiClient.post('/client-profile/pill-rewards/refer-friend/', {});
+      const code = referral?.referral_code;
+      if (!code) throw new Error('Referral code was not returned.');
+      const url = new URL('/register', window.location.origin);
+      url.searchParams.set('referral_code', code);
+      await navigator.clipboard.writeText(url.toString());
+      setError('');
+      setSnackbarMessage('Referral link copied to clipboard.');
+      setSnackbarOpen(true);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || err?.message || 'Failed to create referral link.');
+    } finally {
+      setReferralLoading(false);
+    }
   };
 
   const VerifiedChip = ({ ok, label }: { ok?: boolean | null; label: string }) => {
@@ -245,7 +268,7 @@ const handleSubmit = async (e: React.FormEvent) => {
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
       >
         <Alert severity="success" sx={{ width: '100%' }}>
-          Profile saved successfully!
+          {snackbarMessage}
         </Alert>
       </Snackbar>
 
@@ -413,6 +436,27 @@ const handleSubmit = async (e: React.FormEvent) => {
             </Button>
           </Box>
         </Box>
+
+        {!standalone && (
+        <Paper variant="outlined" sx={{ mt: 4, p: 3, borderRadius: 3 }}>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', md: 'center' }} justifyContent="space-between">
+            <Box>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                <PersonAddAltIcon color="primary" />
+                <Typography variant="h6" fontWeight={700}>
+                  Refer a friend
+                </Typography>
+              </Stack>
+              <Typography variant="body2" color="text.secondary">
+                Copy a referral link. When your friend registers with it, pills can be awarded to your account.
+              </Typography>
+            </Box>
+            <Button variant="contained" onClick={handleCopyFriendReferral} disabled={referralLoading}>
+              {referralLoading ? 'Creating...' : 'Copy referral link'}
+            </Button>
+          </Stack>
+        </Paper>
+        )}
 
         {!standalone && (
         <Paper variant="outlined" sx={{ mt: 4, p: 3, borderRadius: 3 }}>

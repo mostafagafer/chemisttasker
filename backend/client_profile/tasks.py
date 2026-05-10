@@ -9,6 +9,7 @@ from django_q.models import Schedule
 from urllib.parse import urlencode
 from django.apps import apps
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
@@ -84,6 +85,45 @@ def save_output_file(task_name, object_pk, extension="json"):
     logger.info(f"[save_output_file] Will write output to: {out_path}")
     return str(out_path)
 
+def pdf_first_page_to_png(pdf_path):
+    """
+    Convert the first PDF page to a temporary PNG so Azure Image Analysis can OCR it.
+    Works after get_local_file_or_download(), so the source can be local media or Azure Blob.
+    """
+    import fitz  # PyMuPDF
+
+    doc = fitz.open(pdf_path)
+    try:
+        if doc.page_count < 1:
+            raise Exception("PDF has no pages.")
+        page = doc.load_page(0)
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        temp_file.close()
+        pix.save(temp_file.name)
+        logger.info(f"[pdf_first_page_to_png] Converted first PDF page to: {temp_file.name}")
+        return temp_file.name
+    finally:
+        doc.close()
+
+def is_pdf_file(local_path):
+    try:
+        with open(local_path, "rb") as f:
+            header = f.read(5)
+        if header == b"%PDF-":
+            return True
+    except Exception as e:
+        logger.info(f"[is_pdf_file] Could not inspect file header for {local_path}: {e}")
+    return str(local_path).lower().endswith(".pdf")
+
+def ocr_input_path_for_file(local_path):
+    if is_pdf_file(local_path):
+        logger.info(f"[ocr_input_path_for_file] PDF detected, converting before OCR: {local_path}")
+        converted_path = pdf_first_page_to_png(local_path)
+        return converted_path, converted_path
+    logger.info(f"[ocr_input_path_for_file] Image input detected, sending directly to OCR: {local_path}")
+    return local_path, None
+
 # --- Inline OCR with Azure (direct call, not subprocess!) ---
 def azure_ocr(file_path):
     """Run OCR using Azure Vision, returns lines of text."""
@@ -158,8 +198,11 @@ def verify_filefield_task(
             failure_note = f"Could not obtain file for OCR: {local_path}."
             logger.info(f"[verify_filefield_task] {failure_note}")
         else:
+            converted_path = None
             try:
-                ocr_data = azure_ocr(local_path)
+                ocr_path, converted_path = ocr_input_path_for_file(local_path)
+                logger.info(f"[verify_filefield_task] Sending OCR input path to Azure: {ocr_path}")
+                ocr_data = azure_ocr(ocr_path)
                 output_json = save_output_file("ocr", object_pk, "json")
                 with open(output_json, "w", encoding="utf-8") as f:
                     json.dump(ocr_data, f, indent=2, ensure_ascii=False)
@@ -179,6 +222,8 @@ def verify_filefield_task(
                 failure_note = f"OCR processing failed: {e}."
                 logger.info(f"[verify_filefield_task] {failure_note}")
             finally:
+                if converted_path and os.path.exists(converted_path):
+                    os.remove(converted_path)
                 if local_path and os.path.exists(local_path) and Path(local_path).parent == Path(tempfile.gettempdir()):
                     os.remove(local_path)
 
@@ -857,6 +902,11 @@ def final_evaluation(model_name, object_pk, retry_count=0, is_reminder=False):
     logger.info(f"[FINAL EVALUATION] pk={object_pk} has been successfully VERIFIED.")
     obj.verified = True
     obj.save(update_fields=['verified'])
+    try:
+        from client_profile.rewards import award_verified_referrals_for_user
+        transaction.on_commit(lambda user_id=obj.user_id: award_verified_referrals_for_user(get_user_model().objects.get(id=user_id)))
+    except Exception:
+        logger.exception("[FINAL EVALUATION] Failed to schedule pill referral award for pk=%s", object_pk)
 
     if not notification_already_sent(obj, 'verified'):
         async_task(

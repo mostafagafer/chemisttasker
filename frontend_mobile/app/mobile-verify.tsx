@@ -28,7 +28,7 @@ export default function MobileVerifyScreen() {
             case 'PHARMACIST': return '/pharmacist/dashboard';
             case 'OTHER_STAFF': return '/otherstaff/dashboard';
             case 'EXPLORER': return '/explorer/dashboard';
-            case 'ORGANIZATION': return '/organization';
+            case 'ORGANIZATION': return '/organization/dashboard';
             default: return '/login';
         }
     };

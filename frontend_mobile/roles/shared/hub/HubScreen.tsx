@@ -742,6 +742,12 @@ export default function HubScreen() {
     const canEditProfile =
       (selection.type === 'pharmacy' && selectedPharmacy?.canManageProfile) ||
       (selection.type === 'organization' && selectedOrganization?.canManageProfile);
+    const manageableGroup =
+      selection.type === 'group' && selectedGroup && canManageGroup(selectedGroup, 'group')
+        ? selectedGroup
+        : selection.type === 'orgGroup' && selectedOrgGroup && canManageGroup(selectedOrgGroup, 'orgGroup')
+          ? selectedOrgGroup
+          : null;
 
     if (!scope) return null;
 
@@ -752,6 +758,30 @@ export default function HubScreen() {
       canEditProfile,
       onEditProfile: canEditProfile
         ? () => (selection.type === 'pharmacy' ? openPharmacyProfile() : openOrganizationProfile())
+        : undefined,
+      actions: manageableGroup
+        ? [
+            {
+              title: 'Edit group',
+              icon: 'pencil',
+              onPress: () => {
+                if (selection.type === 'orgGroup') {
+                  const orgId = selectedOrgGroup?.organizationId || effectiveOrg?.id;
+                  if (orgId) {
+                    openGroupModal({ type: 'organization', id: orgId }, manageableGroup);
+                  }
+                  return;
+                }
+                openGroupModal({ type: 'pharmacy', id: manageableGroup.pharmacyId }, manageableGroup);
+              },
+            },
+            {
+              title: 'Delete group',
+              icon: 'trash-can-outline',
+              destructive: true,
+              onPress: () => handleDeleteGroup(manageableGroup),
+            },
+          ]
         : undefined,
     };
 

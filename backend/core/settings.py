@@ -252,6 +252,9 @@ REST_FRAMEWORK = {
         'mobile_otp_verify': '10/minute',
         'mobile_otp_resend': '5/minute',
         'contact_form': '5/hour',
+        'pill_referral_create': '20/hour',
+        'pill_referral_claim': '20/hour',
+        'pill_payment': '30/hour',
     },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 50

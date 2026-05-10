@@ -14,6 +14,17 @@ import { initializeMobileSslPinning } from '../utils/sslPinning';
 import { UnsavedChangesDialogProvider } from '../roles/shared/forms/UnsavedChangesDialogProvider';
 import { UnsavedChangesRegistryProvider } from '../roles/shared/forms/UnsavedChangesRegistryProvider';
 
+const ORG_ROLES = new Set(['ORGANIZATION', 'ORG_ADMIN', 'ORG_OWNER', 'ORG_STAFF', 'CHIEF_ADMIN', 'REGION_ADMIN']);
+
+function hasOrganizationAccess(user: any) {
+  const role = String(user?.role || '').toUpperCase();
+  if (ORG_ROLES.has(role)) return true;
+  return Array.isArray(user?.memberships) && user.memberships.some((membership: any) => {
+    const membershipRole = String(membership?.role || '').toUpperCase();
+    return ORG_ROLES.has(membershipRole);
+  });
+}
+
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
@@ -65,6 +76,9 @@ function AuthGate() {
 
   const getRoleHome = (role?: string | null) => {
     const normalized = String(role || '').toUpperCase();
+    if (ORG_ROLES.has(normalized)) {
+      return '/organization/dashboard';
+    }
     switch (normalized) {
       case 'OWNER':
         return '/owner/dashboard';
@@ -74,8 +88,6 @@ function AuthGate() {
         return '/otherstaff/dashboard';
       case 'EXPLORER':
         return '/explorer/dashboard';
-      case 'ORGANIZATION':
-        return '/organization';
       default:
         return '/login';
     }
@@ -95,11 +107,20 @@ function AuthGate() {
       OTHER_STAFF: 'otherstaff',
       EXPLORER: 'explorer',
       ORGANIZATION: 'organization',
+      ORG_ADMIN: 'organization',
+      ORG_OWNER: 'organization',
+      ORG_STAFF: 'organization',
+      CHIEF_ADMIN: 'organization',
+      REGION_ADMIN: 'organization',
     };
 
     let active = true;
     const runGate = async () => {
       if (user && isPublic) {
+        if (hasOrganizationAccess(user)) {
+          router.replace('/organization/dashboard' as any);
+          return;
+        }
         if (String(user.role || '').toUpperCase() === 'OWNER') {
           const status = await getOwnerSetupStatus();
           if (active) {
@@ -114,6 +135,13 @@ function AuthGate() {
 
       if (user && top) {
         const normalizedRole = String(user.role || '').toUpperCase();
+
+        if (hasOrganizationAccess(user)) {
+          if (top !== 'organization') {
+            router.replace('/organization/dashboard' as any);
+          }
+          return;
+        }
 
         if (normalizedRole === 'OWNER') {
           const status = await getOwnerSetupStatus();

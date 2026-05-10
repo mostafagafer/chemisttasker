@@ -41,6 +41,19 @@ const SharedShiftLandingPage: React.FC = () => {
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
 
   const token = searchParams.get('token');
+  const referralCode = searchParams.get('referral_code');
+  const referralEventId = searchParams.get('referral_event_id');
+  const registerTo = (() => {
+    if (!referralCode) return '/register';
+    const params = new URLSearchParams({ referral_code: referralCode });
+    if (referralEventId) {
+      params.set('referral_event_id', referralEventId);
+    }
+    if (shift?.id) {
+      params.set('referral_shift_id', String(shift.id));
+    }
+    return `/register?${params.toString()}`;
+  })();
 
   const mapSharedShift = useCallback((raw: any): Shift => {
     const pharmacy = raw.pharmacy_detail || raw.pharmacyDetail || {};
@@ -356,7 +369,7 @@ const SharedShiftLandingPage: React.FC = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setLoginDialogOpen(false)}>Cancel</Button>
-          <Button component={RouterLink} to="/register" variant="outlined">
+          <Button component={RouterLink} to={registerTo} variant="outlined">
             Create account
           </Button>
           <Button component={RouterLink} to="/login" variant="contained">

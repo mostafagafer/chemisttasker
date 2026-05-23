@@ -190,13 +190,18 @@ if _redis_is_ssl:
 
 Q_CLUSTER = {
     'name': 'DjangoQ',
-    'workers': 4,
+    'workers': env.int("Q_WORKERS", default=1),
     'timeout': 300,
     'retry': 400,
-    'queue_limit': 50,
-    'bulk': 10,
+    'queue_limit': env.int("Q_QUEUE_LIMIT", default=1),
+    'bulk': env.int("Q_BULK", default=1),
+    'guard_cycle': float(env("Q_GUARD_CYCLE", default="10")),
+    'save_limit': env.int("Q_SAVE_LIMIT", default=50),
+    'catch_up': env.bool("Q_CATCH_UP", default=False),
+    'broker_class': 'core.q_broker.LowCommandRedis',
     'redis': _redis_options,
 }
+Q_REDIS_BLPOP_TIMEOUT = env.int("Q_REDIS_BLPOP_TIMEOUT", default=30)
 
 
 MIDDLEWARE = [

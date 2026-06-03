@@ -1,6 +1,7 @@
 from django.conf import settings
 import traceback
 import logging
+from email.mime.image import MIMEImage
 logger = logging.getLogger(__name__)
 
 from django.contrib.auth import get_user_model
@@ -91,6 +92,21 @@ def send_async_email(subject,
             to=safe_recipient_list,
             cc=[e.strip() for e in (cc or []) if e and e.strip()],
         )
+        msg.mixed_subtype = "related"
+
+        logo_filename = "clipsnap-edit-6-1-2026.png"
+        logo_path = settings.BASE_DIR / "templates" / "emails" / logo_filename
+        if not logo_path.exists():
+            logo_filename = "logo.png"
+            logo_path = settings.BASE_DIR / "templates" / "emails" / logo_filename
+        if logo_path.exists():
+            with logo_path.open("rb") as logo_file:
+                logo = MIMEImage(logo_file.read())
+            logo.add_header("Content-ID", "<chemisttasker-logo-banner>")
+            logo.add_header("Content-Disposition", "inline", filename=logo_filename)
+            msg.attach(logo)
+        else:
+            logger.warning("Email logo file not found: %s", logo_path)
 
         # Attachments (e.g., PDF)
         if attachments:
@@ -99,11 +115,11 @@ def send_async_email(subject,
                     msg.attach(fname, content, mimetype)
 
         msg.attach_alternative(html_content, "text/html")
+        if notification:
+            _dispatch_notification(notification, safe_recipient_list)
         msg.send()
 
         logger.info("Email sent successfully.")
-        if notification:
-            _dispatch_notification(notification, safe_recipient_list)
     except Exception as e:
         logger.error("Failed to send email: %s", str(e))
         traceback.print_exc()

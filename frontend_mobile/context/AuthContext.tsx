@@ -61,6 +61,8 @@ type AuthContextType = {
   logout: () => Promise<void>;
   verifyOTP: (code: string, email?: string) => Promise<void>;
   resendOTP: (email?: string) => Promise<void>;
+  markMobileVerified: () => Promise<void>;
+  updateUserProfilePhoto: (photoUrl: string) => Promise<void>;
   refreshUser: () => Promise<void>;
   isLoading: boolean;
 };
@@ -77,6 +79,8 @@ const AuthContext = createContext<AuthContextType>({
   logout: async () => { },
   verifyOTP: async () => { },
   resendOTP: async () => { },
+  markMobileVerified: async () => { },
+  updateUserProfilePhoto: async () => { },
   refreshUser: async () => { },
   isLoading: true,
 });
@@ -328,7 +332,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const verifyOTP = async (code: string, email?: string) => {
     try {
       const targetEmail = email || user?.email;
-      await apiClient.post('/users/verify-otp/', { email: targetEmail, otp: code });
+      const response = await apiClient.post('/users/verify-otp/', { email: targetEmail, otp: code });
+      const payload = response?.data ?? response;
+      const userData = payload?.user;
+      const newAccess = payload?.access;
+      const newRefresh = payload?.refresh;
+      if (userData && newAccess && newRefresh) {
+        await login(newAccess, newRefresh, userData);
+      }
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'OTP verification failed');
     }
@@ -351,6 +362,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const msg = (error as any)?.message || error;
       console.debug('Error refreshing user (non-fatal):', msg);
     }
+  };
+
+  const markMobileVerified = async () => {
+    if (!user) return;
+    const updated = { ...user, is_mobile_verified: true };
+    setUser(updated);
+    const session = await readStoredSession();
+    await writeStoredSession({
+      access: session?.access || session?.tokens?.access || access,
+      refresh: session?.refresh || session?.tokens?.refresh || refresh,
+      user: updated,
+    });
+  };
+
+  const updateUserProfilePhoto = async (photoUrl: string) => {
+    if (!user || !photoUrl) return;
+    const updated = {
+      ...user,
+      profile_photo: photoUrl,
+      profile_photo_url: photoUrl,
+      profilePhoto: photoUrl,
+    } as User;
+    setUser(updated);
+    const session = await readStoredSession();
+    await writeStoredSession({
+      access: session?.access || session?.tokens?.access || access,
+      refresh: session?.refresh || session?.tokens?.refresh || refresh,
+      user: updated,
+    });
   };
 
   // If we have a token but missing photo, pull a fresh user without forcing users to clear storage
@@ -405,6 +445,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         logout,
         verifyOTP,
         resendOTP,
+        markMobileVerified,
+        updateUserProfilePhoto,
         refreshUser,
         isLoading,
       }}

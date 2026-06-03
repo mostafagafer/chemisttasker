@@ -38,6 +38,7 @@ import type { StepIconProps } from '@mui/material/StepIcon';
 import {
   InfoOutlined as InfoIcon,
   Delete as DeleteIcon,
+  Edit as EditIcon,
   Add as AddIcon,
   Work as WorkIcon,
   Visibility as VisibilityIcon,
@@ -87,6 +88,15 @@ interface CalendarEvent {
     occurrenceIndex: number;
   };
 }
+
+const toRateInputString = (value: unknown): string =>
+  value === null || value === undefined ? '' : String(value);
+
+const getSlotRateValue = (slot: any): unknown =>
+  slot?.rate ?? slot?.rate_per_hour ?? slot?.ratePerHour ?? slot?.hourly_rate ?? slot?.hourlyRate;
+
+const firstPresent = (...values: unknown[]): unknown =>
+  values.find((value) => value !== null && value !== undefined && value !== '');
 
 type CalendarViewOption = 'month' | 'week' | 'day';
 const CALENDAR_VIEWS: CalendarViewOption[] = ['month', 'week', 'day'];
@@ -150,6 +160,14 @@ const applyTimeToDate = (date: Date, time: string) => {
 
 const formatSlotDate = (value: string) => (value ? dayjs(value).format('DD/MM/YYYY') : '');
 const formatSlotTime = (value: string) => dayjs(`1970-01-01T${value}`).format('h:mm A');
+const getSlotDurationHours = (startTime?: string, endTime?: string) => {
+  if (!startTime || !endTime) return 0;
+  const start = dayjs(`1970-01-01T${startTime.slice(0, 5)}`);
+  let end = dayjs(`1970-01-01T${endTime.slice(0, 5)}`);
+  if (!start.isValid() || !end.isValid()) return 0;
+  if (end.isBefore(start) || end.isSame(start)) end = end.add(1, 'day');
+  return Math.max(0, end.diff(start, 'minute') / 60);
+};
 const formatSlotDisplayDate = (value: string) => {
   if (!value) return '';
   const parsed = dayjs(value);
@@ -330,14 +348,16 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
     let cancelled = false;
 
     const load = async () => {
+      let loadedPharmacies: PharmacyOption[] = [];
       try {
         const list = await fetchPharmaciesService({});
-        const filtered =
+        loadedPharmacies = (
           scopedPharmacyId != null
             ? list.filter((item: PharmacyOption) => Number(item.id) === scopedPharmacyId)
-            : list;
+            : list
+        ) as PharmacyOption[];
         if (!cancelled) {
-          setPharmacies(filtered as PharmacyOption[]);
+          setPharmacies(loadedPharmacies);
         }
       } catch {
         if (!cancelled) {
@@ -359,6 +379,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
             return;
           }
           setPharmacyId(scopedPharmacyId ?? detailPharmacyId ?? '');
+          const pharmacyDefaults = loadedPharmacies.find((item: PharmacyOption) => Number(item.id) === Number(detailPharmacyId));
           setEmploymentType(detail.employmentType ?? '');
           setRoleNeeded(detail.roleNeeded ?? '');
           setDescription(detail.description ?? '');
@@ -368,6 +389,17 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
           setVisibility(detail.visibility ?? 'FULL_PART_TIME');
           const incomingRateType = detail.rateType ?? '';
           setRateType(incomingRateType || 'FLEXIBLE');
+          setRateWeekday(toRateInputString(firstPresent((detail as any).rateWeekday, (detail as any).rate_weekday, (pharmacyDefaults as any)?.rateWeekday, (pharmacyDefaults as any)?.rate_weekday)));
+          setRateSaturday(toRateInputString(firstPresent((detail as any).rateSaturday, (detail as any).rate_saturday, (pharmacyDefaults as any)?.rateSaturday, (pharmacyDefaults as any)?.rate_saturday)));
+          setRateSunday(toRateInputString(firstPresent((detail as any).rateSunday, (detail as any).rate_sunday, (pharmacyDefaults as any)?.rateSunday, (pharmacyDefaults as any)?.rate_sunday)));
+          setRatePublicHoliday(toRateInputString(firstPresent((detail as any).ratePublicHoliday, (detail as any).rate_public_holiday, (pharmacyDefaults as any)?.ratePublicHoliday, (pharmacyDefaults as any)?.rate_public_holiday)));
+          setRateEarlyMorning(toRateInputString(firstPresent((detail as any).rateEarlyMorning, (detail as any).rate_early_morning, (pharmacyDefaults as any)?.rateEarlyMorning, (pharmacyDefaults as any)?.rate_early_morning)));
+          setRateLateNight(toRateInputString(firstPresent((detail as any).rateLateNight, (detail as any).rate_late_night, (pharmacyDefaults as any)?.rateLateNight, (pharmacyDefaults as any)?.rate_late_night)));
+          setOwnerBonus(toRateInputString((detail as any).ownerAdjustedRate ?? (detail as any).owner_adjusted_rate ?? (detail as any).ownerBonus ?? (detail as any).owner_bonus));
+          setMinHourly(toRateInputString((detail as any).minHourlyRate ?? (detail as any).min_hourly_rate));
+          setMaxHourly(toRateInputString((detail as any).maxHourlyRate ?? (detail as any).max_hourly_rate));
+          setMinAnnual(toRateInputString((detail as any).minAnnualSalary ?? (detail as any).min_annual_salary));
+          setMaxAnnual(toRateInputString((detail as any).maxAnnualSalary ?? (detail as any).max_annual_salary));
           setPaymentPreference(detail.paymentPreference ?? (detail as any).payment_preference ?? '');
           setFlexibleTiming(Boolean((detail as any).flexibleTiming ?? (detail as any).flexible_timing));
           setSingleUserOnly(Boolean(detail.singleUserOnly));
@@ -387,14 +419,19 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
             ORG_CHAIN: toInputDateTimeLocal(detail.escalateToOrgChain),
             PLATFORM: toInputDateTimeLocal(detail.escalateToPlatform),
           });
-          setSlots((detail.slots ?? []).map((slot: NonNullable<Shift['slots']>[number]) => ({
+          const parsedSlots = (detail.slots ?? []).map((slot: NonNullable<Shift['slots']>[number]) => ({
             date: slot.date,
             startTime: slot.startTime,
             endTime: slot.endTime,
             isRecurring: Boolean(slot.isRecurring),
             recurringDays: slot.recurringDays ?? [],
             recurringEndDate: slot.recurringEndDate ?? '',
-          })));
+          }));
+          setSlots(parsedSlots);
+          setSlotRateRows((detail.slots ?? []).map((slot: NonNullable<Shift['slots']>[number]) => {
+            const rate = toRateInputString(getSlotRateValue(slot));
+            return { rate, status: rate ? 'success' as const : 'idle' as const, dirty: rate !== '' };
+          }));
         } catch {
           if (!cancelled) {
             showSnackbar('Failed to load shift for editing', 'error');
@@ -521,12 +558,17 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
   const showNotifyPharmacyStaff = !isEmbedded && !editingShiftId && ['FULL_PART_TIME', 'LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(visibility);
   const showNotifyFavoriteStaff = !isEmbedded && !editingShiftId && ['LOCUM_CASUAL', 'OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(visibility);
   const showNotifyChainMembers = !isEmbedded && !editingShiftId && ['OWNER_CHAIN', 'ORG_CHAIN', 'PLATFORM'].includes(visibility);
+  const canPostAnonymously = !isEmbedded && ['ORG_CHAIN', 'PLATFORM'].includes(visibility);
 
   useEffect(() => {
     if (!showNotifyPharmacyStaff) setNotifyPharmacyStaff(false);
     if (!showNotifyFavoriteStaff) setNotifyFavoriteStaff(false);
     if (!showNotifyChainMembers) setNotifyChainMembers(false);
   }, [showNotifyPharmacyStaff, showNotifyFavoriteStaff, showNotifyChainMembers]);
+
+  useEffect(() => {
+    if (!canPostAnonymously) setPostAnonymously(false);
+  }, [canPostAnonymously]);
 
   useEffect(() => {
     if (!selectedPharmacy || editingShiftId) return;
@@ -1042,6 +1084,27 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
     return addSlotEntries(newEntries, { clearAllSelected: true });
   };
 
+  const handleEditSlot = (index: number) => {
+    const slot = slots[index];
+    if (!slot) return;
+
+    setSlotDate(slot.date);
+    setSlotStartTime(slot.startTime);
+    setSlotEndTime(slot.endTime);
+    setIsRecurring(slot.isRecurring);
+    setRecurringDays(slot.recurringDays || []);
+    setRecurringEndDate(slot.recurringEndDate || '');
+    setSelectedDates((current) =>
+      current.includes(slot.date) ? current : [...current, slot.date].sort()
+    );
+    setSelectedDateTimes((current) => ({
+      ...current,
+      [slot.date]: { startTime: slot.startTime, endTime: slot.endTime },
+    }));
+    setCalendarDate(dayjs(slot.date).toDate());
+    setSlots((current) => current.filter((_, idx) => idx !== index));
+  };
+
   const handleSubmit = async () => {
     if (!pharmacyId || !roleNeeded || !employmentType) return showSnackbar('Please fill all required fields in Step 1.', 'error');
     if (isLocumLike && slots.length === 0) return showSnackbar('Please add at least one schedule entry.', 'error');
@@ -1078,7 +1141,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
       owner_adjusted_rate: (roleNeeded !== 'PHARMACIST' && ownerBonus) ? Number(ownerBonus) : null,
       payment_preference: (employmentType === 'LOCUM' || employmentType === 'CASUAL') ? (paymentPreference || null) : null,
       single_user_only: singleUserOnly,
-      post_anonymously: postAnonymously,
+      post_anonymously: canPostAnonymously ? postAnonymously : false,
       has_travel: hasTravel,
       has_accommodation: hasAccommodation,
       is_urgent: isUrgent,
@@ -1094,6 +1157,15 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
     }
     if (isLocumLike) {
       payload.super_percent = locumSuperIncluded ? DEFAULT_SUPER_PERCENT : 0;
+    }
+    if (roleNeeded === 'PHARMACIST') {
+      payload.rate_weekday = rateWeekday || null;
+      payload.rate_saturday = rateSaturday || null;
+      payload.rate_sunday = rateSunday || null;
+      payload.rate_public_holiday = ratePublicHoliday || null;
+      payload.rate_early_morning = rateEarlyMorning || null;
+      payload.rate_late_night = rateLateNight || null;
+      payload.apply_rates_to_pharmacy = applyRatesToPharmacy;
     }
     if (!editingShiftId) {
       payload.notify_pharmacy_staff = isEmbedded ? false : notifyPharmacyStaff;
@@ -1212,20 +1284,6 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
           </Grid>
           <Grid size={{ xs: 12, md: 6 }}>
             <FormControl fullWidth size="small" sx={fieldSx}>
-              <InputLabel>Employment Type *</InputLabel>
-              <Select
-                value={employmentType}
-                label="Employment Type *"
-                onChange={e => setEmploymentType(e.target.value)}
-              >
-                <MenuItem value="LOCUM">Locum</MenuItem>
-                <MenuItem value="FULL_TIME">Full-Time</MenuItem>
-                <MenuItem value="PART_TIME">Part-Time</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid size={{ xs: 12, md: 6 }}>
-            <FormControl fullWidth size="small" sx={fieldSx}>
               <InputLabel>Role Needed *</InputLabel>
               <Select
                 value={roleNeeded}
@@ -1238,6 +1296,22 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                 <MenuItem value="INTERN">Intern Pharmacist</MenuItem>
                 <MenuItem value="STUDENT">Pharmacy Student</MenuItem>
                 <MenuItem value="EXPLORER">Explorer</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <FormControl fullWidth size="small" sx={fieldSx}>
+              <InputLabel>Employment Type *</InputLabel>
+              <Select
+                value={employmentType}
+                label="Employment Type *"
+                onChange={e => setEmploymentType(e.target.value)}
+              >
+                <MenuItem value="LOCUM">
+                  {roleNeeded === 'PHARMACIST' ? 'Locum' : 'Casual'}
+                </MenuItem>
+                <MenuItem value="FULL_TIME">Full-Time</MenuItem>
+                <MenuItem value="PART_TIME">Part-Time</MenuItem>
               </Select>
             </FormControl>
           </Grid>
@@ -1365,7 +1439,12 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                       )}
                     </AccordionSummary>
                     <AccordionDetails sx={{ p: 0 }}>
-                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                      <Box
+                        sx={{
+                          display: 'grid',
+                          gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                        }}
+                      >
                         {category.items.map((s: any, idx: number) => {
                           const value = mustHave.includes(s.code) 
                             ? 'required' 
@@ -1383,7 +1462,11 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                                 justifyContent: 'space-between',
                                 p: 2.5,
                                 gap: 2,
+                                minWidth: 0,
                                 borderBottom: idx < category.items.length - 1 ? '1px solid' : 'none',
+                                borderRight: {
+                                  md: idx % 2 === 0 && idx < category.items.length - 1 ? '1px solid' : 'none',
+                                },
                                 borderColor: 'grey.100',
                                 bgcolor: value === 'required' ? 'rgba(109, 40, 217, 0.06)' : value === 'favorable' ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
                                 transition: 'all 0.2s ease-in-out',
@@ -1500,40 +1583,42 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                 </Stack>
               </Paper>
             </Grid>
-            <Grid size={12}>
-              <Paper
-                variant="outlined"
-                sx={{
-                  p: 2,
-                  borderRadius: 3,
-                  borderColor: postAnonymously ? 'rgba(109, 40, 217, 0.28)' : 'grey.200',
-                  bgcolor: postAnonymously ? 'rgba(245, 243, 255, 0.72)' : 'background.paper',
-                }}
-              >
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={postAnonymously}
-                      onChange={(_, checked) => setPostAnonymously(checked)}
-                    />
-                  }
-                  label={
-                    <Box>
-                      <Typography
-                        variant="body1"
-                        sx={{ display: 'block', fontWeight: 600 }}
-                      >
-                        Post as anonymus 
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        only Pharmacy suburb well be showed 
-                     </Typography>
-                    </Box>
-                  }
-                  sx={{ alignItems: 'flex-start', m: 0 }}
-                />
-              </Paper>
-            </Grid>
+            {canPostAnonymously && (
+              <Grid size={12}>
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 2,
+                    borderRadius: 3,
+                    borderColor: postAnonymously ? 'rgba(109, 40, 217, 0.28)' : 'grey.200',
+                    bgcolor: postAnonymously ? 'rgba(245, 243, 255, 0.72)' : 'background.paper',
+                  }}
+                >
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={postAnonymously}
+                        onChange={(_, checked) => setPostAnonymously(checked)}
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Typography
+                          variant="body1"
+                          sx={{ display: 'block', fontWeight: 600 }}
+                        >
+                          Post as anonymous
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Only the pharmacy suburb will be shown.
+                       </Typography>
+                      </Box>
+                    }
+                    sx={{ alignItems: 'flex-start', m: 0 }}
+                  />
+                </Paper>
+              </Grid>
+            )}
             {!isEmbedded && (
               <Grid size={12}>
                 <Stack spacing={2}>
@@ -2046,9 +2131,18 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                                 </Stack>
                               )}
                             </Box>
-                            <IconButton edge="end" onClick={() => setSlots(sc => sc.filter((_, idx) => idx !== index))} color="error">
-                              <DeleteIcon />
-                            </IconButton>
+                            <Stack direction="row" spacing={0.5} alignItems="center">
+                              <Tooltip title="Edit slot">
+                                <IconButton edge="end" onClick={() => handleEditSlot(index)} color="primary">
+                                  <EditIcon />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Delete slot">
+                                <IconButton edge="end" onClick={() => setSlots(sc => sc.filter((_, idx) => idx !== index))} color="error">
+                                  <DeleteIcon />
+                                </IconButton>
+                              </Tooltip>
+                            </Stack>
                           </Box>
                         );
                       })}
@@ -2198,6 +2292,9 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
       }
       case 'pay': {
         const showSlotPreview = isLocumLike && !(roleNeeded === 'PHARMACIST' && rateType === 'PHARMACIST_PROVIDED');
+        const hasOutsidePharmacyMemberAudience =
+          !isEmbedded && (visibility !== 'FULL_PART_TIME' || Object.values(escalationDates).some(Boolean));
+        const baseRatesOptionalLabel = hasOutsidePharmacyMemberAudience ? '' : ' (optional)';
         const paymentField = isLocumLike ? (
           <Grid size={{ xs: 12, sm: 6 }}>
             <FormControl fullWidth size="small" sx={fieldSx}>
@@ -2328,35 +2425,63 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                     const finalNum = roleNeeded === 'PHARMACIST'
                       ? (rateValid ? baseNum : null)
                       : (rateValid ? baseNum : 0) + (bonusValid ? bonusNum : 0);
-                    const finalLabel =
-                      finalNum != null && Number.isFinite(finalNum)
-                        ? `$${finalNum.toFixed(2)}/hr`
-                        : '$0.00/hr';
+                    const durationHours = getSlotDurationHours(slot.startTime, slot.endTime);
+                    const totalNum =
+                      finalNum != null && Number.isFinite(finalNum) && durationHours > 0
+                        ? finalNum * durationHours
+                        : null;
+                    const totalLabel =
+                      totalNum != null && Number.isFinite(totalNum)
+                        ? `$${totalNum.toFixed(2)}`
+                        : '$0.00';
                     return (
-                      <Stack
+                      <Box
                         key={`${slot.date}-${slot.startTime}-${idx}`}
-                        direction="row"
-                        spacing={2}
-                        alignItems="center"
-                        flexWrap="wrap"
+                        sx={{
+                          display: 'grid',
+                          gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1fr) 132px auto' },
+                          gap: 1.5,
+                          alignItems: 'center',
+                          p: 1.5,
+                          border: '1px solid',
+                          borderColor: 'grey.200',
+                          borderRadius: 2.5,
+                          bgcolor: '#fff',
+                          boxShadow: '0 2px 10px rgba(15, 23, 42, 0.04)',
+                        }}
                       >
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="subtitle2" fontWeight={700} color="text.primary">
+                            {dayjs(slot.date).format('dddd, D MMMM')}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {`${formatSlotTime(slot.startTime)} - ${formatSlotTime(slot.endTime)}`}
+                          </Typography>
+                        </Box>
                         <Typography variant="body2" sx={{ minWidth: 180, display: 'none' }}>
                           {`${slot.date} · ${slot.startTime}—${slot.endTime}`}
                         </Typography>
                         <TextField
-                          label="Rate ($/hr)"
+                          label="Rate"
                           type="number"
                           value={row.rate}
                           onChange={(e) => handleSlotRateChange(idx, e.target.value)}
                           size="small"
-                          sx={{ width: 140 }}
+                          sx={{ width: { xs: '100%', sm: 132 }, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                          InputProps={{
+                            startAdornment: <Typography sx={{ mr: 0.5, color: 'text.secondary' }}>$</Typography>,
+                            endAdornment: <Typography sx={{ ml: 0.5, color: 'text.secondary' }}>/hr</Typography>,
+                          }}
                           error={row.status === 'error'}
                           helperText={row.status === 'error' ? (row.error || 'Error') : ''}
                         />
-                        <Typography variant="body2" color="text.secondary">
-                          {row.status === 'loading' ? 'Calculating...' : `Final: ${finalLabel}`}
-                        </Typography>
-                      </Stack>
+                        <Chip
+                          label={row.status === 'loading' ? 'Calculating...' : totalLabel}
+                          color={row.status === 'loading' ? 'default' : 'success'}
+                          size="small"
+                          sx={{ justifySelf: { xs: 'start', sm: 'end' }, fontWeight: 800 }}
+                        />
+                      </Box>
                     );
                   })}
                 </Stack>
@@ -2398,8 +2523,13 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                 <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, borderColor: 'grey.200' }}>
                   <Stack spacing={2}>
                     <Typography variant="subtitle1" fontWeight={600}>
-                      Base rates ($/hr)
+                      Base rates ($/hr){baseRatesOptionalLabel}
                     </Typography>
+                    {!hasOutsidePharmacyMemberAudience && (
+                      <Typography variant="body2" color="text.secondary">
+                        These pay rates will be displayed whenever the shift is visible outside Pharmacy Members.
+                      </Typography>
+                    )}
                     <Grid container rowSpacing={2} columnSpacing={2}>
                       <Grid size={{ xs: 12, sm: 6 }}>
                         <TextField
@@ -2608,7 +2738,11 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
           >
             {steps.map((step, index) => (
               <Step key={step.label}>
-                <StepLabel StepIconComponent={StepIconComponent}>
+                <StepLabel
+                  StepIconComponent={StepIconComponent}
+                  onClick={editingShiftId ? () => setActiveStep(index) : undefined}
+                  sx={editingShiftId ? { cursor: 'pointer' } : undefined}
+                >
                   <Typography
                     variant="body2"
                     fontWeight={activeStep === index ? 700 : 500}

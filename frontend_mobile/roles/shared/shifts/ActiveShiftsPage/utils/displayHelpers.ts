@@ -32,7 +32,7 @@ export function getLevelLabel(level: string): string {
         LOCUM_CASUAL: 'Locum/Casual',
         OWNER_CHAIN: 'Owner Chain',
         ORG_CHAIN: 'Organization',
-        PLATFORM: 'Public',
+        PLATFORM: 'Chemisttasker',
     };
     return labels[level] || level;
 }

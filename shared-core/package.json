@@ -23,7 +23,7 @@
         "typescript": "^5.0.0"
     },
     "devDependencies": {
-        "vitest": "^1.0.0",
-        "msw": "^2.0.0"
+        "msw": "^2.0.0",
+        "vitest": "^4.1.8"
     }
 }

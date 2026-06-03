@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Animated, Dimensions, Image, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Avatar, Card, Chip, Divider, IconButton, Surface, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getActiveShifts, getOnboarding } from '@chemisttasker/shared-core';
 import getShiftPharmacyName from '@/roles/shared/shifts/utils/getShiftPharmacyName';
 import apiClient from '@/utils/apiClient';
+import HomeNavigationGrid from '@/components/HomeNavigationGrid';
 
 const { width } = Dimensions.get('window');
 
@@ -46,16 +47,6 @@ export default function OwnerDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(30));
-
-  const welcomeName = useMemo(
-    () => ownerProfile?.first_name || ownerProfile?.username || (user as any)?.first_name || (user as any)?.username || 'there',
-    [ownerProfile?.first_name, ownerProfile?.username, user]
-  );
-
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    return hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-  }, []);
 
   const formatShiftDate = useCallback((dateStr?: string) => {
     if (!dateStr) return '';
@@ -139,14 +130,18 @@ export default function OwnerDashboard() {
 
   const quickActions = useMemo(
     () => [
-      { title: 'Post Shift', icon: 'plus-circle', route: '/owner/post-shift', gradient: ['#6366F1', '#8B5CF6'] as const },
-      { title: 'Pharmacies', icon: 'store', route: '/owner/pharmacies', gradient: ['#EC4899', '#F43F5E'] as const },
-      { title: 'Roster', icon: 'calendar-month', route: '/owner/shifts', gradient: ['#06B6D4', '#0EA5E9'] as const },
-      { title: 'Calendar', icon: 'calendar', route: '/owner/calendar', gradient: ['#22C55E', '#16A34A'] as const },
-      { title: 'Staff', icon: 'account-group', route: '/owner/staff', gradient: ['#10B981', '#14B8A6'] as const },
-      { title: 'Locums', icon: 'account-heart', route: '/owner/locums', gradient: ['#F59E0B', '#F97316'] as const },
-      { title: 'Talent Board', icon: 'account-search', route: '/owner/talent-board', gradient: ['#2563EB', '#1D4ED8'] as const },
-      { title: 'Messages', icon: 'message-text', route: '/owner/chat', gradient: ['#8B5CF6', '#A78BFA'] as const },
+      { title: 'Post Shift', description: 'Create coverage', icon: 'plus-circle-outline', route: '/owner/post-shift' },
+      { title: 'Pharmacies', description: 'Manage stores', icon: 'store-outline', route: '/owner/pharmacies' },
+      { title: 'Roster', description: 'Shift centre', icon: 'calendar-month-outline', route: '/owner/shifts' },
+      { title: 'Calendar', description: 'Schedule view', icon: 'calendar-outline', route: '/owner/calendar' },
+      { title: 'Staff', description: 'Team members', icon: 'account-group-outline', route: '/owner/staff' },
+      { title: 'Locums', description: 'Casual workers', icon: 'account-heart-outline', route: '/owner/locums' },
+      { title: 'Talent Board', description: 'Find talent', icon: 'account-search-outline', route: '/owner/talent-board' },
+      { title: 'Hub', description: 'Community posts', icon: 'view-grid-outline', route: '/owner/hub' },
+      { title: 'Messages', description: 'Open chat', icon: 'message-text-outline', route: '/owner/chat' },
+      { title: 'Pills', description: 'Rewards activity', icon: 'pill', route: '/owner/pills' },
+      { title: 'Subscription', description: 'Billing seats', icon: 'credit-card-outline', route: '/owner/subscription-seats' },
+      { title: 'Profile', description: 'Account details', icon: 'account-circle-outline', route: '/owner/profile' },
     ],
     []
   );
@@ -163,7 +158,7 @@ export default function OwnerDashboard() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <View style={styles.loadingContainer}>
           <Text>Loading your dashboard...</Text>
         </View>
@@ -172,26 +167,13 @@ export default function OwnerDashboard() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={fetchData} tintColor="#6366F1" />}
         showsVerticalScrollIndicator={false}
       >
-        <Animated.View style={[styles.header, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-          <View style={styles.headerTop}>
-            <View>
-              <Text variant="bodyMedium" style={styles.greetingText}>
-                {greeting} ☀️
-              </Text>
-              <Text variant="headlineMedium" style={styles.nameText}>
-                {welcomeName}
-              </Text>
-            </View>
-          </View>
-        </Animated.View>
-
         {/* <View style={styles.statsContainer}>
           <View style={styles.sectionHeader}>
             <Text variant="titleMedium" style={styles.sectionTitle}>
@@ -226,7 +208,9 @@ export default function OwnerDashboard() {
           onPress={() => router.push('/owner/pills' as any)}
           activeOpacity={0.82}
         >
-          <LinearGradient colors={['#4F46E5', '#0EA5E9']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.pillHeroGradient}>
+          <LinearGradient colors={['#267DB8', '#433894', '#9A087D']} locations={[0, 0.58, 1]} start={{ x: 0, y: 0.1 }} end={{ x: 1, y: 1 }} style={styles.pillHeroGradient}>
+            <View pointerEvents="none" style={styles.heroAngleOne} />
+            <View pointerEvents="none" style={styles.heroAngleTwo} />
             <View style={styles.pillHeroCopy}>
               <Text variant="labelMedium" style={styles.pillHeroEyebrow}>
                 Owner rewards
@@ -255,28 +239,7 @@ export default function OwnerDashboard() {
           </LinearGradient>
         </TouchableOpacity>
 
-        <View style={styles.section}>
-          <Text variant="titleMedium" style={styles.sectionHeaderText}>
-            Quick Actions
-          </Text>
-          <View style={styles.quickActionsGrid}>
-            {quickActions.map((action) => (
-              <TouchableOpacity
-                key={action.title}
-                style={styles.quickActionCard}
-                onPress={() => router.push(action.route as any)}
-                activeOpacity={0.7}
-              >
-                <LinearGradient colors={action.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.quickActionGradient}>
-                  <IconButton icon={action.icon} size={28} iconColor="#FFFFFF" />
-                </LinearGradient>
-                <Text variant="labelMedium" style={styles.quickActionTitle}>
-                  {action.title}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+        <HomeNavigationGrid items={quickActions} onNavigate={(route) => router.push(route as any)} />
 
         {upcomingShifts.length > 0 && (
           <View style={styles.section}>
@@ -301,7 +264,7 @@ export default function OwnerDashboard() {
                       </Text>
                       <Text variant="bodySmall" style={styles.shiftRole} numberOfLines={1} ellipsizeMode="tail">
                         {shift.role || 'Staff'}
-                        {formatShiftDate(shift.date) ? ` · ${formatShiftDate(shift.date)}` : ''}
+                        {formatShiftDate(shift.date) ? ` � ${formatShiftDate(shift.date)}` : ''}
                       </Text>
                     </View>
                   </View>
@@ -417,6 +380,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    position: 'relative',
+  },
+  heroAngleOne: {
+    position: 'absolute',
+    top: -58,
+    left: 158,
+    width: 150,
+    height: 310,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    transform: [{ rotate: '-28deg' }],
+  },
+  heroAngleTwo: {
+    position: 'absolute',
+    right: -50,
+    bottom: -70,
+    width: 230,
+    height: 300,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    transform: [{ rotate: '30deg' }],
   },
   pillHeroCopy: { flex: 1, paddingRight: 8 },
   pillHeroEyebrow: {
@@ -563,3 +545,4 @@ const styles = StyleSheet.create({
   bottomMenuTitle: { color: '#111827', fontWeight: '600' },
   bottomMenuDesc: { color: '#6B7280', fontSize: 12, marginTop: 2 },
 });
+

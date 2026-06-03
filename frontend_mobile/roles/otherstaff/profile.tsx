@@ -19,10 +19,11 @@ import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
 import { deleteAccount, updateOnboardingForm } from '@chemisttasker/shared-core';
 import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function OtherStaffProfileScreen() {
   const router = useRouter();
-  const { user, logout, refreshUser } = useAuth();
+  const { user, logout, refreshUser, updateUserProfilePhoto } = useAuth();
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -69,6 +70,7 @@ export default function OtherStaffProfileScreen() {
       const newUrl = updated?.profile_photo_url || updated?.profile_photo || null;
       if (newUrl) {
         setProfilePhoto(newUrl);
+        await updateUserProfilePhoto(newUrl);
       }
       await refreshUser();
     } catch (err: any) {
@@ -151,29 +153,48 @@ export default function OtherStaffProfileScreen() {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
         <View style={styles.header}>
-          {profilePhoto ? (
-            <Avatar.Image size={72} source={{ uri: profilePhoto }} />
-          ) : (
-            <Avatar.Text
-              size={72}
-              label={(user?.username || user?.email || 'U').substring(0, 2).toUpperCase()}
-              style={styles.avatar}
-            />
-          )}
-          <IconButton
-            icon="camera"
-            size={18}
-            style={styles.cameraButton}
-            onPress={pickImage}
-            disabled={uploading}
-          />
-          <Text variant="headlineSmall" style={styles.name}>
-            {user?.username || 'Other Staff'}
-          </Text>
-          <Text variant="bodySmall" style={styles.email}>
-            {user?.email || ''}
-          </Text>
+          <Text variant="headlineMedium" style={styles.headerTitle}>Profile</Text>
         </View>
+
+        <Card style={styles.profileCard}>
+          <LinearGradient
+            colors={['#6366F1', '#8B5CF6']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.gradientHeader}
+          >
+            <View style={styles.avatarContainer}>
+              {profilePhoto ? (
+                <Avatar.Image size={80} source={{ uri: profilePhoto }} />
+              ) : (
+                <Avatar.Text
+                  size={80}
+                  label={(user?.username || user?.email || 'U').substring(0, 2).toUpperCase()}
+                  style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
+                  color="#FFFFFF"
+                />
+              )}
+              <IconButton
+                icon="camera"
+                size={20}
+                iconColor="#FFFFFF"
+                containerColor="#6366F1"
+                style={styles.cameraButton}
+                onPress={pickImage}
+                disabled={uploading}
+              />
+            </View>
+            <Text variant="headlineSmall" style={styles.name}>
+              {user?.username || 'Other Staff'}
+            </Text>
+            <Text variant="bodyMedium" style={styles.email}>
+              {user?.email || ''}
+            </Text>
+            <View style={styles.roleChip}>
+              <Text variant="labelSmall" style={styles.roleText}>OTHER STAFF</Text>
+            </View>
+          </LinearGradient>
+        </Card>
 
         <View style={styles.menuContainer}>
           {menuItems.map((item, index) => (
@@ -289,19 +310,51 @@ export default function OtherStaffProfileScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9FAFB' },
   header: {
-    alignItems: 'center',
-    paddingTop: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
     paddingBottom: 16,
   },
-  avatar: {
-    backgroundColor: '#6366F1',
-    marginBottom: 12,
+  headerTitle: {
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  profileCard: {
+    marginHorizontal: 20,
+    borderRadius: 24,
+    overflow: 'hidden',
+    marginBottom: 24,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+  },
+  gradientHeader: {
+    padding: 32,
+    alignItems: 'center',
+  },
+  avatarContainer: {
+    position: 'relative',
   },
   cameraButton: {
-    marginTop: -8,
+    position: 'absolute',
+    bottom: 0,
+    right: -4,
+    margin: 0,
   },
-  name: { fontWeight: '700', color: '#111827' },
-  email: { color: '#6B7280', marginTop: 4 },
+  name: { color: '#FFFFFF', fontWeight: 'bold', marginTop: 16 },
+  email: { color: 'rgba(255,255,255,0.8)', marginTop: 4 },
+  roleChip: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  roleText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
   section: { paddingHorizontal: 16, marginTop: 16 },
   menuContainer: { paddingHorizontal: 16, gap: 10, marginTop: 8 },
   menuCard: { backgroundColor: '#FFFFFF', borderRadius: 16, elevation: 0, borderWidth: 1, borderColor: '#E5E7EB' },

@@ -3,7 +3,7 @@
 
 import React from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
-import { Portal, Dialog, Button, Text, TextInput, Checkbox, Card, ActivityIndicator } from 'react-native-paper';
+import { Portal, Dialog, Button, Text, TextInput, Checkbox, Card, Icon } from 'react-native-paper';
 import { Shift } from '@chemisttasker/shared-core';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
 import { CounterOfferFormSlot, TravelLocation } from '../types';
@@ -55,15 +55,18 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
             <Dialog.ScrollArea>
                 <ScrollView contentContainerStyle={styles.content}>
                     {counterOfferError && (
-                        <Text variant="bodyMedium" style={styles.error}>
-                            {counterOfferError}
-                        </Text>
+                        <View style={styles.errorBox}>
+                            <Text variant="bodyMedium" style={styles.error}>
+                                {counterOfferError}
+                            </Text>
+                        </View>
                     )}
                     {counterOfferShift && (
                         <View style={styles.formContainer}>
                             <Card style={styles.infoCard} mode="outlined">
-                                <Card.Content>
-                                    <Text variant="bodyMedium">
+                                <Card.Content style={styles.infoContent}>
+                                    <Icon source="information-outline" size={20} color="#167B87" />
+                                    <Text variant="bodyMedium" style={styles.infoText}>
                                         Negotiation options:{' '}
                                         {getShiftNegotiable(counterOfferShift) ? 'Rate negotiable.' : 'Rate fixed.'}{' '}
                                         {getShiftFlexibleTime(counterOfferShift) ? 'Time flexible.' : 'Time fixed.'}
@@ -78,17 +81,22 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                                     mode="outlined"
                                 >
                                     <Card.Content>
-                                        <Text variant="titleMedium" style={styles.slotTitle}>
-                                            {slot.dateLabel}
-                                        </Text>
-                                        <View style={styles.slotRow}>
+                                        <View style={styles.slotGrid}>
+                                            <View style={styles.dateCell}>
+                                                <Icon source="calendar-month-outline" size={18} color="#167B87" />
+                                                <Text variant="titleSmall" style={styles.slotTitle} numberOfLines={2}>
+                                                    {slot.dateLabel}
+                                                </Text>
+                                            </View>
                                             <TextInput
                                                 label="Start time"
                                                 value={slot.startTime}
                                                 onChangeText={(value) => onCounterSlotChange(idx, 'startTime', value)}
                                                 disabled={!getShiftFlexibleTime(counterOfferShift)}
-                                                style={styles.halfInput}
+                                                style={styles.timeInput}
                                                 mode="outlined"
+                                                outlineColor="#D7E5EA"
+                                                activeOutlineColor="#167B87"
                                                 dense
                                             />
                                             <TextInput
@@ -96,21 +104,27 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                                                 value={slot.endTime}
                                                 onChangeText={(value) => onCounterSlotChange(idx, 'endTime', value)}
                                                 disabled={!getShiftFlexibleTime(counterOfferShift)}
-                                                style={styles.halfInput}
+                                                style={styles.timeInput}
                                                 mode="outlined"
+                                                outlineColor="#D7E5EA"
+                                                activeOutlineColor="#167B87"
                                                 dense
                                             />
+                                            <TextInput
+                                                label="Rate"
+                                                value={slot.rate}
+                                                onChangeText={(value) => onCounterSlotChange(idx, 'rate', value)}
+                                                disabled={!getShiftNegotiable(counterOfferShift)}
+                                                keyboardType="numeric"
+                                                style={styles.rateInput}
+                                                mode="outlined"
+                                                outlineColor="#D7E5EA"
+                                                activeOutlineColor="#167B87"
+                                                dense
+                                                left={<TextInput.Affix text="$" />}
+                                                right={<TextInput.Affix text="/hr" />}
+                                            />
                                         </View>
-                                        <TextInput
-                                            label="Hourly rate"
-                                            value={slot.rate}
-                                            onChangeText={(value) => onCounterSlotChange(idx, 'rate', value)}
-                                            disabled={!getShiftNegotiable(counterOfferShift)}
-                                            keyboardType="numeric"
-                                            style={styles.rateInput}
-                                            mode="outlined"
-                                            dense
-                                        />
                                     </Card.Content>
                                 </Card>
                             ))}
@@ -120,6 +134,7 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                                     <Checkbox
                                         status={counterOfferTravel ? 'checked' : 'unchecked'}
                                         onPress={() => onCounterOfferTravelChange(!counterOfferTravel)}
+                                        color="#167B87"
                                     />
                                     <Text variant="bodyMedium" style={styles.checkboxLabel}>
                                         Request travel allowance
@@ -189,6 +204,8 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                                                     }
                                                     style={styles.addressInput}
                                                     mode="outlined"
+                                                    outlineColor="#D7E5EA"
+                                                    activeOutlineColor="#167B87"
                                                     dense
                                                 />
                                                 <TextInput
@@ -202,6 +219,8 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                                                     }
                                                     style={styles.addressInput}
                                                     mode="outlined"
+                                                    outlineColor="#D7E5EA"
+                                                    activeOutlineColor="#167B87"
                                                     dense
                                                 />
                                                 <TextInput
@@ -215,6 +234,8 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                                                     }
                                                     style={styles.addressInput}
                                                     mode="outlined"
+                                                    outlineColor="#D7E5EA"
+                                                    activeOutlineColor="#167B87"
                                                     dense
                                                 />
                                                 <TextInput
@@ -228,6 +249,8 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                                                     }
                                                     style={styles.addressInput}
                                                     mode="outlined"
+                                                    outlineColor="#D7E5EA"
+                                                    activeOutlineColor="#167B87"
                                                     dense
                                                 />
                                                 <Button mode="text" onPress={onClearTravelLocation} style={styles.clearButton}>
@@ -261,60 +284,107 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
 const styles = StyleSheet.create({
     dialog: {
         maxHeight: '90%',
+        borderRadius: 14,
     },
     pharmacy: {
         marginTop: 4,
-        color: '#666',
+        color: '#516178',
     },
     content: {
-        paddingHorizontal: 24,
+        paddingHorizontal: 18,
         paddingVertical: 16,
     },
-    error: {
-        color: '#d32f2f',
+    errorBox: {
+        borderWidth: 1,
+        borderColor: '#F5C2C7',
+        backgroundColor: '#FFF5F5',
+        borderRadius: 10,
+        padding: 12,
         marginBottom: 12,
+    },
+    error: {
+        color: '#B42318',
     },
     formContainer: {
         gap: 16,
     },
     infoCard: {
-        backgroundColor: '#f5f5f5',
+        backgroundColor: '#F3FCFD',
+        borderColor: '#C7ECEF',
+        borderRadius: 12,
+    },
+    infoContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    infoText: {
+        flex: 1,
+        color: '#0F2A43',
     },
     slotCard: {
-        marginVertical: 8,
+        marginVertical: 4,
+        borderColor: '#D7E5EA',
+        borderRadius: 12,
+        backgroundColor: '#FFFFFF',
+    },
+    slotGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+        alignItems: 'center',
+    },
+    dateCell: {
+        minWidth: 132,
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: '#EEF7F8',
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
     },
     slotTitle: {
-        marginBottom: 12,
+        flex: 1,
+        color: '#111827',
+        fontWeight: '800',
     },
-    slotRow: {
-        flexDirection: 'row',
-        gap: 12,
-        marginBottom: 12,
-    },
-    halfInput: {
+    timeInput: {
+        minWidth: 116,
         flex: 1,
     },
     rateInput: {
-        marginTop: 8,
+        minWidth: 120,
+        flex: 1,
     },
     checkboxRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginVertical: 8,
+        borderWidth: 1,
+        borderColor: '#D7E5EA',
+        borderRadius: 12,
+        paddingVertical: 6,
+        paddingHorizontal: 4,
+        backgroundColor: '#FFFFFF',
     },
     checkboxLabel: {
         marginLeft: 8,
+        fontWeight: '700',
+        color: '#111827',
     },
     travelCard: {
         marginVertical: 8,
+        borderColor: '#D7E5EA',
+        borderRadius: 12,
     },
     travelTitle: {
         marginBottom: 12,
     },
     placesInput: {
         borderWidth: 1,
-        borderColor: '#ccc',
-        borderRadius: 4,
+        borderColor: '#D7E5EA',
+        borderRadius: 10,
         padding: 12,
     },
     addressForm: {

@@ -7,7 +7,15 @@ Location: {{ location_line }}
 {% if rate_summary %}
 Rate: {{ rate_summary }}
 {% endif %}
-{% if slots_display %}
+{% if slots_display_details %}
+Schedule:
+{% for slot in slots_display_details %}
+- {{ slot.date }} — {{ slot.time }}{% if slot.rate %} — {{ slot.rate }}{% endif %}
+{% endfor %}
+{% if slots_extra_count %}
+- and {{ slots_extra_count }} more
+{% endif %}
+{% elif slots_display %}
 Schedule:
 {% for slot_line in slots_display %}
 - {{ slot_line }}

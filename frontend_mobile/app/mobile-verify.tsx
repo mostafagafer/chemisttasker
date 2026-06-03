@@ -12,7 +12,7 @@ import AuthLayout from '../components/AuthLayout';
 
 export default function MobileVerifyScreen() {
     const router = useRouter();
-    const { user } = useAuth();
+    const { logout, markMobileVerified, user } = useAuth();
 
     const [mobile, setMobile] = useState('');
     const [otp, setOtp] = useState('');
@@ -61,6 +61,7 @@ export default function MobileVerifyScreen() {
         setLoading(true);
         try {
             await mobileVerifyOtp({ otp });
+            await markMobileVerified();
             setStatus('Mobile verified! Redirecting...');
             setTimeout(() => router.replace(getRoleHome(user?.role) as any), 800);
         } catch (err: any) {
@@ -87,6 +88,11 @@ export default function MobileVerifyScreen() {
     const handleOtpChange = (value: string) => {
         const digits = value.replace(/\D/g, '').slice(0, 6);
         setOtp(digits);
+    };
+
+    const handleBackToLogin = async () => {
+        await logout();
+        router.replace('/login' as any);
     };
 
     return (
@@ -170,7 +176,7 @@ export default function MobileVerifyScreen() {
             </View>
 
             <View style={styles.backRow}>
-                <Button mode="text" onPress={() => router.back()} style={styles.backButton}>
+                <Button mode="text" onPress={handleBackToLogin} style={styles.backButton}>
                     Back to login
                 </Button>
             </View>

@@ -505,15 +505,32 @@ def charge_shift_fulfillment(request, shift_id):
     billing_state = get_billing_state_for_account(account)
     platform = request.data.get('platform', 'web')
 
+    candidate_id = request.data.get('candidate_id')
+    slot_id = request.data.get('slot_id')
+
+    if slot_id:
+        from client_profile.models import ShiftOffer
+        if not ShiftOffer.objects.filter(
+            shift=shift,
+            status=ShiftOffer.Status.ACCEPTED_AWAITING_PAYMENT,
+            slot_id=slot_id,
+        ).exists():
+            return Response({'error': 'This selected slot does not require payment.'}, status=status.HTTP_400_BAD_REQUEST)
+
     # --- Honeymoon period / free trial: finalize for free ---
     if billing_state in [BILLING_STATE_PRE_LIVE, BILLING_STATE_FREE_TRIAL]:
-        shift.payment_status = 'PAID'
-        shift.save(update_fields=['payment_status'])
         finalized_count = _finalize_pending_offers_for_shift(
             shift,
-            candidate_id=request.data.get('candidate_id'),
-            slot_id=request.data.get('slot_id'),
+            candidate_id=candidate_id,
+            slot_id=slot_id,
         )
+        from client_profile.models import ShiftOffer
+        has_pending_payment = ShiftOffer.objects.filter(
+            shift=shift,
+            status=ShiftOffer.Status.ACCEPTED_AWAITING_PAYMENT,
+        ).exists()
+        shift.payment_status = 'PENDING' if has_pending_payment else 'PAID'
+        shift.save(update_fields=['payment_status'])
         if billing_state == BILLING_STATE_PRE_LIVE:
             return Response({
                 'free': True,
@@ -551,8 +568,6 @@ def charge_shift_fulfillment(request, shift_id):
     else:
         price_id = 'price_1T52imBQXaySV5ukuwLH3ikI' if is_subscriber else 'price_1T52ilBQXaySV5uksvQy2RTk'
 
-    candidate_id = request.data.get('candidate_id')
-    slot_id = request.data.get('slot_id')
     success_url, cancel_url = _shift_checkout_return_urls(
         shift,
         acting_user=user,
@@ -779,7 +794,6 @@ def stripe_webhook(request):
                 # Mark shift paid, then finalize pending offers waiting on payment.
                 try:
                     from client_profile.models import Shift as ShiftModel
-                    ShiftModel.objects.filter(id=shift_id, payment_status='PENDING').update(payment_status='PAID')
                     shift_obj = ShiftModel.objects.filter(id=shift_id).first()
                     if shift_obj:
                         _finalize_pending_offers_for_shift(
@@ -787,6 +801,13 @@ def stripe_webhook(request):
                             candidate_id=metadata.get('candidate_id'),
                             slot_id=metadata.get('slot_id'),
                         )
+                        from client_profile.models import ShiftOffer
+                        has_pending_payment = ShiftOffer.objects.filter(
+                            shift=shift_obj,
+                            status=ShiftOffer.Status.ACCEPTED_AWAITING_PAYMENT,
+                        ).exists()
+                        shift_obj.payment_status = 'PENDING' if has_pending_payment else 'PAID'
+                        shift_obj.save(update_fields=['payment_status'])
                 except Exception as e:
                     logger.warning('Could not finalize paid shift offers: %s', e)
 

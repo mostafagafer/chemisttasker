@@ -3,8 +3,8 @@ import { Animated, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, Vie
 import { Button, Card, Divider, IconButton, Surface, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
+import HomeNavigationGrid from '@/components/HomeNavigationGrid';
 
 export default function ExplorerOverviewScreen() {
   const { access, user, logout, isLoading: authLoading } = useAuth();
@@ -52,42 +52,54 @@ export default function ExplorerOverviewScreen() {
     await loadDashboard();
   }, [loadDashboard]);
 
-  const displayName =
-    (user as any)?.first_name ||
-    (user as any)?.username ||
-    'there';
-
-  const currentHour = new Date().getHours();
-  const greeting = currentHour < 12 ? 'Good morning' : currentHour < 18 ? 'Good afternoon' : 'Good evening';
-
   const quickActions = useMemo(
     () => [
       {
+        title: 'Shifts',
+        description: 'Browse roles',
+        icon: 'calendar-search',
+        route: '/explorer/shifts',
+      },
+      {
+        title: 'Availability',
+        description: 'Set schedule',
+        icon: 'calendar-clock-outline',
+        route: '/explorer/availability',
+      },
+      {
         title: 'Talent Board',
         description: 'Browse candidates',
-        icon: 'account-search',
-        gradient: ['#6366F1', '#8B5CF6'] as const,
+        icon: 'account-search-outline',
         route: '/explorer/talent-board',
       },
       {
         title: 'Calendar',
         description: 'View calendar',
-        icon: 'calendar',
-        gradient: ['#EC4899', '#F43F5E'] as const,
+        icon: 'calendar-outline',
         route: '/explorer/calendar',
       },
       {
         title: 'Chat',
         description: 'Open messages',
-        icon: 'message-text',
-        gradient: ['#F59E0B', '#F97316'] as const,
+        icon: 'message-text-outline',
         route: '/explorer/chat',
+      },
+      {
+        title: 'Interests',
+        description: 'Preferences',
+        icon: 'heart-outline',
+        route: '/explorer/profile-interests',
+      },
+      {
+        title: 'Notifications',
+        description: 'Alerts',
+        icon: 'bell-outline',
+        route: '/explorer/notifications',
       },
       {
         title: 'Profile',
         description: 'Edit details',
-        icon: 'account',
-        gradient: ['#8B5CF6', '#A78BFA'] as const,
+        icon: 'account-circle-outline',
         route: '/explorer/profile',
       },
     ],
@@ -96,7 +108,7 @@ export default function ExplorerOverviewScreen() {
 
   if (loading && !refreshing) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading your dashboard...</Text>
         </View>
@@ -105,51 +117,14 @@ export default function ExplorerOverviewScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366F1" />}
         showsVerticalScrollIndicator={false}
       >
-        <Animated.View style={[styles.header, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-          <View style={styles.headerTop}>
-            <View>
-              <Text variant="bodyMedium" style={styles.greetingText}>
-                {greeting} 👋
-              </Text>
-              <Text variant="headlineMedium" style={styles.nameText}>
-                {displayName}
-              </Text>
-            </View>
-          </View>
-        </Animated.View>
-
-        <View style={styles.section}>
-          <Text variant="titleMedium" style={styles.sectionHeaderText}>
-            Quick Actions
-          </Text>
-          <View style={styles.quickActionsGrid}>
-            {quickActions.map((action) => (
-              <TouchableOpacity
-                key={action.title}
-                style={styles.quickActionCard}
-                onPress={() => router.push(action.route as any)}
-                activeOpacity={0.7}
-              >
-                <LinearGradient colors={action.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.quickActionGradient}>
-                  <IconButton icon={action.icon} size={28} iconColor="#FFFFFF" />
-                </LinearGradient>
-                <Text variant="labelMedium" style={styles.quickActionTitle}>
-                  {action.title}
-                </Text>
-                <Text variant="bodySmall" style={styles.quickActionDesc}>
-                  {action.description}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+        <HomeNavigationGrid items={quickActions} onNavigate={(route) => router.push(route as any)} />
 
         <Surface style={styles.bottomSection}>
           <TouchableOpacity style={styles.bottomMenuItem} onPress={() => router.push('/explorer/profile' as any)}>
@@ -294,3 +269,4 @@ const styles = StyleSheet.create({
   bottomMenuTitle: { color: '#111827', fontWeight: '600' },
   bottomMenuDesc: { color: '#6B7280', marginTop: 2 },
 });
+

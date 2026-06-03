@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getOtherStaffDashboard } from '@chemisttasker/shared-core';
 import getShiftPharmacyName from '@/roles/shared/shifts/utils/getShiftPharmacyName';
+import HomeNavigationGrid from '@/components/HomeNavigationGrid';
 
 const { width } = Dimensions.get('window');
 
@@ -118,16 +119,12 @@ export default function OtherStaffOverviewScreen() {
   }, [loadDashboard]);
 
   const shifts = useMemo(() => data?.shifts ?? [], [data?.shifts]);
-
   const displayName =
     data?.user?.first_name ||
     data?.user?.username ||
     (user as any)?.first_name ||
     (user as any)?.username ||
     'there';
-
-  const currentHour = new Date().getHours();
-  const greeting = currentHour < 12 ? 'Good morning' : currentHour < 18 ? 'Good afternoon' : 'Good evening';
 
   const statCards = useMemo(() => [
     {
@@ -161,71 +158,48 @@ export default function OtherStaffOverviewScreen() {
       title: 'Find Shifts',
       description: 'Browse jobs',
       icon: 'magnify',
-      color: '#6366F1',
-      gradient: ['#6366F1', '#8B5CF6'] as const,
       route: '/otherstaff/shifts',
     },
     {
       title: 'Availability',
       description: 'Set schedule',
-      icon: 'calendar-clock',
-      color: '#EC4899',
-      gradient: ['#EC4899', '#F43F5E'] as const,
+      icon: 'calendar-clock-outline',
       route: '/otherstaff/availability',
     },
     {
       title: 'Calendar',
       description: 'View schedule',
-      icon: 'calendar',
-      color: '#22C55E',
-      gradient: ['#22C55E', '#16A34A'] as const,
+      icon: 'calendar-outline',
       route: '/otherstaff/calendar',
     },
     {
       title: 'Talent Board',
       description: 'Browse talent',
-      icon: 'account-search',
-      color: '#2563EB',
-      gradient: ['#2563EB', '#1D4ED8'] as const,
+      icon: 'account-search-outline',
       route: '/otherstaff/talent-board',
     },
     {
       title: 'Invoices',
       description: 'View payments',
       icon: 'file-document-outline',
-      color: '#06B6D4',
-      gradient: ['#06B6D4', '#0EA5E9'] as const,
       route: '/otherstaff/invoice',
     },
-    // {
-    //   title: 'Learning',
-    //   description: 'CPD & Training',
-    //   icon: 'school',
-    //   color: '#10B981',
-    //   gradient: ['#10B981', '#14B8A6'] as const,
-    //   route: '/otherstaff/learning',
-    // },
-    // {
-    //   title: 'Interests',
-    //   description: 'Job preferences',
-    //   icon: 'heart',
-    //   color: '#F59E0B',
-    //   gradient: ['#F59E0B', '#F97316'] as const,
-    //   route: '/otherstaff/interests',
-    // },
+    { title: 'Hub', description: 'Community posts', icon: 'view-grid-outline', route: '/otherstaff/hub' },
+    { title: 'Chat', description: 'Open messages', icon: 'message-text-outline', route: '/otherstaff/chat' },
+    { title: 'Learning', description: 'Training', icon: 'school-outline', route: '/otherstaff/learning' },
+    { title: 'Interests', description: 'Preferences', icon: 'heart-outline', route: '/otherstaff/interests' },
+    { title: 'Notifications', description: 'Alerts', icon: 'bell-outline', route: '/otherstaff/notifications' },
     {
       title: 'Profile',
       description: 'Edit details',
-      icon: 'account',
-      color: '#8B5CF6',
-      gradient: ['#8B5CF6', '#A78BFA'] as const,
+      icon: 'account-circle-outline',
       route: '/otherstaff/profile',
     },
   ], []);
 
   if (loading && !refreshing && !data) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#6366F1" />
           <Text style={styles.loadingText}>Loading your dashboard...</Text>
@@ -235,68 +209,25 @@ export default function OtherStaffOverviewScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366F1" />}
         showsVerticalScrollIndicator={false}
       >
-        <Animated.View style={[styles.header, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-          <View style={styles.headerTop}>
-            <View>
-              <Text variant="bodyMedium" style={styles.greetingText}>
-                {greeting} 👋
-              </Text>
-              <Text variant="headlineMedium" style={styles.nameText}>
-                {displayName}
-              </Text>
-            </View>
+        <LinearGradient colors={['#267DB8', '#433894', '#9A087D']} locations={[0, 0.58, 1]} start={{ x: 0, y: 0.1 }} end={{ x: 1, y: 1 }} style={styles.shiftHero}>
+          <View pointerEvents="none" style={styles.heroAngleOne} />
+          <View pointerEvents="none" style={styles.heroAngleTwo} />
+          <Text variant="headlineSmall" style={styles.shiftHeroTitle}>Welcome {displayName},</Text>
+          <View style={styles.shiftHeroHeader}>
+            <Text variant="titleMedium" style={styles.shiftHeroSubtitle}>Upcoming shifts</Text>
+            <TouchableOpacity onPress={() => router.push('/otherstaff/shifts')}>
+              <Text style={styles.shiftHeroLink}>View all</Text>
+            </TouchableOpacity>
           </View>
-        </Animated.View>
-
-        <View style={styles.section}>
-          <Text variant="titleMedium" style={styles.sectionHeaderText}>
-            Quick Actions
-          </Text>
-          <View style={styles.quickActionsGrid}>
-            {quickActions.map((action) => (
-              <TouchableOpacity
-                key={action.title}
-                style={styles.quickActionCard}
-                onPress={() => router.push(action.route as any)}
-                activeOpacity={0.7}
-              >
-                <LinearGradient
-                  colors={action.gradient}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.quickActionGradient}
-                >
-                  <IconButton icon={action.icon} size={28} iconColor="#FFFFFF" />
-                </LinearGradient>
-                <Text variant="labelMedium" style={styles.quickActionTitle}>
-                  {action.title}
-                </Text>
-                <Text variant="bodySmall" style={styles.quickActionDesc}>
-                  {action.description}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {shifts.length > 0 ? (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text variant="titleMedium" style={styles.sectionTitle}>
-                Upcoming Shifts
-              </Text>
-              <TouchableOpacity onPress={() => router.push('/otherstaff/shifts')}>
-                <Text style={styles.seeAllText}>View All</Text>
-              </TouchableOpacity>
-            </View>
-            {shifts.slice(0, 3).map((shift) => (
+          {shifts.length > 0 ? (
+            shifts.slice(0, 3).map((shift) => (
               <Card
                 key={shift.id}
                 style={styles.shiftPreviewCard}
@@ -319,24 +250,35 @@ export default function OtherStaffOverviewScreen() {
                   <IconButton icon="chevron-right" size={20} iconColor="#9CA3AF" />
                 </Card.Content>
               </Card>
-            ))}
+            ))
+          ) : (
+            <View style={styles.shiftHeroEmpty}>
+              <IconButton icon="calendar-blank" size={40} iconColor="rgba(255,255,255,0.86)" />
+              <Text variant="titleMedium" style={styles.shiftHeroEmptyTitle}>No upcoming shifts</Text>
+              <Text variant="bodySmall" style={styles.shiftHeroEmptyText}>Check the community board to find new opportunities.</Text>
+              <Button mode="contained" buttonColor="#FFFFFF" textColor="#1D4ED8" style={styles.shiftHeroButton} onPress={() => router.push('/otherstaff/shifts')}>
+                Find Shifts
+              </Button>
+            </View>
+          )}
+        </LinearGradient>
+
+        <LinearGradient colors={['#267DB8', '#433894', '#9A087D']} locations={[0, 0.58, 1]} start={{ x: 0, y: 0.1 }} end={{ x: 1, y: 1 }} style={styles.billingHero}>
+          <View pointerEvents="none" style={styles.heroAngleOne} />
+          <View pointerEvents="none" style={styles.heroAngleTwo} />
+          <Text variant="labelMedium" style={styles.billingEyebrow}>Bills</Text>
+          <View style={styles.billingRow}>
+            <View>
+              <Text variant="headlineSmall" style={styles.billingValue}>{data?.bills_summary?.total_billed ?? '$0'}</Text>
+              <Text variant="bodySmall" style={styles.billingText}>Total billed</Text>
+            </View>
+            <TouchableOpacity style={styles.billingButton} onPress={() => router.push('/otherstaff/invoice' as any)}>
+              <Text style={styles.billingButtonText}>Invoices</Text>
+            </TouchableOpacity>
           </View>
-        ) : (
-          <View style={styles.section}>
-            <Card mode="outlined" style={styles.emptyCard}>
-              <Card.Content style={{ alignItems: 'center', padding: 24 }}>
-                <IconButton icon="calendar-blank" size={48} iconColor="#9CA3AF" />
-                <Text variant="titleMedium" style={{ marginTop: 8, color: '#6B7280' }}>No upcoming shifts</Text>
-                <Text variant="bodySmall" style={{ textAlign: 'center', color: '#9CA3AF', marginTop: 4 }}>
-                  Check the community board to find new opportunities.
-                </Text>
-                <Button mode="contained-tonal" style={{ marginTop: 16 }} onPress={() => router.push('/otherstaff/shifts')}>
-                  Find Shifts
-                </Button>
-              </Card.Content>
-            </Card>
-          </View>
-        )}
+        </LinearGradient>
+
+        <HomeNavigationGrid items={quickActions} onNavigate={(route) => router.push(route as any)} />
 
         <Surface style={styles.bottomSection}>
           <TouchableOpacity style={styles.bottomMenuItem} onPress={() => router.push('/otherstaff/profile')}>
@@ -523,6 +465,102 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 24,
   },
+  shiftHero: {
+    marginHorizontal: 20,
+    marginBottom: 18,
+    borderRadius: 22,
+    padding: 18,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    position: 'relative',
+  },
+  heroAngleOne: { position: 'absolute', top: -58, left: 158, width: 150, height: 310, backgroundColor: 'rgba(255,255,255,0.16)', transform: [{ rotate: '-28deg' }] },
+  heroAngleTwo: { position: 'absolute', right: -50, bottom: -70, width: 230, height: 300, backgroundColor: 'rgba(255,255,255,0.08)', transform: [{ rotate: '30deg' }] },
+  shiftHeroTitle: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    marginBottom: 10,
+  },
+  shiftHeroHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  shiftHeroSubtitle: {
+    color: '#E0F2FE',
+    fontWeight: '800',
+  },
+  shiftHeroLink: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  shiftHeroEmpty: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  shiftHeroEmptyTitle: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  shiftHeroEmptyText: {
+    color: 'rgba(255,255,255,0.78)',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  shiftHeroButton: {
+    marginTop: 14,
+    borderRadius: 999,
+  },
+  billingHero: {
+    marginHorizontal: 20,
+    marginBottom: 18,
+    borderRadius: 22,
+    padding: 18,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    position: 'relative',
+  },
+  billingEyebrow: {
+    color: 'rgba(255,255,255,0.72)',
+    textTransform: 'uppercase',
+    letterSpacing: 1.1,
+    marginBottom: 8,
+  },
+  billingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  billingValue: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+  },
+  billingText: {
+    color: 'rgba(255,255,255,0.78)',
+    marginTop: 2,
+  },
+  billingButton: {
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+  },
+  billingButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
   sectionHeaderText: {
     fontWeight: '700',
     color: '#111827',
@@ -648,3 +686,6 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
   },
 });
+
+
+

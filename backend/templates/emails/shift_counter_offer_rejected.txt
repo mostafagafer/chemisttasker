@@ -1,0 +1,13 @@
+Counter offer declined
+
+Hi{% if user_first_name %} {{ user_first_name }}{% endif %},
+
+Your counter offer for {{ pharmacy_name }}{% if role_label %} ({{ role_label }}){% endif %} was declined.
+
+{% if slots %}Proposed slots:
+{% for s in slots %}- {{ s.date }} - {% if s.time_range %}{{ s.time_range }}{% else %}{{ s.start_time }}{% endif %}{% if s.proposed_rate %} - ${{ s.proposed_rate }}/hr{% endif %}
+{% endfor %}
+{% endif %}
+View shift: {{ shift_link }}
+
+Shift ID: {{ shift_id }}

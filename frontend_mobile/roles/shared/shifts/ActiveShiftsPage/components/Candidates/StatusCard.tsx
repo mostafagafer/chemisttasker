@@ -2,7 +2,7 @@
 // Displays candidates grouped by status (Interested, Assigned, Rejected, No Response)
 
 import React from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { Card, Text, Button, Chip, ActivityIndicator, Surface, Avatar } from 'react-native-paper';
 import { customTheme } from '../../theme';
 import { ShiftMemberStatus } from '@chemisttasker/shared-core';
@@ -26,6 +26,38 @@ const colorMap = {
     info: { bg: customTheme.colors.infoLight, fg: customTheme.colors.info },
 };
 
+function StatusIllustration({ title, icon, fg }: { title: string; icon: string; fg: string }) {
+    const isHourglass = title === 'No Response';
+    const isInterested = title === 'Interested';
+    const isAssigned = title === 'Assigned';
+    const isRejected = title === 'Rejected';
+    return (
+        <View style={styles.illustration}>
+            <View style={[styles.illustrationGlow, { backgroundColor: fg + '22' }]} />
+            {isInterested ? (
+                <>
+                    <Avatar.Icon size={30} icon="account" style={[styles.groupPerson, styles.groupPersonLeft]} color="#64748B" />
+                    <Avatar.Icon size={36} icon="account" style={[styles.groupPerson, styles.groupPersonCenter]} color="#64748B" />
+                    <Avatar.Icon size={30} icon="account" style={[styles.groupPerson, styles.groupPersonRight]} color="#64748B" />
+                    <Avatar.Icon size={46} icon="heart" style={styles.heartBadge} color="#7C3AED" />
+                </>
+            ) : isAssigned || isRejected ? (
+                <>
+                    <Avatar.Icon size={62} icon="file-document" style={styles.documentIllustration} color={isAssigned ? '#2563EB' : '#64748B'} />
+                    <Avatar.Icon size={36} icon={isAssigned ? 'check-circle' : 'close-circle'} style={[styles.statusBadge, { backgroundColor: isAssigned ? '#0EA5E9' : '#EF4444' }]} color="#fff" />
+                </>
+            ) : isHourglass ? (
+                <View style={styles.hourglass}>
+                    <View style={styles.hourglassTop} />
+                    <View style={styles.hourglassBottom} />
+                </View>
+            ) : (
+                <Avatar.Icon size={58} icon={icon} style={styles.illustrationMain} color={fg} />
+            )}
+        </View>
+    );
+}
+
 export default function StatusCard({
     title,
     members,
@@ -39,7 +71,7 @@ export default function StatusCard({
     const colors = colorMap[color];
 
     return (
-        <Card style={styles.card}>
+        <Card style={[styles.card, { backgroundColor: colors.bg, borderColor: colors.fg + '33' }]}>
             <Card.Title
                 title={title}
                 titleStyle={[styles.cardTitle, { color: colors.fg }]}
@@ -47,7 +79,7 @@ export default function StatusCard({
                     <Avatar.Icon
                         size={40}
                         icon={icon}
-                        style={{ backgroundColor: colors.bg }}
+                        style={styles.titleAvatar}
                         color={colors.fg}
                     />
                 )}
@@ -60,8 +92,10 @@ export default function StatusCard({
                     </Chip>
                 )}
             />
-            <Card.Content>
-                {members.length > 0 ? (
+            <Card.Content style={styles.cardContent}>
+                <View style={styles.bodyRow}>
+                    <StatusIllustration title={title} icon={icon} fg={colors.fg} />
+                    {members.length > 0 ? (
                     <View style={styles.membersList}>
                         {members.map((member) => {
                             const memberAny = member as any;
@@ -125,9 +159,21 @@ export default function StatusCard({
                             );
                         })}
                     </View>
-                ) : (
-                    <Text style={styles.emptyText}>No candidates yet.</Text>
-                )}
+                    ) : (
+                        <View style={styles.emptyCopy}>
+                            <Text style={styles.emptyText}>No candidates yet.</Text>
+                            <Text style={styles.emptySubText}>
+                                {title === 'Interested'
+                                    ? "When candidates show interest, they'll appear here."
+                                    : title === 'Assigned'
+                                        ? 'Assigned candidates will appear here.'
+                                        : title === 'Rejected'
+                                            ? 'Candidates you reject will appear here.'
+                                            : 'No responses will appear here.'}
+                            </Text>
+                        </View>
+                    )}
+                </View>
             </Card.Content>
         </Card>
     );
@@ -135,19 +181,28 @@ export default function StatusCard({
 
 const styles = StyleSheet.create({
     card: {
-        backgroundColor: customTheme.colors.greyLight,
         borderWidth: 1,
-        borderColor: customTheme.colors.border,
+        borderRadius: 18,
+        minHeight: 128,
+        elevation: 2,
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.06,
+        shadowRadius: 16,
     },
     cardTitle: {
-        fontWeight: 'bold',
+        fontWeight: '900',
+    },
+    titleAvatar: {
+        backgroundColor: '#fff',
     },
     membersList: {
-        gap: customTheme.spacing.md,
+        flex: 1,
+        gap: customTheme.spacing.sm,
     },
     memberCard: {
-        padding: customTheme.spacing.md,
-        borderRadius: 8,
+        padding: customTheme.spacing.sm,
+        borderRadius: 14,
         backgroundColor: '#fff',
     },
     memberRow: {
@@ -155,7 +210,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'flex-start',
         gap: customTheme.spacing.sm,
-        marginBottom: customTheme.spacing.sm,
+        marginBottom: customTheme.spacing.xs,
     },
     memberInfo: {
         flex: 1,
@@ -178,12 +233,152 @@ const styles = StyleSheet.create({
         alignItems: 'flex-start',
     },
     reviewButton: {
-        marginTop: customTheme.spacing.sm,
+        marginTop: customTheme.spacing.xs,
         alignSelf: 'flex-start',
     },
     emptyText: {
-        textAlign: 'center',
+        color: customTheme.colors.text,
+        fontWeight: '800',
+        marginBottom: 3,
+    },
+    emptySubText: {
         color: customTheme.colors.textMuted,
-        paddingVertical: customTheme.spacing.lg,
+        fontSize: 12,
+        lineHeight: 17,
+    },
+    emptyState: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: customTheme.spacing.md,
+        paddingVertical: customTheme.spacing.md,
+    },
+    cardContent: {
+        paddingTop: customTheme.spacing.xs,
+    },
+    bodyRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: customTheme.spacing.sm,
+    },
+    emptyCopy: {
+        flex: 1,
+    },
+    illustration: {
+        width: 92,
+        height: 66,
+        position: 'relative',
+        flexShrink: 0,
+        alignSelf: 'center',
+    },
+    illustrationGlow: {
+        position: 'absolute',
+        left: 2,
+        right: 2,
+        top: 4,
+        bottom: 4,
+        borderRadius: 999,
+    },
+    illustrationMain: {
+        position: 'absolute',
+        left: 24,
+        bottom: 10,
+        backgroundColor: '#fff',
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.16,
+        shadowRadius: 14,
+        elevation: 5,
+    },
+    illustrationBadge: {
+        position: 'absolute',
+        right: 8,
+        bottom: 0,
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.18,
+        shadowRadius: 10,
+        elevation: 5,
+    },
+    groupPerson: {
+        position: 'absolute',
+        backgroundColor: '#EEF2FF',
+        shadowColor: '#6366F1',
+        shadowOffset: { width: 0, height: 7 },
+        shadowOpacity: 0.16,
+        shadowRadius: 10,
+        elevation: 4,
+    },
+    groupPersonLeft: {
+        left: 8,
+        top: 22,
+    },
+    groupPersonCenter: {
+        left: 31,
+        top: 6,
+    },
+    groupPersonRight: {
+        right: 8,
+        top: 22,
+    },
+    heartBadge: {
+        position: 'absolute',
+        left: 28,
+        bottom: 2,
+        backgroundColor: '#EEF2FF',
+        shadowColor: '#7C3AED',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.22,
+        shadowRadius: 12,
+        elevation: 5,
+    },
+    documentIllustration: {
+        position: 'absolute',
+        left: 20,
+        top: 4,
+        borderRadius: 12,
+        backgroundColor: '#fff',
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+        elevation: 5,
+    },
+    statusBadge: {
+        position: 'absolute',
+        right: 10,
+        bottom: 2,
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.18,
+        shadowRadius: 10,
+        elevation: 5,
+    },
+    hourglass: {
+        position: 'absolute',
+        left: 30,
+        top: 4,
+        width: 38,
+        height: 54,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: '#FDBA74',
+        backgroundColor: '#fff',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 8,
+    },
+    hourglassTop: {
+        width: 18,
+        height: 12,
+        borderBottomLeftRadius: 10,
+        borderBottomRightRadius: 10,
+        backgroundColor: '#FDBA74',
+    },
+    hourglassBottom: {
+        width: 18,
+        height: 12,
+        borderTopLeftRadius: 10,
+        borderTopRightRadius: 10,
+        backgroundColor: '#FED7AA',
     },
 });

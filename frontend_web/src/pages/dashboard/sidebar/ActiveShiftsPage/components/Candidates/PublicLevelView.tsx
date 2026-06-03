@@ -9,6 +9,7 @@ interface PublicLevelViewProps {
     shift: Shift;
     slotId: number | null;
     slotHasUpdates?: Record<number, boolean>;
+    slotCandidateCounts?: Record<number, number>;
     interestsAll: any[];
     counterOffers: any[];
     counterOffersLoaded: boolean;
@@ -22,6 +23,7 @@ export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
     shift,
     slotId,
     slotHasUpdates,
+    slotCandidateCounts,
     interestsAll,
     counterOffers,
     counterOffersLoaded,
@@ -91,6 +93,7 @@ export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
                     selectedSlotId={slotId}
                     onSelectSlot={onSelectSlot}
                     slotHasUpdates={slotHasUpdates}
+                    slotCandidateCounts={slotCandidateCounts}
                 />
             )}
             {/* Counter Offers Section */}

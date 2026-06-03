@@ -1,45 +1,31 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Shift Update – Declined</title>
-    <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
-        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
-        .wave { font-size: 2.5rem; }
-        .btn {
-            display: inline-block;
-            background: #23b59c;
-            color: #fff;
-            padding: 12px 28px;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: bold;
-            font-size: 1.15rem;
-            margin: 16px 0;
-            box-shadow: 0 1px 3px #e0e0e0;
-            transition: background 0.2s;
-        }
-        .btn:hover { background: #199982; }
-        .emoji { font-size: 1.25rem; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="wave">⚡️</div>
-        <h2>Shift Update: A member has declined</h2>
-        <p>
-            Hi {{ user_first_name }},
-        </p>
-        <p>
-            <b>{{ rejector_name }}</b> has declined the shift at <b>{{ pharmacy_name }}</b> ({{ role_needed }}).
-        </p>
-        <p>
-            If you need to reach a wider audience, you can escalate this shift to the entire ChemistTasker platform.
-            This gives your shift maximum visibility and increases your chances of filling it promptly.
-        </p>
-        <a class="btn" href="{{ shift_link }}">View & Manage Your Shift</a>
-        <p class="emoji">— The ChemistTasker Team 💚</p>
-    </div>
-</body>
-</html>
+{% extends "emails/base.html" %}
+
+{% block title %}Shift Declined{% endblock %}
+
+{% block content %}
+<h2>Shift declined</h2>
+<p>Hi{% if user_first_name %} {{ user_first_name }}{% endif %},</p>
+<p>
+    <strong>{{ rejector_name }}</strong> declined your shift at
+    <strong>{{ pharmacy_name }}</strong>{% if role_label %} ({{ role_label }}){% endif %}.
+</p>
+
+{% if rejected_slots %}
+<div class="slot-list">
+    {% for s in rejected_slots %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="slot-row">
+        <tr>
+            <td>
+                <div class="slot-date">{{ s.date }}</div>
+                <div class="slot-time">{% if s.time_range %}{{ s.time_range }}{% else %}{{ s.start_time }}{% endif %}</div>
+            </td>
+        </tr>
+    </table>
+    {% endfor %}
+</div>
+{% endif %}
+
+<p>If you need to reach a wider audience, you can escalate this shift to the ChemistTasker platform.</p>
+<a class="btn" href="{{ shift_link }}">View and manage shift</a>
+<p style="font-size:13px; color:#64748b; margin-top:10px;">Shift ID: {{ shift_id }}</p>
+{% endblock %}

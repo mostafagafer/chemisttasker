@@ -814,7 +814,10 @@ const toShiftListParams = (filters) => ({
     page: filters?.page,
     page_size: filters?.pageSize,
 });
-const buildSlotPayload = (slotId) => {
+const buildSlotPayload = (slotId, slotIds) => {
+    if (Array.isArray(slotIds)) {
+        return { slot_ids: slotIds };
+    }
     if (slotId === undefined) {
         return undefined;
     }
@@ -966,19 +969,19 @@ export async function revealShiftInterestService(shiftId, payload) {
     return camelCaseKeysDeep(data);
 }
 export async function expressInterestInCommunityShiftService(params) {
-    await expressInterestInCommunityShift(params.shiftId, buildSlotPayload(params.slotId));
+    await expressInterestInCommunityShift(params.shiftId, buildSlotPayload(params.slotId, params.slotIds));
 }
 export async function expressInterestInPublicShiftService(params) {
-    await expressInterestInPublicShift(params.shiftId, buildSlotPayload(params.slotId));
+    await expressInterestInPublicShift(params.shiftId, buildSlotPayload(params.slotId, params.slotIds));
 }
 export async function expressInterestInShiftService(params) {
-    await expressInterestInShift(params.shiftId, buildSlotPayload(params.slotId));
+    await expressInterestInShift(params.shiftId, buildSlotPayload(params.slotId, params.slotIds));
 }
 export async function rejectCommunityShiftService(params) {
-    await rejectCommunityShift(params.shiftId, buildSlotPayload(params.slotId));
+    await rejectCommunityShift(params.shiftId, buildSlotPayload(params.slotId, params.slotIds));
 }
 export async function rejectShiftService(params) {
-    await rejectShift(params.shiftId, buildSlotPayload(params.slotId));
+    await rejectShift(params.shiftId, buildSlotPayload(params.slotId, params.slotIds));
 }
 export async function claimShiftService(params) {
     await claimShift(params.shiftId, buildSlotPayload(params.slotId));

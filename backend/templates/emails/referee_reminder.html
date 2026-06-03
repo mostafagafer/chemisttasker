@@ -1,38 +1,9 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Gentle Reminder: Reference Request</title>
-    <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
-        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
-        .wave { font-size: 2.5rem; }
-        .btn {
-            display: inline-block;
-            background: #23b59c;
-            color: #fff;
-            padding: 12px 28px;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: bold;
-            font-size: 1.15rem;
-            margin: 16px 0 0 0;
-            box-shadow: 0 1px 3px #e0e0e0;
-            transition: background 0.2s;
-        }
-        .btn:hover { background: #199982; }
-        .btn-reject {
-            background: #e74c3c;
-            margin-left: 10px;
-        }
-        .btn-reject:hover { background: #b93a27; }
-        .emoji { font-size: 1.25rem; }
-        .small { color: #888; font-size: 0.98rem; margin-top: 20px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="wave">⏰🙋</div>
+{% extends "emails/base.html" %}
+
+{% block title %}Gentle Reminder: Reference Request{% endblock %}
+
+{% block content %}
+<div class="wave">⏰🙋</div>
         <h2>Gentle Reminder: Reference Request</h2>
 
         <p>
@@ -55,6 +26,4 @@
             If you have any questions, just reply to this email and our team will assist you.
         </p>
         <p class="emoji">— The ChemistTasker Team 💚</p>
-    </div>
-</body>
-</html>
+{% endblock %}

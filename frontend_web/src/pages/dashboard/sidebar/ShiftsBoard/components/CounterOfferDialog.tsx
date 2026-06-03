@@ -18,9 +18,12 @@ import {
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
 import {
+  AccessTime as AccessTimeIcon,
+  CalendarToday as CalendarTodayIcon,
   ChatBubbleOutline as ChatBubbleOutlineIcon,
   Close as CloseIcon,
   ErrorOutline as ErrorOutlineIcon,
+  Paid as PaidIcon,
 } from '@mui/icons-material';
 import { Autocomplete } from '@react-google-maps/api';
 import { COUNTER_OFFER_TRAVEL_AUTOCOMPLETE_ID } from '../constants';
@@ -69,17 +72,13 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
   onAutocompleteLoad,
   onSubmit,
 }) => (
-  <Dialog
-    open={open}
-    onClose={onClose}
-    fullWidth
-    maxWidth="md"
-    disableEnforceFocus
-  >
-    <DialogTitle>
+  <Dialog open={open} onClose={onClose} fullWidth maxWidth="md" disableEnforceFocus>
+    <DialogTitle sx={{ pb: 2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Box>
-          <Typography variant="h6">Submit Counter Offer</Typography>
+          <Typography variant="h6" sx={{ fontWeight: 800 }}>
+            Submit Counter Offer
+          </Typography>
           <Typography variant="body2" color="text.secondary">
             {counterOfferShift ? getShiftPharmacyName(counterOfferShift) : ''}
           </Typography>
@@ -91,16 +90,24 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
     </DialogTitle>
     <DialogContent dividers>
       {counterOfferError && (
-        <Typography color="error" variant="body2" sx={{ mb: 1 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
           {counterOfferError}
-        </Typography>
+        </Alert>
       )}
       {counterOfferShift && (
         <Stack spacing={2}>
-          <Paper variant="outlined" sx={{ p: 2, borderColor: 'grey.200' }}>
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 2,
+              borderColor: '#C7ECEF',
+              bgcolor: '#F3FCFD',
+              borderRadius: 2,
+            }}
+          >
             <Stack direction="row" spacing={1} alignItems="center">
-              <ErrorOutlineIcon fontSize="small" />
-              <Typography variant="body2">
+              <ErrorOutlineIcon fontSize="small" sx={{ color: '#167B87' }} />
+              <Typography variant="body2" sx={{ color: '#0F2A43' }}>
                 Negotiation options:{' '}
                 {getShiftNegotiable(counterOfferShift) ? 'Rate negotiable.' : 'Rate fixed.'}{' '}
                 {getShiftFlexibleTime(counterOfferShift) ? 'Time flexible.' : 'Time fixed.'}
@@ -112,14 +119,38 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
               <Paper
                 key={slot.slotId != null ? `${slot.slotId}-${slot.dateLabel || idx}` : `new-${idx}`}
                 variant="outlined"
-                sx={{ p: 2, borderColor: 'grey.200' }}
+                sx={{
+                  p: 2,
+                  borderColor: '#D7E5EA',
+                  borderRadius: 2,
+                  bgcolor: '#FFFFFF',
+                  boxShadow: '0 8px 24px rgba(15, 42, 67, 0.06)',
+                }}
               >
-                <Stack spacing={2}>
-                  <Typography variant="subtitle2">
-                    {slot.dateLabel}
-                  </Typography>
-                  <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, md: 6 }}>
+                <Grid container spacing={1.5} alignItems="center">
+                  <Grid size={{ xs: 12, sm: 3 }}>
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      alignItems="center"
+                      sx={{
+                        minHeight: 40,
+                        px: 1.25,
+                        py: 1,
+                        borderRadius: 1.5,
+                        bgcolor: '#EEF7F8',
+                        color: '#0F2A43',
+                      }}
+                    >
+                      <CalendarTodayIcon fontSize="small" sx={{ color: '#167B87' }} />
+                      <Typography variant="body2" fontWeight={800} sx={{ lineHeight: 1.2 }}>
+                        {slot.dateLabel}
+                      </Typography>
+                    </Stack>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 3 }}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <AccessTimeIcon fontSize="small" sx={{ color: 'text.secondary', display: { xs: 'none', md: 'block' } }} />
                       <TextField
                         label="Start time"
                         type="time"
@@ -130,8 +161,11 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                         disabled={!getShiftFlexibleTime(counterOfferShift)}
                         InputLabelProps={{ shrink: true }}
                       />
-                    </Grid>
-                    <Grid size={{ xs: 12, md: 6 }}>
+                    </Stack>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 3 }}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <AccessTimeIcon fontSize="small" sx={{ color: 'text.secondary', display: { xs: 'none', md: 'block' } }} />
                       <TextField
                         label="End time"
                         type="time"
@@ -142,8 +176,11 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                         disabled={!getShiftFlexibleTime(counterOfferShift)}
                         InputLabelProps={{ shrink: true }}
                       />
-                    </Grid>
-                    <Grid size={{ xs: 12, md: 6 }}>
+                    </Stack>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 3 }}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <PaidIcon fontSize="small" sx={{ color: '#2E7D32', display: { xs: 'none', md: 'block' } }} />
                       <TextField
                         label="Hourly rate"
                         type="number"
@@ -153,25 +190,27 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
                         onChange={(event) => onCounterSlotChange(idx, 'rate', event.target.value)}
                         disabled={!getShiftNegotiable(counterOfferShift)}
                       />
-                    </Grid>
+                    </Stack>
                   </Grid>
-                </Stack>
+                </Grid>
               </Paper>
             ))}
           </Stack>
           {getShiftNegotiable(counterOfferShift) && (
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={counterOfferTravel}
-                  onChange={(event) => onCounterOfferTravelChange(event.target.checked)}
-                />
-              }
-              label="Request travel allowance"
-            />
+            <Paper variant="outlined" sx={{ p: 1.5, borderColor: '#D7E5EA', borderRadius: 2 }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={counterOfferTravel}
+                    onChange={(event) => onCounterOfferTravelChange(event.target.checked)}
+                  />
+                }
+                label={<Typography fontWeight={700}>Request travel allowance</Typography>}
+              />
+            </Paper>
           )}
           {counterOfferTravel && (
-            <Paper variant="outlined" sx={{ p: 2, borderColor: 'grey.200' }}>
+            <Paper variant="outlined" sx={{ p: 2, borderColor: '#D7E5EA', borderRadius: 2 }}>
               <Stack spacing={1.5}>
                 <Typography variant="subtitle2">Traveling from</Typography>
                 {Boolean(travelMapsLoadError) && (
@@ -264,12 +303,18 @@ const CounterOfferDialog: React.FC<CounterOfferDialogProps> = ({
         </Stack>
       )}
     </DialogContent>
-    <DialogActions>
+    <DialogActions sx={{ px: 3, py: 2, bgcolor: '#F8FBFC' }}>
       <Button onClick={onClose}>Cancel</Button>
       <Button
         variant="contained"
         onClick={onSubmit}
         disabled={!counterOfferShift || counterSubmitting}
+        sx={{
+          borderRadius: 2,
+          px: 2.5,
+          bgcolor: '#4F46E5',
+          '&:hover': { bgcolor: '#4338CA' },
+        }}
         startIcon={
           counterSubmitting ? <CircularProgress size={16} color="inherit" /> : <ChatBubbleOutlineIcon fontSize="small" />
         }

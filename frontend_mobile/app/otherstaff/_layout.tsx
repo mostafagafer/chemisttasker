@@ -241,6 +241,7 @@ export default function OtherStaffTabs() {
           },
           headerShown: true,
           headerTitle: tabTitles[route.name] || 'Other Staff',
+          headerRightContainerStyle: { paddingRight: 10 },
           headerLeft: () => (
             <IconButton icon="menu" onPress={() => setSidebarVisible(true)} />
           ),
@@ -365,7 +366,6 @@ export default function OtherStaffTabs() {
 
         <Tabs.Screen name="index" options={{ href: null }} />
         <Tabs.Screen name="availability" options={{ href: null }} />
-        <Tabs.Screen name="onboarding" options={{ href: null }} />
         <Tabs.Screen name="profile-basic-info" options={{ href: null }} />
         <Tabs.Screen name="profile-identity" options={{ href: null }} />
         <Tabs.Screen name="profile-regulatory" options={{ href: null }} />

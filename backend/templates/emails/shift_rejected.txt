@@ -1,10 +1,15 @@
-Hi {{ user_first_name }},
+Shift declined
 
-{{ rejector_name }} has declined the shift at {{ pharmacy_name }} ({{ role_needed }}).
+Hi{% if user_first_name %} {{ user_first_name }}{% endif %},
 
-If you need to reach a wider audience, you can escalate this shift to the entire ChemistTasker platform.
-This gives your shift maximum visibility and increases your chances of filling it promptly.
+{{ rejector_name }} declined your shift at {{ pharmacy_name }}{% if role_label %} ({{ role_label }}){% endif %}.
 
-View & Manage Your Shift: {{ shift_link }}
+{% if rejected_slots %}Declined slots:
+{% for s in rejected_slots %}- {{ s.date }} - {% if s.time_range %}{{ s.time_range }}{% else %}{{ s.start_time }}{% endif %}
+{% endfor %}
+{% endif %}
+If you need to reach a wider audience, you can escalate this shift to the ChemistTasker platform.
 
-— The ChemistTasker Team 💚
+View and manage shift: {{ shift_link }}
+
+Shift ID: {{ shift_id }}

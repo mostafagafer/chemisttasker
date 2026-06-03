@@ -178,7 +178,7 @@ export default function RegisterScreen() {
     <AuthLayout title="Create Account">
       <View style={styles.logoRow}>
         <Image
-          source={require('../assets/images/chemisttasker-logo.png')}
+          source={require('../assets/images/clipsnap-edit-6-1-2026.png')}
           style={styles.logoImage}
           resizeMode="contain"
           

@@ -320,6 +320,7 @@ class OwnerOnboardingV2Serializer(UploadValidationMixin, serializers.ModelSerial
             "first_name",
             "last_name",
             "phone_number",
+            "gender",
             "role",
             "chain_pharmacy",
             "number_of_pharmacies",
@@ -341,6 +342,7 @@ class OwnerOnboardingV2Serializer(UploadValidationMixin, serializers.ModelSerial
         ]
         extra_kwargs = {
             "organization": {"read_only": True},
+            "gender": {"required": False, "allow_blank": True, "allow_null": True},
             "ahpra_verified": {"read_only": True},
             "ahpra_registration_status": {"read_only": True},
             "ahpra_registration_type": {"read_only": True},
@@ -396,7 +398,7 @@ class OwnerOnboardingV2Serializer(UploadValidationMixin, serializers.ModelSerial
                 instance.profile_photo = new_photo
                 update_fields.append("profile_photo")
 
-        direct_fields = ["role", "chain_pharmacy", "number_of_pharmacies", "ahpra_number"]
+        direct_fields = ["gender", "role", "chain_pharmacy", "number_of_pharmacies", "ahpra_number"]
         role_changed = "role" in vdata and vdata.get("role") != instance.role
         ahpra_changed = "ahpra_number" in vdata and vdata.get("ahpra_number") != instance.ahpra_number
 
@@ -545,7 +547,8 @@ class PharmacistOnboardingV2Serializer(UploadValidationMixin, serializers.ModelS
         model = PharmacistOnboarding
         fields = [
             # ---------- BASIC ----------
-            'username','first_name','last_name','phone_number','date_of_birth','profile_photo','profile_photo_url',
+            'username','first_name','last_name','phone_number','date_of_birth','gender',
+            'emergency_contact_number','emergency_contact_relation','profile_photo','profile_photo_url',
             'profile_photo','profile_photo_url',
             'ahpra_number',
             'street_address','suburb','state','postcode','google_place_id','latitude','longitude','open_to_travel','travel_states','coverage_radius_km',
@@ -598,6 +601,9 @@ class PharmacistOnboardingV2Serializer(UploadValidationMixin, serializers.ModelS
             # pharmacist fields optional here
             'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
             'date_of_birth': {'required': False, 'allow_null': True},
+            'gender': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'emergency_contact_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'emergency_contact_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
             'ahpra_number': {'required': False, 'allow_blank': True, 'allow_null': True},
             'government_id': {'required': False, 'allow_null': True},
             'government_id_type': {'required': False, 'allow_blank': True, 'allow_null': True},
@@ -901,7 +907,7 @@ class PharmacistOnboardingV2Serializer(UploadValidationMixin, serializers.ModelS
         'ahpra_number',
         'street_address', 'suburb', 'state', 'postcode', 'google_place_id',
         'open_to_travel', 'travel_states', 'coverage_radius_km',
-        'date_of_birth',
+        'date_of_birth', 'gender', 'emergency_contact_number', 'emergency_contact_relation',
         ]
 
         # Detect changes that affect verification flags
@@ -1613,7 +1619,8 @@ class OtherStaffOnboardingV2Serializer(UploadValidationMixin, serializers.ModelS
         model = OtherStaffOnboarding
         fields = [
             # ---------- BASIC ----------
-            'username','first_name','last_name','phone_number','date_of_birth',
+            'username','first_name','last_name','phone_number','date_of_birth','gender',
+            'emergency_contact_number','emergency_contact_relation',
             'street_address','suburb','state','postcode','google_place_id','latitude','longitude','open_to_travel','travel_states','coverage_radius_km',
 
             # ---------- IDENTITY ----------
@@ -1666,6 +1673,9 @@ class OtherStaffOnboardingV2Serializer(UploadValidationMixin, serializers.ModelS
             # basic optional
             'phone_number': {'required': False, 'allow_blank': True, 'allow_null': True},
             'date_of_birth': {'required': False, 'allow_null': True},
+            'gender': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'emergency_contact_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'emergency_contact_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
             'street_address':  {'required': False, 'allow_blank': True, 'allow_null': True},
             'suburb':          {'required': False, 'allow_blank': True, 'allow_null': True},
             'state':           {'required': False, 'allow_blank': True, 'allow_null': True},
@@ -1934,6 +1944,7 @@ class OtherStaffOnboardingV2Serializer(UploadValidationMixin, serializers.ModelS
         # regular writes for basic fields (address + dob)
         direct_fields = [
             'street_address','suburb','state','postcode','google_place_id','open_to_travel','travel_states','coverage_radius_km','date_of_birth',
+            'gender','emergency_contact_number','emergency_contact_relation',
             'role_type','classification_level','student_year','intern_half',  # allow role data in Basic if FE sends them early
         ]
         for f in direct_fields:
@@ -2535,7 +2546,7 @@ class ExplorerOnboardingV2Serializer(UploadValidationMixin, serializers.ModelSer
             "id",
             # ---------- BASIC ----------
             'username','first_name','last_name','phone_number','profile_photo','profile_photo_url',
-            'role_type',
+            'role_type','gender','emergency_contact_number','emergency_contact_relation',
             'street_address','suburb','state','postcode','google_place_id','latitude','longitude','open_to_travel','travel_states','coverage_radius_km',
 
             # ---------- IDENTITY ----------
@@ -2569,6 +2580,9 @@ class ExplorerOnboardingV2Serializer(UploadValidationMixin, serializers.ModelSer
 
             # basic
             'role_type': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'gender': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'emergency_contact_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'emergency_contact_relation': {'required': False, 'allow_blank': True, 'allow_null': True},
             'street_address':  {'required': False, 'allow_blank': True, 'allow_null': True},
             'suburb':          {'required': False, 'allow_blank': True, 'allow_null': True},
             'state':           {'required': False, 'allow_blank': True, 'allow_null': True},
@@ -2736,7 +2750,7 @@ class ExplorerOnboardingV2Serializer(UploadValidationMixin, serializers.ModelSer
 
         # role + address
         direct_fields = [
-            'role_type',
+            'role_type','gender','emergency_contact_number','emergency_contact_relation',
             'street_address','suburb','state','postcode','google_place_id','open_to_travel','travel_states','coverage_radius_km',
         ]
         for f in direct_fields:
@@ -3705,6 +3719,7 @@ class ShiftSerializer(serializers.ModelSerializer):
 
     # for multi-slot shifts
     slot_assignments = serializers.SerializerMethodField()
+    pending_payment_slot_ids = serializers.SerializerMethodField()
 
     role_label = serializers.SerializerMethodField()
     ui_is_negotiable = serializers.SerializerMethodField()
@@ -3735,6 +3750,7 @@ class ShiftSerializer(serializers.ModelSerializer):
             'post_anonymously',
             'escalate_to_locum_casual',
             'interested_users_count', 'reveal_quota', 'reveal_count', 'workload_tags','slot_assignments',
+            'pending_payment_slot_ids',
             'allowed_escalation_levels','is_single_user', 'description',
             'flexible_timing',
             'min_hourly_rate', 'max_hourly_rate', 'min_annual_salary', 'max_annual_salary', 'super_percent',
@@ -4125,6 +4141,7 @@ class ShiftSerializer(serializers.ModelSerializer):
             slot_summary = f"{self._format_slot_date(slot_date)} — {self._format_slot_time(slot_start)} to {self._format_slot_time(slot_end)}"
 
         slot_lines = []
+        slot_cards = []
         for slot in slot_entries or []:
             if not isinstance(slot, dict):
                 continue
@@ -4132,9 +4149,18 @@ class ShiftSerializer(serializers.ModelSerializer):
             start_text = self._format_slot_time(slot.get('start_time'))
             end_text = self._format_slot_time(slot.get('end_time'))
             if date_text and start_text and end_text:
+                rate_value = slot.get("rate")
+                rate_text = f"{self._format_money(rate_value)}/hr" if rate_value not in (None, "") else None
+                slot_cards.append({
+                    "date": date_text,
+                    "time": f"{start_text} - {end_text}",
+                    "rate": rate_text,
+                    "line": f"{date_text} - {start_text} to {end_text}{f' - {rate_text}' if rate_text else ''}",
+                })
                 slot_lines.append(f"{date_text} — {start_text} to {end_text}")
         max_slots_in_email = 6
         slots_display = slot_lines[:max_slots_in_email]
+        slots_display_details = slot_cards[:max_slots_in_email]
         slots_extra_count = max(0, len(slot_lines) - len(slots_display))
 
         location_line = self._get_location_line_for_email(shift, user)
@@ -4180,6 +4206,7 @@ class ShiftSerializer(serializers.ModelSerializer):
             "slot_start": slot_start,
             "slot_end": slot_end,
             "slots_display": slots_display,
+            "slots_display_details": slots_display_details,
             "slots_extra_count": slots_extra_count,
             "location_line": location_line,
             "rate_summary": rate_summary,
@@ -4682,6 +4709,14 @@ class ShiftSerializer(serializers.ModelSerializer):
         {'slot_id': a.slot.id, 'user_id': a.user.id}
             for a in shift.slot_assignments.all()
         ]
+
+    def get_pending_payment_slot_ids(self, shift) -> list[int]:
+        qs = ShiftOffer.objects.filter(
+            shift=shift,
+            status=ShiftOffer.Status.ACCEPTED_AWAITING_PAYMENT,
+            slot_id__isnull=False,
+        ).values_list('slot_id', flat=True)
+        return sorted(set(qs))
 
 class ShiftInterestSerializer(serializers.ModelSerializer):
     user = serializers.SerializerMethodField()

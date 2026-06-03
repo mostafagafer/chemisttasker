@@ -41,9 +41,9 @@ import {
     deriveLevelSequence,
     getLocationText,
 } from './utils/shiftHelpers';
-import { findInterestForOffer } from './utils/candidateHelpers';
+import { dedupeMembers, findInterestForOffer } from './utils/candidateHelpers';
 import { mapOfferSlotsWithShift } from './utils/offerHelpers';
-import { getCardBorderColor, getLevelLabel } from './utils/displayHelpers';
+import { getCardBorderColor } from './utils/displayHelpers';
 
 // Types
 import { ReviewOfferDialogState, DeleteConfirmDialogState } from './types';
@@ -69,6 +69,24 @@ const getSlotIds = (shift: Shift): number[] => {
     return slots
         .map((slot: any) => resolveSlotIdAny(slot))
         .filter((id: number | null): id is number => id != null);
+};
+
+const shouldShowPaymentRequired = (shift: Shift, selectedSlotId: number | null): boolean => {
+    const shiftAny = shift as any;
+    if (shiftAny.paymentStatus !== 'PENDING') return false;
+
+    const slots = Array.isArray(shiftAny.slots) ? shiftAny.slots : [];
+    const isSingleUserShift = Boolean(shiftAny.singleUserOnly ?? shiftAny.single_user_only);
+    if (isSingleUserShift || slots.length <= 1) return true;
+
+    const rawPendingSlotIds = shiftAny.pendingPaymentSlotIds ?? shiftAny.pending_payment_slot_ids;
+    if (!Array.isArray(rawPendingSlotIds)) return true;
+    if (selectedSlotId == null) return false;
+
+    const pendingSlotIds = rawPendingSlotIds
+        .map((value: any) => Number(value))
+        .filter((value: number) => Number.isFinite(value));
+    return pendingSlotIds.includes(selectedSlotId);
 };
 
 const offerBelongsToSlot = (offer: any, slotId: number) => {
@@ -118,6 +136,39 @@ const buildMemberSlotSignature = (slotId: number, members: ShiftMemberStatus[], 
         .sort()
         .join('|');
     return `m:${memberSig}#o:${offerSig}`;
+};
+
+const getPersonIdentity = (record: any): string | null => {
+    if (!record) return null;
+    const user = record.user;
+    const userDetail = record.userDetail ?? record.user_detail;
+    const rawId =
+        record.userId ??
+        record.user_id ??
+        userDetail?.id ??
+        (typeof user === 'object' ? user?.id : user) ??
+        null;
+    if (rawId != null) return `user:${rawId}`;
+
+    const email = record.email ?? userDetail?.email ?? (typeof user === 'object' ? user?.email : null);
+    if (email) return `email:${String(email).toLowerCase()}`;
+
+    const recordId = record.id ?? null;
+    return recordId != null ? `record:${recordId}` : null;
+};
+
+const countUniquePeople = (records: any[]): number => {
+    const seen = new Set<string>();
+    records.forEach((record) => {
+        const key = getPersonIdentity(record);
+        if (key) seen.add(key);
+    });
+    return seen.size;
+};
+
+const isActiveCounterOffer = (offer: any): boolean => {
+    const status = String(offer?.status ?? '').toLowerCase();
+    return !['accepted', 'rejected', 'declined', 'cancelled', 'canceled', 'expired'].includes(status);
 };
 
 type ActiveShiftsPageProps = {
@@ -170,11 +221,12 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
 
     const { shifts, setShifts, loading: shiftsLoading, loadShifts } = useShiftsData({ selectedPharmacyId, shiftId });
     const { tabData, setTabData, loadTabDataForShift } = useTabData(shifts, selectedLevelByShift, getTabKey);
-    const handlePayWithPills = useCallback(async (shift: Shift) => {
+    const handlePayWithPills = useCallback(async (shift: Shift, slotId: number | null = null) => {
         setPillPayingShiftId(shift.id);
         try {
             const { data: res } = await apiClient.post('/client-profile/pill-rewards/pay-shift/', {
                 shift_id: shift.id,
+                ...(slotId != null ? { slot_id: slotId } : {}),
             });
             showSnackbar(res?.detail || 'Shift paid with pills.');
             await loadShifts();
@@ -618,16 +670,13 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
         return Boolean(shiftAny.dedicatedUser ?? shiftAny.dedicated_user);
     }, []);
 
-    const getLevelLabelForShift = useCallback((level: EscalationLevelKey) => {
-        return getLevelLabel(level);
-    }, []);
-
     useEffect(() => {
-        expandedShifts.forEach((shiftId) => {
-            if (Object.prototype.hasOwnProperty.call(counterOffersByShift, shiftId)) return;
-            loadCounterOffers(shiftId);
+        shifts.forEach((shift) => {
+            if (Object.prototype.hasOwnProperty.call(counterOffersByShift, shift.id)) return;
+            if (counterOffersLoadingByShift[shift.id]) return;
+            loadCounterOffers(shift.id);
         });
-    }, [expandedShifts, counterOffersByShift, loadCounterOffers]);
+    }, [shifts, counterOffersByShift, counterOffersLoadingByShift, loadCounterOffers]);
 
     useEffect(() => {
         if (!slotSeenReady) return;
@@ -754,7 +803,25 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                     const description = (shift as any).description ?? null;
                     const hasBadges = Boolean(roleNeeded || employmentType || isUrgent);
                     const labelOverrides = undefined;
-                    const candidatesLabel = isDedicated ? 'Direct / Private' : getLevelLabelForShift(selectedLevel);
+                    const slotsCount = Array.isArray((shift as any).slots) ? (shift as any).slots.length : 0;
+                    const showPaymentRequired = shouldShowPaymentRequired(shift, selectedSlotId);
+                    const allMembers = isSingleUserShift
+                        ? (currentTabData.members || [])
+                        : Object.values(currentTabData.membersBySlot || {}).flatMap((slotMembers: any) => (
+                            Array.isArray(slotMembers) ? slotMembers : []
+                        ));
+                    const allInterests = currentTabData.interestsAll || [];
+                    const allOffers = offers || [];
+                    const candidatesCount = countUniquePeople([
+                        ...dedupeMembers(allMembers),
+                        ...allInterests,
+                        ...allOffers,
+                    ]);
+                    const interestsCount = countUniquePeople([
+                        ...dedupeMembers(allMembers.filter((member: any) => member?.status === 'interested')),
+                        ...allInterests,
+                        ...allOffers.filter(isActiveCounterOffer),
+                    ]);
 
                     return (
                         <React.Fragment key={shift.id}>
@@ -764,21 +831,65 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                 </Text>
                             )}
                             <Card
-                                style={[styles.shiftCard, { borderLeftColor: cardBorderColor }]}
+                                style={styles.shiftCard}
                             >
-                            <TouchableOpacity onPress={() => toggleShiftExpansion(shift.id)}>
-                                <Card.Title
-                                    title={(shift as any).pharmacyDetail?.name ?? 'Unnamed Pharmacy'}
-                                    subtitle={summaryText}
-                                    titleStyle={styles.cardTitle}
-                                    subtitleStyle={styles.cardSubtitle}
-                                    right={() => (
-                                        <IconButton icon={isExpanded ? 'chevron-up' : 'chevron-down'} size={20} />
-                                    )}
-                                />
-                            </TouchableOpacity>
+                            <View style={[styles.cardAccent, { backgroundColor: cardBorderColor }]} />
 
                             <Card.Content>
+                                <TouchableOpacity
+                                    style={styles.cardPressArea}
+                                    activeOpacity={0.85}
+                                    onPress={() => toggleShiftExpansion(shift.id)}
+                                >
+                                <View style={styles.cardTopRow}>
+                                    <View
+                                        style={[styles.pharmacyMark, { backgroundColor: cardBorderColor }]}
+                                    >
+                                        <IconButton icon="storefront" size={28} iconColor="#fff" style={styles.markIcon} />
+                                    </View>
+                                    <View style={styles.cardTitleBlock}>
+                                        <Text style={styles.cardTitle} numberOfLines={2}>
+                                            {(shift as any).pharmacyDetail?.name ?? 'Unnamed Pharmacy'}
+                                        </Text>
+                                        {summaryText ? (
+                                            <Text style={styles.cardSubtitle} numberOfLines={1}>
+                                                {summaryText}
+                                            </Text>
+                                        ) : null}
+                                    </View>
+                                    <View style={styles.headerActions}>
+                                        <IconButton
+                                            icon="share-variant"
+                                            size={20}
+                                            onPress={(event) => {
+                                                event.stopPropagation();
+                                                handleShare(shift);
+                                            }}
+                                            disabled={sharingShiftId === shift.id}
+                                            style={styles.actionButton}
+                                        />
+                                        <IconButton
+                                            icon="pencil"
+                                            size={20}
+                                            onPress={(event) => {
+                                                event.stopPropagation();
+                                                handleEditShift(shift);
+                                            }}
+                                            style={styles.actionButton}
+                                        />
+                                        <IconButton
+                                            icon="delete"
+                                            size={20}
+                                            onPress={(event) => {
+                                                event.stopPropagation();
+                                                setDeleteConfirmDialog({ open: true, shiftId: shift.id });
+                                            }}
+                                            disabled={actionLoading[`delete_${shift.id}`]}
+                                            style={styles.actionButton}
+                                        />
+                                    </View>
+                                </View>
+
                                 {hasBadges ? (
                                     <View style={styles.badgeRow}>
                                         {roleNeeded && (
@@ -806,29 +917,34 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                     <Text style={styles.location} numberOfLines={1}>
                                         {location}
                                     </Text>
-                                    <View style={styles.headerActions}>
-                                        <IconButton
-                                            icon="share-variant"
-                                            size={20}
-                                            onPress={() => handleShare(shift)}
-                                            disabled={sharingShiftId === shift.id}
-                                            style={styles.actionButton}
-                                        />
-                                        <IconButton
-                                            icon="pencil"
-                                            size={20}
-                                            onPress={() => handleEditShift(shift)}
-                                            style={styles.actionButton}
-                                        />
-                                        <IconButton
-                                            icon="delete"
-                                            size={20}
-                                            onPress={() => setDeleteConfirmDialog({ open: true, shiftId: shift.id })}
-                                            disabled={actionLoading[`delete_${shift.id}`]}
-                                            style={styles.actionButton}
-                                        />
+                                </View>
+
+                                <View style={styles.statsRow}>
+                                        <View style={styles.statBox}>
+                                            <IconButton icon="calendar-month" size={18} iconColor={customTheme.colors.primary} style={styles.statIcon} />
+                                        <View>
+                                            <Text style={styles.statValue}>{slotsCount || '-'}</Text>
+                                            <Text style={styles.statLabel}>Slots</Text>
+                                        </View>
+                                        </View>
+                                        <View style={styles.statDivider} />
+                                        <View style={styles.statBox}>
+                                        <IconButton icon="account-group-outline" size={18} iconColor={customTheme.colors.primary} style={styles.statIcon} />
+                                        <View>
+                                            <Text style={styles.statValue}>{candidatesCount}</Text>
+                                            <Text style={styles.statLabel}>Candidates</Text>
+                                        </View>
+                                        </View>
+                                        <View style={styles.statDivider} />
+                                        <View style={styles.statBox}>
+                                        <IconButton icon="heart-outline" size={18} iconColor={customTheme.colors.primary} style={styles.statIcon} />
+                                        <View>
+                                            <Text style={styles.statValue}>{interestsCount}</Text>
+                                            <Text style={styles.statLabel}>Interests</Text>
+                                        </View>
                                     </View>
                                 </View>
+                                </TouchableOpacity>
 
                                 {isDedicated ? (
                                     <View style={styles.directBadgeRow}>
@@ -856,14 +972,12 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                                 currentLevel={shiftLevel}
                                                 selectedLevel={selectedLevel}
                                                 onSelectLevel={(levelKey) => handleLevelChange(shift, levelKey)}
-                                            onEscalate={async (_s, _levelKey) => {
-                                                const success = await handleEscalate(shift.id);
+                                            onEscalate={async (_s, levelKey) => {
+                                                const success = await handleEscalate(shift.id, levelKey);
                                                 if (!success) return;
-                                                setSelectedLevelByShift(prev => {
-                                                    const next = { ...prev };
-                                                    delete next[shift.id];
-                                                    return next;
-                                                });
+                                                const updatedShift = { ...shift, visibility: levelKey, visibilityLevel: levelKey } as Shift;
+                                                setSelectedLevelByShift(prev => ({ ...prev, [shift.id]: levelKey }));
+                                                await loadTabDataForShift(updatedShift, levelKey);
                                                 await loadShifts();
                                                 }}
                                                 escalating={actionLoading[`escalate_${shift.id}`]}
@@ -873,7 +987,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
 
                                         <Divider style={styles.divider} />
 
-                                        {(shift as any).paymentStatus === 'PENDING' && (
+                                        {showPaymentRequired && (
                                             <View style={styles.paymentRequiredBox}>
                                                 <Text style={styles.paymentRequiredTitle}>
                                                     Payment Required
@@ -888,9 +1002,11 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                                         style={styles.paymentButton}
                                                         onPress={async () => {
                                                             try {
-                                                                const { data: res } = await apiClient.post(`/billing/charge-fulfillment/${shift.id}/`, {
+                                                                const payload = {
                                                                     platform: 'mobile',
-                                                                });
+                                                                    ...(!isSingleUserShift && slotsCount > 1 && selectedSlotId != null ? { slot_id: selectedSlotId } : {}),
+                                                                };
+                                                                const { data: res } = await apiClient.post(`/billing/charge-fulfillment/${shift.id}/`, payload);
                                                                 if (res?.url) {
                                                                     await Linking.openURL(res.url);
                                                                 } else if (res?.free) {
@@ -912,21 +1028,13 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                                         style={styles.paymentButton}
                                                         loading={pillPayingShiftId === shift.id}
                                                         disabled={pillPayingShiftId === shift.id}
-                                                        onPress={() => handlePayWithPills(shift)}
+                                                        onPress={() => handlePayWithPills(shift, !isSingleUserShift && slotsCount > 1 ? selectedSlotId : null)}
                                                     >
                                                         Pay with Pills
                                                     </Button>
                                                 </View>
                                             </View>
                                         )}
-
-                                        <View style={styles.sectionHeader}>
-                                            <Divider style={styles.sectionDivider} />
-                                            <Chip mode="outlined" style={styles.sectionChip}>
-                                                Candidates for {candidatesLabel}
-                                            </Chip>
-                                            <Divider style={styles.sectionDivider} />
-                                        </View>
 
                                         {currentTabData.loading ? (
                                             <ActivityIndicator style={{ padding: 20 }} />
@@ -1030,16 +1138,17 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: customTheme.colors.greyLight,
+        backgroundColor: '#F8FAFC',
     },
     content: {
-        padding: customTheme.spacing.md,
+        padding: customTheme.spacing.lg,
         gap: customTheme.spacing.md,
     },
     title: {
-        fontSize: 20,
-        fontWeight: '700',
-        color: customTheme.colors.text,
+        fontSize: 24,
+        fontWeight: '900',
+        color: '#111827',
+        letterSpacing: -0.4,
     },
     sectionTitle: {
         fontSize: 12,
@@ -1050,14 +1159,15 @@ const styles = StyleSheet.create({
         marginTop: customTheme.spacing.sm,
     },
     cardTitle: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: customTheme.colors.text,
+        fontSize: 17,
+        fontWeight: '900',
+        color: '#111827',
     },
     cardSubtitle: {
-        fontSize: 13,
-        color: customTheme.colors.textMuted,
-        marginTop: 2,
+        fontSize: 12,
+        color: '#64748B',
+        marginTop: 5,
+        fontWeight: '600',
     },
     loadingContainer: {
         flex: 1,
@@ -1079,10 +1189,54 @@ const styles = StyleSheet.create({
         color: customTheme.colors.textMuted,
     },
     shiftCard: {
+        position: 'relative',
+        overflow: 'hidden',
         marginBottom: customTheme.spacing.md,
-        borderRadius: 12,
-        borderLeftWidth: 4,
-        borderLeftColor: customTheme.colors.border,
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: '#DDD6FE',
+        backgroundColor: '#FFFFFF',
+        elevation: 4,
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.09,
+        shadowRadius: 24,
+    },
+    cardAccent: {
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: 5,
+    },
+    cardPressArea: {
+        marginTop: 0,
+    },
+    cardTopRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: customTheme.spacing.md,
+        paddingTop: customTheme.spacing.sm,
+        marginBottom: customTheme.spacing.sm,
+    },
+    pharmacyMark: {
+        width: 58,
+        height: 58,
+        borderRadius: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#7C3AED',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.22,
+        shadowRadius: 14,
+        elevation: 5,
+    },
+    markIcon: {
+        margin: 0,
+    },
+    cardTitleBlock: {
+        flex: 1,
+        minWidth: 0,
     },
     badgeRow: {
         flexDirection: 'row',
@@ -1112,16 +1266,20 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: customTheme.spacing.sm,
+        marginTop: customTheme.spacing.xs,
     },
     location: {
         flex: 1,
         fontSize: 13,
-        color: customTheme.colors.textMuted,
+        color: '#64748B',
+        fontWeight: '600',
     },
     headerActions: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: customTheme.spacing.xs,
+        flexWrap: 'nowrap',
+        justifyContent: 'flex-end',
+        width: 96,
     },
     directBadgeRow: {
         flexDirection: 'row',
@@ -1146,9 +1304,52 @@ const styles = StyleSheet.create({
     },
     actionButton: {
         margin: 0,
+        width: 30,
+        height: 30,
+        backgroundColor: '#F8FAFC',
+    },
+    statsRow: {
+        flexDirection: 'row',
+        alignSelf: 'flex-end',
+        width: '78%',
+        marginTop: customTheme.spacing.md,
+        marginBottom: customTheme.spacing.sm,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        borderRadius: 16,
+        backgroundColor: '#fff',
+        overflow: 'hidden',
+    },
+    statBox: {
+        flex: 1,
+        minHeight: 58,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: customTheme.spacing.xs,
+        paddingHorizontal: customTheme.spacing.sm,
+    },
+    statDivider: {
+        width: 1,
+        backgroundColor: '#E5E7EB',
+        marginVertical: customTheme.spacing.sm,
+    },
+    statIcon: {
+        margin: 0,
+        width: 28,
+        height: 28,
+    },
+    statValue: {
+        color: '#111827',
+        fontSize: 15,
+        fontWeight: '900',
+    },
+    statLabel: {
+        color: '#64748B',
+        fontSize: 10,
+        fontWeight: '700',
     },
     divider: {
-        marginVertical: customTheme.spacing.md,
+        marginVertical: customTheme.spacing.lg,
     },
     descriptionBox: {
         backgroundColor: '#F9FAFB',
@@ -1165,11 +1366,11 @@ const styles = StyleSheet.create({
     },
     paymentRequiredBox: {
         marginBottom: customTheme.spacing.md,
-        padding: customTheme.spacing.md,
-        backgroundColor: customTheme.colors.errorLight,
-        borderRadius: 10,
+        padding: customTheme.spacing.lg,
+        backgroundColor: '#FEF2F2',
+        borderRadius: 18,
         borderWidth: 1,
-        borderColor: customTheme.colors.error,
+        borderColor: '#FCA5A5',
         gap: customTheme.spacing.sm,
     },
     paymentRequiredTitle: {
@@ -1201,7 +1402,7 @@ const styles = StyleSheet.create({
     },
     sectionChip: {
         backgroundColor: '#fff',
-        borderColor: customTheme.colors.border,
+        borderColor: '#DDD6FE',
     },
 });
 

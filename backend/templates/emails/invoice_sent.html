@@ -1,12 +1,14 @@
-<!DOCTYPE html>
-<html>
-  <body style="font-family: Arial, sans-serif; color:#222; margin:0; padding:0; background:#fafafa;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f7fb; padding:24px 0;">
+{% extends "emails/base.html" %}
+
+{% block title %}ChemistTasker{% endblock %}
+
+{% block content %}
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f7fb; padding:24px 0;">
       <tr>
         <td align="center">
           <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden;">
             <tr>
-              <td style="background:#204ecf; color:#fff; padding:16px 20px; font-weight:700; font-size:16px;">
+              <td style="background:#433894; color:#fff; padding:16px 20px; font-weight:700; font-size:16px;">
                 ChemistTasker — Invoice
               </td>
             </tr>
@@ -17,7 +19,7 @@
                   Please find attached your invoice <strong>#{{ invoice.id }}</strong>.
                 </p>
 
-                <table cellpadding="8" cellspacing="0" width="100%" style="background:#f8f9ff; border:1px solid #e5e9ff; border-radius:6px; margin:16px 0;">
+                <table cellpadding="8" cellspacing="0" width="100%" style="background:#f5f7ff; border:1px solid #dbe4ff; border-radius:6px; margin:16px 0;">
                   <tr><td>Invoice Date</td><td style="text-align:right;">{{ invoice_date }}</td></tr>
                   <tr><td>Due Date</td><td style="text-align:right;">{{ due_date }}</td></tr>
                   <tr><td>Subtotal</td><td style="text-align:right;">${{ subtotal }}</td></tr>
@@ -31,7 +33,7 @@
               </td>
             </tr>
             <tr>
-              <td style="background:#f1f4ff; color:#4b5563; padding:12px 20px; font-size:12px;">
+              <td style="background:#f5f7ff; color:#4b5563; padding:12px 20px; font-size:12px;">
                 © {{ now|default:"" }} ChemistTasker
               </td>
             </tr>
@@ -39,5 +41,4 @@
         </td>
       </tr>
     </table>
-  </body>
-</html>
+{% endblock %}

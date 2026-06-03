@@ -278,9 +278,7 @@ export default function PublicShiftsPage({
         return;
       }
 
-      await Promise.all(
-        slots.map((slot) => expressInterestInPublicShiftService({ shiftId: shift.id, slotId: slot.id }))
-      );
+      await expressInterestInPublicShiftService({ shiftId: shift.id, slotIds: slots.map((slot) => slot.id) } as any);
       setAppliedSlotIds((prev) => Array.from(new Set([...prev, ...slots.map((slot) => slot.id)])));
     } catch (err) {
       console.error('Failed to express interest', err);
@@ -437,6 +435,24 @@ export default function PublicShiftsPage({
     await loadOffers();
   };
 
+  const handleApplySlots = async (shift: Shift, slotIds: number[]) => {
+    if (!isVerified) {
+      const msg = 'You must be verified by an admin before applying to public shifts.';
+      showError(msg);
+      throw new Error(msg);
+    }
+    try {
+      const uniqueSlotIds = Array.from(new Set(slotIds)).filter((slotId) => Number.isFinite(slotId));
+      if (uniqueSlotIds.length === 0) return;
+      await expressInterestInPublicShiftService({ shiftId: shift.id, slotIds: uniqueSlotIds } as any);
+      setAppliedSlotIds((prev) => Array.from(new Set([...prev, ...uniqueSlotIds])));
+    } catch (err) {
+      console.error('Failed to express interest in slots', err);
+      showError('Failed to express interest in the selected slots.');
+      throw err;
+    }
+  };
+
   const handleDeclineOfferShift = async (targetShift: Shift) => {
     const list = (offersByShift.get(targetShift.id) ?? []).filter(
       (offer) => String(offer.status ?? '').toUpperCase() === 'PENDING'
@@ -517,6 +533,7 @@ export default function PublicShiftsPage({
           onToggleSave={handleToggleSave}
           onApplyAll={handleApplyAll}
           onApplySlot={handleApplySlot}
+          onApplySlots={handleApplySlots}
           onSubmitCounterOffer={handleSubmitCounterOffer}
           initialAppliedShiftIds={appliedShiftIds}
           initialAppliedSlotIds={appliedSlotIds}

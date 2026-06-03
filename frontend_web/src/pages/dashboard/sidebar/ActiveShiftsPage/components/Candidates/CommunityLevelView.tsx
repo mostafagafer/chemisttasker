@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Stack, Typography, Divider, Chip } from '@mui/material';
+import { Box, Stack, Divider, Chip } from '@mui/material';
 import {
     CheckCircle as Check,
     PersonAdd as UserCheck,
@@ -16,6 +16,7 @@ interface CommunityLevelViewProps {
     members: ShiftMemberStatus[];
     selectedSlotId: number | null;
     slotHasUpdates?: Record<number, boolean>;
+    slotCandidateCounts?: Record<number, number>;
     offers: any[];
     onSelectSlot: (slotId: number) => void;
     onReviewCandidate: (member: ShiftMemberStatus, shiftId: number, offer: any | null, slotId: number | null) => void;
@@ -27,6 +28,7 @@ export const CommunityLevelView: React.FC<CommunityLevelViewProps> = ({
     members,
     selectedSlotId,
     slotHasUpdates,
+    slotCandidateCounts,
     offers,
     onSelectSlot,
     onReviewCandidate,
@@ -35,19 +37,15 @@ export const CommunityLevelView: React.FC<CommunityLevelViewProps> = ({
     const slots = (shift as any).slots || [];
     const multiSlots = !(shift as any).singleUserOnly && slots.length > 0;
 
-    // Filter members by slot if multi-slot; include shift-level members with no slotId
-    const slotMembersRaw = multiSlots
-        ? members.filter((m) => (m as any).slotId === selectedSlotId || (m as any).slotId == null)
-        : members;
-    const slotMembers = dedupeMembers(slotMembersRaw);
+    // Parent passes the selected-slot member list. Do not re-filter here; slot field
+    // names vary between API payloads and double-filtering can freeze/empty the view.
+    const slotMembers = dedupeMembers(members);
 
     // Categorize members by status
     const interested = slotMembers.filter((m) => m.status === 'interested');
     const assigned = slotMembers.filter((m) => m.status === 'accepted');
     const rejected = slotMembers.filter((m) => m.status === 'rejected');
     const noResponse = slotMembers.filter((m) => m.status === 'no_response');
-
-    const hasMembers = slotMembers.length > 0;
 
     const getOfferForMember = (member: ShiftMemberStatus) => {
         const offer = findOfferForMemberInShift(offers, member, selectedSlotId);
@@ -64,6 +62,7 @@ export const CommunityLevelView: React.FC<CommunityLevelViewProps> = ({
                     selectedSlotId={selectedSlotId}
                     onSelectSlot={onSelectSlot}
                     slotHasUpdates={slotHasUpdates}
+                    slotCandidateCounts={slotCandidateCounts}
                 />
             )}
 
@@ -71,55 +70,59 @@ export const CommunityLevelView: React.FC<CommunityLevelViewProps> = ({
                 <Chip label="Candidates" />
             </Divider>
 
-            {/* Member Status Boxes Grid */}
-            {hasMembers ? (
-                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 2 }}>
-                    <StatusCard
-                        title="Interested"
-                        members={interested}
-                        icon={<UserCheck />}
-                        color="success"
-                        shiftId={shift.id}
-                        onReviewCandidate={onReviewCandidate}
-                        getOfferForMember={getOfferForMember}
-                        reviewLoadingId={reviewLoadingId}
-                    />
-                    <StatusCard
-                        title="Assigned"
-                        members={assigned}
-                        icon={<Check />}
-                        color="info"
-                        shiftId={shift.id}
-                        onReviewCandidate={onReviewCandidate}
-                        getOfferForMember={getOfferForMember}
-                        reviewLoadingId={reviewLoadingId}
-                    />
-                    <StatusCard
-                        title="Rejected"
-                        members={rejected}
-                        icon={<UserX />}
-                        color="error"
-                        shiftId={shift.id}
-                        onReviewCandidate={onReviewCandidate}
-                        getOfferForMember={getOfferForMember}
-                        reviewLoadingId={reviewLoadingId}
-                    />
-                    <StatusCard
-                        title="No Response"
-                        members={noResponse}
-                        icon={<Clock />}
-                        color="warning"
-                        shiftId={shift.id}
-                        onReviewCandidate={onReviewCandidate}
-                        getOfferForMember={getOfferForMember}
-                        reviewLoadingId={reviewLoadingId}
-                    />
-                </Box>
-            ) : (
-                <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-                    No candidates found for this level.
-                </Typography>
-            )}
+            <Box
+                sx={{
+                    display: 'grid',
+                    gridTemplateColumns: {
+                        xs: '1fr',
+                        sm: 'repeat(2, minmax(0, 1fr))',
+                        lg: 'repeat(4, minmax(230px, 1fr))',
+                    },
+                    gap: 2,
+                    alignItems: 'stretch',
+                }}
+            >
+                <StatusCard
+                    title="Interested"
+                    members={interested}
+                    icon={<UserCheck />}
+                    color="success"
+                    shiftId={shift.id}
+                    onReviewCandidate={onReviewCandidate}
+                    getOfferForMember={getOfferForMember}
+                    reviewLoadingId={reviewLoadingId}
+                />
+                <StatusCard
+                    title="Assigned"
+                    members={assigned}
+                    icon={<Check />}
+                    color="info"
+                    shiftId={shift.id}
+                    onReviewCandidate={onReviewCandidate}
+                    getOfferForMember={getOfferForMember}
+                    reviewLoadingId={reviewLoadingId}
+                />
+                <StatusCard
+                    title="Rejected"
+                    members={rejected}
+                    icon={<UserX />}
+                    color="error"
+                    shiftId={shift.id}
+                    onReviewCandidate={onReviewCandidate}
+                    getOfferForMember={getOfferForMember}
+                    reviewLoadingId={reviewLoadingId}
+                />
+                <StatusCard
+                    title="No Response"
+                    members={noResponse}
+                    icon={<Clock />}
+                    color="warning"
+                    shiftId={shift.id}
+                    onReviewCandidate={onReviewCandidate}
+                    getOfferForMember={getOfferForMember}
+                    reviewLoadingId={reviewLoadingId}
+                />
+            </Box>
         </Stack>
     );
 };

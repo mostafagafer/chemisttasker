@@ -785,6 +785,7 @@ export interface ShiftApi {
     escalate_to_platform?: string | null;
     slots?: ShiftSlotApi[];
     slot_assignments?: ShiftAssignmentApi[];
+    pending_payment_slot_ids?: number[];
     single_user_only?: boolean;
     post_anonymously?: boolean;
     has_travel?: boolean;

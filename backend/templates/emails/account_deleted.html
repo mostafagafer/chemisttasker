@@ -1,17 +1,9 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Account Deletion - ChemistTasker</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #f9f8fd; color: #333; }
-        .container { padding: 28px 20px; background: #fff; border-radius: 10px; max-width: 520px; margin: 32px auto; box-shadow: 0 2px 8px #ececec; }
-        h2 { margin-top: 0; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h2>Your account deletion request</h2>
+{% extends "emails/base.html" %}
+
+{% block title %}Account Deletion - ChemistTasker{% endblock %}
+
+{% block content %}
+<h2>Your account deletion request</h2>
         <p>Hi {{ name }},</p>
         <p>
             We have processed your request to delete your ChemistTasker account.
@@ -25,6 +17,4 @@
             If you did not request this, please contact us at {{ support_email }}.
         </p>
         <p>Thanks,<br>The ChemistTasker Team</p>
-    </div>
-</body>
-</html>
+{% endblock %}

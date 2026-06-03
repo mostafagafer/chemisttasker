@@ -1,0 +1,75 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block branding %}
+<div id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:_('Django administration') }}</a></div>
+{% if user.is_anonymous %}
+  {% include "admin/color_theme_toggle.html" %}
+{% endif %}
+{% endblock %}
+
+{% block nav-global %}{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+  /*
+   * Keep Django admin changelists oriented consistently.
+   *
+   * Django's default changelist CSS uses a flex row and responsive rules that can
+   * make the result table sit hard-right while filters drop into a wide panel.
+   * This grid keeps search/actions/results together and reserves a predictable
+   * filter column on desktop.
+   */
+  body.change-list #content-main {
+    max-width: none;
+    width: 100%;
+  }
+
+  body.change-list #changelist {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 260px;
+    gap: 30px;
+    align-items: start;
+    justify-content: stretch;
+  }
+
+  body.change-list #changelist .changelist-form-container {
+    min-width: 0;
+    width: 100%;
+  }
+
+  body.change-list #changelist-filter {
+    grid-column: 2;
+    order: initial;
+    width: auto;
+    margin: 0;
+  }
+
+  body.change-list .filtered .results,
+  body.change-list .filtered .paginator,
+  body.change-list .filtered #toolbar,
+  body.change-list .filtered div.xfull {
+    width: 100%;
+  }
+
+  body.change-list #changelist-form .results {
+    overflow-x: auto;
+    width: 100%;
+  }
+
+  @media (max-width: 900px) {
+    body.change-list #changelist {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 16px;
+    }
+
+    body.change-list #changelist-filter {
+      grid-column: 1;
+      width: 100%;
+    }
+  }
+</style>
+{% endblock %}

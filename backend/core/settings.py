@@ -12,7 +12,7 @@ import urllib.parse
 
 
 env = Env()
-Env.read_env(Path(__file__).resolve().parent / ".env.local")
+Env.read_env(Path(__file__).resolve().parent / ".env.local", overwrite=True)
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -77,8 +77,8 @@ CORS_ALLOW_CREDENTIALS = True
 
 if DEBUG:
     # Dev-only auto-detection for localhost + current private/LAN addresses.
-    _dev_hosts = _detect_local_hosts()
-    ALLOWED_HOSTS = sorted(set(ALLOWED_HOSTS + _dev_hosts))
+    _dev_hosts = sorted(set(_detect_local_hosts() + ALLOWED_HOSTS))
+    ALLOWED_HOSTS = ["*"]
     CORS_ALLOWED_ORIGINS = _build_dev_origins(_dev_hosts)
 else:
     CORS_ALLOWED_ORIGINS = [
@@ -195,13 +195,13 @@ Q_CLUSTER = {
     'retry': 400,
     'queue_limit': env.int("Q_QUEUE_LIMIT", default=1),
     'bulk': env.int("Q_BULK", default=1),
-    'guard_cycle': float(env("Q_GUARD_CYCLE", default="10")),
+    'guard_cycle': float(env("Q_GUARD_CYCLE", default="2")),
     'save_limit': env.int("Q_SAVE_LIMIT", default=50),
     'catch_up': env.bool("Q_CATCH_UP", default=False),
     'broker_class': 'core.q_broker.LowCommandRedis',
     'redis': _redis_options,
 }
-Q_REDIS_BLPOP_TIMEOUT = env.int("Q_REDIS_BLPOP_TIMEOUT", default=30)
+Q_REDIS_BLPOP_TIMEOUT = env.int("Q_REDIS_BLPOP_TIMEOUT", default=1)
 
 
 MIDDLEWARE = [

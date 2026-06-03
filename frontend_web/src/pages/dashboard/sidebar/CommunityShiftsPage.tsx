@@ -62,6 +62,12 @@ type CommunityShiftsPageProps = {
   hideTabs?: boolean;
 };
 
+const rejectSlotIdsWithBatchFallback = async (shiftId: number, slotIds: number[]) => {
+  const uniqueSlotIds = Array.from(new Set(slotIds)).filter((slotId) => Number.isFinite(slotId));
+  if (uniqueSlotIds.length === 0) return;
+  await rejectCommunityShiftService({ shiftId, slotIds: uniqueSlotIds } as any);
+};
+
 export default function CommunityShiftsPage({
   activeTabOverride,
   onActiveTabChange,
@@ -286,9 +292,7 @@ export default function CommunityShiftsPage({
       }
 
       const slots = shift.slots ?? [];
-      await Promise.all(
-        slots.map((slot) => expressInterestInCommunityShiftService({ shiftId: shift.id, slotId: slot.id }))
-      );
+      await expressInterestInCommunityShiftService({ shiftId: shift.id, slotIds: slots.map((slot) => slot.id) } as any);
       setAppliedSlotIds((prev) => Array.from(new Set([...prev, ...slots.map((slot) => slot.id)])));
     } catch (err) {
       console.error('Failed to express interest', err);
@@ -312,12 +316,10 @@ export default function CommunityShiftsPage({
     try {
       if (shift.singleUserOnly) {
         await rejectCommunityShiftService({ shiftId: shift.id, slotId: null });
-      } else {
-        const slots = shift.slots ?? [];
-        await Promise.all(
-          slots.map((slot) => rejectCommunityShiftService({ shiftId: shift.id, slotId: slot.id }))
-        );
-      }
+    } else {
+      const slots = shift.slots ?? [];
+      await rejectSlotIdsWithBatchFallback(shift.id, slots.map((slot) => slot.id));
+    }
     } catch (err) {
       console.error('Failed to reject shift', err);
       setError('Failed to reject this shift.');
@@ -331,6 +333,29 @@ export default function CommunityShiftsPage({
     } catch (err) {
       console.error('Failed to reject slot', err);
       setError('Failed to reject this slot.');
+      throw err;
+    }
+  };
+
+  const handleApplySlots = async (shift: Shift, slotIds: number[]) => {
+    try {
+      const uniqueSlotIds = Array.from(new Set(slotIds)).filter((slotId) => Number.isFinite(slotId));
+      if (uniqueSlotIds.length === 0) return;
+      await expressInterestInCommunityShiftService({ shiftId: shift.id, slotIds: uniqueSlotIds } as any);
+      setAppliedSlotIds((prev) => Array.from(new Set([...prev, ...uniqueSlotIds])));
+    } catch (err) {
+      console.error('Failed to express interest in slots', err);
+      setError('Failed to express interest in the selected slots.');
+      throw err;
+    }
+  };
+
+  const handleRejectSlots = async (shift: Shift, slotIds: number[]) => {
+    try {
+      await rejectSlotIdsWithBatchFallback(shift.id, slotIds);
+    } catch (err) {
+      console.error('Failed to reject slots', err);
+      setError('Failed to reject the selected slots.');
       throw err;
     }
   };
@@ -606,11 +631,13 @@ export default function CommunityShiftsPage({
               onToggleSave={handleToggleSave}
               onApplyAll={handleApplyAll}
               onApplySlot={handleApplySlot}
+              onApplySlots={handleApplySlots}
               onSubmitCounterOffer={handleSubmitCounterOffer}
               initialAppliedShiftIds={appliedShiftIds}
               initialAppliedSlotIds={appliedSlotIds}
               onRejectShift={handleRejectShift}
               onRejectSlot={handleRejectSlot}
+              onRejectSlots={handleRejectSlots}
               initialRejectedShiftIds={rejectedShiftIds}
               initialRejectedSlotIds={rejectedSlotIds}
               hideTabs

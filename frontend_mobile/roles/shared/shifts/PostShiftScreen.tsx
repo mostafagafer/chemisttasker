@@ -27,7 +27,7 @@ import {
 import skillsCatalog from '@chemisttasker/shared-core/skills_catalog.json';
 
 const ROLE_OPTIONS = ['PHARMACIST', 'TECHNICIAN', 'ASSISTANT', 'INTERN', 'STUDENT'];
-const EMPLOYMENT_TYPES = ['LOCUM', 'CASUAL', 'PART_TIME', 'FULL_TIME'];
+const EMPLOYMENT_TYPES = ['LOCUM', 'PART_TIME', 'FULL_TIME'];
 const WORKLOAD_TAGS = ['Sole Pharmacist', 'High Script Load', 'Webster Packs'];
 const PRIMARY = '#7c3aed';
 const PRIMARY_LIGHT = '#F3E8FF';
@@ -83,6 +83,15 @@ type StepKey = 'details' | 'skills' | 'visibility' | 'timetable' | 'payrate';
 type RateType = 'FLEXIBLE' | 'FIXED' | 'PHARMACIST_PROVIDED';
 type VisibilityTier = 'FULL_PART_TIME' | 'LOCUM_CASUAL' | 'OWNER_CHAIN' | 'ORG_CHAIN' | 'PLATFORM';
 type VisibilityDates = { locum_casual?: string; owner_chain?: string; org_chain?: string; platform?: string };
+
+const toRateInputString = (value: unknown): string =>
+    value === null || value === undefined ? '' : String(value);
+
+const getSlotRateValue = (slot: any): unknown =>
+    slot?.rate ?? slot?.rate_per_hour ?? slot?.ratePerHour ?? slot?.hourly_rate ?? slot?.hourlyRate;
+
+const firstPresent = (...values: unknown[]): unknown =>
+    values.find((value) => value !== null && value !== undefined && value !== '');
 
 type SlotEntry = {
     date: string;
@@ -144,6 +153,16 @@ const formatClockTime = (value?: string) => {
     const date = new Date();
     date.setHours(hours, minutes, 0, 0);
     return date.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true });
+};
+const getSlotDurationHours = (startTime?: string, endTime?: string) => {
+    if (!startTime || !endTime) return 0;
+    const [startHour, startMinute] = startTime.slice(0, 5).split(':').map(Number);
+    const [endHour, endMinute] = endTime.slice(0, 5).split(':').map(Number);
+    if (![startHour, startMinute, endHour, endMinute].every(Number.isFinite)) return 0;
+    const startTotal = startHour * 60 + startMinute;
+    let endTotal = endHour * 60 + endMinute;
+    if (endTotal <= startTotal) endTotal += 24 * 60;
+    return Math.max(0, (endTotal - startTotal) / 60);
 };
 const formatDateLabel = (value?: string) => {
     if (!value) return 'Choose a date';
@@ -228,6 +247,23 @@ export default function PostShiftScreen() {
     const isLocumLike = useMemo(
         () => employmentType === 'LOCUM' || employmentType === 'CASUAL',
         [employmentType]
+    );
+    const canPostAnonymously = useMemo(
+        () => !isEmbedded && ['ORG_CHAIN', 'PLATFORM'].includes(initialAudience),
+        [initialAudience, isEmbedded]
+    );
+    const hasOutsidePharmacyMemberAudience = useMemo(
+        () => !isEmbedded && (initialAudience !== 'FULL_PART_TIME' || Object.values(escalationDates).some(Boolean)),
+        [escalationDates, initialAudience, isEmbedded]
+    );
+    const getEmploymentLabel = useCallback(
+        (value: string) => {
+            if (value === 'LOCUM') return roleNeeded === 'PHARMACIST' ? 'Locum' : 'Casual';
+            if (value === 'FULL_TIME') return 'Full-Time';
+            if (value === 'PART_TIME') return 'Part-Time';
+            return value.replace('_', ' ');
+        },
+        [roleNeeded]
     );
     const stepOrder = useMemo<StepKey[]>(
         () => [...BASE_STEP_ORDER, ...(isLocumLike ? (['timetable'] as StepKey[]) : []), 'payrate'],
@@ -351,6 +387,10 @@ export default function PostShiftScreen() {
         }
     }, [allowedVis, isEmbedded]);
 
+    useEffect(() => {
+        if (!canPostAnonymously) setHideName(false);
+    }, [canPostAnonymously]);
+
     // When pharmacy changes, align initial audience to first allowed tier
     useEffect(() => {
         if (allowedVis.length) {
@@ -390,6 +430,13 @@ export default function PostShiftScreen() {
                 data.pharmacy_id ??
                 ''
             );
+            const pharmacyValue =
+                data.pharmacy_detail?.id ??
+                data.pharmacyDetail?.id ??
+                data.pharmacy ??
+                data.pharmacy_id ??
+                '';
+            const pharmacyDefaults = pharmacies.find((item: any) => Number(item.id) === Number(pharmacyValue));
             // Ensure the pharmacy from the shift exists in the options list (matches web behavior of showing current pharmacy)
             if (data.pharmacy_detail || data.pharmacyDetail) {
                 const detail = data.pharmacy_detail ?? data.pharmacyDetail;
@@ -427,7 +474,7 @@ export default function PostShiftScreen() {
                         : ''
             );
             const fixed = data.fixed_rate ?? data.fixedRate;
-            setFixedRate(fixed ? String(fixed) : '');
+            setFixedRate(toRateInputString(fixed));
             const rateTypeValue = data.rate_type ?? data.rateType;
             if (rateTypeValue === 'PHARMACIST_PROVIDED') {
                 setRateType('PHARMACIST_PROVIDED');
@@ -436,12 +483,12 @@ export default function PostShiftScreen() {
             } else {
                 setRateType('FLEXIBLE');
             }
-            setRateWeekday(String(data.rate_weekday ?? data.rateWeekday ?? ''));
-            setRateSaturday(String(data.rate_saturday ?? data.rateSaturday ?? ''));
-            setRateSunday(String(data.rate_sunday ?? data.rateSunday ?? ''));
-            setRatePublicHoliday(String(data.rate_public_holiday ?? data.ratePublicHoliday ?? ''));
-            setRateEarlyMorning(String(data.rate_early_morning ?? data.rateEarlyMorning ?? ''));
-            setRateLateNight(String(data.rate_late_night ?? data.rateLateNight ?? ''));
+            setRateWeekday(toRateInputString(firstPresent(data.rate_weekday, data.rateWeekday, (pharmacyDefaults as any)?.rate_weekday, (pharmacyDefaults as any)?.rateWeekday)));
+            setRateSaturday(toRateInputString(firstPresent(data.rate_saturday, data.rateSaturday, (pharmacyDefaults as any)?.rate_saturday, (pharmacyDefaults as any)?.rateSaturday)));
+            setRateSunday(toRateInputString(firstPresent(data.rate_sunday, data.rateSunday, (pharmacyDefaults as any)?.rate_sunday, (pharmacyDefaults as any)?.rateSunday)));
+            setRatePublicHoliday(toRateInputString(firstPresent(data.rate_public_holiday, data.ratePublicHoliday, (pharmacyDefaults as any)?.rate_public_holiday, (pharmacyDefaults as any)?.ratePublicHoliday)));
+            setRateEarlyMorning(toRateInputString(firstPresent(data.rate_early_morning, data.rateEarlyMorning, (pharmacyDefaults as any)?.rate_early_morning, (pharmacyDefaults as any)?.rateEarlyMorning)));
+            setRateLateNight(toRateInputString(firstPresent(data.rate_late_night, data.rateLateNight, (pharmacyDefaults as any)?.rate_late_night, (pharmacyDefaults as any)?.rateLateNight)));
             setPaymentPreference((data.payment_preference ?? data.paymentPreference ?? 'ABN') === 'TFN' ? 'TFN' : 'ABN');
             const detailSuper = data.super_percent ?? data.superPercent;
             if (detailSuper === null || detailSuper === undefined || detailSuper === '') {
@@ -463,10 +510,14 @@ export default function PostShiftScreen() {
                 }))
                 : [];
             setSlots(parsedSlots);
+            setSlotRateRows((Array.isArray(data.slots) ? data.slots : []).map((s: any) => {
+                const rate = toRateInputString(getSlotRateValue(s));
+                return { rate, status: rate ? 'success' as const : 'idle' as const, dirty: rate !== '' };
+            }));
         } catch {
             setError('Unable to load shift details');
         }
-    }, [editingId]);
+    }, [editingId, pharmacies]);
 
     useEffect(() => {
         const initialize = async () => {
@@ -836,6 +887,24 @@ export default function PostShiftScreen() {
     };
 
     const removeSlot = (index: number) => setSlots((prev) => prev.filter((_, i) => i !== index));
+    const editSlot = (index: number) => {
+        const slot = slots[index];
+        if (!slot) return;
+
+        setSlotDate(slot.date);
+        setSlotStart(slot.startTime);
+        setSlotEnd(slot.endTime);
+        setSlotRecurring(slot.isRecurring);
+        setSlotRecurringDays(slot.recurringDays || []);
+        setSlotRecurringEnd(slot.recurringEndDate || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]);
+        setSelectedDates((prev) => (prev.includes(slot.date) ? prev : [...prev, slot.date].sort()));
+        setSelectedDateTimes((prev) => ({
+            ...prev,
+            [slot.date]: { startTime: slot.startTime, endTime: slot.endTime },
+        }));
+        setCalendarMonthAnchor(new Date(`${slot.date}T00:00:00`));
+        setSlots((prev) => prev.filter((_, i) => i !== index));
+    };
     const toggleRecurringDay = (day: number) => setSlotRecurringDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
     const setEscalation = (key: keyof VisibilityDates, value: string) => setEscalationDates((prev) => ({ ...prev, [key]: value }));
     const handleSlotRateChange = (index: number, value: string) => {
@@ -884,7 +953,7 @@ export default function PostShiftScreen() {
                 description,
                 must_have: mustHave,
                 nice_to_have: niceToHave,
-                post_anonymously: hideName,
+                post_anonymously: canPostAnonymously ? hideName : false,
                 single_user_only: singleUserOnly,
                 visibility: isEmbedded ? 'LOCUM_CASUAL' : initialAudience,
                 escalate_to_locum_casual: isEmbedded ? null : escalationDates.locum_casual,
@@ -994,24 +1063,6 @@ export default function PostShiftScreen() {
                 ))}
             </Menu>
 
-            <Text style={styles.label}>Employment Type</Text>
-            <View style={styles.pills}>
-                {EMPLOYMENT_TYPES.map((emp) => {
-                    const selected = employmentType === emp;
-                    return (
-                        <Chip
-                            key={emp}
-                            selected={selected}
-                            onPress={() => setEmploymentType(emp)}
-                            style={chipStyle(selected)}
-                            textStyle={chipTextStyle(selected)}
-                        >
-                            {emp.replace('_', ' ')}
-                        </Chip>
-                    );
-                })}
-            </View>
-
             <Text style={styles.label}>Role Needed</Text>
             <View style={styles.pills}>
                 {ROLE_OPTIONS.map((role) => {
@@ -1025,6 +1076,24 @@ export default function PostShiftScreen() {
                             textStyle={chipTextStyle(selected)}
                         >
                             {role}
+                        </Chip>
+                    );
+                })}
+            </View>
+
+            <Text style={styles.label}>Employment Type</Text>
+            <View style={styles.pills}>
+                {EMPLOYMENT_TYPES.map((emp) => {
+                    const selected = employmentType === emp || (emp === 'LOCUM' && employmentType === 'CASUAL');
+                    return (
+                        <Chip
+                            key={emp}
+                            selected={selected}
+                            onPress={() => setEmploymentType(emp)}
+                            style={chipStyle(selected)}
+                            textStyle={chipTextStyle(selected)}
+                        >
+                            {getEmploymentLabel(emp)}
                         </Chip>
                     );
                 })}
@@ -1098,50 +1167,51 @@ export default function PostShiftScreen() {
                                 descriptionStyle={{ color: PRIMARY, fontWeight: '600' }}
                                 style={styles.accordionHeader}
                             >
-                                {category.items.map((s: any, idx: number) => {
-                                    const isRequired = mustHave.includes(s.code);
-                                    const isFavorable = niceToHave.includes(s.code);
-                                    
-                                    return (
-                                        <View 
-                                            key={s.code} 
-                                            style={[
-                                                styles.skillRow, 
-                                                idx < category.items.length - 1 && styles.skillRowBorder,
-                                                isRequired && { backgroundColor: 'rgba(109, 40, 217, 0.06)' },
-                                                isFavorable && { backgroundColor: 'rgba(16, 185, 129, 0.08)' }
-                                            ]}
-                                        >
-                                            <View style={styles.skillTextContainer}>
-                                                <Text style={[styles.skillLabel, (isRequired || isFavorable) ? { fontWeight: '700' } : {}]}>{s.label}</Text>
-                                                {s.description ? (
-                                                    <Text style={styles.skillDescription}>{s.description}</Text>
-                                                ) : null}
+                                <View style={styles.skillGrid}>
+                                    {category.items.map((s: any) => {
+                                        const isRequired = mustHave.includes(s.code);
+                                        const isFavorable = niceToHave.includes(s.code);
+
+                                        return (
+                                            <View
+                                                key={s.code}
+                                                style={[
+                                                    styles.skillTile,
+                                                    isRequired && { backgroundColor: 'rgba(109, 40, 217, 0.06)' },
+                                                    isFavorable && { backgroundColor: 'rgba(16, 185, 129, 0.08)' }
+                                                ]}
+                                            >
+                                                <View style={styles.skillTextContainer}>
+                                                    <Text style={[styles.skillLabel, (isRequired || isFavorable) ? { fontWeight: '700' } : {}]}>{s.label}</Text>
+                                                    {s.description ? (
+                                                        <Text style={styles.skillDescription}>{s.description}</Text>
+                                                    ) : null}
+                                                </View>
+
+                                                <View style={styles.toggleGroup}>
+                                                    <TouchableOpacity
+                                                        style={[styles.toggleBtn, styles.toggleBtnLeft, isRequired && styles.toggleBtnRequiredActive]}
+                                                        onPress={() => {
+                                                            setMustHave((prev: string[]) => prev.includes(s.code) ? prev.filter(x => x !== s.code) : [...prev, s.code]);
+                                                            setNiceToHave((prev: string[]) => prev.filter(x => x !== s.code));
+                                                        }}
+                                                    >
+                                                        <Text style={[styles.toggleBtnText, isRequired && styles.toggleBtnTextActive]}>Required</Text>
+                                                    </TouchableOpacity>
+                                                    <TouchableOpacity
+                                                        style={[styles.toggleBtn, styles.toggleBtnRight, isFavorable && styles.toggleBtnFavorableActive]}
+                                                        onPress={() => {
+                                                            setNiceToHave((prev: string[]) => prev.includes(s.code) ? prev.filter(x => x !== s.code) : [...prev, s.code]);
+                                                            setMustHave((prev: string[]) => prev.filter(x => x !== s.code));
+                                                        }}
+                                                    >
+                                                        <Text style={[styles.toggleBtnText, isFavorable && styles.toggleBtnTextActive]}>Favorable</Text>
+                                                    </TouchableOpacity>
+                                                </View>
                                             </View>
-                                            
-                                            <View style={styles.toggleGroup}>
-                                                <TouchableOpacity 
-                                                    style={[styles.toggleBtn, styles.toggleBtnLeft, isRequired && styles.toggleBtnRequiredActive]}
-                                                    onPress={() => {
-                                                        setMustHave((prev: string[]) => prev.includes(s.code) ? prev.filter(x => x !== s.code) : [...prev, s.code]);
-                                                        setNiceToHave((prev: string[]) => prev.filter(x => x !== s.code));
-                                                    }}
-                                                >
-                                                    <Text style={[styles.toggleBtnText, isRequired && styles.toggleBtnTextActive]}>Required</Text>
-                                                </TouchableOpacity>
-                                                <TouchableOpacity 
-                                                    style={[styles.toggleBtn, styles.toggleBtnRight, isFavorable && styles.toggleBtnFavorableActive]}
-                                                    onPress={() => {
-                                                        setNiceToHave((prev: string[]) => prev.includes(s.code) ? prev.filter(x => x !== s.code) : [...prev, s.code]);
-                                                        setMustHave((prev: string[]) => prev.filter(x => x !== s.code));
-                                                    }}
-                                                >
-                                                    <Text style={[styles.toggleBtnText, isFavorable && styles.toggleBtnTextActive]}>Favorable</Text>
-                                                </TouchableOpacity>
-                                            </View>
-                                        </View>
-                                    );
-                                })}
+                                        );
+                                    })}
+                                </View>
                             </List.Accordion>
                         );
                     })}
@@ -1196,18 +1266,20 @@ export default function PostShiftScreen() {
                     ) : null}
                 </Surface>
 
-                <TouchableOpacity
-                    style={[styles.visibilityToggleCard, hideName && styles.visibilityToggleCardActive]}
-                    onPress={() => setHideName((v) => !v)}
-                >
-                    <Checkbox status={hideName ? 'checked' : 'unchecked'} />
-                    <View style={styles.visibilityToggleContent}>
-                        <Text style={styles.visibilityToggleTitle}>Hide pharmacy name from applicants</Text>
-                        <Text style={styles.visibilityToggleText}>
-                            When enabled, eligible workers only see the suburb while applying.
-                        </Text>
-                    </View>
-                </TouchableOpacity>
+                {canPostAnonymously ? (
+                    <TouchableOpacity
+                        style={[styles.visibilityToggleCard, hideName && styles.visibilityToggleCardActive]}
+                        onPress={() => setHideName((v) => !v)}
+                    >
+                        <Checkbox status={hideName ? 'checked' : 'unchecked'} />
+                        <View style={styles.visibilityToggleContent}>
+                            <Text style={styles.visibilityToggleTitle}>Post as anonymous</Text>
+                            <Text style={styles.visibilityToggleText}>
+                                Only the pharmacy suburb will be shown.
+                            </Text>
+                        </View>
+                    </TouchableOpacity>
+                ) : null}
 
                 {!isEmbedded && (
                     <>
@@ -1346,7 +1418,7 @@ export default function PostShiftScreen() {
         const renderSlotPreviewList = () => {
             if (!showSlotPreview || expandedSlots.length === 0) return null;
             return (
-                <View style={{ marginTop: 12, padding: 12, backgroundColor: '#F3F4F6', borderRadius: 8, gap: 8 }}>
+                <View style={styles.slotRatePreviewPanel}>
                     <Text style={styles.label}>Slot rate preview</Text>
                     {expandedSlots.map((slot, idx) => {
                         const row = slotRateRows[idx] ?? { rate: '', status: 'idle' as const };
@@ -1357,27 +1429,35 @@ export default function PostShiftScreen() {
                         const finalNum = roleNeeded === 'PHARMACIST'
                             ? (rateValid ? baseNum : null)
                             : (rateValid ? baseNum : 0) + (bonusValid ? bonusNum : 0);
-                        const finalLabel =
-                            finalNum != null && Number.isFinite(finalNum)
-                                ? `$${finalNum.toFixed(2)}/hr`
-                                : '$0.00/hr';
+                        const durationHours = getSlotDurationHours(slot.startTime, slot.endTime);
+                        const totalNum =
+                            finalNum != null && Number.isFinite(finalNum) && durationHours > 0
+                                ? finalNum * durationHours
+                                : null;
+                        const totalLabel =
+                            totalNum != null && Number.isFinite(totalNum)
+                                ? `$${totalNum.toFixed(2)}`
+                                : '$0.00';
                         return (
-                            <View key={`${slot.date}-${slot.startTime}-${idx}`} style={{ gap: 6 }}>
-                                <View>
+                            <View key={`${slot.date}-${slot.startTime}-${idx}`} style={styles.slotRatePreviewCard}>
+                                <View style={styles.slotRatePreviewInfo}>
                                     <Text style={styles.slotText}>{formatLongSlotDate(slot.date)}</Text>
                                     <Text style={styles.helper}>{`${formatClockTime(slot.startTime)} - ${formatClockTime(slot.endTime)}`}</Text>
                                 </View>
-                                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                                <View style={styles.slotRatePreviewControls}>
                                     <TextInput
                                         mode="outlined"
-                                        label="Rate ($/hr)"
+                                        label="Rate"
                                         value={row.rate}
                                         onChangeText={(value) => handleSlotRateChange(idx, value)}
                                         keyboardType="numeric"
-                                        style={[styles.input, { flex: 1 }]}
+                                        left={<TextInput.Affix text="$" />}
+                                        right={<TextInput.Affix text="/hr" />}
+                                        style={styles.slotRateInput}
+                                        dense
                                     />
-                                    <Text style={styles.helper}>
-                                        {row.status === 'loading' ? 'Calculating...' : `Final: ${finalLabel}`}
+                                    <Text style={styles.slotRateBadge}>
+                                        {row.status === 'loading' ? '...' : totalLabel.replace('.00', '')}
                                     </Text>
                                 </View>
                                 {row.status === 'error' && row.error ? (
@@ -1466,7 +1546,14 @@ export default function PostShiftScreen() {
 
                         {rateType !== 'PHARMACIST_PROVIDED' ? (
                             <>
-                                <Text style={[styles.label, { marginTop: 16 }]}>Base rates ($/hr)</Text>
+                                <Text style={[styles.label, { marginTop: 16 }]}>
+                                    Base rates ($/hr){hasOutsidePharmacyMemberAudience ? '' : ' (optional)'}
+                                </Text>
+                                {!hasOutsidePharmacyMemberAudience ? (
+                                    <Text style={styles.helper}>
+                                        These pay rates will be displayed whenever the shift is visible outside Pharmacy Members.
+                                    </Text>
+                                ) : null}
                                 <TextInput mode="outlined" label="Weekday" value={rateWeekday} onChangeText={setRateWeekday} keyboardType="numeric" style={styles.input} />
                                 <TextInput mode="outlined" label="Saturday" value={rateSaturday} onChangeText={setRateSaturday} keyboardType="numeric" style={styles.input} />
                                 <TextInput mode="outlined" label="Sunday" value={rateSunday} onChangeText={setRateSunday} keyboardType="numeric" style={styles.input} />
@@ -1722,7 +1809,10 @@ export default function PostShiftScreen() {
                                 </Text>
                             ) : null}
                         </View>
-                        <IconButton icon="delete" size={18} onPress={() => removeSlot(idx)} />
+                        <View style={styles.slotActions}>
+                            <IconButton icon="pencil" size={18} onPress={() => editSlot(idx)} />
+                            <IconButton icon="delete" size={18} onPress={() => removeSlot(idx)} />
+                        </View>
                     </Surface>
                 ))}
                 {slots.length === 0 && <Text style={styles.hint}>Add at least one slot (date + start/end time).</Text>}
@@ -1978,6 +2068,49 @@ const styles = StyleSheet.create({
         padding: 10,
         borderRadius: 10,
         backgroundColor: '#F9FAFB',
+    },
+    slotActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    slotRatePreviewPanel: {
+        marginTop: 12,
+        padding: 12,
+        backgroundColor: '#F9FAFB',
+        borderRadius: 14,
+        gap: 10,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
+    slotRatePreviewCard: {
+        padding: 12,
+        borderRadius: 14,
+        backgroundColor: '#FFFFFF',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        gap: 10,
+    },
+    slotRatePreviewInfo: {
+        gap: 2,
+    },
+    slotRatePreviewControls: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    slotRateInput: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+    },
+    slotRateBadge: {
+        overflow: 'hidden',
+        borderRadius: 999,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        backgroundColor: '#2F8F3F',
+        color: '#FFFFFF',
+        fontWeight: '800',
+        fontSize: 13,
     },
     slotText: { color: '#111827' },
     slotRecurringText: { color: '#6B7280', fontSize: 12 },
@@ -2246,6 +2379,21 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: '#F3F4F6',
     },
+    skillGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        padding: 8,
+    },
+    skillTile: {
+        width: '48.5%',
+        padding: 12,
+        gap: 10,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#F3F4F6',
+        backgroundColor: '#FFFFFF',
+    },
     skillTextContainer: {
         flex: 1,
     },
@@ -2270,7 +2418,7 @@ const styles = StyleSheet.create({
     },
     toggleBtn: {
         paddingVertical: 8,
-        paddingHorizontal: 16,
+        paddingHorizontal: 10,
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -2287,7 +2435,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#047857',
     },
     toggleBtnText: {
-        fontSize: 13,
+        fontSize: 12,
         fontWeight: '600',
         color: '#6B7280',
     },

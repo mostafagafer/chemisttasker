@@ -1,7 +1,7 @@
 /// <reference types="@types/google.maps" />
 import * as React from 'react';
 import {
-  Box, Button, Chip,  TextField, Typography,   Dialog, DialogTitle, DialogContent, DialogActions, 
+  Box, Button, Chip, MenuItem, TextField, Typography, Dialog, DialogTitle, DialogContent, DialogActions,
 
   InputAdornment, Alert, Snackbar
 } from '@mui/material';
@@ -31,6 +31,9 @@ type ApiData = {
   ahpra_number?: string;
   government_id?: string | null;
   date_of_birth?: string | null;
+  gender?: string | null;
+  emergency_contact_number?: string | null;
+  emergency_contact_relation?: string | null;
 
   // optional address (saved on onboarding model)
   street_address?: string | null;
@@ -50,6 +53,11 @@ type ApiData = {
 };
 
 const GOOGLE_LIBRARIES = ['places'] as Array<'places'>;
+const GENDER_OPTIONS = [
+  { value: 'MALE', label: 'Male' },
+  { value: 'FEMALE', label: 'Female' },
+  { value: 'PREFER_NOT_TO_SAY', label: 'Prefer not to say' },
+] as const;
 
 export default function BasicInfoV2() {
   const [loading, setLoading] = React.useState(true);
@@ -195,6 +203,9 @@ export default function BasicInfoV2() {
 
       // date of birth
       if (data.date_of_birth != null) fd.append('date_of_birth', String(data.date_of_birth));
+      if (data.gender != null) fd.append('gender', String(data.gender));
+      if (data.emergency_contact_number != null) fd.append('emergency_contact_number', String(data.emergency_contact_number));
+      if (data.emergency_contact_relation != null) fd.append('emergency_contact_relation', String(data.emergency_contact_relation));
 
       // address
       (['street_address','suburb','state','postcode','google_place_id','latitude','longitude'] as const)
@@ -372,6 +383,7 @@ export default function BasicInfoV2() {
 )}
 
       </Box>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
         <TextField
           label="Date of Birth"
           type="date"
@@ -380,6 +392,37 @@ export default function BasicInfoV2() {
           InputLabelProps={{ shrink: true }}
           sx={{ flex: '1 1 220px', minWidth: 200, maxWidth: 220 }}
         />
+        <TextField
+          select
+          label="Gender"
+          value={data.gender || ''}
+          onChange={e => setField('gender', e.target.value)}
+          sx={{ flex: '1 1 220px', minWidth: 200, maxWidth: 260 }}
+        >
+          <MenuItem value="">Select gender</MenuItem>
+          {GENDER_OPTIONS.map(opt => (
+            <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+          ))}
+        </TextField>
+      </Box>
+
+      <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>
+        Emergency Contact
+      </Typography>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+        <TextField
+          label="Emergency Contact Number"
+          value={data.emergency_contact_number || ''}
+          onChange={e => setField('emergency_contact_number', e.target.value)}
+          sx={{ flex: '1 1 260px', minWidth: 220, maxWidth: 360 }}
+        />
+        <TextField
+          label="Relation to You"
+          value={data.emergency_contact_relation || ''}
+          onChange={e => setField('emergency_contact_relation', e.target.value)}
+          sx={{ flex: '1 1 260px', minWidth: 220, maxWidth: 360 }}
+        />
+      </Box>
 
 
       {/* Address section */}

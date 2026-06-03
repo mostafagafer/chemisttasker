@@ -225,7 +225,7 @@ export default function OrganizationProfileScreen() {
                 <IconButton icon="account-plus-outline" size={24} iconColor="#6366F1" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text variant="titleMedium" style={styles.menuTitle}>Refer a friend</Text>
+                <Text variant="titleMedium" style={styles.menuTitle}>Refer a colleague </Text>
                 <Text variant="bodySmall" style={styles.menuDesc}>
                   Share a referral link and earn pills when they register.
                 </Text>

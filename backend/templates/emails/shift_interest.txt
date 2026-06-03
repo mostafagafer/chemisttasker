@@ -1,11 +1,15 @@
-Heads up! Someone’s interested in your shift.
+New public shift interest
 
-Good news! Someone from the ChemistTasker network has shown interest in your shift at {{ pharmacy_name }} ({{ role_needed }}).
+Hi{% if user_first_name %} {{ user_first_name }}{% endif %},
 
-View & Manage Your Shift: {{ shift_link }}
+A candidate from the ChemistTasker public network expressed interest in your shift at {{ pharmacy_name }}{% if role_label %} ({{ role_label }}){% endif %}.
 
-Don’t worry—we keep candidate details private at this stage. Log in to review all interested candidates and take the next step when you’re ready.
+{% if slots %}Shift slots:
+{% for s in slots %}- {{ s.date }} - {{ s.start_time }} - {{ s.end_time }}
+{% endfor %}
+{% endif %}
+Candidate details stay private until you review and reveal them in ChemistTasker.
 
-If you have any questions, our friendly team is just a reply away.
+Review interest: {{ shift_link }}
 
-— The ChemistTasker Team 💚
+Shift ID: {{ shift_id }}

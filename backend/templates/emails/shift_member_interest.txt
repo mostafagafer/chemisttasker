@@ -1,0 +1,17 @@
+New member shift interest
+
+Hi{% if user_first_name %} {{ user_first_name }}{% endif %},
+
+{{ worker_name|default:"A member" }} expressed interest in your shift at {{ pharmacy_name }}{% if role_label %} ({{ role_label }}){% endif %}.
+
+{% if worker_email %}Email: {{ worker_email }}
+{% endif %}{% if member_type %}Member category: {{ member_type }}
+{% endif %}{% if employment_type %}Employment type: {{ employment_type }}
+{% endif %}
+{% if slots %}Shift slots:
+{% for s in slots %}- {{ s.date }} - {{ s.start_time }} - {{ s.end_time }}
+{% endfor %}
+{% endif %}
+Review interest: {{ shift_link }}
+
+Shift ID: {{ shift_id }}

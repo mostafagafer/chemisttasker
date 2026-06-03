@@ -13,6 +13,9 @@ type ApiData = {
   last_name?: string;
   phone_number?: string;
   date_of_birth?: string | null;
+  gender?: string | null;
+  emergency_contact_number?: string | null;
+  emergency_contact_relation?: string | null;
   street_address?: string | null;
   suburb?: string | null;
   state?: string | null;
@@ -29,6 +32,12 @@ const EXPLORER_ROLE_CHOICES = [
   { value: 'CAREER_SWITCHER', label: 'Career switcher' },
 ] as const;
 
+const GENDER_OPTIONS = [
+  { value: 'MALE', label: 'Male' },
+  { value: 'FEMALE', label: 'Female' },
+  { value: 'PREFER_NOT_TO_SAY', label: 'Prefer not to say' },
+] as const;
+
 const roleKey = 'explorer';
 
 export default function ExplorerBasicInfoScreen() {
@@ -36,6 +45,7 @@ export default function ExplorerBasicInfoScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [roleMenuVisible, setRoleMenuVisible] = useState(false);
+  const [genderMenuVisible, setGenderMenuVisible] = useState(false);
   const [form, setForm] = useState<ApiData>({});
   const unsaved = useUnsavedChangesGuard(form, { enabled: !loading, saving });
 
@@ -62,6 +72,7 @@ export default function ExplorerBasicInfoScreen() {
 
   const setField = (k: keyof ApiData, v: any) => setForm((p) => ({ ...p, [k]: v }));
   const roleLabel = EXPLORER_ROLE_CHOICES.find((r) => r.value === form.role_type)?.label || 'Select role';
+  const genderLabel = GENDER_OPTIONS.find((g) => g.value === form.gender)?.label || 'Select gender';
   const handlePlaceSelect = (place: {
     address: string;
     place_id?: string;
@@ -97,6 +108,9 @@ export default function ExplorerBasicInfoScreen() {
       if (form.role_type != null) fd.append('role_type', String(form.role_type));
       if (form.phone_number != null) fd.append('phone_number', String(form.phone_number));
       if (form.date_of_birth != null) fd.append('date_of_birth', String(form.date_of_birth));
+      if (form.gender != null) fd.append('gender', String(form.gender));
+      if (form.emergency_contact_number != null) fd.append('emergency_contact_number', String(form.emergency_contact_number));
+      if (form.emergency_contact_relation != null) fd.append('emergency_contact_relation', String(form.emergency_contact_relation));
       (
         ['street_address', 'suburb', 'state', 'postcode', 'google_place_id', 'latitude', 'longitude'] as const
       ).forEach((k) => {
@@ -141,6 +155,30 @@ export default function ExplorerBasicInfoScreen() {
           ))}
         </Menu>
         <TextInput mode="outlined" label="Date of Birth" value={form.date_of_birth || ''} onChangeText={(v) => setField('date_of_birth', v)} placeholder="YYYY-MM-DD" />
+        <Menu
+          visible={genderMenuVisible}
+          onDismiss={() => setGenderMenuVisible(false)}
+          anchor={<Button mode="outlined" onPress={() => setGenderMenuVisible(true)}>{genderLabel}</Button>}
+        >
+          {GENDER_OPTIONS.map((opt) => (
+            <Menu.Item key={opt.value} title={opt.label} onPress={() => { setField('gender', opt.value); setGenderMenuVisible(false); }} />
+          ))}
+        </Menu>
+
+        <Text variant="titleSmall" style={styles.sectionTitle}>Emergency Contact</Text>
+        <TextInput
+          mode="outlined"
+          label="Emergency Contact Number"
+          value={form.emergency_contact_number || ''}
+          onChangeText={(v) => setField('emergency_contact_number', v)}
+          keyboardType="phone-pad"
+        />
+        <TextInput
+          mode="outlined"
+          label="Relation to You"
+          value={form.emergency_contact_relation || ''}
+          onChangeText={(v) => setField('emergency_contact_relation', v)}
+        />
         <Text variant="titleSmall" style={styles.sectionTitle}>Address</Text>
         <View style={{ minHeight: 56, zIndex: 10 }}>
           <GooglePlacesInput

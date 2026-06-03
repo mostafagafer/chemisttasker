@@ -139,12 +139,12 @@ return (
         <Box
           sx={{
             display: "grid",
-            gridTemplateColumns: { xs: "1fr", md: "260px 1fr" },
+            gridTemplateColumns: "1fr",
             gap: 2.5,
           }}
         >
           {/* Left: step buttons — light blue border, subtle fade when active */}
-          <Box>
+          <Box sx={{ display: "none" }}>
             <Stack spacing={1.2}>
               {STEPS.map((s) => {
                 const active = s.key === step;

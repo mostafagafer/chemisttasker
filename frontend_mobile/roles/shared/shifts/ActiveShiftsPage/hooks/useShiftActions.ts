@@ -13,10 +13,17 @@ export function useShiftActions(
     const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
 
     const handleEscalate = useCallback(
-        async (shiftId: number) => {
+        async (shiftId: number, targetVisibility?: string) => {
             setActionLoading(prev => ({ ...prev, [`escalate_${shiftId}`]: true }));
             try {
-                await escalateShiftService(shiftId, {});
+                await escalateShiftService(shiftId, { targetVisibility });
+                if (targetVisibility) {
+                    setShifts(prev => prev.map(shift => (
+                        shift.id === shiftId
+                            ? { ...shift, visibility: targetVisibility, visibilityLevel: targetVisibility } as Shift
+                            : shift
+                    )));
+                }
                 showSnackbar('Shift escalated successfully');
                 return true;
             } catch (error) {
@@ -27,7 +34,7 @@ export function useShiftActions(
                 setActionLoading(prev => ({ ...prev, [`escalate_${shiftId}`]: false }));
             }
         },
-        [showSnackbar]
+        [setShifts, showSnackbar]
     );
 
     const handleDelete = useCallback(

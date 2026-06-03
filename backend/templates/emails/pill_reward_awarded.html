@@ -1,48 +1,9 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>You earned pills</title>
-    <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
-        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
-        .wave { font-size: 2.5rem; }
-        .btn {
-            display: inline-block;
-            background: #23b59c;
-            color: #fff !important;
-            padding: 12px 28px;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: bold;
-            font-size: 1.05rem;
-            margin: 16px 0;
-            box-shadow: 0 1px 3px #e0e0e0;
-        }
-        .pill-count {
-            display: inline-block;
-            margin: 8px 0 16px;
-            padding: 10px 16px;
-            border-radius: 999px;
-            background: #eef7f5;
-            color: #116a5d;
-            font-weight: 700;
-            border: 1px solid #cfe9e3;
-        }
-        .card {
-            background: #f7fbfa;
-            border: 1px solid #d9ece7;
-            border-radius: 12px;
-            padding: 16px;
-            margin: 18px 0;
-        }
-        .muted { color: #5f6f89; font-size: 0.95rem; line-height: 1.6; }
-        p { line-height: 1.6; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="wave">Congrats</div>
+{% extends "emails/base.html" %}
+
+{% block title %}You earned pills{% endblock %}
+
+{% block content %}
+<div class="wave">Congrats</div>
         <h2>Congrats{% if user_first_name %}, {{ user_first_name }}{% endif %}! You earned pills.</h2>
 
         <p>You earned pills from a {{ reward_label }}.</p>
@@ -62,6 +23,4 @@
             Reward: {{ rule_name }}{% if shift %}<br>Related shift: #{{ shift.id }}{% endif %}
         </p>
         <p class="muted">The ChemistTasker Team</p>
-    </div>
-</body>
-</html>
+{% endblock %}

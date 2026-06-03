@@ -8,7 +8,7 @@ export function useShareShift(showSnackbar: (msg: string) => void) {
     const handleShare = useCallback(
         async (shift: Shift) => {
             if ((shift as any).visibility !== 'PLATFORM') {
-                showSnackbar('Escalate to Platform to get a shareable link.');
+                showSnackbar('Escalate to Chemisttasker to get a shareable link.');
                 return;
             }
             setSharingShiftId(shift.id);

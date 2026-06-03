@@ -307,7 +307,8 @@ export default function StaffManager({
                     next[idx] = {
                         ...row,
                         checking: false,
-                        error: "We couldn't verify this email. Please try again.",
+                        existingUserRole: null,
+                        error: null,
                     };
                     return next;
                 });
@@ -358,13 +359,7 @@ export default function StaffManager({
                 try {
                     userRole = await fetchUserRoleByEmail(normalizedEmail);
                 } catch {
-                    rows[idx] = {
-                        ...row,
-                        checking: false,
-                        error: "We couldn't verify this email. Please try again.",
-                    };
-                    hasErrors = true;
-                    continue;
+                    userRole = null;
                 }
             }
 
@@ -631,7 +626,8 @@ export default function StaffManager({
                                     value={row.invited_name}
                                     onChangeText={(v) => handleInviteFieldChange(idx, 'invited_name', v)}
                                     mode="outlined"
-                                    style={styles.input}
+                                    style={styles.inviteIdentityInput}
+                                    outlineStyle={styles.inviteIdentityInputOutline}
                                 />
                                 <TextInput
                                     label="Email *"
@@ -640,7 +636,8 @@ export default function StaffManager({
                                     onBlur={() => void refreshInviteRowUserRole(idx)}
                                     mode="outlined"
                                     keyboardType="email-address"
-                                    style={styles.input}
+                                    style={styles.inviteIdentityInput}
+                                    outlineStyle={styles.inviteIdentityInputOutline}
                                     error={!!row.error}
                                 />
 
@@ -877,6 +874,15 @@ const styles = StyleSheet.create({
     modalTitle: { fontSize: 20, fontWeight: '600', marginBottom: 16 },
     inviteRow: { marginBottom: 16 },
     input: { marginBottom: 8, backgroundColor: surfaceTokens.bg },
+    inviteIdentityInput: {
+        marginTop: 6,
+        marginBottom: 12,
+        minHeight: 58,
+        backgroundColor: surfaceTokens.bg,
+    },
+    inviteIdentityInputOutline: {
+        borderRadius: 12,
+    },
     rowInputs: { flexDirection: 'row', gap: 8, marginBottom: 8 },
     helperText: { fontSize: 12, color: surfaceTokens.textMuted, marginBottom: 4 },
     errorText: { fontSize: 12, color: surfaceTokens.error, marginBottom: 4 },

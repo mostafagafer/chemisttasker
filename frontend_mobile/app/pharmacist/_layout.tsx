@@ -253,6 +253,7 @@ export default function PharmacistTabs() {
           },
           headerShown: true,
           headerTitle: tabTitles[route.name] || 'Pharmacist',
+          headerRightContainerStyle: { paddingRight: 10 },
           headerLeft: () => (
             <IconButton icon="menu" onPress={() => setSidebarVisible(true)} />
           ),

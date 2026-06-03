@@ -44,9 +44,11 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
     loading,
     onApplyAll,
     onApplySlot,
+    onApplySlots,
     onSubmitCounterOffer,
     onRejectShift,
     onRejectSlot,
+    onRejectSlots,
     rejectActionGuard,
     useServerFiltering,
     onFiltersChange,
@@ -280,8 +282,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                     .map((value) => Number(value))
                     .filter((value) => Number.isFinite(value))
             );
-            const hasShiftLevelCounter = Boolean(counterInfo) && counterSlotIds.size === 0;
-            const hasShiftLevelInterest = appliedShiftIds.has(shift.id) || hasShiftLevelCounter;
+            const hasShiftLevelInterest = appliedShiftIds.has(shift.id);
 
             if (effectiveSlotFilterMode === 'interested') {
                 if (slots.length === 0) {
@@ -417,6 +418,33 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
         });
     };
 
+    const handleApplySlots = async (shift: Shift, slotIds: number[]) => {
+        const uniqueSlotIds = Array.from(new Set(slotIds)).filter((id) => Number.isFinite(id));
+        if (uniqueSlotIds.length === 0) return;
+        try {
+            if (onApplySlots) {
+                await onApplySlots(shift, uniqueSlotIds);
+            } else {
+                await Promise.all(uniqueSlotIds.map((slotId) => Promise.resolve(onApplySlot(shift, slotId))));
+            }
+        } catch (err) {
+            return;
+        }
+        await refreshShifts();
+        setAppliedSlotIds((prev) => {
+            const next = new Set(prev);
+            uniqueSlotIds.forEach((slotId) => next.add(slotId));
+            return next;
+        });
+        setSelectedSlotIds((prev) => {
+            const next = { ...prev };
+            const current = new Set(next[shift.id] ?? []);
+            uniqueSlotIds.forEach((slotId) => current.delete(slotId));
+            next[shift.id] = current;
+            return next;
+        });
+    };
+
     const handleRejectShift = async (shift: Shift) => {
         if (!onRejectShift) return;
         await onRejectShift(shift);
@@ -465,6 +493,36 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
             const next = { ...prev };
             const current = new Set(next[shift.id] ?? []);
             current.delete(slotId);
+            next[shift.id] = current;
+            return next;
+        });
+    };
+
+    const handleRejectSlots = async (shift: Shift, slotIds: number[]) => {
+        const uniqueSlotIds = Array.from(new Set(slotIds)).filter((id) => Number.isFinite(id));
+        if (uniqueSlotIds.length === 0) return;
+        if (onRejectSlots) {
+            await onRejectSlots(shift, uniqueSlotIds);
+        } else if (onRejectSlot) {
+            await Promise.all(uniqueSlotIds.map((slotId) => Promise.resolve(onRejectSlot(shift, slotId))));
+        } else {
+            return;
+        }
+        await refreshShifts();
+        setRejectedSlotIds((prev) => {
+            const next = new Set(prev);
+            uniqueSlotIds.forEach((slotId) => next.add(slotId));
+            return next;
+        });
+        setAppliedSlotIds((prev) => {
+            const next = new Set(prev);
+            uniqueSlotIds.forEach((slotId) => next.delete(slotId));
+            return next;
+        });
+        setSelectedSlotIds((prev) => {
+            const next = { ...prev };
+            const current = new Set(next[shift.id] ?? []);
+            uniqueSlotIds.forEach((slotId) => current.delete(slotId));
             next[shift.id] = current;
             return next;
         });
@@ -661,10 +719,13 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
                     onSubmitCounterOffer={onSubmitCounterOffer}
                     onRejectShift={onRejectShift}
                     onRejectSlot={onRejectSlot}
+                    onRejectSlots={onRejectSlots}
                     handleApplyAll={handleApplyAll}
                     handleApplySlot={handleApplySlot}
+                    handleApplySlots={handleApplySlots}
                     handleRejectShift={handleRejectShift}
                     handleRejectSlot={handleRejectSlot}
+                    handleRejectSlots={handleRejectSlots}
                     toggleExpandedCard={toggleExpandedCard}
                     expandedCards={expandedCards}
                     selectedSlotIds={selectedSlotIds}

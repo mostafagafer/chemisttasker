@@ -40,6 +40,7 @@ from client_profile.utils import (
     sanitize_chat_text,
     enforce_public_shift_daily_limit,
     build_shift_counter_offer_context,
+    build_shift_interest_context,
     build_shift_offer_context,
     finalize_shift_offer,
 )
@@ -178,6 +179,39 @@ def _get_org_pharmacies_queryset(user):
         qs = qs | Pharmacy.objects.filter(id__in=scoped_ids)
 
     return qs.distinct()
+
+
+def _user_can_invite_members_to_pharmacy(user, pharmacy):
+    if not user or not getattr(user, "is_authenticated", False) or not pharmacy:
+        return False
+
+    if getattr(user, "is_staff", False) or getattr(user, "is_superuser", False):
+        return True
+
+    if getattr(pharmacy.owner, "user", None) == user:
+        return True
+
+    if has_admin_capability(user, pharmacy, CAPABILITY_MANAGE_STAFF):
+        return True
+
+    org_memberships = user.organization_memberships.filter(
+        organization_id=pharmacy.organization_id
+    ).prefetch_related('pharmacies')
+    for membership in org_memberships:
+        caps = membership_capabilities(membership)
+        can_invite = (
+            OrgCapability.INVITE_STAFF in caps
+            or OrgCapability.MANAGE_STAFF in caps
+            or OrgCapability.MANAGE_ADMINS in caps
+        )
+        if not can_invite:
+            continue
+        if OrgCapability.VIEW_ALL_PHARMACIES in caps:
+            return True
+        if pharmacy.id in membership_visible_pharmacy_ids(membership):
+            return True
+
+    return False
 
 # Onboardings
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -1797,21 +1831,9 @@ class MembershipViewSet(viewsets.ModelViewSet):
         except Pharmacy.DoesNotExist:
             return Response({'detail': 'Pharmacy not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        is_org_admin = OrganizationMembership.objects.filter(
-            user=inviter, role='ORG_ADMIN'
-        ).exists()
-
-        is_owner_of_target = (
-            getattr(target_pharmacy.owner, "user", None) == inviter
-        )
-
-        can_manage_staff = has_admin_capability(
-            inviter, target_pharmacy, CAPABILITY_MANAGE_STAFF
-        )
-
-        if not (is_org_admin or is_owner_of_target or can_manage_staff):
+        if not _user_can_invite_members_to_pharmacy(inviter, target_pharmacy):
             return Response(
-                {'detail': 'Only owners, org admins, or admins with staff permissions may invite.'},
+                {'detail': 'Only admins, pharmacy owners, or claimed organization users with staff invite permissions may invite.'},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -1829,11 +1851,6 @@ class MembershipViewSet(viewsets.ModelViewSet):
         invitations = request.data.get('invitations', [])
         if not invitations or not isinstance(invitations, list):
             return Response({'detail': 'Invitations must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Precompute scopes for fast checks
-        is_org_admin = OrganizationMembership.objects.filter(
-            user=inviter, role='ORG_ADMIN'
-        ).exists()
 
         results, errors = [], []
 
@@ -1854,12 +1871,7 @@ class MembershipViewSet(viewsets.ModelViewSet):
                 })
                 continue
 
-            allowed = (
-                is_org_admin
-                or (getattr(target_pharmacy.owner, "user", None) == inviter)
-                or has_admin_capability(inviter, target_pharmacy, CAPABILITY_MANAGE_STAFF)
-            )
-            if not allowed:
+            if not _user_can_invite_members_to_pharmacy(inviter, target_pharmacy):
                 errors.append({
                     'line': idx + 1,
                     'email': invite.get('email'),
@@ -1941,21 +1953,7 @@ class MembershipInviteLinkViewSet(viewsets.ModelViewSet):
         except Pharmacy.DoesNotExist:
             return Response({'detail': 'Pharmacy not found.'}, status=404)
 
-        is_owner = getattr(target_pharmacy.owner, "user", None) == user
-        can_manage_staff = has_admin_capability(user, target_pharmacy, CAPABILITY_MANAGE_STAFF)
-        org_memberships = user.organization_memberships.filter(
-            organization_id=target_pharmacy.organization_id
-        ).prefetch_related('pharmacies')
-        can_invite_through_org = any(
-            OrgCapability.INVITE_STAFF in membership_capabilities(membership)
-            and (
-                OrgCapability.VIEW_ALL_PHARMACIES in membership_capabilities(membership)
-                or target_pharmacy.id in membership_visible_pharmacy_ids(membership)
-            )
-            for membership in org_memberships
-        )
-
-        if not (can_invite_through_org or is_owner or can_manage_staff):
+        if not _user_can_invite_members_to_pharmacy(user, target_pharmacy):
             return Response({'detail': 'Not allowed to generate links for this pharmacy.'}, status=403)
 
         expires_at = timezone.now() + timedelta(days=days)
@@ -2649,8 +2647,14 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         return target_visibility
 
     def _build_member_status_response(self, request, shift):
-        # Check if the shift is public-level; if so, this endpoint is not applicable.
-        if shift.visibility == PUBLIC_LEVEL:
+        # Retrieve the visibility parameter from the request query params.
+        requested_visibility = request.query_params.get('visibility')
+        if not requested_visibility:
+            requested_visibility = shift.visibility
+
+        # Public/Chemisttasker is handled by shift interests. Historical member tiers
+        # must remain viewable after a shift is escalated to public.
+        if requested_visibility == PUBLIC_LEVEL:
             return Response(
                 {
                     'detail': 'Member status is not applicable for Public shifts via this endpoint. '
@@ -2658,11 +2662,6 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
-
-        # Retrieve the visibility parameter from the request query params.
-        requested_visibility = request.query_params.get('visibility')
-        if not requested_visibility:
-            requested_visibility = shift.visibility
 
         slot_id_param = request.query_params.get('slot_id')
         slot_date = request.query_params.get('slot_date')
@@ -2835,43 +2834,90 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
 
         # 2) Interest logic
+        slot_ids = request.data.get('slot_ids')
+        if slot_ids is None:
+            slot_ids = request.data.get('slotIds')
+        slot_id = request.data.get('slot_id')
+        if slot_id is None:
+            slot_id = request.data.get('slotId')
+
+        if slot_ids is not None and not isinstance(slot_ids, list):
+            return Response({'detail': 'slot_ids must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        has_slot_payload = slot_ids is not None or slot_id is not None
+        raw_target_slot_ids = slot_ids if slot_ids is not None else ([slot_id] if slot_id is not None else [])
+        target_slot_ids = []
+        for value in raw_target_slot_ids:
+            if value in (None, ''):
+                continue
+            try:
+                target_slot_ids.append(int(value))
+            except (TypeError, ValueError):
+                return Response({'detail': f'Invalid slot_id: {value}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        interests = []
+        created_interests = []
         if shift.single_user_only:
-            # Only one interest per shift (ignore any slot_id)
             interest, created = ShiftInterest.objects.get_or_create(
                 shift=shift,
                 slot=None,
                 user=user
             )
+            interests.append(interest)
+            if created:
+                created_interests.append(interest)
         else:
-            # Allow interest at slot-level or whole-shift (if no slot_id provided)
-            slot = None
-            slot_id = request.data.get('slot_id')
-            if slot_id is not None:
-                slot = get_object_or_404(ShiftSlot, pk=slot_id, shift=shift)
+            if target_slot_ids:
+                slots = list(ShiftSlot.objects.filter(pk__in=target_slot_ids, shift=shift))
+                found_ids = {slot.id for slot in slots}
+                missing_ids = [value for value in target_slot_ids if value not in found_ids]
+                if missing_ids:
+                    return Response({'detail': f'Invalid slot_id(s): {missing_ids}'}, status=status.HTTP_400_BAD_REQUEST)
+            elif has_slot_payload:
+                return Response({'detail': 'slot_ids cannot be empty.'}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                slots = [None]
 
-            interest, created = ShiftInterest.objects.get_or_create(
-                shift=shift,
-                slot=slot,
-                user=user
-            )
-        if created and shift.created_by and shift.created_by.email:
-            ctx = build_shift_email_context(
-                shift,
-                user=shift.created_by,
-                role=shift.created_by.role.lower(),      
-            )
+            for slot in slots:
+                interest, created = ShiftInterest.objects.get_or_create(
+                    shift=shift,
+                    slot=slot,
+                    user=user
+                )
+                interests.append(interest)
+                if created:
+                    created_interests.append(interest)
+
+        if created_interests and shift.created_by and shift.created_by.email:
             is_public = (shift.visibility == 'PLATFORM')
+            ctx = build_shift_interest_context(shift, created_interests[0], recipient=shift.created_by)
+            interest_slots = []
+            for interest in created_interests:
+                slot = getattr(interest, "slot", None)
+                if slot:
+                    interest_slots.append({
+                        "date": slot.date.strftime("%d %B, %Y").lstrip("0"),
+                        "start_time": slot.start_time.strftime("%I:%M %p").lstrip("0"),
+                        "end_time": slot.end_time.strftime("%I:%M %p").lstrip("0"),
+                    })
+            if interest_slots:
+                ctx["slots"] = interest_slots
             applicant_name = "A candidate" if is_public else (user.get_full_name() or user.email)
             notification_payload = None
             if shift.created_by_id:
-                interest_slot_id = getattr(interest, "slot_id", None)
+                interest_slot_ids = [interest.slot_id for interest in created_interests if interest.slot_id]
                 notification_payload = {
-                    "title": "New shift interest",
-                    "body": f"{applicant_name} expressed interest in your shift at {shift.pharmacy.name}.",
+                    "title": "New public shift interest" if is_public else "New member shift interest",
+                    "body": (
+                        f"{applicant_name} expressed interest in "
+                        f"{len(created_interests)} slot(s) at {shift.pharmacy.name}."
+                    ),
+                    "user_ids": [shift.created_by_id],
                     "payload": {
                         "shift_id": shift.id,
-                        "interest_id": interest.id,
-                        "slot_id": interest_slot_id,
+                        "interest_ids": [interest.id for interest in created_interests],
+                        "slot_ids": interest_slot_ids,
+                        "slot_id": interest_slot_ids[0] if interest_slot_ids else None,
                     },
                 }
                 action_url = ctx.get("shift_link")
@@ -2881,9 +2927,9 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             email_kwargs = dict(
                 subject=f"New interest in your shift at {shift.pharmacy.name}",
                 recipient_list=[shift.created_by.email],
-                template_name="emails/shift_interest.html",
+                template_name="emails/shift_interest.html" if is_public else "emails/shift_member_interest.html",
                 context=ctx,
-                text_template="emails/shift_interest.txt",
+                text_template="emails/shift_interest.txt" if is_public else "emails/shift_member_interest.txt",
             )
             if notification_payload:
                 email_kwargs["notification"] = notification_payload
@@ -2891,10 +2937,14 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
 
         # 3) Serialize and return
-        serializer = ShiftInterestSerializer(interest, context={'request': request})
+        serializer = (
+            ShiftInterestSerializer(interests, many=True, context={'request': request})
+            if len(interests) > 1
+            else ShiftInterestSerializer(interests[0], context={'request': request})
+        )
         return Response(
             serializer.data,
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
+            status=status.HTTP_201_CREATED if created_interests else status.HTTP_200_OK
         )
 
     @action(detail=True, methods=['post'])
@@ -3134,6 +3184,7 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             notification_payload = {
                 "title": "Shift offer received",
                 "body": "You have received a shift offer. Please confirm to lock it in.",
+                "user_ids": [candidate.id],
                 "payload": {"shift_id": shift.id, "offer_id": offer.id},
             }
             if ctx.get("shift_link"):
@@ -3159,7 +3210,13 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         shift = self.get_object()
 
         if request.method == 'GET':
-            offers = shift.counter_offers.select_related('user', 'decided_by').prefetch_related('slots__slot')
+            offers = (
+                shift.counter_offers
+                .select_related('user', 'decided_by')
+                .prefetch_related('slots__slot')
+                .annotate(slot_count=Count('slots'))
+                .filter(slot_count__gt=0)
+            )
             if not self._user_can_manage_pharmacy(request.user, shift.pharmacy):
                 offers = offers.filter(user=request.user)
             serializer = ShiftCounterOfferSerializer(
@@ -3187,19 +3244,13 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         # express_interest email/notification path. This keeps counter-offer slots disabled and visible in interests.
         self._ensure_interest_for_counter_offer(shift=shift, user=request.user, offer=offer)
 
-        # Notify shift owner, pharmacy admins, and org admins
+        # Notify the shift owner/creator. Pharmacy/org admins can view counter
+        # offers in the app, but they should not receive owner-directed emails.
         recipients = []
         if shift.created_by:
             recipients.append(shift.created_by)
-        pharmacy_admins = PharmacyAdmin.objects.filter(
-            pharmacy=shift.pharmacy, is_active=True
-        ).select_related('user')
-        recipients.extend([pa.user for pa in pharmacy_admins if pa.user])
-        if shift.pharmacy.organization_id:
-            org_admins = OrganizationMembership.objects.filter(
-                role='ORG_ADMIN', organization_id=shift.pharmacy.organization_id
-            ).select_related('user')
-            recipients.extend([oa.user for oa in org_admins if oa.user])
+        elif getattr(getattr(shift.pharmacy, "owner", None), "user", None):
+            recipients.append(shift.pharmacy.owner.user)
 
         seen_emails = set()
         offer_slot_ids = list(offer.slots.values_list('slot_id', flat=True))
@@ -3216,9 +3267,11 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
             # Include pharmacy name for all visibility levels so owners can identify the shift; anonymize sender on public.
             notification_payload = {
                 "title": f"New counter offer: {shift.pharmacy.name}",
-                "body": f"{sender_name} sent a counter offer.",
+                "body": f"{sender_name} sent a counter offer for your shift.",
+                "user_ids": [recipient.id],
                 "payload": {
                     "shift_id": shift.id,
+                    "offer_id": offer.id,
                     "slot_id": primary_slot_id,
                     "slot_ids": offer_slot_ids,
                 },
@@ -3266,6 +3319,11 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='counter-offers/(?P<offer_id>[^/.]+)/accept')
     def accept_counter_offer(self, request, pk=None, offer_id=None):
+        from billing.utils import (
+            BILLING_STATE_PAYMENT_REQUIRED,
+            get_billing_state_for_pharmacy,
+        )
+
         shift = self.get_object()
         if not self._user_can_manage_pharmacy(request.user, shift.pharmacy):
             return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
@@ -3405,28 +3463,60 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 )
             created_offers.append(shift_offer)
 
-        # Notify the candidate that their counter offer was accepted and is pending confirmation.
-        if offer.user and offer.user.email:
-            for shift_offer in created_offers:
-                ctx = build_shift_offer_context(shift, shift_offer, recipient=offer.user)
-                notification_payload = {
-                    "title": "Shift offer received",
-                    "body": "Your counter offer was accepted. Please confirm the shift offer.",
-                    "payload": {"shift_id": shift.id, "offer_id": shift_offer.id},
-                }
-                if ctx.get("shift_link"):
-                    notification_payload["action_url"] = ctx["shift_link"]
-                async_task(
-                    'users.tasks.send_async_email',
-                    subject="Your counter offer was accepted",
-                    recipient_list=[offer.user.email],
-                    template_name="emails/shift_offer.html",
-                    context=ctx,
-                    text_template="emails/shift_offer.txt",
-                    notification=notification_payload
-                )
+        billing_state = get_billing_state_for_pharmacy(shift.pharmacy, acting_user=request.user)
+        requires_payment = billing_state == BILLING_STATE_PAYMENT_REQUIRED
+        assignment_ids = []
+        with transaction.atomic():
+            if requires_payment:
+                for shift_offer in created_offers:
+                    shift_offer.status = ShiftOffer.Status.ACCEPTED_AWAITING_PAYMENT
+                    shift_offer.save(update_fields=["status", "updated_at"])
+                if shift.payment_status != 'PENDING':
+                    shift.payment_status = 'PENDING'
+                    shift.save(update_fields=['payment_status'])
+            else:
+                if shift.payment_status != 'PAID':
+                    shift.payment_status = 'PAID'
+                    shift.save(update_fields=['payment_status'])
+                for shift_offer in created_offers:
+                    ids, _rates = finalize_shift_offer(shift_offer)
+                    assignment_ids.extend(ids)
 
-        return Response({'detail': 'Counter offer accepted.', 'offer_ids': [o.id for o in created_offers]}, status=status.HTTP_200_OK)
+        if offer.user and offer.user.email:
+            ctx = build_shift_counter_offer_context(shift, offer, recipient=offer.user)
+            ctx["payment_required"] = requires_payment
+            notification_payload = {
+                "title": "Counter offer accepted",
+                "body": "Your counter offer was accepted.",
+                "user_ids": [offer.user_id],
+                "payload": {
+                    "shift_id": shift.id,
+                    "offer_id": offer.id,
+                    "generated_offer_ids": [o.id for o in created_offers],
+                    "payment_required": requires_payment,
+                    "billing_state": billing_state,
+                },
+            }
+            if ctx.get("shift_link"):
+                notification_payload["action_url"] = ctx["shift_link"]
+            async_task(
+                'users.tasks.send_async_email',
+                subject="Your counter offer was accepted",
+                recipient_list=[offer.user.email],
+                template_name="emails/shift_counter_offer_accepted.html",
+                context=ctx,
+                text_template="emails/shift_counter_offer_accepted.txt",
+                notification=notification_payload
+            )
+
+        return Response({
+            'detail': 'Counter offer accepted.',
+            'offer_ids': [o.id for o in created_offers],
+            'assignment_ids': assignment_ids,
+            'payment_required': requires_payment,
+            'payment_status': shift.payment_status,
+            'billing_state': billing_state,
+        }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='counter-offers/(?P<offer_id>[^/.]+)/reject')
     def reject_counter_offer(self, request, pk=None, offer_id=None):
@@ -3443,25 +3533,68 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         offer.decided_at = timezone.now()
         offer.save(update_fields=['status', 'decided_by', 'decided_at', 'updated_at'])
 
+        if offer.user and offer.user.email:
+            ctx = build_shift_counter_offer_context(shift, offer, recipient=offer.user)
+            async_task(
+                'users.tasks.send_async_email',
+                subject=f"Your counter offer for {shift.pharmacy.name} was declined",
+                recipient_list=[offer.user.email],
+                template_name="emails/shift_counter_offer_rejected.html",
+                context=ctx,
+                text_template="emails/shift_counter_offer_rejected.txt",
+                notification={
+                    "title": f"Counter offer declined: {shift.pharmacy.name}",
+                    "body": "Your counter offer was declined.",
+                    "user_ids": [offer.user_id],
+                    "action_url": ctx.get("shift_link"),
+                    "payload": {
+                        "shift_id": shift.id,
+                        "offer_id": offer.id,
+                        "slot_ids": list(offer.slots.values_list('slot_id', flat=True)),
+                    },
+                }
+            )
+
         return Response({'detail': 'Counter offer rejected.'}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
         shift = self.get_object()
         user = request.user
+        slot_ids = request.data.get('slot_ids')
+        if slot_ids is None:
+            slot_ids = request.data.get('slotIds')
         slot_id = request.data.get('slot_id')
+        if slot_id is None:
+            slot_id = request.data.get('slotId')
         slot_date = request.data.get('slot_date')  # required if recurring
 
-        if slot_id is None:
-            # Allow rejecting the entire shift (slot=None) only if single_user_only
-            if not shift.single_user_only:
-                return Response({'detail': 'slot_id is required'}, status=400)
-            slot = None
+        if slot_ids is not None and not isinstance(slot_ids, list):
+            return Response({'detail': 'slot_ids must be a list.'}, status=400)
+
+        raw_target_slot_ids = slot_ids if slot_ids is not None else ([slot_id] if slot_id is not None else [])
+        target_slot_ids = []
+        for value in raw_target_slot_ids:
+            try:
+                target_slot_ids.append(int(value))
+            except (TypeError, ValueError):
+                return Response({'detail': f'Invalid slot_id: {value}'}, status=400)
+
+        if not target_slot_ids:
+            # Treat an empty payload as "reject the whole shift". Single-user shifts
+            # store that as slot=None; multi-slot shifts expand to all concrete slots.
+            slots = [None] if shift.single_user_only else list(ShiftSlot.objects.filter(shift=shift))
+            if not slots:
+                return Response({'detail': 'No slots are available to reject.'}, status=400)
         else:
-            slot = get_object_or_404(ShiftSlot, pk=slot_id, shift=shift)
+            slots = list(ShiftSlot.objects.filter(pk__in=target_slot_ids, shift=shift))
+            found_ids = {slot.id for slot in slots}
+            missing_ids = [value for value in target_slot_ids if value not in found_ids]
+            if missing_ids:
+                return Response({'detail': f'Invalid slot_id(s): {missing_ids}'}, status=400)
 
         # Parse slot_date if provided (for recurring slots)
-        if slot is not None and slot.is_recurring and slot_date:
+        if slot_date:
             try:
                 slot_date_obj = datetime.strptime(slot_date, "%Y-%m-%d").date()
             except ValueError:
@@ -3469,36 +3602,60 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         else:
             slot_date_obj = None
 
-        rejection, created = ShiftRejection.objects.get_or_create(
-            shift=shift,
-            slot=slot,
-            slot_date=slot_date_obj,
-            user=user
-        )
-        serializer = ShiftRejectionSerializer(rejection)
+        rejections = []
+        created_rejections = []
+        for slot in slots:
+            rejection, created = ShiftRejection.objects.get_or_create(
+                shift=shift,
+                slot=slot,
+                slot_date=slot_date_obj if slot is not None and slot.is_recurring else None,
+                user=user
+            )
+            rejections.append(rejection)
+            if created:
+                created_rejections.append(rejection)
+
+        serializer = ShiftRejectionSerializer(rejections, many=True) if len(rejections) > 1 else ShiftRejectionSerializer(rejections[0])
 
         # --- Send escalation prompt email if this is a new rejection ---
-        if created and shift.created_by and shift.created_by.email:
+        if created_rejections and shift.created_by and shift.created_by.email:
+            rejected_slots = []
+            for rejection in created_rejections:
+                slot = getattr(rejection, "slot", None)
+                if slot:
+                    rejected_slots.append({
+                        "date": slot.date.strftime("%d %B, %Y").lstrip("0"),
+                        "start_time": slot.start_time.strftime("%I:%M %p").lstrip("0"),
+                        "end_time": slot.end_time.strftime("%I:%M %p").lstrip("0"),
+                        "time_range": (
+                            f"{slot.start_time.strftime('%I:%M %p').lstrip('0')} - "
+                            f"{slot.end_time.strftime('%I:%M %p').lstrip('0')}"
+                        ),
+                    })
             ctx = build_shift_email_context(
                 shift,
                 user=shift.created_by,
                 role=shift.created_by.role.lower(),
                 extra={
                     "rejector_name": user.get_full_name() or user.email,
+                    "rejected_slots": rejected_slots,
                 }
             )
             ctx["escalation_message"] = (
-                f"{user.get_full_name() or user.email} has declined the shift or slot."
+                f"{user.get_full_name() or user.email} has declined "
+                f"{len(created_rejections)} slot(s) on this shift."
                 "\n\nIf you need to reach a wider audience, you can escalate the shift to the platform with a single click—"
                 "making it visible to the entire ChemistTasker community. This can help you find the right fit, faster."
             )
 
             notification_payload = {
                 "title": f"Shift declined: {shift.pharmacy.name}",
-                "body": f"{user.get_full_name() or user.email} declined this shift.",
+                "body": f"{user.get_full_name() or user.email} declined {len(created_rejections)} slot(s).",
+                "user_ids": [shift.created_by_id],
                 "payload": {
                     "shift_id": shift.id,
-                    "rejection_id": rejection.id,
+                    "rejection_ids": [rejection.id for rejection in created_rejections],
+                    "slot_ids": [rejection.slot_id for rejection in created_rejections if rejection.slot_id],
                 },
             }
             if ctx.get("shift_link"):
@@ -3514,7 +3671,7 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 notification=notification_payload
             )
 
-        return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+        return Response(serializer.data, status=status.HTTP_201_CREATED if created_rejections else status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='generate-share-link')
     def generate_share_link(self, request, pk=None):
@@ -6916,6 +7073,13 @@ class PillRewardsViewSet(viewsets.GenericViewSet):
             })
         if shift.payment_status != "PENDING":
             raise DRFValidationError({"detail": "This shift does not require payment."})
+        slot_id = request.data.get("slot_id") or request.data.get("slotId")
+        if slot_id and not ShiftOffer.objects.filter(
+            shift=shift,
+            status=ShiftOffer.Status.ACCEPTED_AWAITING_PAYMENT,
+            slot_id=slot_id,
+        ).exists():
+            raise DRFValidationError({"detail": "This selected slot does not require payment."})
         try:
             ledger = spend_pills_for_shift_post(user=request.user, shift=shift)
         except RewardError as exc:
@@ -6925,12 +7089,28 @@ class PillRewardsViewSet(viewsets.GenericViewSet):
                 "balance": get_pill_balance(request.user),
                 "required": get_shift_post_pill_cost(),
             })
-        shift.payment_status = "PAID"
-        shift.save(update_fields=["payment_status"])
+        finalized_count = 0
+        with transaction.atomic():
+            pending_offers = ShiftOffer.objects.filter(
+                shift=shift,
+                status=ShiftOffer.Status.ACCEPTED_AWAITING_PAYMENT,
+            ).order_by("created_at")
+            if slot_id:
+                pending_offers = pending_offers.filter(slot_id=slot_id)
+            for offer in pending_offers:
+                finalize_shift_offer(offer)
+                finalized_count += 1
+            has_pending_payment = ShiftOffer.objects.filter(
+                shift=shift,
+                status=ShiftOffer.Status.ACCEPTED_AWAITING_PAYMENT,
+            ).exists()
+            shift.payment_status = "PENDING" if has_pending_payment else "PAID"
+            shift.save(update_fields=["payment_status"])
         return Response({
             "detail": "Shift paid with pills.",
             "balance": get_pill_balance(request.user),
             "payment_status": shift.payment_status,
+            "finalized_offers": finalized_count,
             "ledger_entry": PillLedgerEntrySerializer(ledger).data,
         })
 

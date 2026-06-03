@@ -116,6 +116,13 @@ function AuthGate() {
 
     let active = true;
     const runGate = async () => {
+      if (user && !user.is_mobile_verified) {
+        if (top !== 'mobile-verify') {
+          router.replace('/mobile-verify' as any);
+        }
+        return;
+      }
+
       if (user && isPublic) {
         if (hasOrganizationAccess(user)) {
           router.replace('/organization/dashboard' as any);
@@ -205,7 +212,7 @@ export default function RootLayout() {
   return (
     <ErrorBoundary>
       <SafeAreaProvider>
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }} edges={['top', 'left', 'right']}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }} edges={['left', 'right']}>
           <StatusBar barStyle="dark-content" />
           <PaperProvider theme={theme}>
             <UnsavedChangesDialogProvider>

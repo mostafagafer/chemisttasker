@@ -215,6 +215,7 @@ export default function ExplorerTabs() {
           },
           headerShown: true,
           headerTitle: tabTitles[route.name] || 'Explorer',
+          headerRightContainerStyle: { paddingRight: 10 },
           headerLeft: () => <IconButton icon="menu" onPress={() => setSidebarVisible(true)} />,
           headerRight: () => {
             const canGoBack = typeof router.canGoBack === 'function' ? router.canGoBack() : false;

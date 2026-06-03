@@ -54,6 +54,13 @@ import MembershipApplicationsPanel from "./MembershipApplicationsPanel";
 
 const LOCUM_WORK_TYPES = ["LOCUM", "SHIFT_HERO"] as const;
 
+const inviteTextFieldSx = {
+  "& .MuiInputLabel-root": {
+    backgroundColor: "background.paper",
+    px: 0.5,
+  },
+};
+
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "PHARMACIST", label: "Pharmacist" },
   { value: "INTERN", label: "Intern Pharmacist" },
@@ -254,7 +261,8 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
           next[idx] = {
             ...current,
             checking: false,
-            error: "We couldn't verify this email. Please try again.",
+            existingUserRole: null,
+            error: null,
           };
           return next;
         });
@@ -307,13 +315,7 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
         try {
           userRole = await fetchUserRoleByEmail(normalizedEmail);
         } catch {
-          rows[idx] = {
-            ...row,
-            checking: false,
-            error: "We couldn't verify this email. Please try again.",
-          };
-          hasErrors = true;
-          continue;
+          userRole = null;
         }
       }
 
@@ -576,13 +578,14 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
           {inviteRows.map((row, idx) => (
             <Box
               key={idx}
-              sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" } }}
+              sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" }, pt: 1 }}
             >
               <TextField
-                label="Full name"
+                label="Full Name"
                 value={row.invited_name}
                 onChange={(e) => handleInviteFieldChange(idx, "invited_name", e.target.value)}
                 fullWidth
+                sx={inviteTextFieldSx}
               />
               <TextField
                 label="Email"
@@ -592,6 +595,7 @@ export default function LocumManager({ pharmacyId, memberships, onMembershipsCha
                 onBlur={() => void refreshInviteRowUserRole(idx)}
                 fullWidth
                 required
+                sx={inviteTextFieldSx}
               />
               <FormControl fullWidth error={Boolean(row.error)}>
                 <InputLabel id={`role-${idx}`}>Role</InputLabel>

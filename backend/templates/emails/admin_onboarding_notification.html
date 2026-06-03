@@ -1,31 +1,16 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>New {{ model_verbose_name|title }} Submission (ID {{ pk }})</title>
-</head>
-<body style="font-family: Arial, sans-serif; background: #f9f8fd; color: #333;">
-    <div style="padding:24px 16px; background:#fff; border-radius:12px; box-shadow:0 2px 8px #ececec; max-width:520px; margin:36px auto;">
+{% extends "emails/base.html" %}
+
+{% block title %}New {{ model_verbose_name|title }} Submission (ID {{ pk }}){% endblock %}
+
+{% block content %}
+<div style="padding:24px 16px; background:#fff; border-radius:12px; box-shadow:0 2px 8px #ececec; max-width:520px; margin:36px auto;">
         <h2>New {{ model_verbose_name|title }} Submission (ID {{ pk }})</h2>
         <p>
             <b>User:</b> {{ user }}<br>
             <b>Name:</b> {{ user_full_name }}<br>
             <b>Email:</b> {{ user_email }}
         </p>
-        <a href="{{ admin_url }}" target="_blank" rel="noopener noreferrer"
-        style="display:block;
-                width:100%;
-                background-color:#1164b1;
-                color:#ffffff;
-                font-family:Arial,sans-serif;
-                font-size:1.2rem;
-                line-height:1.6;
-                font-weight:bold;
-                text-align:center;
-                padding:16px 0;
-                border-radius:8px;
-                margin:22px 0 18px 0;
-                text-decoration:none;">
+        <a class="btn" href="{{ admin_url }}" target="_blank" rel="noopener noreferrer">
             🔎 Review in Django Admin &rarr;
         </a>
         <div style="background:#fafbfc; border-radius:8px; padding:10px 12px; margin-bottom:14px;">
@@ -41,5 +26,4 @@
             <div>ID: {{ pk }}</div>
         </div>
     </div>
-</body>
-</html>
+{% endblock %}

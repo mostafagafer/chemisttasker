@@ -284,6 +284,7 @@ export default function OwnerLayout() {
           },
           headerShown: true,
           headerTitle: tabTitles[route.name] || 'Owner',
+          headerRightContainerStyle: { paddingRight: 10 },
           headerLeft: () => (
             <IconButton icon="menu" onPress={() => setSidebarVisible(true)} />
           ),

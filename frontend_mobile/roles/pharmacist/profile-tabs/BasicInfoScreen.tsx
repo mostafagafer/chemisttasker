@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Button, Chip, HelperText, Text, TextInput } from 'react-native-paper';
+import { Button, Chip, HelperText, Menu, Text, TextInput } from 'react-native-paper';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { roleKey, boolChipProps } from './shared';
 import GooglePlacesInput from '../../shared/pharmacies/GooglePlacesInput';
@@ -15,6 +15,9 @@ type ApiData = {
   phone_number?: string;
   ahpra_number?: string;
   date_of_birth?: string | null;
+  gender?: string | null;
+  emergency_contact_number?: string | null;
+  emergency_contact_relation?: string | null;
   street_address?: string | null;
   suburb?: string | null;
   state?: string | null;
@@ -27,10 +30,17 @@ type ApiData = {
   ahpra_years_since_first_registration?: number | null;
 };
 
+const GENDER_OPTIONS = [
+  { value: 'MALE', label: 'Male' },
+  { value: 'FEMALE', label: 'Female' },
+  { value: 'PREFER_NOT_TO_SAY', label: 'Prefer not to say' },
+] as const;
+
 export default function PharmacistBasicInfoScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [genderMenuVisible, setGenderMenuVisible] = useState(false);
   const [form, setForm] = useState<ApiData>({});
   const unsaved = useUnsavedChangesGuard(form, { enabled: !loading, saving });
   useEffect(() => {
@@ -56,6 +66,7 @@ export default function PharmacistBasicInfoScreen() {
 
   const canSubmit = useMemo(() => Boolean(form.ahpra_number), [form.ahpra_number]);
   const ahpraChip = boolChipProps(form.ahpra_verified);
+  const genderLabel = GENDER_OPTIONS.find((g) => g.value === form.gender)?.label || 'Select gender';
 
   const setField = (k: keyof ApiData, v: any) => setForm((p) => ({ ...p, [k]: v }));
   const handlePlaceSelect = (place: {
@@ -93,6 +104,9 @@ export default function PharmacistBasicInfoScreen() {
       if (form.phone_number != null) fd.append('phone_number', String(form.phone_number));
       if (form.ahpra_number != null) fd.append('ahpra_number', String(form.ahpra_number));
       if (form.date_of_birth != null) fd.append('date_of_birth', String(form.date_of_birth));
+      if (form.gender != null) fd.append('gender', String(form.gender));
+      if (form.emergency_contact_number != null) fd.append('emergency_contact_number', String(form.emergency_contact_number));
+      if (form.emergency_contact_relation != null) fd.append('emergency_contact_relation', String(form.emergency_contact_relation));
       (
         [
           'street_address',
@@ -144,6 +158,30 @@ export default function PharmacistBasicInfoScreen() {
         <TextInput mode="outlined" label="Username" value={form.username || ''} onChangeText={(v) => setField('username', v)} />
         <TextInput mode="outlined" label="Phone Number" value={form.phone_number || ''} onChangeText={(v) => setField('phone_number', v)} />
         <TextInput mode="outlined" label="Date of Birth" value={form.date_of_birth || ''} onChangeText={(v) => setField('date_of_birth', v)} placeholder="YYYY-MM-DD" />
+        <Menu
+          visible={genderMenuVisible}
+          onDismiss={() => setGenderMenuVisible(false)}
+          anchor={<Button mode="outlined" onPress={() => setGenderMenuVisible(true)}>{genderLabel}</Button>}
+        >
+          {GENDER_OPTIONS.map((opt) => (
+            <Menu.Item key={opt.value} title={opt.label} onPress={() => { setField('gender', opt.value); setGenderMenuVisible(false); }} />
+          ))}
+        </Menu>
+
+        <Text variant="titleSmall" style={styles.sectionTitle}>Emergency Contact</Text>
+        <TextInput
+          mode="outlined"
+          label="Emergency Contact Number"
+          value={form.emergency_contact_number || ''}
+          onChangeText={(v) => setField('emergency_contact_number', v)}
+          keyboardType="phone-pad"
+        />
+        <TextInput
+          mode="outlined"
+          label="Relation to You"
+          value={form.emergency_contact_relation || ''}
+          onChangeText={(v) => setField('emergency_contact_relation', v)}
+        />
 
         <Text variant="titleSmall" style={styles.sectionTitle}>Address</Text>
         <View style={{ minHeight: 56, zIndex: 10 }}>

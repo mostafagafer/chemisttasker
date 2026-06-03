@@ -6,7 +6,7 @@ import {
 import MenuIcon from '@mui/icons-material/Menu';
 import * as THREE from 'three';
 import YouTube from 'react-youtube';
-import logoBanner from '../assets/logo-banner.jpg';
+import logoBanner from '../assets/clipsnap-edit-6-1-2026.png';
 import appStoreBadge from '../assets/app-store-badge.svg';
 import googlePlayBadge from '../assets/google-play-badge.svg';
 import AuthLayout from '../layouts/AuthLayout';

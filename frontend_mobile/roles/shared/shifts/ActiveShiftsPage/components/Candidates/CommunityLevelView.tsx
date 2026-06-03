@@ -3,7 +3,7 @@
 
 import React from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
-import { Divider, Chip, Text } from 'react-native-paper';
+import { Divider, Chip } from 'react-native-paper';
 import { Shift, ShiftMemberStatus } from '@chemisttasker/shared-core';
 import { customTheme } from '../../theme';
 import StatusCard from './StatusCard';
@@ -34,19 +34,15 @@ export default function CommunityLevelView({
     const slots = (shift as any).slots || [];
     const multiSlots = !(shift as any).singleUserOnly && slots.length > 0;
 
-    // Filter members by slot if multi-slot; include shift-level members with no slotId
-    const slotMembersRaw = multiSlots
-        ? members.filter((m) => (m as any).slotId === selectedSlotId || (m as any).slotId == null)
-        : members;
-    const slotMembers = dedupeMembers(slotMembersRaw);
+    // Parent passes the selected-slot member list. Do not re-filter here; slot field
+    // names vary between API payloads and double-filtering can freeze/empty the view.
+    const slotMembers = dedupeMembers(members);
 
     // Categorize members by status
     const interested = slotMembers.filter((m) => m.status === 'interested');
     const assigned = slotMembers.filter((m) => m.status === 'accepted');
     const rejected = slotMembers.filter((m) => m.status === 'rejected');
     const noResponse = slotMembers.filter((m) => m.status === 'no_response');
-
-    const hasMembers = slotMembers.length > 0;
 
     const getOfferForMember = (member: ShiftMemberStatus) => {
         const offer = findOfferForMemberInShift(offers, member, selectedSlotId);
@@ -72,55 +68,48 @@ export default function CommunityLevelView({
                 <Divider style={styles.divider} />
             </View>
 
-            {/* Member Status Boxes Grid */}
-            {hasMembers ? (
-                <View style={styles.grid}>
-                    <StatusCard
-                        title="Interested"
-                        members={interested}
-                        icon="account-check"
-                        color="success"
-                        shiftId={shift.id}
-                        onReviewCandidate={onReviewCandidate}
-                        getOfferForMember={getOfferForMember}
-                        reviewLoadingId={reviewLoadingId}
-                    />
-                    <StatusCard
-                        title="Assigned"
-                        members={assigned}
-                        icon="check-circle"
-                        color="info"
-                        shiftId={shift.id}
-                        onReviewCandidate={onReviewCandidate}
-                        getOfferForMember={getOfferForMember}
-                        reviewLoadingId={reviewLoadingId}
-                    />
-                    <StatusCard
-                        title="Rejected"
-                        members={rejected}
-                        icon="account-remove"
-                        color="error"
-                        shiftId={shift.id}
-                        onReviewCandidate={onReviewCandidate}
-                        getOfferForMember={getOfferForMember}
-                        reviewLoadingId={reviewLoadingId}
-                    />
-                    <StatusCard
-                        title="No Response"
-                        members={noResponse}
-                        icon="clock-outline"
-                        color="warning"
-                        shiftId={shift.id}
-                        onReviewCandidate={onReviewCandidate}
-                        getOfferForMember={getOfferForMember}
-                        reviewLoadingId={reviewLoadingId}
-                    />
-                </View>
-            ) : (
-                <Text style={styles.emptyText}>
-                    No candidates found for this level.
-                </Text>
-            )}
+            <View style={styles.grid}>
+                <StatusCard
+                    title="Interested"
+                    members={interested}
+                    icon="account-check"
+                    color="success"
+                    shiftId={shift.id}
+                    onReviewCandidate={onReviewCandidate}
+                    getOfferForMember={getOfferForMember}
+                    reviewLoadingId={reviewLoadingId}
+                />
+                <StatusCard
+                    title="Assigned"
+                    members={assigned}
+                    icon="check-circle"
+                    color="info"
+                    shiftId={shift.id}
+                    onReviewCandidate={onReviewCandidate}
+                    getOfferForMember={getOfferForMember}
+                    reviewLoadingId={reviewLoadingId}
+                />
+                <StatusCard
+                    title="Rejected"
+                    members={rejected}
+                    icon="account-remove"
+                    color="error"
+                    shiftId={shift.id}
+                    onReviewCandidate={onReviewCandidate}
+                    getOfferForMember={getOfferForMember}
+                    reviewLoadingId={reviewLoadingId}
+                />
+                <StatusCard
+                    title="No Response"
+                    members={noResponse}
+                    icon="clock-outline"
+                    color="warning"
+                    shiftId={shift.id}
+                    onReviewCandidate={onReviewCandidate}
+                    getOfferForMember={getOfferForMember}
+                    reviewLoadingId={reviewLoadingId}
+                />
+            </View>
         </ScrollView>
     );
 }
@@ -144,11 +133,5 @@ const styles = StyleSheet.create({
     },
     grid: {
         gap: customTheme.spacing.md,
-    },
-    emptyText: {
-        textAlign: 'center',
-        color: customTheme.colors.textMuted,
-        paddingVertical: customTheme.spacing.xl,
-        fontSize: 14,
     },
 });

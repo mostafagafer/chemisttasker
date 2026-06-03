@@ -10,7 +10,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { deleteAccount, updateOnboardingForm } from '@chemisttasker/shared-core';
 
 export default function PharmacistProfileScreen() {
-  const { user, logout, refreshUser } = useAuth();
+  const { user, logout, refreshUser, updateUserProfilePhoto } = useAuth();
   const router = useRouter();
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -52,6 +52,7 @@ export default function PharmacistProfileScreen() {
       const newUrl = updated?.profile_photo_url || updated?.profile_photo || null;
       if (newUrl) {
         setProfilePhoto(newUrl);
+        await updateUserProfilePhoto(newUrl);
       }
       await refreshUser();
     } catch (err: any) {

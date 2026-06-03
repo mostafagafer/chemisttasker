@@ -59,9 +59,11 @@ export type ShiftsBoardProps = {
     loading?: boolean;
     onApplyAll: (shift: Shift) => Promise<void> | void;
     onApplySlot: (shift: Shift, slotId: number) => Promise<void> | void;
+    onApplySlots?: (shift: Shift, slotIds: number[]) => Promise<void> | void;
     onSubmitCounterOffer?: (payload: ShiftCounterOfferPayload) => Promise<void> | void;
     onRejectShift?: (shift: Shift) => Promise<void> | void;
     onRejectSlot?: (shift: Shift, slotId: number) => Promise<void> | void;
+    onRejectSlots?: (shift: Shift, slotIds: number[]) => Promise<void> | void;
     rejectActionGuard?: (shift: Shift) => boolean;
     useServerFiltering?: boolean;
     onFiltersChange?: (filters: FilterConfig) => void;

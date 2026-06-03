@@ -6,6 +6,7 @@ import {
     CircularProgress,
     Snackbar,
     IconButton,
+    Button,
     Card,
     CardContent,
     CardHeader,
@@ -19,10 +20,12 @@ import {
     Close as X,
     Edit,
     Delete as Trash2,
-    ExpandMore as ChevronDown,
     Share as Share2,
     Business as Building,
     CalendarToday as CalendarDays,
+    FavoriteBorder,
+    Groups,
+    LocationOn,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../../../../utils/apiClient';
@@ -60,7 +63,7 @@ import {
     getShiftSummary,
     deriveLevelSequence,
 } from './utils/shiftHelpers';
-import { findInterestForOffer } from './utils/candidateHelpers';
+import { dedupeMembers, findInterestForOffer } from './utils/candidateHelpers';
 import { mapOfferSlotsWithShift } from './utils/offerHelpers';
 import { getCardBorderColor, getLocationText } from './utils/displayHelpers';
 
@@ -91,6 +94,24 @@ const getSlotIds = (shift: Shift): number[] => {
     return slots
         .map((slot: any) => resolveSlotId(slot))
         .filter((id: number | null): id is number => id != null);
+};
+
+const shouldShowPaymentRequired = (shift: Shift, selectedSlotId: number | null): boolean => {
+    const shiftAny = shift as any;
+    if (shiftAny.paymentStatus !== 'PENDING') return false;
+
+    const slots = Array.isArray(shiftAny.slots) ? shiftAny.slots : [];
+    const isSingleUserShift = Boolean(shiftAny.singleUserOnly ?? shiftAny.single_user_only);
+    if (isSingleUserShift || slots.length <= 1) return true;
+
+    const rawPendingSlotIds = shiftAny.pendingPaymentSlotIds ?? shiftAny.pending_payment_slot_ids;
+    if (!Array.isArray(rawPendingSlotIds)) return true;
+    if (selectedSlotId == null) return false;
+
+    const pendingSlotIds = rawPendingSlotIds
+        .map((value: any) => Number(value))
+        .filter((value: number) => Number.isFinite(value));
+    return pendingSlotIds.includes(selectedSlotId);
 };
 
 const offerBelongsToSlot = (offer: any, slotId: number) => {
@@ -140,6 +161,39 @@ const buildMemberSlotSignature = (slotId: number, members: ShiftMemberStatus[], 
         .sort()
         .join('|');
     return `m:${memberSig}#o:${offerSig}`;
+};
+
+const getPersonIdentity = (record: any): string | null => {
+    if (!record) return null;
+    const user = record.user;
+    const userDetail = record.userDetail ?? record.user_detail;
+    const rawId =
+        record.userId ??
+        record.user_id ??
+        userDetail?.id ??
+        (typeof user === 'object' ? user?.id : user) ??
+        null;
+    if (rawId != null) return `user:${rawId}`;
+
+    const email = record.email ?? userDetail?.email ?? (typeof user === 'object' ? user?.email : null);
+    if (email) return `email:${String(email).toLowerCase()}`;
+
+    const recordId = record.id ?? null;
+    return recordId != null ? `record:${recordId}` : null;
+};
+
+const countUniquePeople = (records: any[]): number => {
+    const seen = new Set<string>();
+    records.forEach((record) => {
+        const key = getPersonIdentity(record);
+        if (key) seen.add(key);
+    });
+    return seen.size;
+};
+
+const isActiveCounterOffer = (offer: any): boolean => {
+    const status = String(offer?.status ?? '').toLowerCase();
+    return !['accepted', 'rejected', 'declined', 'cancelled', 'canceled', 'expired'].includes(status);
 };
 
 type ActiveShiftsPageProps = {
@@ -203,11 +257,12 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
     // Data hooks
     const { shifts, setShifts, loading: shiftsLoading, loadShifts } = useShiftsData({ selectedPharmacyId, shiftId });
     const { tabData, setTabData, loadTabDataForShift } = useTabData(shifts, selectedLevelByShift, getTabKey);
-    const handlePayWithPills = useCallback(async (shift: Shift) => {
+    const handlePayWithPills = useCallback(async (shift: Shift, slotId: number | null = null) => {
         setPillPayingShiftId(shift.id);
         try {
             const { data: res } = await apiClient.post('/client-profile/pill-rewards/pay-shift/', {
                 shift_id: shift.id,
+                ...(slotId != null ? { slot_id: slotId } : {}),
             });
             showSnackbar(res?.detail || 'Shift paid with pills.');
             await loadShifts();
@@ -694,17 +749,6 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
         return Boolean(shiftAny.dedicatedUser ?? shiftAny.dedicated_user);
     }, []);
 
-    const getLevelLabel = useCallback((level: EscalationLevelKey) => {
-        const labels: Record<EscalationLevelKey, string> = {
-            FULL_PART_TIME: 'My Pharmacy',
-            LOCUM_CASUAL: 'Favourites',
-            OWNER_CHAIN: 'Chain',
-            ORG_CHAIN: 'Organization',
-            PLATFORM: 'Platform',
-        };
-        return labels[level] ?? level.replace(/_/g, ' ');
-    }, []);
-
     const renderShiftCard = (shift: Shift, dedicated: boolean) => {
         const isExpanded = expandedShifts.has(shift.id);
         const isSingleUserShift = Boolean((shift as any).singleUserOnly);
@@ -726,105 +770,210 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
         const summaryText = getShiftSummary(shift);
         const location = getLocationText(shift);
         const labelOverrides = undefined;
-        const candidatesLabel = dedicated ? 'Direct / Private' : getLevelLabel(selectedLevel);
+        const roleNeeded = (shift as any).roleNeeded ?? (shift as any).role_needed;
+        const employmentType = (shift as any).employmentType ?? (shift as any).employment_type;
+        const isUrgent = Boolean((shift as any).isUrgent ?? (shift as any).is_urgent);
+        const slotsCount = Array.isArray((shift as any).slots) ? (shift as any).slots.length : 0;
+        const showPaymentRequired = shouldShowPaymentRequired(shift, selectedSlotId);
+        const allMembers = isSingleUserShift
+            ? (currentTabData.members || [])
+            : Object.values(currentTabData.membersBySlot || {}).flatMap((slotMembers: any) => (
+                Array.isArray(slotMembers) ? slotMembers : []
+            ));
+        const allInterests = currentTabData.interestsAll || [];
+        const allOffers = offers || [];
+        const candidatesCount = countUniquePeople([
+            ...dedupeMembers(allMembers),
+            ...allInterests,
+            ...allOffers,
+        ]);
+        const interestsCount = countUniquePeople([
+            ...dedupeMembers(allMembers.filter((member: any) => member?.status === 'interested')),
+            ...allInterests,
+            ...allOffers.filter(isActiveCounterOffer),
+        ]);
+        const slotCandidateCounts = getSlotIds(shift).reduce<Record<number, number>>((acc, slotId) => {
+            const slotMembers = currentTabData.membersBySlot?.[slotId] || [];
+            const slotInterests = allInterests.filter((interest: any) => interestBelongsToSlot(interest, slotId));
+            const slotOffers = allOffers.filter((offer: any) => offerBelongsToSlot(offer, slotId));
+            acc[slotId] = countUniquePeople([
+                ...dedupeMembers(slotMembers),
+                ...slotInterests,
+                ...slotOffers,
+            ]);
+            return acc;
+        }, {});
+        const metricItems = [
+            { label: 'Slots', value: slotsCount || '-', icon: <CalendarDays fontSize="small" /> },
+            { label: 'Candidates', value: candidatesCount, icon: <Groups fontSize="small" /> },
+            { label: 'Interests', value: interestsCount, icon: <FavoriteBorder fontSize="small" /> },
+        ];
+        const headerActions = (
+            <Box
+                onClick={(event) => event.stopPropagation()}
+                sx={{ display: 'flex', gap: 0.5, alignItems: 'center', justifyContent: 'flex-end' }}
+            >
+                <Tooltip title="Share">
+                    <span>
+                        <IconButton
+                            size="small"
+                            onClick={e => {
+                                e.stopPropagation();
+                                handleShare(shift);
+                            }}
+                            disabled={sharingShiftId === shift.id}
+                        >
+                            <Share2 fontSize="small" />
+                        </IconButton>
+                    </span>
+                </Tooltip>
+                <Tooltip title="Edit">
+                    <IconButton
+                        size="small"
+                        onClick={e => {
+                            e.stopPropagation();
+                            handleEditShift(shift.id);
+                        }}
+                    >
+                        <Edit fontSize="small" />
+                    </IconButton>
+                </Tooltip>
+                <Tooltip title="Delete">
+                    <IconButton
+                        size="small"
+                        onClick={e => {
+                            e.stopPropagation();
+                            setDeleteConfirmDialog({ open: true, shiftId: shift.id });
+                        }}
+                        disabled={actionLoading[`delete_${shift.id}`]}
+                    >
+                        <Trash2 fontSize="small" />
+                    </IconButton>
+                </Tooltip>
+            </Box>
+        );
 
         return (
             <Card
                 key={shift.id}
+                onClick={() => toggleShiftExpansion(shift.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        toggleShiftExpansion(shift.id);
+                    }
+                }}
                 sx={{
-                    boxShadow: '0 4px 12px 0 rgba(0,0,0,0.05)',
-                    borderLeft: `4px solid ${cardBorderColor}`,
+                    position: 'relative',
+                    overflow: 'hidden',
+                    borderRadius: 3,
+                    border: '1px solid rgba(124, 58, 237, 0.18)',
+                    boxShadow: '0 22px 55px rgba(15, 23, 42, 0.10)',
+                    cursor: 'pointer',
+                    transition: 'border-color 0.2s, box-shadow 0.2s',
+                    '&:before': {
+                        content: '""',
+                        position: 'absolute',
+                        top: 0,
+                        bottom: 0,
+                        left: 0,
+                        width: 5,
+                        background: `linear-gradient(180deg, ${cardBorderColor}, #A855F7 48%, #0EA5E9)`,
+                    },
                 }}
             >
                 <CardHeader
                     disableTypography
+                    sx={{ px: { xs: 2, md: 3 }, pt: 2.5, pb: 1.5 }}
                     title={
-                        <Typography variant="h6" component="div" sx={{ fontWeight: 'bold' }}>
-                            {(shift as any).pharmacyDetail?.name ?? "Unnamed Pharmacy"}
-                        </Typography>
-                    }
-                    subheader={
-                        <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
-                            <Chip
-                                label={(shift as any).roleNeeded}
-                                size="small"
-                                sx={{ backgroundColor: cardBorderColor, color: 'white', fontWeight: 500 }}
-                            />
-                            {(shift as any).employmentType && (
-                                <Chip label={(shift as any).employmentType} size="small" variant="outlined" />
-                            )}
-                            {(shift as any).isUrgent && <Chip label="Urgent" color="error" size="small" />}
-                            {summaryText && (
-                                <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
-                                    <CalendarDays sx={{ fontSize: 16 }} />
-                                    <Typography variant="body2" color="text.secondary">
-                                        {summaryText}
-                                    </Typography>
+                        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} justifyContent="space-between" alignItems="flex-start" sx={{ width: '100%' }}>
+                            <Stack direction="row" spacing={2} sx={{ minWidth: 0, maxWidth: { md: '52%' } }}>
+                                <Box
+                                    sx={{
+                                        width: 64,
+                                        height: 64,
+                                        flexShrink: 0,
+                                        display: 'grid',
+                                        placeItems: 'center',
+                                        borderRadius: 4,
+                                        color: '#fff',
+                                        background: `linear-gradient(135deg, ${cardBorderColor}, #7C3AED)`,
+                                        boxShadow: '0 14px 28px rgba(124, 58, 237, 0.28)',
+                                    }}
+                                >
+                                    <Building />
                                 </Box>
-                            )}
-                            {(shift as any).paymentStatus === 'PENDING' && (
-                                <Chip label="Payment Required" color="error" size="small" />
-                            )}
+                                <Box sx={{ minWidth: 0 }}>
+                                    <Typography variant="h6" component="div" sx={{ fontWeight: 900, color: '#111827' }}>
+                                        {(shift as any).pharmacyDetail?.name ?? "Unnamed Pharmacy"}
+                                    </Typography>
+                                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1 }}>
+                                        {roleNeeded && (
+                                            <Chip label={roleNeeded} size="small" sx={{ bgcolor: cardBorderColor, color: '#fff', fontWeight: 800 }} />
+                                        )}
+                                        {employmentType && (
+                                            <Chip label={employmentType} size="small" sx={{ bgcolor: '#F8FAFC', border: '1px solid #E5E7EB', fontWeight: 700 }} />
+                                        )}
+                                        {isUrgent && <Chip label="Urgent" color="error" size="small" sx={{ fontWeight: 800 }} />}
+                                        {summaryText && (
+                                            <Chip
+                                                icon={<CalendarDays sx={{ fontSize: 15 }} />}
+                                                label={summaryText}
+                                                size="small"
+                                                variant="outlined"
+                                                sx={{ color: '#475569', fontWeight: 600 }}
+                                            />
+                                        )}
+                                        {showPaymentRequired && (
+                                            <Chip label="Payment Required" color="error" size="small" sx={{ fontWeight: 800 }} />
+                                        )}
+                                    </Stack>
+                                </Box>
+                            </Stack>
+                            <Stack sx={{ ml: { md: 'auto' }, width: { xs: '100%', md: 670 }, maxWidth: { md: '54%' }, alignItems: 'flex-end' }}>
+                                {headerActions}
+                                <Stack
+                                    direction="row"
+                                    sx={{
+                                        mt: 1.25,
+                                        width: { xs: '100%', md: 560 },
+                                        border: '1px solid #E5E7EB',
+                                        borderRadius: 2.5,
+                                        bgcolor: '#fff',
+                                        overflow: 'hidden',
+                                    }}
+                                >
+                                    {metricItems.map((item, itemIdx) => (
+                                        <Box
+                                            key={item.label}
+                                            sx={{
+                                                flex: 1,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: 1.2,
+                                                minHeight: 70,
+                                                px: 2,
+                                                borderLeft: itemIdx === 0 ? 0 : '1px solid #E5E7EB',
+                                            }}
+                                        >
+                                            <Box sx={{ color: '#4F46E5', display: 'flex' }}>{item.icon}</Box>
+                                            <Box>
+                                                <Typography sx={{ fontWeight: 900, lineHeight: 1, fontSize: 22 }}>{item.value}</Typography>
+                                                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>{item.label}</Typography>
+                                            </Box>
+                                        </Box>
+                                    ))}
+                                </Stack>
+                            </Stack>
                         </Stack>
                     }
-                    action={
-                        <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                            <Tooltip title="Share">
-                                <span>
-                                    <IconButton
-                                        size="small"
-                                        onClick={e => {
-                                            e.stopPropagation();
-                                            handleShare(shift);
-                                        }}
-                                        disabled={sharingShiftId === shift.id}
-                                    >
-                                        <Share2 fontSize="small" />
-                                    </IconButton>
-                                </span>
-                            </Tooltip>
-                            <Tooltip title="Edit">
-                                <IconButton
-                                    size="small"
-                                    onClick={e => {
-                                        e.stopPropagation();
-                                        handleEditShift(shift.id);
-                                    }}
-                                >
-                                    <Edit fontSize="small" />
-                                </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Delete">
-                                <IconButton
-                                    size="small"
-                                    onClick={e => {
-                                        e.stopPropagation();
-                                        setDeleteConfirmDialog({ open: true, shiftId: shift.id });
-                                    }}
-                                    disabled={actionLoading[`delete_${shift.id}`]}
-                                >
-                                    <Trash2 fontSize="small" />
-                                </IconButton>
-                            </Tooltip>
-                            <IconButton
-                                size="small"
-                                onClick={e => {
-                                    e.stopPropagation();
-                                    toggleShiftExpansion(shift.id);
-                                }}
-                                sx={{
-                                    transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                                    transition: 'transform 0.2s',
-                                }}
-                            >
-                                <ChevronDown fontSize="small" />
-                            </IconButton>
-                        </Box>
-                    }
                 />
-                <CardContent>
-                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1 }}>
-                        <Building sx={{ fontSize: 16 }} />
+                <CardContent sx={{ px: { xs: 2, md: 3 }, pt: 0 }}>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2, color: '#64748B' }}>
+                        <LocationOn sx={{ fontSize: 17 }} />
                         <Typography variant="body2" color="text.secondary">
                             {location}
                         </Typography>
@@ -838,22 +987,23 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                     )}
 
                     {isExpanded && (
-                        <>
-                            <Divider sx={{ my: 2 }} />
+                        <Box
+                            onClick={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => event.stopPropagation()}
+                        >
+                            <Divider sx={{ my: 2.5 }} />
 
                             <EscalationStepper
                                 shift={shift}
                                 currentLevel={shiftLevel}
                                 selectedLevel={selectedLevel}
                                 onSelectLevel={(levelKey) => handleLevelChange(shift, levelKey)}
-                                onEscalate={async (_s, _levelKey) => {
-                                    const success = await handleEscalate(shift.id);
+                                onEscalate={async (_s, levelKey) => {
+                                    const success = await handleEscalate(shift.id, levelKey);
                                     if (!success) return;
-                                    setSelectedLevelByShift(prev => {
-                                        const next = { ...prev };
-                                        delete next[shift.id];
-                                        return next;
-                                    });
+                                    const updatedShift = { ...shift, visibility: levelKey, visibilityLevel: levelKey } as Shift;
+                                    setSelectedLevelByShift(prev => ({ ...prev, [shift.id]: levelKey }));
+                                    await loadTabDataForShift(updatedShift, levelKey);
                                     await loadShifts();
                                 }}
                                 escalating={actionLoading[`escalate_${shift.id}`]}
@@ -861,8 +1011,8 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                 showPrivateFirst={dedicated}
                             />
 
-                            {(shift as any).paymentStatus === 'PENDING' && (
-                                <Box sx={{ mt: 3, p: 2, bgcolor: 'error.50', borderRadius: 1, border: '1px solid', borderColor: 'error.main' }}>
+                            {showPaymentRequired && (
+                                <Box sx={{ mt: 3, p: 2.5, bgcolor: '#FEF2F2', borderRadius: 2, border: '1px solid #FCA5A5' }}>
                                     <Typography variant="h6" color="error.main" gutterBottom>
                                         Payment Required
                                     </Typography>
@@ -870,21 +1020,16 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                         A candidate has accepted the shift, but payment is required to finalize the assignment.
                                     </Typography>
                                     <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, flexWrap: 'wrap' }}>
-                                        <button
-                                            style={{
-                                                padding: '8px 16px',
-                                                backgroundColor: '#d32f2f',
-                                                color: 'white',
-                                                border: 'none',
-                                                borderRadius: '4px',
-                                                cursor: 'pointer',
-                                                fontWeight: 'bold',
-                                                fontFamily: 'inherit',
-                                            }}
+                                        <Button
+                                            variant="contained"
+                                            color="error"
                                             onClick={async (e) => {
                                                 e.stopPropagation();
                                                 try {
-                                                    const { data: res } = await apiClient.post(`/billing/charge-fulfillment/${shift.id}/`);
+                                                    const payload = !isSingleUserShift && slotsCount > 1 && selectedSlotId != null
+                                                        ? { slot_id: selectedSlotId }
+                                                        : {};
+                                                    const { data: res } = await apiClient.post(`/billing/charge-fulfillment/${shift.id}/`, payload);
                                                     if (res?.url) {
                                                         window.location.href = res.url;
                                                     } else if (res?.free) {
@@ -900,38 +1045,22 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                             }}
                                         >
                                             Pay with Stripe
-                                        </button>
-                                        <button
-                                            style={{
-                                                padding: '8px 16px',
-                                                backgroundColor: '#4f46e5',
-                                                color: 'white',
-                                                border: 'none',
-                                                borderRadius: '4px',
-                                                cursor: pillPayingShiftId === shift.id ? 'wait' : 'pointer',
-                                                fontWeight: 'bold',
-                                                fontFamily: 'inherit',
-                                                opacity: pillPayingShiftId === shift.id ? 0.7 : 1,
-                                            }}
+                                        </Button>
+                                        <Button
+                                            variant="contained"
                                             disabled={pillPayingShiftId === shift.id}
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                void handlePayWithPills(shift);
+                                                void handlePayWithPills(shift, !isSingleUserShift && slotsCount > 1 ? selectedSlotId : null);
                                             }}
                                         >
                                             {pillPayingShiftId === shift.id ? 'Paying...' : 'Pay with Pills'}
-                                        </button>
+                                        </Button>
                                     </Box>
                                 </Box>
                             )}
 
-                            <Divider sx={{ my: 2 }} />
-
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                                <Divider sx={{ flex: 1 }} />
-                                <Chip label={`Candidates for ${candidatesLabel}`} />
-                                <Divider sx={{ flex: 1 }} />
-                            </Box>
+                            <Divider sx={{ my: 2.5 }} />
 
                             {currentTabData.loading ? (
                                 <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
@@ -947,6 +1076,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                         shift={shift}
                                         slotId={selectedSlotId}
                                         slotHasUpdates={slotHasUpdatesByShift[shift.id] || {}}
+                                        slotCandidateCounts={slotCandidateCounts}
                                         interestsAll={currentTabData.interestsAll || []}
                                         counterOffers={offers || []}
                                         counterOffersLoaded={counterOffersLoaded}
@@ -964,6 +1094,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                     members={membersForView}
                                     selectedSlotId={selectedSlotId}
                                     slotHasUpdates={slotHasUpdatesByShift[shift.id] || {}}
+                                    slotCandidateCounts={slotCandidateCounts}
                                     offers={offers || []}
                                     onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
                                     onReviewCandidate={(member, _shiftId, offer, slotId) =>
@@ -972,21 +1103,21 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                     reviewLoadingId={reviewLoadingId}
                                 />
                             )}
-                        </>
+                        </Box>
                     )}
                 </CardContent>
             </Card>
         );
     };
 
-    // Load counter offers when shift expands
+    // Load counter offers for summary counts and expanded slot activity.
     React.useEffect(() => {
-        expandedShifts.forEach(shiftId => {
-            if (!counterOffersByShift[shiftId]) {
-                loadCounterOffers(shiftId);
-            }
+        shifts.forEach((shift) => {
+            if (Object.prototype.hasOwnProperty.call(counterOffersByShift, shift.id)) return;
+            if (counterOffersLoadingByShift[shift.id]) return;
+            loadCounterOffers(shift.id);
         });
-    }, [expandedShifts, counterOffersByShift, loadCounterOffers]);
+    }, [shifts, counterOffersByShift, counterOffersLoadingByShift, loadCounterOffers]);
 
     React.useEffect(() => {
         if (!slotSeenReady) return;
@@ -1074,9 +1205,12 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
     return (
         <ThemeProvider theme={customTheme}>
             <Container maxWidth="lg" sx={{ py: 4 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-                    <Typography variant="h4" fontWeight="bold">
+                <Box sx={{ mb: 3 }}>
+                    <Typography variant="h4" fontWeight={900} sx={{ color: '#111827', letterSpacing: '-0.03em' }}>
                         {title}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontWeight: 600 }}>
+                        Manage and track your live shifts
                     </Typography>
                 </Box>
 
@@ -1085,7 +1219,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                         No active shifts found.
                     </Typography>
                 ) : (
-                    <Stack spacing={2}>
+                    <Stack spacing={2.5}>
                         {orderedShifts.map((shift, idx) => {
                             const isDedicated = isDedicatedShift(shift);
                             const prev = idx > 0 ? orderedShifts[idx - 1] : null;
@@ -1093,9 +1227,9 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                 idx === 0 || (prev && isDedicatedShift(prev) !== isDedicated);
                             return (
                                 <React.Fragment key={shift.id}>
-                                    {showSectionHeader && isDedicated && (
+                                    {showSectionHeader && (
                                         <Box sx={{ px: 1, pt: idx === 0 ? 0 : 2 }}>
-                                            <Typography variant="overline" color="text.secondary">
+                                            <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 900, letterSpacing: 1 }}>
                                                 {isDedicated ? 'Direct / Private Offers' : 'Active Shifts'}
                                             </Typography>
                                         </Box>

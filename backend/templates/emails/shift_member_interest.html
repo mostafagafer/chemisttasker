@@ -1,0 +1,38 @@
+{% extends "emails/base.html" %}
+
+{% block title %}New Member Shift Interest{% endblock %}
+
+{% block content %}
+<h2>New member shift interest</h2>
+<p>Hi{% if user_first_name %} {{ user_first_name }}{% endif %},</p>
+<p>
+    <strong>{{ worker_name|default:"A member" }}</strong> expressed interest in your shift at
+    <strong>{{ pharmacy_name }}</strong>{% if role_label %} ({{ role_label }}){% endif %}.
+</p>
+
+{% if worker_email or member_type or employment_type %}
+<div class="meta">
+    {% if worker_email %}<div><strong>Email:</strong> {{ worker_email }}</div>{% endif %}
+    {% if member_type %}<div><strong>Member category:</strong> {{ member_type }}</div>{% endif %}
+    {% if employment_type %}<div><strong>Employment type:</strong> {{ employment_type }}</div>{% endif %}
+</div>
+{% endif %}
+
+{% if slots %}
+<div class="slot-list">
+    {% for s in slots %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="slot-row">
+        <tr>
+            <td>
+                <div class="slot-date">{{ s.date }}</div>
+                <div class="slot-time">{{ s.start_time }} - {{ s.end_time }}</div>
+            </td>
+        </tr>
+    </table>
+    {% endfor %}
+</div>
+{% endif %}
+
+<a class="btn" href="{{ shift_link }}">Review interest</a>
+<p style="font-size:13px; color:#64748b; margin-top:10px;">Shift ID: {{ shift_id }}</p>
+{% endblock %}

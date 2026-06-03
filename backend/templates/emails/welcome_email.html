@@ -1,49 +1,9 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Welcome to ChemistTasker!</title>
-    <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f8fd; color: #333; }
-        .container { padding: 30px 20px; background: #fff; border-radius: 14px; box-shadow: 0 2px 8px #ececec; max-width: 500px; margin: 40px auto; }
-        .wave { font-size: 2.5rem; }
-        .btn {
-            display: inline-block;
-            background: #23b59c;
-            color: #fff !important;
-            padding: 12px 28px;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: bold;
-            font-size: 1.05rem;
-            margin: 16px 0;
-            box-shadow: 0 1px 3px #e0e0e0;
-        }
-        .btn-secondary {
-            display: inline-block;
-            background: #eef7f5;
-            color: #116a5d !important;
-            padding: 12px 20px;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: 600;
-            margin: 8px 0 0;
-            border: 1px solid #cfe9e3;
-        }
-        .card {
-            background: #f7fbfa;
-            border: 1px solid #d9ece7;
-            border-radius: 12px;
-            padding: 16px;
-            margin: 18px 0;
-        }
-        .emoji { font-size: 1.1rem; }
-        p { line-height: 1.6; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="wave">Hello</div>
+{% extends "emails/base.html" %}
+
+{% block title %}Welcome to ChemistTasker!{% endblock %}
+
+{% block content %}
+<div class="wave">Hello</div>
         <h2>Welcome to ChemistTasker!</h2>
 
         <p>
@@ -72,6 +32,4 @@
         </p>
 
         <p class="emoji">The ChemistTasker Team</p>
-    </div>
-</body>
-</html>
+{% endblock %}

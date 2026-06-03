@@ -12,6 +12,13 @@ from django.utils import timezone
 from client_profile.fields import EncryptedTextField
 
 
+GENDER_CHOICES = [
+    ("MALE", "Male"),
+    ("FEMALE", "Female"),
+    ("PREFER_NOT_TO_SAY", "Prefer not to say"),
+]
+
+
 class Organization(models.Model):
     """
     Corporate entity that claims pharmacies and manages org users.
@@ -72,6 +79,7 @@ class OwnerOnboarding(models.Model):
     # Basic Info
     # username        = models.CharField(max_length=150)
     phone_number    = models.CharField(max_length=20)
+    gender          = models.CharField(max_length=20, choices=GENDER_CHOICES, blank=True, null=True)
     role            = models.CharField(max_length=20, choices=ROLE_CHOICES)
     chain_pharmacy  = models.BooleanField(default=False)
     number_of_pharmacies = models.PositiveIntegerField(default=1)
@@ -149,6 +157,9 @@ class PharmacistOnboarding(models.Model):
     ahpra_number = models.CharField(max_length=100, blank=True, null=True)
     # phone_number = models.CharField(max_length=20, blank=True, null=True)
     date_of_birth = models.DateField(blank=True, null=True)
+    gender = models.CharField(max_length=20, choices=GENDER_CHOICES, blank=True, null=True)
+    emergency_contact_number = models.CharField(max_length=20, blank=True, null=True)
+    emergency_contact_relation = models.CharField(max_length=100, blank=True, null=True)
     short_bio = models.TextField(blank=True, null=True)
     resume = models.FileField(upload_to='resumes/', blank=True, null=True)
 
@@ -289,6 +300,9 @@ class OtherStaffOnboarding(models.Model):
 
     # --- Basic (address + dob; phone comes from User.mobile_number in V2 serializers) ---
     date_of_birth = models.DateField(blank=True, null=True)
+    gender = models.CharField(max_length=20, choices=GENDER_CHOICES, blank=True, null=True)
+    emergency_contact_number = models.CharField(max_length=20, blank=True, null=True)
+    emergency_contact_relation = models.CharField(max_length=100, blank=True, null=True)
     street_address = models.CharField(max_length=255, blank=True, null=True)
     suburb = models.CharField(max_length=100, blank=True, null=True)
     state = models.CharField(max_length=50, blank=True, null=True)
@@ -417,6 +431,9 @@ class ExplorerOnboarding(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     government_id = models.FileField(upload_to='gov_ids/', blank=True, null=True)
     role_type = models.CharField(max_length=50, choices=ROLE_CHOICES, blank=True, null=True)
+    gender = models.CharField(max_length=20, choices=GENDER_CHOICES, blank=True, null=True)
+    emergency_contact_number = models.CharField(max_length=20, blank=True, null=True)
+    emergency_contact_relation = models.CharField(max_length=100, blank=True, null=True)
 
     interests = models.JSONField(default=list, blank=True, null=True)     # e.g. ['Shadowing','Volunteering','Placement','Junior Assistant Role']
 

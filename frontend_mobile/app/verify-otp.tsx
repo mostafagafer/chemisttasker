@@ -62,7 +62,7 @@ export default function VerifyOTPScreen() {
             await verifyOTP(code, email);
 
             // Mirror web flow: after email OTP → go to mobile verification step
-            router.replace({ pathname: '/login', params: { email } } as any);
+            router.replace('/mobile-verify' as any);
         } catch (err: any) {
             setError(err.message);
             // Clear OTP on error

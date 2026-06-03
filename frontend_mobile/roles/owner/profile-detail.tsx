@@ -14,6 +14,7 @@ type OwnerFormData = {
   first_name: string;
   last_name: string;
   phone_number: string;
+  gender: string;
   role: OwnerRole;
   chain_pharmacy: boolean;
   number_of_pharmacies: number;
@@ -34,6 +35,12 @@ const ROLE_OPTIONS: Array<{ value: OwnerRole; label: string }> = [
   { value: 'PHARMACIST', label: 'Pharmacist' },
 ];
 
+const GENDER_OPTIONS = [
+  { value: 'MALE', label: 'Male' },
+  { value: 'FEMALE', label: 'Female' },
+  { value: 'PREFER_NOT_TO_SAY', label: 'Prefer not to say' },
+] as const;
+
 export default function OwnerProfileDetailScreen({
   standalone = false,
   onSuccessPath,
@@ -44,12 +51,14 @@ export default function OwnerProfileDetailScreen({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [roleMenuVisible, setRoleMenuVisible] = useState(false);
+  const [genderMenuVisible, setGenderMenuVisible] = useState(false);
   const isMobileVerified = Boolean(user?.is_mobile_verified);
   const [form, setForm] = useState<OwnerFormData>({
     username: '',
     first_name: '',
     last_name: '',
     phone_number: '',
+    gender: '',
     role: 'MANAGER',
     chain_pharmacy: false,
     number_of_pharmacies: 1,
@@ -63,6 +72,7 @@ export default function OwnerProfileDetailScreen({
     first_name: data?.first_name || '',
     last_name: data?.last_name || '',
     phone_number: data?.phone_number || user?.mobile_number || '',
+    gender: data?.gender || '',
     role: (data?.role as OwnerRole) || 'MANAGER',
     chain_pharmacy: Boolean(data?.chain_pharmacy),
     number_of_pharmacies: Math.max(1, Number(data?.number_of_pharmacies) || 1),
@@ -94,6 +104,10 @@ export default function OwnerProfileDetailScreen({
   const roleLabel = useMemo(
     () => ROLE_OPTIONS.find((o) => o.value === form.role)?.label || 'Select role',
     [form.role]
+  );
+  const genderLabel = useMemo(
+    () => GENDER_OPTIONS.find((o) => o.value === form.gender)?.label || 'Select gender',
+    [form.gender]
   );
 
   useEffect(() => {
@@ -128,6 +142,7 @@ export default function OwnerProfileDetailScreen({
     payload.append('last_name', form.last_name);
     payload.append('username', form.username);
     payload.append('phone_number', form.phone_number);
+    payload.append('gender', form.gender);
     payload.append('role', form.role);
     payload.append('chain_pharmacy', String(form.chain_pharmacy));
     payload.append('number_of_pharmacies', String(form.chain_pharmacy ? Math.max(1, form.number_of_pharmacies) : 1));
@@ -192,6 +207,19 @@ export default function OwnerProfileDetailScreen({
         >
           {isMobileVerified ? 'Mobile Verified' : 'Mobile Not Verified'}
         </Chip>
+
+        <Menu
+          visible={genderMenuVisible}
+          onDismiss={() => setGenderMenuVisible(false)}
+          anchor={<Button mode="outlined" onPress={() => setGenderMenuVisible(true)}>{genderLabel}</Button>}
+        >
+          {GENDER_OPTIONS.map((opt) => (
+            <Menu.Item key={opt.value} title={opt.label} onPress={() => {
+              setForm((p) => ({ ...p, gender: opt.value }));
+              setGenderMenuVisible(false);
+            }} />
+          ))}
+        </Menu>
 
         <View style={styles.switchRow}>
           <Text variant="bodyMedium">Do you have more than one pharmacy?</Text>

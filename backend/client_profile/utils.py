@@ -13,7 +13,7 @@ from django.db.models import Q
 from django.utils.html import strip_tags
 from rest_framework.exceptions import ValidationError
 
-from client_profile.models import Shift, ShiftOffer, ShiftSlotAssignment
+from client_profile.models import Membership, Shift, ShiftOffer, ShiftSlotAssignment
 from client_profile.services import expand_shift_slots, get_locked_rate_for_slot
 from client_profile.admin_helpers import is_admin_of
 
@@ -106,6 +106,8 @@ def build_shift_email_context(shift, user=None, extra=None, role=None, shift_typ
         "shift_id": shift.id,
         "pharmacy_name": shift.pharmacy.name,
         "role_needed": shift.role_needed,
+        "role_label": shift.get_role_needed_display() if hasattr(shift, "get_role_needed_display") else shift.role_needed,
+        "employment_type_label": shift.get_employment_type_display() if hasattr(shift, "get_employment_type_display") else getattr(shift, "employment_type", ""),
         "frontend_role": frontend_role,
         "shift_link": shift_link,
     }
@@ -131,11 +133,13 @@ def build_shift_counter_offer_context(shift, offer, recipient=None):
     slots = []
     for offer_slot in offer.slots.select_related('slot'):
         slot = offer_slot.slot
+        date_value = offer_slot.slot_date or getattr(slot, "date", None)
         slots.append({
-            "date": slot.date,
-            "start_time": offer_slot.proposed_start_time,
-            "end_time": offer_slot.proposed_end_time,
-            "proposed_rate": offer_slot.proposed_rate,
+            "date": _format_slot_date(date_value),
+            "start_time": _format_slot_time(offer_slot.proposed_start_time),
+            "end_time": _format_slot_time(offer_slot.proposed_end_time),
+            "time_range": _format_slot_time_range(offer_slot.proposed_start_time, offer_slot.proposed_end_time),
+            "proposed_rate": _format_rate(offer_slot.proposed_rate),
         })
 
     base_ctx.update({
@@ -147,6 +151,46 @@ def build_shift_counter_offer_context(shift, offer, recipient=None):
         "request_travel": bool(offer.request_travel),
         "travel_origin": travel_origin,
         "slots": slots,
+    })
+    return base_ctx
+
+
+def build_shift_interest_context(shift, interest, recipient=None):
+    """
+    Build owner/admin notification context for a worker expressing interest.
+    Public shifts keep the candidate anonymous; pharmacy/favourite-member shifts show the member details.
+    """
+    base_ctx = build_shift_email_context(shift, user=recipient)
+    is_public = getattr(shift, "visibility", None) == "PLATFORM"
+    worker = getattr(interest, "user", None)
+    worker_name = "A candidate" if is_public else ((worker.get_full_name() or worker.email) if worker else "A member")
+    membership = None
+    if worker:
+        membership = Membership.objects.filter(user=worker, pharmacy=shift.pharmacy, is_active=True).first()
+
+    slot_entries = []
+    slot = getattr(interest, "slot", None)
+    if slot:
+        slot_entries = [{
+            "date": _format_slot_date(slot.date),
+            "start_time": _format_slot_time(slot.start_time),
+            "end_time": _format_slot_time(slot.end_time),
+        }]
+    else:
+        for entry in expand_shift_slots(shift):
+            slot_entries.append({
+                "date": _format_slot_date(entry.get("date")),
+                "start_time": _format_slot_time(entry.get("start_time")),
+                "end_time": _format_slot_time(entry.get("end_time")),
+            })
+
+    base_ctx.update({
+        "worker_name": worker_name,
+        "worker_email": "" if is_public else (worker.email if worker else ""),
+        "member_type": getattr(membership, "staff_category", "") if membership else "",
+        "employment_type": getattr(membership, "employment_type", "") if membership else "",
+        "slots": slot_entries,
+        "is_public_interest": is_public,
     })
     return base_ctx
 
@@ -193,6 +237,26 @@ def _format_slot_time(value):
     return parsed.strftime("%I:%M %p").lstrip("0")
 
 
+def _format_slot_time_range(start, end):
+    start_text = _format_slot_time(start)
+    end_text = _format_slot_time(end)
+    if start_text and end_text:
+        return f"{start_text} - {end_text}"
+    return start_text or end_text or ""
+
+
+def _format_rate(value):
+    if value in (None, ""):
+        return ""
+    try:
+        amount = Decimal(str(value))
+    except Exception:
+        return str(value)
+    if amount == amount.to_integral_value():
+        return str(amount.quantize(Decimal("1")))
+    return str(amount.quantize(Decimal("0.01")))
+
+
 def build_shift_offer_context(shift, offer, recipient=None, *, ignore_slot_filter: bool = False):
     """
     Build context for shift offer notifications sent to workers.
@@ -205,6 +269,7 @@ def build_shift_offer_context(shift, offer, recipient=None, *, ignore_slot_filte
         pharmacy_display = f"Shift in {suburb}" if suburb else "Anonymous Pharmacy"
 
     slot_lines = []
+    slots_display_details = []
     offered_date = getattr(offer, "offered_slot_date", None)
     offered_start = getattr(offer, "offered_start_time", None)
     offered_end = getattr(offer, "offered_end_time", None)
@@ -212,7 +277,12 @@ def build_shift_offer_context(shift, offer, recipient=None, *, ignore_slot_filte
         date_text = _format_slot_date(offered_date)
         start_text = _format_slot_time(offered_start)
         end_text = _format_slot_time(offered_end)
-        slot_lines.append(f"{date_text} — {start_text} to {end_text}")
+        slot_lines.append(f"{date_text} - {start_text} to {end_text}")
+        slots_display_details.append({
+            "date": date_text,
+            "time_range": _format_slot_time_range(offered_start, offered_end),
+            "rate": _format_rate(getattr(offer, "offered_rate", None)),
+        })
 
     if not slot_lines:
         slot_entries = expand_shift_slots(shift)
@@ -224,11 +294,17 @@ def build_shift_offer_context(shift, offer, recipient=None, *, ignore_slot_filte
             start_text = _format_slot_time(entry.get("start_time"))
             end_text = _format_slot_time(entry.get("end_time"))
             if date_text and start_text and end_text:
-                slot_lines.append(f"{date_text} — {start_text} to {end_text}")
+                slot_lines.append(f"{date_text} - {start_text} to {end_text}")
+                slots_display_details.append({
+                    "date": date_text,
+                    "time_range": _format_slot_time_range(entry.get("start_time"), entry.get("end_time")),
+                    "rate": _format_rate(getattr(offer, "offered_rate", None)),
+                })
 
     slot_summary = slot_lines[0] if slot_lines else None
     max_slots_in_email = 6
     slots_display = slot_lines[:max_slots_in_email]
+    slots_display_details = slots_display_details[:max_slots_in_email]
     slots_extra_count = max(0, len(slot_lines) - len(slots_display))
 
     if recipient and getattr(recipient, "role", None):
@@ -251,6 +327,7 @@ def build_shift_offer_context(shift, offer, recipient=None, *, ignore_slot_filte
         "employment_type_label": shift.get_employment_type_display() if hasattr(shift, "get_employment_type_display") else shift.employment_type,
         "slot_summary": slot_summary,
         "slots_display": slots_display,
+        "slots_display_details": slots_display_details,
         "slots_extra_count": slots_extra_count,
         "expires_at": getattr(offer, "expires_at", None),
         "offered_rate": getattr(offer, "offered_rate", None),

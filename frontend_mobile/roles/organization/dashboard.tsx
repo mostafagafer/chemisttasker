@@ -8,6 +8,7 @@ import { getActiveShifts } from '@chemisttasker/shared-core';
 import { useAuth } from '@/context/AuthContext';
 import apiClient from '@/utils/apiClient';
 import getShiftPharmacyName from '@/roles/shared/shifts/utils/getShiftPharmacyName';
+import HomeNavigationGrid from '@/components/HomeNavigationGrid';
 
 const { width } = Dimensions.get('window');
 
@@ -24,19 +25,6 @@ type PillSummary = {
   shift_post_cost: number;
 };
 
-const getOrganizationName = (user: any) => {
-  const memberships = Array.isArray(user?.memberships) ? user.memberships : [];
-  const orgMembership = memberships.find((membership: any) => membership?.organization_name || membership?.organizationName);
-  return (
-    orgMembership?.organization_name ||
-    orgMembership?.organizationName ||
-    user?.organization_name ||
-    user?.organizationName ||
-    user?.username ||
-    'Organization'
-  );
-};
-
 export default function OrganizationDashboard() {
   const router = useRouter();
   const { user, logout } = useAuth();
@@ -44,13 +32,6 @@ export default function OrganizationDashboard() {
   const [shifts, setShifts] = useState<ShiftSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  const organizationName = useMemo(() => getOrganizationName(user), [user]);
-
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    return hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-  }, []);
 
   const loadData = useCallback(async () => {
     setRefreshing(true);
@@ -94,14 +75,17 @@ export default function OrganizationDashboard() {
 
   const quickActions = useMemo(
     () => [
-      { title: 'Post Shift', icon: 'plus-circle', route: '/organization/post-shift', gradient: ['#6366F1', '#8B5CF6'] as const },
-      { title: 'Invite Staff', icon: 'account-plus', route: '/organization/invite', gradient: ['#10B981', '#14B8A6'] as const },
-      { title: 'Pharmacies', icon: 'store', route: '/organization/pharmacies', gradient: ['#EC4899', '#F43F5E'] as const },
-      { title: 'Shifts', icon: 'calendar-month', route: '/organization/shifts', gradient: ['#06B6D4', '#0EA5E9'] as const },
-      { title: 'Calendar', icon: 'calendar', route: '/organization/calendar', gradient: ['#22C55E', '#16A34A'] as const },
-      { title: 'Hub', icon: 'account-group', route: '/organization/hub', gradient: ['#F59E0B', '#F97316'] as const },
-      { title: 'Talent Hub', icon: 'account-search', route: '/organization/talent-board', gradient: ['#2563EB', '#1D4ED8'] as const },
-      { title: 'Messages', icon: 'message-text', route: '/organization/chat', gradient: ['#8B5CF6', '#A78BFA'] as const },
+      { title: 'Post Shift', description: 'Create coverage', icon: 'plus-circle-outline', route: '/organization/post-shift' },
+      { title: 'Invite Staff', description: 'Add members', icon: 'account-plus-outline', route: '/organization/invite' },
+      { title: 'Pharmacies', description: 'Manage stores', icon: 'store-outline', route: '/organization/pharmacies' },
+      { title: 'Shifts', description: 'Shift centre', icon: 'calendar-month-outline', route: '/organization/shifts' },
+      { title: 'Calendar', description: 'Schedule view', icon: 'calendar-outline', route: '/organization/calendar' },
+      { title: 'Hub', description: 'Community posts', icon: 'view-grid-outline', route: '/organization/hub' },
+      { title: 'Talent Hub', description: 'Find talent', icon: 'account-search-outline', route: '/organization/talent-board' },
+      { title: 'Messages', description: 'Open chat', icon: 'message-text-outline', route: '/organization/chat' },
+      { title: 'Pills', description: 'Rewards activity', icon: 'pill', route: '/organization/pills' },
+      { title: 'Profile', description: 'Account details', icon: 'account-circle-outline', route: '/organization/profile' },
+      { title: 'Notifications', description: 'Alerts', icon: 'bell-outline', route: '/organization/notifications' },
     ],
     []
   );
@@ -121,7 +105,7 @@ export default function OrganizationDashboard() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <View style={styles.loadingContainer}>
           <Text>Loading organization dashboard...</Text>
         </View>
@@ -130,28 +114,21 @@ export default function OrganizationDashboard() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadData} tintColor="#6366F1" />}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
-          <Text variant="bodyMedium" style={styles.greetingText}>
-            {greeting}
-          </Text>
-          <Text variant="headlineMedium" style={styles.nameText}>
-            {organizationName}
-          </Text>
-        </View>
-
         <TouchableOpacity
           style={styles.pillHero}
           onPress={() => router.push('/organization/pills' as any)}
           activeOpacity={0.82}
         >
-          <LinearGradient colors={['#4F46E5', '#0EA5E9']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.pillHeroGradient}>
+          <LinearGradient colors={['#267DB8', '#433894', '#9A087D']} locations={[0, 0.58, 1]} start={{ x: 0, y: 0.1 }} end={{ x: 1, y: 1 }} style={styles.pillHeroGradient}>
+            <View pointerEvents="none" style={styles.heroAngleOne} />
+            <View pointerEvents="none" style={styles.heroAngleTwo} />
             <View style={styles.pillHeroCopy}>
               <Text variant="labelMedium" style={styles.pillHeroEyebrow}>
                 Organization rewards
@@ -180,28 +157,7 @@ export default function OrganizationDashboard() {
           </LinearGradient>
         </TouchableOpacity>
 
-        <View style={styles.section}>
-          <Text variant="titleMedium" style={styles.sectionHeaderText}>
-            Quick Actions
-          </Text>
-          <View style={styles.quickActionsGrid}>
-            {quickActions.map((action) => (
-              <TouchableOpacity
-                key={action.title}
-                style={styles.quickActionCard}
-                onPress={() => router.push(action.route as any)}
-                activeOpacity={0.7}
-              >
-                <LinearGradient colors={action.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.quickActionGradient}>
-                  <IconButton icon={action.icon} size={28} iconColor="#FFFFFF" />
-                </LinearGradient>
-                <Text variant="labelMedium" style={styles.quickActionTitle}>
-                  {action.title}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+        <HomeNavigationGrid items={quickActions} onNavigate={(route) => router.push(route as any)} />
 
         {shifts.length > 0 && (
           <View style={styles.section}>
@@ -308,7 +264,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    position: 'relative',
   },
+  heroAngleOne: { position: 'absolute', top: -58, left: 158, width: 150, height: 310, backgroundColor: 'rgba(255,255,255,0.16)', transform: [{ rotate: '-28deg' }] },
+  heroAngleTwo: { position: 'absolute', right: -50, bottom: -70, width: 230, height: 300, backgroundColor: 'rgba(255,255,255,0.08)', transform: [{ rotate: '30deg' }] },
   pillHeroCopy: { flex: 1, paddingRight: 8 },
   pillHeroEyebrow: {
     color: 'rgba(255, 255, 255, 0.78)',
@@ -366,3 +325,4 @@ const styles = StyleSheet.create({
   bottomMenuTitle: { color: '#111827', fontWeight: '600' },
   bottomMenuDesc: { color: '#6B7280', fontSize: 12, marginTop: 2 },
 });
+

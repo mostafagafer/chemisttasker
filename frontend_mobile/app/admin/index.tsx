@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Button, Chip, Surface, Text } from 'react-native-paper';
+import { Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Chip, Surface, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/context/AuthContext';
 import apiClient from '@/utils/apiClient';
+import HomeNavigationGrid from '@/components/HomeNavigationGrid';
 
 export default function AdminHomeScreen() {
   const router = useRouter();
@@ -46,8 +47,8 @@ export default function AdminHomeScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <View style={styles.content}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Surface style={styles.hero}>
           <Text variant="labelLarge" style={styles.eyebrow}>Admin workspace</Text>
           <Text variant="headlineSmall" style={styles.title}>{pharmacyName}</Text>
@@ -61,7 +62,9 @@ export default function AdminHomeScreen() {
           onPress={() => router.push(adminPath('pills') as any)}
           activeOpacity={0.84}
         >
-          <LinearGradient colors={['#4F46E5', '#0EA5E9']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.pillHeroGradient}>
+          <LinearGradient colors={['#267DB8', '#433894', '#9A087D']} locations={[0, 0.58, 1]} start={{ x: 0, y: 0.1 }} end={{ x: 1, y: 1 }} style={styles.pillHeroGradient}>
+            <View pointerEvents="none" style={styles.heroAngleOne} />
+            <View pointerEvents="none" style={styles.heroAngleTwo} />
             <View style={styles.pillHeroCopy}>
               <Text variant="labelMedium" style={styles.pillHeroEyebrow}>Pharmacy admin pills</Text>
               <View style={styles.pillBalanceRow}>
@@ -84,28 +87,25 @@ export default function AdminHomeScreen() {
           </LinearGradient>
         </TouchableOpacity>
 
-        <View style={styles.grid}>
-          <ActionCard title="Shift Centre" description="Active, confirmed, and history" onPress={() => router.push('/admin/shifts' as any)} />
-          <ActionCard title="Post Shift" description="Create a shift for this pharmacy" onPress={() => router.push(adminPath('post-shift') as any)} />
-          <ActionCard title="Pharmacies" description="Manage pharmacy details and staff" onPress={() => router.push('/admin/pharmacies' as any)} />
-        </View>
-      </View>
+        <HomeNavigationGrid
+          items={[
+            { title: 'Shift Centre', description: 'Active shifts', icon: 'calendar-month-outline', route: '/admin/shifts' },
+            { title: 'Post Shift', description: 'Create coverage', icon: 'plus-circle-outline', route: adminPath('post-shift') },
+            { title: 'Pharmacies', description: 'Store details', icon: 'store-outline', route: '/admin/pharmacies' },
+            { title: 'Chat', description: 'Open messages', icon: 'message-text-outline', route: '/admin/chat' },
+            { title: 'Pills', description: 'Rewards activity', icon: 'pill', route: adminPath('pills') },
+            { title: 'Notifications', description: 'Alerts', icon: 'bell-outline', route: '/admin/notifications' },
+          ]}
+          onNavigate={(route) => router.push(route as any)}
+        />
+      </ScrollView>
     </SafeAreaView>
-  );
-}
-
-function ActionCard({ title, description, onPress }: { title: string; description: string; onPress: () => void }) {
-  return (
-    <Surface style={styles.card}>
-      <Text variant="titleMedium" style={styles.cardTitle}>{title}</Text>
-      <Text style={styles.cardText}>{description}</Text>
-      <Button mode="contained-tonal" onPress={onPress} style={styles.cardButton}>Open</Button>
-    </Surface>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9FAFB' },
+  scrollView: { flex: 1 },
   content: { padding: 20, gap: 16 },
   hero: { borderRadius: 22, padding: 20, backgroundColor: '#FFFFFF' },
   eyebrow: { color: '#6366F1', textTransform: 'uppercase', letterSpacing: 1 },
@@ -123,7 +123,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    position: 'relative',
   },
+  heroAngleOne: { position: 'absolute', top: -58, left: 158, width: 150, height: 310, backgroundColor: 'rgba(255,255,255,0.16)', transform: [{ rotate: '-28deg' }] },
+  heroAngleTwo: { position: 'absolute', right: -50, bottom: -70, width: 230, height: 300, backgroundColor: 'rgba(255,255,255,0.08)', transform: [{ rotate: '30deg' }] },
   pillHeroCopy: { flex: 1, paddingRight: 8 },
   pillHeroEyebrow: { color: 'rgba(255,255,255,0.78)', textTransform: 'uppercase', letterSpacing: 1 },
   pillBalanceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 8 },
@@ -135,3 +138,4 @@ const styles = StyleSheet.create({
   pillMetaChipText: { color: '#FFFFFF', fontWeight: '700', fontSize: 11 },
   pillHeroImage: { width: 118, height: 118, marginRight: -8 },
 });
+

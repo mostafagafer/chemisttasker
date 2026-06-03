@@ -22,7 +22,7 @@ interface UserProfile {
 
 export default function OwnerProfileScreen() {
   const router = useRouter();
-  const { logout, refreshUser } = useAuth();
+  const { logout, refreshUser, updateUserProfilePhoto } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -99,6 +99,7 @@ export default function OwnerProfileScreen() {
       const newUrl = updated?.profile_photo_url || updated?.profile_photo || null;
       if (newUrl) {
         setProfilePhoto(newUrl);
+        await updateUserProfilePhoto(newUrl);
       }
       await refreshUser();
       await fetchProfile();
@@ -305,7 +306,7 @@ export default function OwnerProfileScreen() {
                 <IconButton icon="account-plus-outline" size={24} iconColor="#6366F1" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text variant="titleMedium" style={styles.menuTitle}>Refer a friend</Text>
+                <Text variant="titleMedium" style={styles.menuTitle}>Refer a colleague </Text>
                 <Text variant="bodySmall" style={styles.menuDesc}>
                   Share a referral link and earn pills when they register.
                 </Text>
@@ -458,7 +459,7 @@ const styles = StyleSheet.create({
   },
   name: {
     fontWeight: 'bold',
-    color: '#111827',
+    color: '#FFFFFF',
     marginBottom: 4,
     marginTop: 2,
   },

@@ -36,6 +36,7 @@ interface FormData {
   first_name: string;
   last_name: string;
   phone_number: string;
+  gender: string;
   role: 'MANAGER' | 'PHARMACIST';
   chain_pharmacy: boolean;
   number_of_pharmacies: number;
@@ -50,6 +51,12 @@ interface FormData {
 const ROLE_OPTIONS = [
   { value: 'MANAGER', label: 'Pharmacy Manager' },
   { value: 'PHARMACIST', label: 'Pharmacist' },
+];
+
+const GENDER_OPTIONS = [
+  { value: 'MALE', label: 'Male' },
+  { value: 'FEMALE', label: 'Female' },
+  { value: 'PREFER_NOT_TO_SAY', label: 'Prefer not to say' },
 ];
 
 type OwnerOnboardingProps = {
@@ -71,6 +78,7 @@ function OwnerOnboardingContent({
     first_name: '',
     last_name: '',
     phone_number: '',
+    gender: '',
     role: 'MANAGER',
     chain_pharmacy: false,
     number_of_pharmacies: 1,
@@ -109,6 +117,7 @@ function OwnerOnboardingContent({
           first_name: d.first_name || '',
           last_name: d.last_name || '',
           phone_number: d.phone_number || '',
+          gender: d.gender || '',
           role: (d.role as 'MANAGER' | 'PHARMACIST') || 'MANAGER',
           chain_pharmacy: !!d.chain_pharmacy,
           number_of_pharmacies: Math.max(1, Number(d.number_of_pharmacies) || 1),
@@ -335,6 +344,23 @@ const handleSubmit = async (e: React.FormEvent) => {
             <VerifiedChip ok={isMobileVerified} label="Mobile Verified" />
           </Box>
 
+          <TextField
+            select
+            fullWidth
+            margin="normal"
+            label="Gender"
+            name="gender"
+            value={data.gender}
+            onChange={handleChange}
+          >
+            <MenuItem value="">Select gender</MenuItem>
+            {GENDER_OPTIONS.map(o => (
+              <MenuItem key={o.value} value={o.value}>
+                {o.label}
+              </MenuItem>
+            ))}
+          </TextField>
+
           <FormControlLabel
             control={
               <Switch
@@ -444,7 +470,7 @@ const handleSubmit = async (e: React.FormEvent) => {
               <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
                 <PersonAddAltIcon color="primary" />
                 <Typography variant="h6" fontWeight={700}>
-                  Refer a friend
+                  Refer a colleague 
                 </Typography>
               </Stack>
               <Typography variant="body2" color="text.secondary">

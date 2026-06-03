@@ -22,6 +22,21 @@ const getErrorMessage = (error: unknown, fallback: string) => {
     return fallback;
 };
 
+const isSlotIdRequiredError = (error: unknown) => {
+    const detail = (error as any)?.response?.data?.detail;
+    const message = error instanceof Error ? error.message : null;
+    return [detail, message].some((value) => typeof value === 'string' && value.includes('slot_id is required'));
+};
+
+const rejectSlotIdsWithBatchFallback = async (shiftId: number, slotIds: number[]) => {
+    try {
+        await rejectShiftService({ shiftId, slotIds } as any);
+    } catch (err) {
+        if (!isSlotIdRequiredError(err)) throw err;
+        await Promise.all(slotIds.map((slotId) => rejectShiftService({ shiftId, slotId })));
+    }
+};
+
 const coerceId = (value: unknown) => {
     return typeof value === 'number' ? value : null;
 };
@@ -122,9 +137,7 @@ export default function WorkerShiftDetailPage() {
                 setAppliedShiftIds((prev) => Array.from(new Set([...prev, targetShift.id])));
                 return;
             }
-            await Promise.all(
-                shiftSlots.map((slot) => expressInterestInShiftService({ shiftId: targetShift.id, slotId: slot.id }))
-            );
+            await expressInterestInShiftService({ shiftId: targetShift.id, slotIds: shiftSlots.map((slot) => slot.id) } as any);
             setAppliedSlotIds((prev) => Array.from(new Set([...prev, ...shiftSlots.map((s) => s.id)])));
         } catch (err) {
             setSnackbar({
@@ -174,6 +187,34 @@ export default function WorkerShiftDetailPage() {
         }
     };
 
+    const handleApplySlots = async (targetShift: Shift, slotIds: number[]) => {
+        try {
+            const uniqueSlotIds = Array.from(new Set(slotIds)).filter((slotId) => Number.isFinite(slotId));
+            if (uniqueSlotIds.length === 0) return;
+            await expressInterestInShiftService({ shiftId: targetShift.id, slotIds: uniqueSlotIds } as any);
+            setAppliedSlotIds((prev) => Array.from(new Set([...prev, ...uniqueSlotIds])));
+        } catch (err) {
+            setSnackbar({
+                open: true,
+                message: getErrorMessage(err, 'Failed to express interest in selected slots.'),
+            });
+            throw err;
+        }
+    };
+
+    const handleRejectSlots = async (targetShift: Shift, slotIds: number[]) => {
+        try {
+            await rejectSlotIdsWithBatchFallback(targetShift.id, slotIds);
+            setRejectedSlotIds((prev) => Array.from(new Set([...prev, ...slotIds])));
+        } catch (err) {
+            setSnackbar({
+                open: true,
+                message: getErrorMessage(err, 'Failed to reject selected slots.'),
+            });
+            throw err;
+        }
+    };
+
     const handleSubmitCounterOffer = async (payload: any) => {
         try {
             await submitShiftCounterOfferService(payload);
@@ -204,9 +245,11 @@ export default function WorkerShiftDetailPage() {
                 loading={loading}
                 onApplyAll={handleApplyAll}
                 onApplySlot={handleApplySlot}
+                onApplySlots={handleApplySlots}
                 onSubmitCounterOffer={handleSubmitCounterOffer}
                 onRejectShift={handleRejectShift}
                 onRejectSlot={handleRejectSlot}
+                onRejectSlots={handleRejectSlots}
                 initialAppliedShiftIds={appliedShiftIds}
                 initialAppliedSlotIds={appliedSlotIds}
                 initialRejectedShiftIds={rejectedShiftIds}

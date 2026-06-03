@@ -1,7 +1,7 @@
 // useCounterOffers - Complete counter offer state management
 // Exact logic from web with AsyncStorage adaptation for mobile
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { format } from 'date-fns';
 import {
@@ -28,6 +28,25 @@ import { formatDateLong } from '../utils/date';
 import { normalizeOnboardingLocation } from '../utils/location';
 import { getSlotRate } from '../utils/rates';
 import { getUpcomingSlotsForDisplay, getShiftNegotiable } from '../utils/shift';
+
+const toFiniteNumber = (value: unknown): number | null => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getOfferUserId = (offer: any): number | null => {
+    const raw = typeof offer?.user === 'object' && offer.user !== null ? offer.user.id : offer?.user;
+    return toFiniteNumber(raw ?? offer?.userId ?? offer?.user_id);
+};
+
+const getOfferSlotId = (slot: any): number | null =>
+    toFiniteNumber(slot?.slotId ?? slot?.slot_id ?? slot?.slot?.id ?? slot?.slot);
+
+const getOfferSlots = (offer: any): any[] =>
+    Array.isArray(offer?.slots) ? offer.slots : [];
+
+const offerHasValidSlots = (offer: any): boolean =>
+    getOfferSlots(offer).some((slot) => getOfferSlotId(slot) != null);
 
 type UseCounterOffersParams = {
     shifts: Shift[];
@@ -66,7 +85,6 @@ export const useCounterOffers = ({
     const [reviewOffers, setReviewOffers] = useState<any[]>([]);
     const [reviewLoading, setReviewLoading] = useState(false);
     const [isHydrated, setIsHydrated] = useState(false);
-    const serverCounterSyncRef = useRef<Set<number>>(new Set());
 
     const [counterOfferOpen, setCounterOfferOpen] = useState(false);
     const [counterOfferShift, setCounterOfferShift] = useState<Shift | null>(null);
@@ -149,8 +167,9 @@ export const useCounterOffers = ({
                 let offers = Array.isArray(remote) ? remote : [];
                 // Workers should only see their own offers; filter defensively.
                 if (currentUserId != null) {
-                    offers = offers.filter((o: any) => o.user === currentUserId);
+                    offers = offers.filter((o: any) => getOfferUserId(o) === currentUserId);
                 }
+                offers = offers.filter(offerHasValidSlots);
                 // Show latest first
                 offers.sort((a: any, b: any) => {
                     const aT = new Date(a.createdAt || a.created_at || a.updatedAt || a.updated_at || 0).getTime();
@@ -158,6 +177,15 @@ export const useCounterOffers = ({
                     return bT - aT;
                 });
                 setReviewOffers(offers);
+                if (offers.length === 0) {
+                    setCounterOffers((prev) => {
+                        if (!prev[reviewOfferShiftId]) return prev;
+                        const next = { ...prev };
+                        delete next[reviewOfferShiftId];
+                        persistCounterOffers(next);
+                        return next;
+                    });
+                }
             } catch (err) {
                 console.warn('Failed to load counter offers for review', err);
                 setReviewOffers([]);
@@ -172,7 +200,7 @@ export const useCounterOffers = ({
     useEffect(() => {
         if (!isHydrated) return;
         const shiftIds = shifts.map((s) => s.id).filter((id) => Number.isFinite(id));
-        const toFetch = shiftIds.filter((id) => !serverCounterSyncRef.current.has(id));
+        const toFetch = shiftIds;
         if (toFetch.length === 0) return;
 
         const fetchCounters = async () => {
@@ -180,27 +208,31 @@ export const useCounterOffers = ({
             for (const shiftId of toFetch) {
                 try {
                     const remote = await fetchShiftCounterOffersService(shiftId);
+                    const offers = currentUserId != null
+                        ? (remote || []).filter((offer: any) => getOfferUserId(offer) === currentUserId)
+                        : (remote || []);
+                    const validOffers = offers.filter(offerHasValidSlots);
                     const slotsMap: Record<number, { rate: string; start: string; end: string }> = {};
-                    (remote || []).forEach((offer: any) => {
-                        (offer.slots || []).forEach((slot: any) => {
-                            if (slot.slotId == null) return;
-                            slotsMap[slot.slotId] = {
+                    validOffers.forEach((offer: any) => {
+                        getOfferSlots(offer).forEach((slot: any) => {
+                            const slotId = getOfferSlotId(slot);
+                            if (slotId == null) return;
+                            slotsMap[slotId] = {
                                 rate: slot.proposedRate != null ? String(slot.proposedRate) : '',
-                                start: slot.proposedStartTime || '',
-                                end: slot.proposedEndTime || '',
+                                start: slot.proposedStartTime || slot.proposed_start_time || '',
+                                end: slot.proposedEndTime || slot.proposed_end_time || '',
                             };
                         });
+                    });
+                    const sentCount = Object.keys(slotsMap).length;
+                    if (sentCount > 0) {
                         updates[shiftId] = {
                             slots: { ...slotsMap },
-                            summary: (offer.slots || []).length > 0
-                                ? `Counter offer sent (${(offer.slots || []).length} slot${(offer.slots || []).length > 1 ? 's' : ''})`
-                                : 'Counter offer sent',
+                            summary: `Counter offer sent (${sentCount} slot${sentCount > 1 ? 's' : ''})`,
                         };
-                    });
+                    }
                 } catch (err) {
                     console.warn('Failed to fetch counter offers for shift', shiftId, err);
-                } finally {
-                    serverCounterSyncRef.current.add(shiftId);
                 }
             }
 
@@ -222,7 +254,7 @@ export const useCounterOffers = ({
         };
 
         fetchCounters();
-    }, [shifts, isHydrated]);
+    }, [shifts, isHydrated, currentUserId]);
 
     const openCounterOffer = async (shift: Shift, selectedSlots?: Set<number>) => {
         if (!onSubmitCounterOffer || hideCounterOffer) return;

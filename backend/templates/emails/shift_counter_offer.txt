@@ -1,16 +1,16 @@
+New counter offer
+
 Hi{% if user_first_name %} {{ user_first_name }}{% endif %},
 
-{{ worker_name|default:"A candidate" }} sent a counter offer for {{ pharmacy_name }} ({{ role_needed }}).
+{{ worker_name|default:"A candidate" }} sent a counter offer for {{ pharmacy_name }}{% if role_label %} ({{ role_label }}){% endif %}.
 
-Summary:
-{% for s in slots %}
-- {{ s.date }} — {{ s.start_time }} to {{ s.end_time }}{% if s.proposed_rate %} • ${{ s.proposed_rate }}/hr{% endif %}
+{% if slots %}Proposed slots:
+{% for s in slots %}- {{ s.date }} - {% if s.time_range %}{{ s.time_range }}{% else %}{{ s.start_time }}{% endif %}{% if s.proposed_rate %} - ${{ s.proposed_rate }}/hr{% endif %}
 {% endfor %}
-{% if not slots %}- No specific slots provided.{% endif %}
-
-{% if request_travel %}Travel allowance requested.{% endif %}
-{% if travel_origin %}Traveling from: {{ travel_origin }}{% endif %}
-
-Review here: {{ shift_link }}
+{% endif %}
+{% if request_travel %}Travel allowance requested.
+{% endif %}{% if travel_origin %}Traveling from: {{ travel_origin }}
+{% endif %}
+Review counter offer: {{ shift_link }}
 
 Shift ID: {{ shift_id }}

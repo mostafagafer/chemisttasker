@@ -13,7 +13,6 @@ import { alpha } from "@mui/material/styles";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import { getOnboardingDetail } from "@chemisttasker/shared-core";
-import AccountDeletionSection from "../../../components/AccountDeletionSection";
 import { UnsavedChangesBoundary } from "../../../hooks/useUnsavedChangesGuard";
 
 const BRAND = {
@@ -230,9 +229,7 @@ return (
             {step === "profile"   && <ProfileV2 />}
         </Box>
 
-
         </Box>
-        <AccountDeletionSection />
       </Paper>
     </Container>
         );

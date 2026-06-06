@@ -18,10 +18,7 @@ import {
   Tabs,
   Tab,
 } from "@mui/material";
-import { DateCalendar, LocalizationProvider, TimePicker } from "@mui/x-date-pickers";
-import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { GoogleMap, Marker, Circle, Autocomplete, useJsApiLoader } from "@react-google-maps/api";
-import dayjs, { Dayjs } from "dayjs";
 type PitchAvailabilityEntry = {
   date: string;
   startTime: string;
@@ -139,12 +136,6 @@ export default function PitchDialog(props: {
 
   const validateTimeRange = (start: string, end: string) =>
     new Date(`2025-01-01T${end}`) > new Date(`2025-01-01T${start}`);
-  const parseTime = (value: string) => {
-    const [hour = "0", minute = "0"] = value.split(":");
-    return dayjs().hour(Number(hour)).minute(Number(minute)).second(0);
-  };
-  const formatTime = (value: Dayjs | null) => (value ? value.format("HH:mm") : "");
-  const formatDate = (value: Dayjs | null) => (value ? value.format("YYYY-MM-DD") : "");
 
   const handleAddAvailability = async () => {
     if (!currentEntry.date) {
@@ -420,120 +411,114 @@ export default function PitchDialog(props: {
         )}
 
         {tabIndex === 2 && (
-          <LocalizationProvider dateAdapter={AdapterDayjs}>
-            <Stack spacing={2} sx={{ pt: 1 }}>
-              {availabilityError && (
-                <Box sx={{ color: "error.main", fontSize: 14 }}>
-                  {availabilityError}
-                </Box>
-              )}
-              <Typography variant="subtitle2">Pick your available day</Typography>
-              <Box
-                sx={{
-                  border: "1px solid",
-                  borderColor: "grey.200",
-                  borderRadius: 2,
-                  p: 1,
-                  display: "flex",
-                  justifyContent: "center",
-                }}
-              >
-                <DateCalendar
-                  value={currentEntry.date ? dayjs(currentEntry.date) : null}
-                  onChange={(value) =>
-                    setCurrentEntry((prev) => ({
-                      ...prev,
-                      date: formatDate(value),
-                    }))
-                  }
-                />
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            {availabilityError && (
+              <Box sx={{ color: "error.main", fontSize: 14 }}>
+                {availabilityError}
               </Box>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={currentEntry.isAllDay}
-                    onChange={(e) =>
-                      setCurrentEntry({
-                        ...currentEntry,
-                        isAllDay: e.target.checked,
-                        startTime: e.target.checked ? "00:00" : "09:00",
-                        endTime: e.target.checked ? "23:59" : "17:00",
-                      })
-                    }
-                  />
-                }
-                label="All Day"
-              />
-              <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
-                <TimePicker
-                  label="Start Time"
-                  value={parseTime(currentEntry.startTime)}
-                  onChange={(value) =>
-                    setCurrentEntry((prev) => ({ ...prev, startTime: formatTime(value) }))
+            )}
+            <TextField
+              label="Available day"
+              type="date"
+              fullWidth
+              value={currentEntry.date}
+              onChange={(event) =>
+                setCurrentEntry((prev) => ({
+                  ...prev,
+                  date: event.target.value,
+                }))
+              }
+              InputLabelProps={{ shrink: true }}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={currentEntry.isAllDay}
+                  onChange={(e) =>
+                    setCurrentEntry({
+                      ...currentEntry,
+                      isAllDay: e.target.checked,
+                      startTime: e.target.checked ? "00:00" : "09:00",
+                      endTime: e.target.checked ? "23:59" : "17:00",
+                    })
                   }
-                  disabled={currentEntry.isAllDay}
-                  sx={{ flex: 1 }}
                 />
-                <TimePicker
-                  label="End Time"
-                  value={parseTime(currentEntry.endTime)}
-                  onChange={(value) =>
-                    setCurrentEntry((prev) => ({ ...prev, endTime: formatTime(value) }))
-                  }
-                  disabled={currentEntry.isAllDay}
-                  sx={{ flex: 1 }}
-                />
-              </Stack>
+              }
+              label="All Day"
+            />
+            <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
               <TextField
-                label="Notes"
-                multiline
-                rows={3}
-                value={currentEntry.notes ?? ""}
-                onChange={(e) => setCurrentEntry({ ...currentEntry, notes: e.target.value })}
+                label="Start Time"
+                type="time"
+                value={currentEntry.startTime}
+                onChange={(event) =>
+                  setCurrentEntry((prev) => ({ ...prev, startTime: event.target.value }))
+                }
+                disabled={currentEntry.isAllDay}
+                InputLabelProps={{ shrink: true }}
+                sx={{ flex: 1 }}
               />
-              <Button variant="contained" onClick={handleAddAvailability}>
-                Add Time Slot
-              </Button>
-
-              <Typography variant="subtitle2">Your Time Slots</Typography>
-              {availabilityEntries.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
-                  No time slots added yet.
-                </Typography>
-              ) : (
-                availabilityEntries.map((entry, index) => (
-                  <Box
-                    key={`${entry.date}-${index}`}
-                    sx={{
-                      border: "1px solid",
-                      borderColor: "grey.200",
-                      borderRadius: 2,
-                      px: 2,
-                      py: 1.5,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 2,
-                    }}
-                  >
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>
-                        {entry.date} - {entry.isAllDay ? "All Day" : `${entry.startTime}-${entry.endTime}`}
-                      </Typography>
-                      {entry.notes && (
-                        <Typography variant="caption" color="text.secondary">
-                          {entry.notes}
-                        </Typography>
-                      )}
-                    </Box>
-                    <Button color="error" size="small" onClick={() => handleDeleteAvailability(index)}>
-                      Delete
-                    </Button>
-                  </Box>
-                ))
-              )}
+              <TextField
+                label="End Time"
+                type="time"
+                value={currentEntry.endTime}
+                onChange={(event) =>
+                  setCurrentEntry((prev) => ({ ...prev, endTime: event.target.value }))
+                }
+                disabled={currentEntry.isAllDay}
+                InputLabelProps={{ shrink: true }}
+                sx={{ flex: 1 }}
+              />
             </Stack>
-          </LocalizationProvider>
+            <TextField
+              label="Notes"
+              multiline
+              rows={3}
+              value={currentEntry.notes ?? ""}
+              onChange={(e) => setCurrentEntry({ ...currentEntry, notes: e.target.value })}
+            />
+            <Button variant="contained" onClick={handleAddAvailability}>
+              Add Time Slot
+            </Button>
+
+            <Typography variant="subtitle2">Your Time Slots</Typography>
+            {availabilityEntries.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No time slots added yet.
+              </Typography>
+            ) : (
+              availabilityEntries.map((entry, index) => (
+                <Box
+                  key={`${entry.date}-${index}`}
+                  sx={{
+                    border: "1px solid",
+                    borderColor: "grey.200",
+                    borderRadius: 2,
+                    px: 2,
+                    py: 1.5,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 2,
+                  }}
+                >
+                  <Box>
+                    <Typography variant="body2" fontWeight={600}>
+                      {entry.date} - {entry.isAllDay ? "All Day" : `${entry.startTime}-${entry.endTime}`}
+                    </Typography>
+                    {entry.notes && (
+                      <Typography variant="caption" color="text.secondary">
+                        {entry.notes}
+                      </Typography>
+                    )}
+                  </Box>
+                  <Button color="error" size="small" onClick={() => handleDeleteAvailability(index)}>
+                    Delete
+                  </Button>
+                </Box>
+              ))
+            )}
+          </Stack>
         )}
       </DialogContent>
       <DialogActions>

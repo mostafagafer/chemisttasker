@@ -112,22 +112,25 @@ function ShiftCenterLayout({ scope, basePath, title, subtitle }: BaseProps) {
       sx={{
         width: "100%",
         maxWidth: 1440,
+        minWidth: 0,
         mx: "auto",
-        px: { xs: 1.5, md: 3.5 },
-        py: { xs: 2, md: 4 },
+        px: { xs: 1, sm: 1.5, md: 3.5 },
+        py: { xs: 1.5, md: 4 },
         display: "flex",
         flexDirection: "column",
         gap: { xs: 2.5, md: 3 },
+        overflowX: "hidden",
       }}
     >
       <Paper
         elevation={0}
         sx={{
-          p: { xs: 3, md: 4 },
+          p: { xs: 2, sm: 3, md: 4 },
           borderRadius: { xs: 3, md: 4 },
           backgroundImage: heroGradient,
           color: "#fff",
           overflow: "hidden",
+          minWidth: 0,
         }}
       >
         <Stack
@@ -136,14 +139,19 @@ function ShiftCenterLayout({ scope, basePath, title, subtitle }: BaseProps) {
           alignItems={{ xs: "flex-start", md: "center" }}
           justifyContent="space-between"
         >
-          <Box>
+          <Box sx={{ minWidth: 0 }}>
             <Typography variant="overline" sx={{ opacity: 0.72, letterSpacing: ".1em" }}>
               Shift Centre
             </Typography>
-            <Typography variant="h4" fontWeight={800} gutterBottom>
+            <Typography
+              variant="h4"
+              fontWeight={800}
+              gutterBottom
+              sx={{ fontSize: { xs: 30, sm: 34, md: 42 }, lineHeight: 1.08, overflowWrap: "anywhere" }}
+            >
               {title}
             </Typography>
-            <Typography variant="body1" sx={{ opacity: 0.92, maxWidth: 560 }}>
+            <Typography variant="body1" sx={{ opacity: 0.92, maxWidth: 560, fontSize: { xs: 15, sm: 16 } }}>
               {subtitle}
             </Typography>
           </Box>
@@ -155,6 +163,8 @@ function ShiftCenterLayout({ scope, basePath, title, subtitle }: BaseProps) {
         sx={{
           borderRadius: { xs: 3, md: 4 },
           border: `1px solid ${alpha(theme.palette.divider, 0.7)}`,
+          minWidth: 0,
+          overflow: "hidden",
         }}
       >
         <Tabs
@@ -165,6 +175,7 @@ function ShiftCenterLayout({ scope, basePath, title, subtitle }: BaseProps) {
           sx={{
             px: { xs: 1.5, md: 2.5 },
             pt: { xs: 1.5, md: 2 },
+            maxWidth: "100%",
             "& .MuiTabs-flexContainer": {
               gap: { xs: 1, sm: 1.5 },
               justifyContent: { xs: "flex-start", md: "center" },
@@ -177,9 +188,9 @@ function ShiftCenterLayout({ scope, basePath, title, subtitle }: BaseProps) {
               fontWeight: 700,
               fontSize: { xs: 14, sm: 16 },
               minHeight: 52,
-              minWidth: 0,
+              minWidth: { xs: 164, sm: 190 },
               borderRadius: 999,
-              px: { xs: 2.5, sm: 3.5 },
+              px: { xs: 2, sm: 3.5 },
               py: { xs: 1, sm: 1.3 },
               color: alpha(theme.palette.text.primary, 0.72),
               border: `1px solid ${alpha(theme.palette.divider, 0.6)}`,
@@ -213,9 +224,12 @@ function ShiftCenterLayout({ scope, basePath, title, subtitle }: BaseProps) {
         </Tabs>
         <Box
           sx={{
-            px: { xs: 1.5, md: 2.5 },
+            px: { xs: 0.75, sm: 1.5, md: 2.5 },
             pb: { xs: 2, md: 3 },
-            pt: { xs: 2, md: 3 },
+            pt: { xs: 1.5, md: 3 },
+            minWidth: 0,
+            maxWidth: "100%",
+            overflowX: "hidden",
           }}
         >
           <SectionComponent />

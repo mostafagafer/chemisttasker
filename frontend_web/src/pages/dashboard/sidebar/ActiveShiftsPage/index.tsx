@@ -868,6 +868,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                 sx={{
                     position: 'relative',
                     overflow: 'hidden',
+                    maxWidth: '100%',
                     borderRadius: 3,
                     border: '1px solid rgba(124, 58, 237, 0.18)',
                     boxShadow: '0 22px 55px rgba(15, 23, 42, 0.10)',
@@ -886,14 +887,14 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
             >
                 <CardHeader
                     disableTypography
-                    sx={{ px: { xs: 2, md: 3 }, pt: 2.5, pb: 1.5 }}
+                    sx={{ px: { xs: 1.5, sm: 2, md: 3 }, pt: { xs: 1.75, md: 2.5 }, pb: 1.5, minWidth: 0 }}
                     title={
-                        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} justifyContent="space-between" alignItems="flex-start" sx={{ width: '100%' }}>
-                            <Stack direction="row" spacing={2} sx={{ minWidth: 0, maxWidth: { md: '52%' } }}>
+                        <Stack direction={{ xs: 'column', md: 'row' }} spacing={{ xs: 1.5, md: 2 }} justifyContent="space-between" alignItems="flex-start" sx={{ width: '100%', minWidth: 0 }}>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 1.25, sm: 2 }} sx={{ minWidth: 0, width: { xs: '100%', md: 'auto' }, maxWidth: { md: '52%' } }}>
                                 <Box
                                     sx={{
-                                        width: 64,
-                                        height: 64,
+                                        width: { xs: 52, sm: 64 },
+                                        height: { xs: 52, sm: 64 },
                                         flexShrink: 0,
                                         display: 'grid',
                                         placeItems: 'center',
@@ -906,7 +907,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                     <Building />
                                 </Box>
                                 <Box sx={{ minWidth: 0 }}>
-                                    <Typography variant="h6" component="div" sx={{ fontWeight: 900, color: '#111827' }}>
+                                    <Typography variant="h6" component="div" sx={{ fontWeight: 900, color: '#111827', fontSize: { xs: 21, sm: 24 }, lineHeight: 1.18, overflowWrap: 'anywhere' }}>
                                         {(shift as any).pharmacyDetail?.name ?? "Unnamed Pharmacy"}
                                     </Typography>
                                     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1 }}>
@@ -932,13 +933,14 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                     </Stack>
                                 </Box>
                             </Stack>
-                            <Stack sx={{ ml: { md: 'auto' }, width: { xs: '100%', md: 670 }, maxWidth: { md: '54%' }, alignItems: 'flex-end' }}>
+                            <Stack sx={{ ml: { md: 'auto' }, width: '100%', maxWidth: { md: 670 }, alignItems: { xs: 'stretch', md: 'flex-end' }, minWidth: 0 }}>
                                 {headerActions}
                                 <Stack
-                                    direction="row"
+                                    direction={{ xs: 'column', sm: 'row' }}
                                     sx={{
                                         mt: 1.25,
-                                        width: { xs: '100%', md: 560 },
+                                        width: '100%',
+                                        maxWidth: { md: 560 },
                                         border: '1px solid #E5E7EB',
                                         borderRadius: 2.5,
                                         bgcolor: '#fff',
@@ -954,9 +956,11 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 gap: 1.2,
-                                                minHeight: 70,
-                                                px: 2,
-                                                borderLeft: itemIdx === 0 ? 0 : '1px solid #E5E7EB',
+                                                minHeight: { xs: 58, sm: 70 },
+                                                px: { xs: 1.5, sm: 2 },
+                                                borderLeft: { xs: 0, sm: itemIdx === 0 ? 0 : '1px solid #E5E7EB' },
+                                                borderTop: { xs: itemIdx === 0 ? 0 : '1px solid #E5E7EB', sm: 0 },
+                                                minWidth: 0,
                                             }}
                                         >
                                             <Box sx={{ color: '#4F46E5', display: 'flex' }}>{item.icon}</Box>
@@ -971,7 +975,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                         </Stack>
                     }
                 />
-                <CardContent sx={{ px: { xs: 2, md: 3 }, pt: 0 }}>
+                <CardContent sx={{ px: { xs: 1.5, sm: 2, md: 3 }, pt: 0, minWidth: 0 }}>
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2, color: '#64748B' }}>
                         <LocationOn sx={{ fontSize: 17 }} />
                         <Typography variant="body2" color="text.secondary">
@@ -1194,7 +1198,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
 
     if (shiftsLoading) {
         return (
-            <Container maxWidth="lg" sx={{ py: 4 }}>
+            <Container maxWidth="lg" sx={{ py: { xs: 2, md: 4 }, px: { xs: 1, sm: 2, md: 3 }, overflowX: 'hidden' }}>
                 <Box display="flex" justifyContent="center" alignItems="center" minHeight="50vh">
                     <CircularProgress />
                 </Box>
@@ -1204,7 +1208,7 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
 
     return (
         <ThemeProvider theme={customTheme}>
-            <Container maxWidth="lg" sx={{ py: 4 }}>
+            <Container maxWidth="lg" sx={{ py: { xs: 2, md: 4 }, px: { xs: 1, sm: 2, md: 3 }, overflowX: 'hidden' }}>
                 <Box sx={{ mb: 3 }}>
                     <Typography variant="h4" fontWeight={900} sx={{ color: '#111827', letterSpacing: '-0.03em' }}>
                         {title}

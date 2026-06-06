@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Box } from "@mui/material";
 import TopBar from "./TopBar";
 import { useAuth } from '../../../../contexts/AuthContext';
+import { useWorkspace } from '../../../../contexts/WorkspaceContext';
 import OwnerOverviewHome from "./OwnerOverviewHome";
 import OwnerPharmaciesPage from "./OwnerPharmaciesPage";
 import OwnerPharmacyDetailPage from "./OwnerPharmacyDetailPage";
@@ -14,16 +15,19 @@ import {
   fetchMembershipsByPharmacy,
   fetchPharmacyAdminsService,
 } from "@chemisttasker/shared-core";
+import apiClient from "../../../../utils/apiClient";
 
 type View = "overview" | "pharmacies" | "pharmacy" | "billing";
 
 export default function OwnerOverviewContainer() {
   const navigate = useNavigate();
   const [pharmacies, setPharmacies] = useState<PharmacyDTO[]>([]);
+  const [dashboardData, setDashboardData] = useState<any>(null);
   const [membershipsByPharmacy, setMembershipsByPharmacy] = useState<Record<string, MembershipDTO[]>>({});
   const [adminAssignmentsByPharmacy, setAdminAssignmentsByPharmacy] = useState<Record<string, PharmacyAdminDTO[]>>({});
   const [searchParams, setSearchParams] = useSearchParams();
   const { activePersona, activeAdminPharmacyId } = useAuth();
+  const { selectedPharmacyId: workspacePharmacyId, workspace } = useWorkspace();
   const scopedPharmacyId =
     activePersona === "admin" && typeof activeAdminPharmacyId === "number"
       ? activeAdminPharmacyId
@@ -130,15 +134,48 @@ export default function OwnerOverviewContainer() {
           ? "billing"
           : "overview";
   const activePharmacyId = view === "pharmacy" && rawPharmacyId ? rawPharmacyId : null;
+  const urlScopePharmacyId = Number(
+    searchParams.get("pharmacy_id") ??
+    searchParams.get("pharmacy") ??
+    searchParams.get("pharmacyId")
+  );
 
   const activePharmacy = useMemo(
     () => pharmacies.find((p) => p.id === activePharmacyId) || null,
     [pharmacies, activePharmacyId]
   );
+  const overviewPharmacyId =
+    scopedPharmacyId != null
+      ? scopedPharmacyId
+      : workspace === "internal" && typeof workspacePharmacyId === "number"
+        ? workspacePharmacyId
+        : Number.isFinite(urlScopePharmacyId)
+          ? urlScopePharmacyId
+          : null;
   const staffCounts = useMemo(
     () => Object.fromEntries(pharmacies.map((p) => [p.id, (membershipsByPharmacy[p.id] || []).length])),
     [pharmacies, membershipsByPharmacy]
   );
+
+  useEffect(() => {
+    let mounted = true;
+    const dashboardParams =
+      overviewPharmacyId
+        ? { workspace: "internal", pharmacy_id: overviewPharmacyId }
+        : { workspace: "platform" };
+    apiClient
+      .get("/client-profile/dashboard/owner/", { params: dashboardParams })
+      .then(({ data }) => {
+        if (mounted) setDashboardData(data);
+      })
+      .catch((error: any) => {
+        console.error("Owner dashboard analytics fetch error:", error);
+        if (mounted) setDashboardData(null);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [overviewPharmacyId, workspace]);
 
   const goHome = () => setViewParam("overview");
   const openPharmacies = (options?: { replace?: boolean }) => setViewParam("pharmacies", { replace: options?.replace });
@@ -190,6 +227,9 @@ export default function OwnerOverviewContainer() {
           <TopBar breadcrumb={["Overview"]} />
           <OwnerOverviewHome
             totalPharmacies={pharmacies.length}
+            pharmacies={pharmacies}
+            selectedPharmacyId={overviewPharmacyId}
+            dashboardData={dashboardData}
             onOpenManage={goToManagePharmacies}
             onOpenRoster={goToRoster}
             onOpenShifts={goToShifts}

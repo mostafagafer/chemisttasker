@@ -1,14 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Animated, Dimensions, Image, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Avatar, Card, Chip, Divider, IconButton, Surface, Text } from 'react-native-paper';
+import { Card, Chip, Divider, IconButton, Surface, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
-import { getActiveShifts, getOnboarding } from '@chemisttasker/shared-core';
 import getShiftPharmacyName from '@/roles/shared/shifts/utils/getShiftPharmacyName';
 import apiClient from '@/utils/apiClient';
 import HomeNavigationGrid from '@/components/HomeNavigationGrid';
+import {
+  DashboardActivity,
+  DashboardErrorState,
+  DashboardLoadingState,
+  DashboardScopeSwitcher,
+  DashboardStatsOverview,
+  type DashboardPayload,
+  useScopedDashboard,
+} from '@/roles/shared/dashboard/dashboardScope';
 
 const { width } = Dimensions.get('window');
 
@@ -20,17 +28,6 @@ type ShiftSummary = {
   role?: string;
 };
 
-type DashboardData = {
-  upcoming_shifts_count: number;
-  confirmed_shifts_count: number;
-  shifts: ShiftSummary[];
-};
-
-type OwnerProfile = {
-  first_name?: string;
-  username?: string;
-};
-
 type PillSummary = {
   balance: number;
   shift_post_cost: number;
@@ -40,11 +37,12 @@ export default function OwnerDashboard() {
   const router = useRouter();
   const { access, user, logout, isLoading: authLoading } = useAuth();
   const normalizedRole = String(user?.role || '').toUpperCase();
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-  const [ownerProfile, setOwnerProfile] = useState<OwnerProfile | null>(null);
+  const scope = useScopedDashboard('OWNER');
+  const [dashboardData, setDashboardData] = useState<DashboardPayload | null>(null);
   const [pillSummary, setPillSummary] = useState<PillSummary>({ balance: 0, shift_post_cost: 0 });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(30));
 
@@ -68,32 +66,13 @@ export default function OwnerDashboard() {
     if (normalizedRole !== 'OWNER' || !access) return;
     setRefreshing(true);
     try {
-      const [shiftsRes, profileRes, pillRes] = await Promise.all([
-        getActiveShifts() as any,
-        getOnboarding('owner' as any).catch(() => null),
+      const [dashboardPayload, pillRes] = await Promise.all([
+        scope.fetchDashboard(),
         apiClient.get('/client-profile/pill-rewards/balance/').catch(() => null),
       ]);
 
-      const shiftList: any[] = Array.isArray(shiftsRes?.results)
-        ? shiftsRes.results
-        : Array.isArray(shiftsRes)
-          ? shiftsRes
-          : [];
-
-      const normalizedShifts: ShiftSummary[] = shiftList.map((s) => ({
-        id: s.id,
-        pharmacy_name: getShiftPharmacyName(s),
-        date: s.date || s.start_time || s.start || '',
-        status: s.status,
-        role: s.role_needed || s.role || 'Staff',
-      }));
-
-      setDashboardData({
-        upcoming_shifts_count: shiftList.length,
-        confirmed_shifts_count: shiftList.filter((s) => (s.status || '').toUpperCase() === 'CONFIRMED').length,
-        shifts: normalizedShifts.slice(0, 5),
-      });
-      setOwnerProfile(profileRes as any);
+      setDashboardData(dashboardPayload);
+      setErrorMessage(null);
       if (pillRes?.data) {
         setPillSummary({
           balance: Number(pillRes.data?.balance ?? 0),
@@ -105,13 +84,19 @@ export default function OwnerDashboard() {
         Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
         Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true }),
       ]).start();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load dashboard', err);
+      setDashboardData(null);
+      setErrorMessage(
+        err?.response?.status === 403
+          ? 'You no longer have access to that pharmacy scope. The dashboard scope has been reset.'
+          : err?.response?.data?.detail || 'Unable to load dashboard analytics right now.'
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [normalizedRole, access, fadeAnim, slideAnim]);
+  }, [normalizedRole, access, fadeAnim, slideAnim, scope.fetchDashboard]);
 
   useEffect(() => {
     if (authLoading) {
@@ -146,22 +131,22 @@ export default function OwnerDashboard() {
     []
   );
 
-  const statCards = useMemo(
-    () => [
-      { label: 'Active Shifts', value: dashboardData?.upcoming_shifts_count ?? 0, icon: 'calendar-clock', color: '#6366F1' },
-      { label: 'Confirmed', value: dashboardData?.confirmed_shifts_count ?? 0, icon: 'calendar-check', color: '#10B981' },
-    ],
-    [dashboardData?.confirmed_shifts_count, dashboardData?.upcoming_shifts_count]
+  const upcomingShifts: ShiftSummary[] = useMemo(
+    () =>
+      (dashboardData?.shifts ?? []).slice(0, 5).map((s: any) => ({
+        id: s.id,
+        pharmacy_name: getShiftPharmacyName(s),
+        date: s.date || s.start_time || s.start || '',
+        status: s.status,
+        role: s.role_needed || s.role || 'Staff',
+      })),
+    [dashboardData?.shifts]
   );
-
-  const upcomingShifts = dashboardData?.shifts ?? [];
 
   if (loading) {
     return (
       <SafeAreaView style={styles.container} edges={['left', 'right']}>
-        <View style={styles.loadingContainer}>
-          <Text>Loading your dashboard...</Text>
-        </View>
+        <DashboardLoadingState />
       </SafeAreaView>
     );
   }
@@ -174,6 +159,15 @@ export default function OwnerDashboard() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={fetchData} tintColor="#6366F1" />}
         showsVerticalScrollIndicator={false}
       >
+        <DashboardScopeSwitcher
+          pharmacies={scope.pharmacies}
+          scopeLabel={scope.scopeLabel}
+          workspace={scope.workspace}
+          selectedPharmacyId={scope.selectedPharmacyId}
+          onSelectPlatform={scope.selectPlatform}
+          onSelectPharmacy={scope.selectPharmacy}
+        />
+        {errorMessage ? <DashboardErrorState message={errorMessage} onRetry={fetchData} /> : null}
         {/* <View style={styles.statsContainer}>
           <View style={styles.sectionHeader}>
             <Text variant="titleMedium" style={styles.sectionTitle}>
@@ -239,7 +233,11 @@ export default function OwnerDashboard() {
           </LinearGradient>
         </TouchableOpacity>
 
+        <DashboardStatsOverview data={dashboardData} />
+
         <HomeNavigationGrid items={quickActions} onNavigate={(route) => router.push(route as any)} />
+
+        <DashboardActivity data={dashboardData} />
 
         {upcomingShifts.length > 0 && (
           <View style={styles.section}>
@@ -264,7 +262,7 @@ export default function OwnerDashboard() {
                       </Text>
                       <Text variant="bodySmall" style={styles.shiftRole} numberOfLines={1} ellipsizeMode="tail">
                         {shift.role || 'Staff'}
-                        {formatShiftDate(shift.date) ? ` · ${formatShiftDate(shift.date)}` : ''}
+                        {formatShiftDate(shift.date) ? ` Â· ${formatShiftDate(shift.date)}` : ''}
                       </Text>
                     </View>
                   </View>
@@ -545,4 +543,5 @@ const styles = StyleSheet.create({
   bottomMenuTitle: { color: '#111827', fontWeight: '600' },
   bottomMenuDesc: { color: '#6B7280', fontSize: 12, marginTop: 2 },
 });
+
 

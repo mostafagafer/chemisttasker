@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Text, SegmentedButtons, IconButton, Menu } from 'react-native-paper';
+import { Text, SegmentedButtons } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -30,12 +30,11 @@ const getTabsForWorkspace = (workspace: 'internal' | 'platform') => {
 
 export default function OtherStaffShiftsScreen() {
   const params = useLocalSearchParams<{ tab?: string; shift_id?: string; offer_id?: string }>();
-  const { workspace, setWorkspace, canUseInternal } = useWorkspace();
+  const { workspace, canUseInternal } = useWorkspace();
   const effectiveWorkspace: 'internal' | 'platform' = canUseInternal ? workspace : 'platform';
   const incomingTab = typeof params.tab === 'string' ? params.tab.toLowerCase() : null;
   const boardTabOverride = incomingTab === 'accepted' ? 'accepted' : undefined;
   const [activeTab, setActiveTab] = useState('public');
-  const [workspaceMenuVisible, setWorkspaceMenuVisible] = useState(false);
 
   const tabs = useMemo(() => getTabsForWorkspace(effectiveWorkspace), [effectiveWorkspace]);
 
@@ -76,38 +75,6 @@ export default function OtherStaffShiftsScreen() {
             <Text variant="headlineMedium" style={styles.headerTitle}>Shift Centre</Text>
             <Text variant="bodyMedium" style={styles.headerSubtitle}>{subtitle}</Text>
           </View>
-          {canUseInternal && (
-            <Menu
-              visible={workspaceMenuVisible}
-              onDismiss={() => setWorkspaceMenuVisible(false)}
-              anchor={
-                <IconButton
-                  icon="briefcase-variant"
-                  size={24}
-                  iconColor="#6366F1"
-                  onPress={() => setWorkspaceMenuVisible(true)}
-                  style={styles.workspaceButton}
-                />
-              }
-            >
-              <Menu.Item
-                onPress={() => {
-                  setWorkspace('platform');
-                  setWorkspaceMenuVisible(false);
-                }}
-                title="Platform Mode"
-                leadingIcon={workspace === 'platform' ? 'check' : undefined}
-              />
-              <Menu.Item
-                onPress={() => {
-                  setWorkspace('internal');
-                  setWorkspaceMenuVisible(false);
-                }}
-                title="Internal Mode"
-                leadingIcon={workspace === 'internal' ? 'check' : undefined}
-              />
-            </Menu>
-          )}
         </View>
       </View>
 
@@ -148,9 +115,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  workspaceButton: {
-    margin: 0,
   },
   headerTitle: {
     fontWeight: 'bold',

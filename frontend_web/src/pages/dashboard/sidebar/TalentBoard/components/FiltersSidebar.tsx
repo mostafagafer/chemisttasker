@@ -11,9 +11,6 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
-import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
-import dayjs, { Dayjs } from "dayjs";
 import { alpha } from "@mui/material/styles";
 import {
   Search as SearchIcon,
@@ -77,9 +74,6 @@ export default function FiltersSidebar({
   expandedRoleSkills: Record<string, boolean>;
   onToggleRoleSkillExpand: (role: string) => void;
 }) {
-  const startValue: Dayjs | null = filters.availabilityStart ? dayjs(filters.availabilityStart) : null;
-  const endValue: Dayjs | null = filters.availabilityEnd ? dayjs(filters.availabilityEnd) : null;
-
   return (
     <Box sx={{ px: 2.5, py: 2, bgcolor: "background.paper" }}>
       <TextField
@@ -249,27 +243,31 @@ export default function FiltersSidebar({
       </FilterSection>
 
       <FilterSection title="Availability Dates">
-        <LocalizationProvider dateAdapter={AdapterDayjs}>
-          <Stack spacing={1.5}>
-            <DatePicker
-              label="Start date"
-              value={startValue}
-              onChange={(value) =>
-                onChange({ ...filters, availabilityStart: value ? value.format("YYYY-MM-DD") : null })
-              }
-              slotProps={{ textField: { size: "small", fullWidth: true } }}
-            />
-            <DatePicker
-              label="End date"
-              value={endValue}
-              minDate={startValue ?? undefined}
-              onChange={(value) =>
-                onChange({ ...filters, availabilityEnd: value ? value.format("YYYY-MM-DD") : null })
-              }
-              slotProps={{ textField: { size: "small", fullWidth: true } }}
-            />
-          </Stack>
-        </LocalizationProvider>
+        <Stack spacing={1.5}>
+          <TextField
+            label="Start date"
+            type="date"
+            size="small"
+            fullWidth
+            value={filters.availabilityStart ?? ""}
+            onChange={(event) =>
+              onChange({ ...filters, availabilityStart: event.target.value || null })
+            }
+            InputLabelProps={{ shrink: true }}
+          />
+          <TextField
+            label="End date"
+            type="date"
+            size="small"
+            fullWidth
+            value={filters.availabilityEnd ?? ""}
+            inputProps={{ min: filters.availabilityStart ?? undefined }}
+            onChange={(event) =>
+              onChange({ ...filters, availabilityEnd: event.target.value || null })
+            }
+            InputLabelProps={{ shrink: true }}
+          />
+        </Stack>
       </FilterSection>
 
       <FilterSection title="Location (State)">

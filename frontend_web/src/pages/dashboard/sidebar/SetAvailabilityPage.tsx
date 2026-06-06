@@ -21,10 +21,6 @@ import {
   Select,
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
-import { DateCalendar, LocalizationProvider } from '@mui/x-date-pickers';
-import { PickersDay } from '@mui/x-date-pickers/PickersDay';
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import dayjs, { Dayjs } from 'dayjs';
 import {
   UserAvailability,
   UserAvailabilityPayload,
@@ -89,30 +85,6 @@ export default function SetAvailabilityPage() {
     { value: 5, label: 'Fri' },
     { value: 6, label: 'Sat' },
   ];
-  const markedDates = useMemo(() => {
-    const dates = new Set<string>();
-    selectedDates.forEach((d) => dates.add(d));
-    const maxOccurrences = 180;
-    availabilityEntries.forEach((entry) => {
-      if (!entry.date) return;
-      dates.add(entry.date);
-      if (!entry.isRecurring || !entry.recurringEndDate) return;
-      const days = Array.isArray(entry.recurringDays) ? entry.recurringDays : [];
-      if (!days.length) return;
-      let cursor = dayjs(entry.date);
-      const end = dayjs(entry.recurringEndDate);
-      let count = 0;
-      while (cursor.isSame(end, 'day') || cursor.isBefore(end, 'day')) {
-        if (days.includes(cursor.day())) {
-          dates.add(cursor.format('YYYY-MM-DD'));
-          count += 1;
-          if (count >= maxOccurrences) break;
-        }
-        cursor = cursor.add(1, 'day');
-      }
-    });
-    return dates;
-  }, [availabilityEntries, selectedDates]);
   const radiusOptions = [5, 10, 20, 30, 40, 50, 75, 100, 150, 200, 250, 300, 500, 1000];
   const stateOptions = ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'];
   const mapCenter = useMemo(() => {
@@ -440,64 +412,32 @@ export default function SetAvailabilityPage() {
           sx={{ mb: 1 }}
         />
         <Box component="form" noValidate autoComplete="off" sx={{ display: 'grid', gap: 2 }}>
-          <LocalizationProvider dateAdapter={AdapterDayjs}>
-            <Box
-              sx={{
-                border: '1px solid',
-                borderColor: 'grey.200',
-                borderRadius: 2,
-                p: 1,
-                display: 'flex',
-                justifyContent: 'center',
-                overflow: 'hidden',
-              }}
-            >
-              <DateCalendar
-                value={currentEntry.isRecurring && currentEntry.date ? dayjs(currentEntry.date) : null}
-                onChange={(value) => {
-                  const formatted = value ? value.format('YYYY-MM-DD') : '';
-                  if (!formatted) return;
-                  if (currentEntry.isRecurring) {
-                    setCurrentEntry((prev) => ({ ...prev, date: formatted }));
-                    return;
-                  }
-                  setSelectedDates((prev) => {
-                    if (prev.includes(formatted)) {
-                      return prev.filter((d) => d !== formatted);
-                    }
-                    return [...prev, formatted];
-                  });
+          <Box sx={{ display: 'flex', gap: 1.5, alignItems: { xs: 'stretch', sm: 'center' }, flexDirection: { xs: 'column', sm: 'row' } }}>
+            <TextField
+              label={currentEntry.isRecurring ? 'Start date' : 'Date'}
+              type="date"
+              value={currentEntry.date}
+              onChange={(event) => setCurrentEntry((prev) => ({ ...prev, date: event.target.value }))}
+              InputLabelProps={{ shrink: true }}
+              sx={{ flex: 1 }}
+            />
+            {!currentEntry.isRecurring && (
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  const formatted = currentEntry.date;
+                  if (!formatted) return showSnackbar('Please select a date', 'error');
+                  setSelectedDates((prev) =>
+                    prev.includes(formatted)
+                      ? prev.filter((date) => date !== formatted)
+                      : [...prev, formatted]
+                  );
                 }}
-                slots={{
-                  day: (dayProps: any) => {
-                    const dateValue = dayProps.day as Dayjs;
-                    const formatted = dateValue.format('YYYY-MM-DD');
-                    const isSelected = markedDates.has(formatted);
-                    return (
-                      <PickersDay
-                        {...dayProps}
-                        selected={isSelected}
-                        sx={isSelected ? {
-                          bgcolor: 'primary.main',
-                          color: 'primary.contrastText',
-                          '&:hover, &:focus': { bgcolor: 'primary.dark' },
-                        } : undefined}
-                      />
-                    );
-                  },
-                }}
-                sx={{
-                  width: '100%',
-                  maxWidth: '100%',
-                  '& .MuiPickersCalendarHeader-root': { px: 2 },
-                  '& .MuiDayCalendar-header, & .MuiDayCalendar-weekContainer': { justifyContent: 'space-between' },
-                  '& .MuiPickersDay-root': { width: 44, height: 44 },
-                  '& .MuiDayCalendar-weekContainer': { gap: 0 },
-                  '& .MuiDayCalendar-header': { gap: 0 },
-                }}
-              />
-            </Box>
-          </LocalizationProvider>
+              >
+                {currentEntry.date && selectedDates.includes(currentEntry.date) ? 'Remove date' : 'Add selected date'}
+              </Button>
+            )}
+          </Box>
           {!currentEntry.isRecurring && selectedDates.length > 0 && (
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
               Selected: {selectedDates.join(', ')}

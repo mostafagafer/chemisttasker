@@ -3,17 +3,23 @@ import Stack from "@mui/material/Stack";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Badge from "@mui/material/Badge";
+import Avatar from "@mui/material/Avatar";
+import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
+import Alert from "@mui/material/Alert";
 import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import Popover from "@mui/material/Popover";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemButton from "@mui/material/ListItemButton";
+import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
 import Divider from "@mui/material/Divider";
 import CircularProgress from "@mui/material/CircularProgress";
+import Snackbar from "@mui/material/Snackbar";
 import Autocomplete, { createFilterOptions } from "@mui/material/Autocomplete";
 import TextField from "@mui/material/TextField";
 import InputAdornment from "@mui/material/InputAdornment";
@@ -21,7 +27,7 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
-import { alpha, useTheme } from "@mui/material/styles";
+import { alpha, useTheme, type SxProps, type Theme } from "@mui/material/styles";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { fetchWsTicket } from "../utils/tokenService";
 import NotificationsNoneOutlinedIcon from "@mui/icons-material/NotificationsNoneOutlined";
@@ -31,11 +37,15 @@ import CloseIcon from "@mui/icons-material/Close";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
+import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
+import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
+import LogoutIcon from "@mui/icons-material/Logout";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useNavigate } from "react-router-dom";
 import { useColorMode } from "../theme/sleekTheme";
 import { useAuth } from "../contexts/AuthContext";
 import { fetchNotifications, markNotificationsRead, NotificationItem } from "../api/notifications";
-import { fetchRooms } from "@chemisttasker/shared-core";
+import { deleteAccount, fetchRooms, getOnboarding } from "@chemisttasker/shared-core";
 import { API_BASE_URL } from "../constants/api";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
@@ -149,7 +159,7 @@ const ownerOptions: SearchOption[] = [
     keywords: ["messages", "inbox", "communication"],
   },
   {
-    label: "Explore Interests",
+    label: "Talent Hub",
     path: "/dashboard/owner/interests",
     keywords: ["interests", "explore", "resources"],
   },
@@ -233,7 +243,7 @@ const organizationOptions: SearchOption[] = [
     keywords: ["messages", "inbox"],
   },
   {
-    label: "Explore Interests",
+    label: "Talent Hub",
     path: "/dashboard/organization/interests",
     keywords: ["interests", "resources"],
   },
@@ -302,7 +312,7 @@ const pharmacistOptions: SearchOption[] = [
     keywords: ["messages", "inbox", "communication"],
   },
   {
-    label: "Explore Interests",
+    label: "Talent Hub",
     path: "/dashboard/pharmacist/interests",
     keywords: ["interests", "explore", "resources"],
   },
@@ -366,7 +376,7 @@ const otherStaffOptions: SearchOption[] = [
     keywords: ["messages", "inbox"],
   },
   {
-    label: "Explore Interests",
+    label: "Talent Hub",
     path: "/dashboard/otherstaff/interests",
     keywords: ["interests", "resources"],
   },
@@ -405,7 +415,7 @@ const explorerOptions: SearchOption[] = [
     keywords: ["messages", "inbox"],
   },
   {
-    label: "Explore Interests",
+    label: "Talent Hub",
     path: "/dashboard/explorer/interests",
     keywords: ["interests", "resources"],
   },
@@ -455,6 +465,82 @@ const CHAT_ROUTES: Record<string, string> = {
   EXPLORER: "/dashboard/explorer/chat",
 };
 
+const PROFILE_ROUTES: Record<string, string> = {
+  OWNER: "/dashboard/owner/onboarding",
+  PHARMACY_ADMIN: "/dashboard/owner/onboarding",
+  ORG_ADMIN: "/dashboard/organization/overview",
+  ORG_OWNER: "/dashboard/organization/overview",
+  ORG_STAFF: "/dashboard/organization/overview",
+  ORGANIZATION: "/dashboard/organization/overview",
+  PHARMACIST: "/dashboard/pharmacist/onboarding",
+  OTHER_STAFF: "/dashboard/otherstaff/onboarding",
+  EXPLORER: "/dashboard/explorer/onboarding",
+};
+
+const DASHBOARD_ROUTES: Record<string, string> = {
+  OWNER: "/dashboard/owner/overview",
+  PHARMACY_ADMIN: "/dashboard/owner/overview",
+  ORG_ADMIN: "/dashboard/organization/overview",
+  ORG_OWNER: "/dashboard/organization/overview",
+  ORG_STAFF: "/dashboard/organization/overview",
+  ORGANIZATION: "/dashboard/organization/overview",
+  PHARMACIST: "/dashboard/pharmacist/overview",
+  OTHER_STAFF: "/dashboard/otherstaff/overview",
+  EXPLORER: "/dashboard/explorer/overview",
+};
+
+const CONFIRM_DELETE_TEXT = "DELETE";
+
+function onboardingRoleForUserRole(role?: string | null) {
+  const normalized = String(role || "").toUpperCase();
+  if (normalized === "OWNER" || normalized === "PHARMACY_ADMIN") return "owner";
+  if (normalized === "PHARMACIST") return "pharmacist";
+  if (normalized === "OTHER_STAFF") return "other_staff";
+  if (normalized === "EXPLORER") return "explorer";
+  return null;
+}
+
+function pickFirstString(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function firstNameFromSource(source: any) {
+  const direct = pickFirstString(source?.first_name, source?.firstName);
+  if (direct) return direct.split(/\s+/)[0];
+  const full = pickFirstString(source?.full_name, source?.fullName, source?.name, source?.username);
+  if (full) return full.split(/\s+/)[0];
+  const email = pickFirstString(source?.email);
+  return email ? email.split("@")[0].split(/[._-]+/)[0] : "";
+}
+
+function profilePhotoFromSource(source: any) {
+  return pickFirstString(
+    source?.profile_photo_url,
+    source?.profilePhotoUrl,
+    source?.profile_photo,
+    source?.profilePhoto,
+    source?.avatar_url,
+    source?.avatarUrl
+  );
+}
+
+function roleLabel(role?: string | null) {
+  const normalized = String(role || "").toUpperCase();
+  if (normalized === "OTHER_STAFF") return "Other Staff";
+  if (normalized.includes("ORG") || normalized === "ORGANIZATION") return "Organization";
+  if (!normalized) return "Member";
+  return normalized
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 type MessageSummary = {
   conversation_id: number;
   conversation_title: string;
@@ -484,10 +570,28 @@ const isMessageNotification = (notification: NotificationItem): boolean => {
   return isChatNotificationPayload(notification?.payload);
 };
 
-export default function TopBarActions() {
+export default function TopBarActions({
+  hideSearch = false,
+  hideThemeToggle = false,
+  iconSx,
+}: {
+  hideSearch?: boolean;
+  hideThemeToggle?: boolean;
+  iconSx?: SxProps<Theme>;
+} = {}) {
   const theme = useTheme();
   const { mode, toggleColorMode } = useColorMode();
-  const { user, refreshUnreadCount, adminAssignments, activePersona, activeAdminAssignment, selectRolePersona, selectAdminPersona, isAdminUser } = useAuth();
+  const {
+    user,
+    logout,
+    refreshUnreadCount,
+    adminAssignments,
+    activePersona,
+    activeAdminAssignment,
+    selectRolePersona,
+    selectAdminPersona,
+    isAdminUser,
+  } = useAuth();
   const navigate = useNavigate();
   const downSm = useMediaQuery(theme.breakpoints.down("sm"));
   const [query, setQuery] = React.useState("");
@@ -499,7 +603,13 @@ export default function TopBarActions() {
   const [messageAnchor, setMessageAnchor] = React.useState<HTMLElement | null>(null);
   const [messageSummaries, setMessageSummaries] = React.useState<Record<number, MessageSummary>>({});
   const [unreadMessages, setUnreadMessages] = React.useState(0);
-  const [personaAnchor, setPersonaAnchor] = React.useState<HTMLElement | null>(null);
+  const [profileAnchor, setProfileAnchor] = React.useState<HTMLElement | null>(null);
+  const [onboardingProfile, setOnboardingProfile] = React.useState<any>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
+  const [deleteConfirmValue, setDeleteConfirmValue] = React.useState("");
+  const [deleteError, setDeleteError] = React.useState("");
+  const [isDeletingAccount, setIsDeletingAccount] = React.useState(false);
+  const [deleteSnackbarOpen, setDeleteSnackbarOpen] = React.useState(false);
   const wsRef = React.useRef<WebSocket | null>(null);
 
   const filterOptions = React.useMemo(
@@ -582,32 +692,59 @@ export default function TopBarActions() {
     return null;
   }, [activePersona, activeAdminAssignment?.id, adminAssignments, user?.role]);
 
-  const activePersonaOption = React.useMemo(
-    () =>
-      personaOptions.find((option) => option.key === activePersonaKey) ??
-      personaOptions[0] ??
-      null,
-    [personaOptions, activePersonaKey]
-  );
-
   const showPersonaSwitcher =
     personaOptions.length > 0 && (isAdminUser || personaOptions.length > 1);
 
-  const handleOpenPersonaMenu = React.useCallback(
-    (event: React.MouseEvent<HTMLElement>) => {
-      setPersonaAnchor(event.currentTarget);
-    },
-    []
-  );
+  const profileRoleKey = React.useMemo(() => String(user?.role || "DEFAULT").toUpperCase(), [user?.role]);
+  const dashboardRoute = DASHBOARD_ROUTES[profileRoleKey] ?? "/dashboard";
+  const profileRoute = PROFILE_ROUTES[profileRoleKey] ?? dashboardRoute;
+  const displayFirstName =
+    firstNameFromSource(onboardingProfile) ||
+    firstNameFromSource(user) ||
+    "ChemistTasker";
+  const avatarSrc = profilePhotoFromSource(onboardingProfile) || profilePhotoFromSource(user);
+  const avatarInitials =
+    displayFirstName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "CT";
+  const canConfirmDelete = deleteConfirmValue.trim().toUpperCase() === CONFIRM_DELETE_TEXT;
 
-  const handleClosePersonaMenu = React.useCallback(() => {
-    setPersonaAnchor(null);
+  React.useEffect(() => {
+    const role = onboardingRoleForUserRole(user?.role);
+    if (!user || !role) {
+      setOnboardingProfile(null);
+      return;
+    }
+
+    let cancelled = false;
+    getOnboarding(role)
+      .then((profile: any) => {
+        if (!cancelled) {
+          setOnboardingProfile(profile?.data ?? profile ?? null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOnboardingProfile(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, user?.role]);
+
+  const handleCloseProfileMenu = React.useCallback(() => {
+    setProfileAnchor(null);
   }, []);
 
   const handlePersonaSelect = React.useCallback(
     (option: PersonaMenuOption) => {
       if (option.key === activePersonaKey) {
-        setPersonaAnchor(null);
+        setProfileAnchor(null);
         return;
       }
       if (option.kind === "ROLE") {
@@ -625,10 +762,47 @@ export default function TopBarActions() {
           navigate(`/dashboard/admin/${assignment.pharmacy_id}/overview`, { replace: true });
         }
       }
-      setPersonaAnchor(null);
+      setProfileAnchor(null);
     },
     [activePersonaKey, adminAssignments, navigate, selectAdminPersona, selectRolePersona]
   );
+
+  const handleLogout = React.useCallback(() => {
+    handleCloseProfileMenu();
+    logout();
+    navigate("/login", { replace: true });
+  }, [handleCloseProfileMenu, logout, navigate]);
+
+  const handleOpenDeleteDialog = React.useCallback(() => {
+    setProfileAnchor(null);
+    setDeleteConfirmValue("");
+    setDeleteError("");
+    setDeleteDialogOpen(true);
+  }, []);
+
+  const handleCloseDeleteDialog = React.useCallback(() => {
+    if (isDeletingAccount) return;
+    setDeleteDialogOpen(false);
+    setDeleteConfirmValue("");
+    setDeleteError("");
+  }, [isDeletingAccount]);
+
+  const handleDeleteAccount = React.useCallback(async () => {
+    if (!canConfirmDelete || isDeletingAccount) return;
+    setIsDeletingAccount(true);
+    setDeleteError("");
+    try {
+      await deleteAccount();
+      logout();
+      setDeleteSnackbarOpen(true);
+      setDeleteDialogOpen(false);
+      navigate("/login", { replace: true });
+    } catch (err: any) {
+      setDeleteError(err?.message || "Failed to delete account.");
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  }, [canConfirmDelete, isDeletingAccount, logout, navigate]);
 
   const options = React.useMemo(() => {
     const roleKey = (user?.role || "DEFAULT").toUpperCase();
@@ -1190,14 +1364,14 @@ export default function TopBarActions() {
       spacing={{ xs: 0.25, sm: 1.25 }}
       alignItems="center"
       useFlexGap
-      flexWrap="wrap"
+      flexWrap="nowrap"
       sx={{
-        pr: { xs: 0, md: 1.5 },
         justifyContent: "flex-end",
         minWidth: 0,
+        width: "100%",
       }}
     >
-      {downSm ? (
+      {!hideSearch && (downSm ? (
         <>
           <Tooltip title="Search">
             <IconButton color="inherit" size="small" aria-label="open search" onClick={() => setMobileOpen(true)}>
@@ -1225,7 +1399,7 @@ export default function TopBarActions() {
         </>
       ) : (
         renderSearchField()
-      )}
+      ))}
 
       <Tooltip title="Notifications">
         <IconButton
@@ -1233,6 +1407,7 @@ export default function TopBarActions() {
           size="small"
           aria-label="notifications"
           onClick={handleOpenNotifications}
+          sx={iconSx}
         >
           <Badge
             color="error"
@@ -1250,6 +1425,7 @@ export default function TopBarActions() {
           size="small"
           aria-label="messages"
           onClick={handleOpenMessages}
+          sx={iconSx}
         >
           <Badge color="error" overlap="circular" badgeContent={unreadMessages}>
             <ChatBubbleOutlineOutlinedIcon fontSize="small" />
@@ -1358,11 +1534,252 @@ export default function TopBarActions() {
         )}
       </Popover>
 
-      <Tooltip title={mode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
-        <IconButton color="inherit" size="small" onClick={toggleColorMode} aria-label="toggle theme">
-          {mode === "dark" ? <LightModeOutlinedIcon fontSize="small" /> : <DarkModeOutlinedIcon fontSize="small" />}
+      {!hideThemeToggle && (
+        <Tooltip title={mode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
+          <IconButton color="inherit" size="small" onClick={toggleColorMode} aria-label="toggle theme" sx={iconSx}>
+            {mode === "dark" ? <LightModeOutlinedIcon fontSize="small" /> : <DarkModeOutlinedIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
+      )}
+
+      <Paper
+        component="button"
+        type="button"
+        elevation={0}
+        onClick={(event: React.MouseEvent<HTMLButtonElement>) => setProfileAnchor(event.currentTarget)}
+        sx={{
+          display: { xs: "none", md: "flex" },
+          alignItems: "center",
+          gap: 1.5,
+          height: { xs: 48, md: 58 },
+          px: 1.25,
+          borderRadius: { xs: "14px", md: "18px" },
+          border: "1px solid var(--ct-border-color)",
+          bgcolor: "var(--ct-surface-bg)",
+          color: "var(--ct-text-primary)",
+          cursor: "pointer",
+          font: "inherit",
+          textAlign: "left",
+          minWidth: 0,
+          width: { md: 210, lg: 230, xl: 240 },
+          flexShrink: 0,
+          "&:hover": {
+            bgcolor: "var(--ct-hover-bg)",
+            borderColor: "var(--ct-dashboard-accent)",
+          },
+        }}
+      >
+        <Avatar
+          src={avatarSrc || undefined}
+          sx={{
+            width: { xs: 34, md: 40 },
+            height: { xs: 34, md: 40 },
+            fontSize: { xs: 12, md: 14 },
+            fontWeight: 900,
+            background: "linear-gradient(135deg, #6D28D9, #063BDA)",
+          }}
+        >
+          {avatarInitials}
+        </Avatar>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography noWrap sx={{ maxWidth: 142, fontSize: 14, fontWeight: 900, color: "var(--ct-text-primary)" }}>
+            {displayFirstName}
+          </Typography>
+          <Typography sx={{ fontSize: 12, fontWeight: 800, color: "var(--ct-text-secondary)", textTransform: "uppercase" }}>
+            {activePersona === "admin"
+              ? activeAdminAssignment?.admin_level ?? "Admin"
+              : roleLabel(user?.role)}
+          </Typography>
+        </Box>
+        <KeyboardArrowDownIcon
+          sx={{
+            ml: "auto",
+            fontSize: 18,
+            color: "var(--ct-text-secondary)",
+            transform: profileAnchor ? "rotate(180deg)" : "none",
+            transition: "transform .18s",
+          }}
+        />
+      </Paper>
+
+      <Tooltip title="Profile">
+        <IconButton
+          color="inherit"
+          size="small"
+          aria-label="profile menu"
+          onClick={(event) => setProfileAnchor(event.currentTarget)}
+          sx={{ display: { xs: "inline-flex", md: "none" }, ...iconSx }}
+        >
+          <Avatar
+            src={avatarSrc || undefined}
+            sx={{ width: 30, height: 30, fontSize: 11, fontWeight: 900, background: "linear-gradient(135deg, #6D28D9, #063BDA)" }}
+          >
+            {avatarInitials}
+          </Avatar>
         </IconButton>
       </Tooltip>
+
+      <Menu
+        anchorEl={profileAnchor}
+        open={Boolean(profileAnchor)}
+        onClose={handleCloseProfileMenu}
+        slotProps={{
+          paper: {
+            sx: {
+              mt: 1,
+              width: 300,
+              maxWidth: "calc(100vw - 24px)",
+              borderRadius: 3,
+              border: "1px solid var(--ct-border-color)",
+              boxShadow: "0 22px 58px rgba(2,18,44,0.18)",
+              overflow: "hidden",
+            },
+          },
+        }}
+      >
+        <Box sx={{ px: 2, py: 1.75, display: "flex", alignItems: "center", gap: 1.5 }}>
+          <Avatar
+            src={avatarSrc || undefined}
+            sx={{ width: 46, height: 46, fontWeight: 900, background: "linear-gradient(135deg, #6D28D9, #063BDA)" }}
+          >
+            {avatarInitials}
+          </Avatar>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography noWrap sx={{ fontWeight: 900, color: "var(--ct-text-primary)" }}>
+              {displayFirstName}
+            </Typography>
+            <Typography noWrap sx={{ fontSize: 12, fontWeight: 700, color: "var(--ct-text-secondary)" }}>
+              {user?.email || roleLabel(user?.role)}
+            </Typography>
+          </Box>
+        </Box>
+        <Divider />
+        <MenuItem
+          onClick={() => {
+            handleCloseProfileMenu();
+            navigate(dashboardRoute);
+          }}
+        >
+          <ListItemIcon><DashboardOutlinedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText primary="Dashboard" />
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            handleCloseProfileMenu();
+            navigate(profileRoute);
+          }}
+        >
+          <ListItemIcon><PersonOutlineIcon fontSize="small" /></ListItemIcon>
+          <ListItemText primary="Profile & onboarding" />
+        </MenuItem>
+        {showPersonaSwitcher && (
+          <>
+            <Divider />
+            <Box sx={{ px: 2, pt: 1, pb: 0.5 }}>
+              <Typography sx={{ fontSize: 11, fontWeight: 900, letterSpacing: "0.12em", textTransform: "uppercase", color: "text.secondary" }}>
+                Switch role
+              </Typography>
+            </Box>
+            {personaOptions.map((option) => (
+              <MenuItem key={option.key} selected={option.key === activePersonaKey} onClick={() => handlePersonaSelect(option)}>
+                <ListItemIcon>
+                  {option.kind === "ADMIN" ? <DashboardOutlinedIcon fontSize="small" /> : <PersonOutlineIcon fontSize="small" />}
+                </ListItemIcon>
+                <ListItemText primary={option.label} secondary={option.helper} />
+              </MenuItem>
+            ))}
+          </>
+        )}
+        <Divider />
+        <MenuItem onClick={handleLogout}>
+          <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
+          <ListItemText primary="Logout" />
+        </MenuItem>
+        <MenuItem
+          onClick={handleOpenDeleteDialog}
+          sx={{
+            color: "error.main",
+            "& .MuiListItemIcon-root": { color: "error.main" },
+          }}
+        >
+          <ListItemIcon><DeleteOutlineIcon fontSize="small" /></ListItemIcon>
+          <ListItemText primary="Delete my account" />
+        </MenuItem>
+      </Menu>
+
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={handleCloseDeleteDialog}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: (dialogTheme) => ({
+            borderRadius: 3,
+            border: `1px solid ${dialogTheme.palette.error.main}`,
+            boxShadow: `0 28px 80px ${alpha(dialogTheme.palette.error.dark, 0.32)}`,
+          }),
+        }}
+      >
+        <DialogTitle
+          sx={(dialogTheme) => ({
+            color: dialogTheme.palette.error.main,
+            fontWeight: 900,
+            pb: 1,
+          })}
+        >
+          Confirm Account Deletion
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            This action cannot be undone. Type DELETE to confirm.
+          </Typography>
+          {deleteError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {deleteError}
+            </Alert>
+          )}
+          <TextField
+            fullWidth
+            label="Type DELETE to confirm"
+            value={deleteConfirmValue}
+            onChange={(event) => setDeleteConfirmValue(event.target.value)}
+            disabled={isDeletingAccount}
+            autoComplete="off"
+            sx={{
+              "& .MuiOutlinedInput-root.Mui-focused fieldset": {
+                borderColor: "error.main",
+              },
+              "& .MuiInputLabel-root.Mui-focused": {
+                color: "error.main",
+              },
+            }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={handleCloseDeleteDialog} disabled={isDeletingAccount}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleDeleteAccount}
+            disabled={!canConfirmDelete || isDeletingAccount}
+          >
+            {isDeletingAccount ? "Deleting..." : "Confirm delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={deleteSnackbarOpen}
+        autoHideDuration={4000}
+        onClose={() => setDeleteSnackbarOpen(false)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+      >
+        <Alert severity="success" sx={{ width: "100%" }}>
+          Account deletion requested/completed.
+        </Alert>
+      </Snackbar>
     </Stack>
   );
 }

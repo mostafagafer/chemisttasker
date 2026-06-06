@@ -25,6 +25,10 @@ function hasOrganizationAccess(user: any) {
   });
 }
 
+function hasAdminAccess(user: any) {
+  return Array.isArray(user?.admin_assignments) && user.admin_assignments.length > 0;
+}
+
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
@@ -142,6 +146,10 @@ function AuthGate() {
 
       if (user && top) {
         const normalizedRole = String(user.role || '').toUpperCase();
+
+        if (top === 'admin' && hasAdminAccess(user)) {
+          return;
+        }
 
         if (hasOrganizationAccess(user)) {
           if (top !== 'organization') {

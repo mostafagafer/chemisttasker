@@ -1,0 +1,683 @@
+import { ReactNode, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import {
+  Box,
+  Button,
+  Divider,
+  Menu,
+  MenuItem,
+  Stack,
+  Typography,
+} from "@mui/material";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import StoreIcon from "@mui/icons-material/Store";
+import PublicIcon from "@mui/icons-material/Public";
+import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
+import PersonIcon from "@mui/icons-material/Person";
+import { useAuth } from "../contexts/AuthContext";
+import { useWorkspace } from "../contexts/WorkspaceContext";
+import { useDashboardNavigation } from "../contexts/DashboardNavigationContext";
+import TopBarActions from "./TopBarActions";
+import menuLogo from "../assets/clipsnap-edit-6-1-2026.png";
+
+const DNA = {
+  navy: "#061A3D",
+  navy2: "#02122C",
+  blue: "#063BDA",
+  violet: "#6D28D9",
+  magenta: "#EA0A8E",
+  cyan: "#08BEEA",
+  ink: "#06123A",
+  muted: "#5E6B8D",
+  page: "#F7FAFF",
+  line: "#E5ECF7",
+};
+
+type PharmacyOption = {
+  id: number;
+  name: string;
+  helper?: string;
+};
+
+const dashboardAccents = [
+  {
+    gradient: `linear-gradient(135deg, ${DNA.blue} 0%, ${DNA.violet} 52%, ${DNA.magenta} 100%)`,
+    soft: "#EFE7FF",
+    text: "#4A16B8",
+  },
+  {
+    gradient: `linear-gradient(135deg, ${DNA.blue} 0%, ${DNA.violet} 52%, ${DNA.magenta} 100%)`,
+    soft: "#EFE7FF",
+    text: "#4A16B8",
+  },
+  {
+    gradient: `linear-gradient(135deg, ${DNA.blue} 0%, ${DNA.violet} 52%, ${DNA.magenta} 100%)`,
+    soft: "#EFE7FF",
+    text: "#4A16B8",
+  },
+];
+
+function accentForScope(_scopeId: number | null, _workspace: string) {
+  return dashboardAccents[0];
+}
+
+function titleForRole(role?: string | null) {
+  const normalized = String(role || "").toUpperCase();
+  if (normalized === "OWNER") return "Owner Dashboard";
+  if (normalized === "PHARMACIST") return "Pharmacist Dashboard";
+  if (normalized === "OTHER_STAFF") return "Other Staff Dashboard";
+  if (normalized === "EXPLORER") return "Explorer Dashboard";
+  if (normalized.includes("ORG") || normalized === "ORGANIZATION") return "Organization Dashboard";
+  return "Dashboard";
+}
+
+function workerOverviewPath(role?: string | null) {
+  const normalized = String(role || "").toUpperCase();
+  if (normalized === "PHARMACIST") return "/dashboard/pharmacist/overview";
+  if (normalized === "OTHER_STAFF") return "/dashboard/otherstaff/overview";
+  if (normalized === "EXPLORER") return "/dashboard/explorer/overview";
+  return "/dashboard";
+}
+
+function addScopedParams(path: string, selectedPharmacyId: number | null) {
+  if (!selectedPharmacyId) return path;
+  const [pathname, query = ""] = path.split("?");
+  const params = new URLSearchParams(query);
+  const isRoster = pathname.includes("/manage-pharmacies/roster") || pathname.includes("/shifts/roster");
+  const isCalendar = pathname.endsWith("/calendar");
+  const isPostShift = pathname.endsWith("/post-shift");
+  const isMyPharmacies = pathname.includes("/manage-pharmacies/my-pharmacies");
+
+  params.set("workspace", "internal");
+  params.set("pharmacy_id", String(selectedPharmacyId));
+
+  if (isCalendar || isPostShift || isRoster) {
+    params.set("pharmacy", String(selectedPharmacyId));
+  }
+  if (isMyPharmacies) {
+    params.set("view", "detail");
+    params.set("pharmacyId", String(selectedPharmacyId));
+  }
+
+  const nextQuery = params.toString();
+  return nextQuery ? `${pathname}?${nextQuery}` : pathname;
+}
+
+function normalizeSegment(parentPath: string, item: any) {
+  const segment = String(item?.segment || "").replace(/^\/+/, "");
+  if (!segment) return parentPath;
+  if (segment.startsWith("dashboard/")) return `/${segment}`;
+  return `${parentPath.replace(/\/+$/, "")}/${segment}`.replace(/\/+/g, "/");
+}
+
+function collectPharmacies(user: any, adminAssignments: any[]): PharmacyOption[] {
+  const byId = new Map<number, PharmacyOption>();
+  const add = (idRaw: unknown, nameRaw: unknown, helper?: string) => {
+    const id = Number(idRaw);
+    if (!Number.isFinite(id)) return;
+    const name = typeof nameRaw === "string" && nameRaw.trim() ? nameRaw.trim() : `Pharmacy #${id}`;
+    if (!byId.has(id)) byId.set(id, { id, name, helper });
+  };
+
+  const memberships = Array.isArray(user?.memberships) ? user.memberships : [];
+  memberships.forEach((membership: any) => {
+    add(
+      membership?.pharmacy_id ?? membership?.pharmacyId ?? membership?.pharmacy?.id,
+      membership?.pharmacy_name ?? membership?.pharmacyName ?? membership?.pharmacy?.name,
+      membership?.role
+    );
+    if (Array.isArray(membership?.pharmacies)) {
+      membership.pharmacies.forEach((pharmacy: any) => add(pharmacy?.id, pharmacy?.name, "Organization pharmacy"));
+    }
+  });
+
+  adminAssignments.forEach((assignment: any) => {
+    add(assignment?.pharmacy_id, assignment?.pharmacy_name, assignment?.admin_level ?? "Admin assignment");
+  });
+
+  return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function MegaMenu({
+  anchorEl,
+  open,
+  onClose,
+  selectedPharmacyId,
+}: {
+  anchorEl: HTMLElement | null;
+  open: boolean;
+  onClose: () => void;
+  selectedPharmacyId: number | null;
+}) {
+  const nav = useDashboardNavigation();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const groups = useMemo(() => {
+    const result: Array<{ title: string; items: Array<{ label: string; icon?: ReactNode; path: string; child?: boolean }> }> = [];
+    let current: { title: string; items: Array<{ label: string; icon?: ReactNode; path: string; child?: boolean }> } | null = null;
+
+    const addItem = (item: any, parentPath = "") => {
+      if (item?.kind === "header") {
+        current = { title: item.title, items: [] };
+        result.push(current);
+        return;
+      }
+      if (item?.kind === "divider") {
+        current = null;
+        return;
+      }
+      if (!item?.segment || !item?.title) return;
+      if (!current) {
+        current = { title: "Navigation", items: [] };
+        result.push(current);
+      }
+      const path = normalizeSegment(parentPath, item);
+      current.items.push({ label: item.title, icon: item.icon, path });
+      if (Array.isArray(item.children)) {
+        item.children.forEach((child: any) => {
+          const childPath = normalizeSegment(path, child);
+          current?.items.push({ label: child.title, icon: child.icon, path: childPath, child: true });
+        });
+      }
+    };
+
+    nav.forEach((item: any) => addItem(item));
+    return result.filter((group) => group.items.length > 0);
+  }, [nav]);
+
+  const handleNavigate = (path: string) => {
+    navigate(addScopedParams(path, selectedPharmacyId));
+    onClose();
+  };
+
+  return (
+    <Menu
+      anchorEl={anchorEl}
+      open={open}
+      onClose={onClose}
+      slotProps={{
+        paper: {
+          sx: {
+            mt: 1,
+            width: { xs: "calc(100vw - 24px)", md: "min(1460px, calc(100vw - 24px))" },
+            maxWidth: "none",
+            borderRadius: "0 30px 30px 0",
+            border: "1px solid var(--ct-border-color)",
+            boxShadow: "0 28px 70px rgba(2, 18, 44, 0.16)",
+            overflow: "hidden",
+          },
+        },
+      }}
+    >
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", lg: "repeat(4, minmax(0, 1fr))" },
+          gap: 2,
+          p: 2,
+          bgcolor: "var(--ct-elevated-bg)",
+        }}
+      >
+        {groups.map((group) => (
+          <Box key={group.title} sx={{ border: "1px solid var(--ct-border-color)", bgcolor: "var(--ct-page-bg)", borderRadius: 3, p: 1.5 }}>
+            <Typography sx={{ px: 1, pb: 1, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", color: "var(--ct-text-secondary)", textTransform: "uppercase" }}>
+              {group.title}
+            </Typography>
+            <Stack direction="row" flexWrap="wrap" gap={1}>
+              {group.items.map((item) => {
+                const active = location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
+                return (
+                  <Button
+                    key={`${group.title}-${item.path}-${item.label}`}
+                    onClick={() => handleNavigate(item.path)}
+                    startIcon={item.icon}
+                    endIcon={item.child ? undefined : null}
+                    sx={{
+                      minHeight: 46,
+                      borderRadius: 2,
+                      px: 1.5,
+                      py: 1,
+                      textTransform: "none",
+                      fontSize: 13,
+                      fontWeight: 900,
+                      color: active ? "var(--ct-dashboard-accent)" : item.child ? "var(--ct-text-secondary)" : "var(--ct-text-primary)",
+                      bgcolor: active ? "var(--ct-dashboard-soft)" : item.child ? "var(--ct-hover-bg)" : "var(--ct-surface-bg)",
+                      border: `1px solid ${active ? "#C4B5FD" : "transparent"}`,
+                      boxShadow: item.child ? "none" : "0 4px 14px rgba(6,18,58,0.05)",
+                      "&:hover": {
+                        bgcolor: active ? "var(--ct-dashboard-soft)" : "var(--ct-surface-bg)",
+                        borderColor: "var(--ct-border-color)",
+                        transform: "translateY(-1px)",
+                      },
+                      "& .MuiButton-startIcon": { color: active ? "var(--ct-dashboard-accent)" : "var(--ct-text-secondary)", mr: 0.75 },
+                    }}
+                  >
+                    {item.label}
+                  </Button>
+                );
+              })}
+            </Stack>
+          </Box>
+        ))}
+      </Box>
+      <Divider />
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2.5, py: 1.5 }}>
+        <Button size="small" onClick={onClose} sx={{ textTransform: "none", fontWeight: 900, color: DNA.muted }}>
+          Collapse menu
+        </Button>
+      </Stack>
+    </Menu>
+  );
+}
+
+export default function DashboardTopShell({
+  children,
+  titleOverride,
+  forceAdminScope = false,
+}: {
+  children: ReactNode;
+  titleOverride?: string;
+  forceAdminScope?: boolean;
+}) {
+  const {
+    user,
+    activePersona,
+    adminAssignments,
+    activeAdminPharmacyId,
+    isAdminUser,
+    selectRolePersona,
+    selectAdminPersona,
+  } = useAuth();
+  const {
+    workspace,
+    setWorkspace,
+    canUseInternal,
+    selectedPharmacyId: workspaceSelectedPharmacyId,
+    setSelectedPharmacyId: setWorkspacePharmacyId,
+  } = useWorkspace();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const [workspaceAnchor, setWorkspaceAnchor] = useState<HTMLElement | null>(null);
+  const [adminAnchor, setAdminAnchor] = useState<HTMLElement | null>(null);
+  const [selectedPharmacyId, setSelectedPharmacyId] = useState<number | null>(activeAdminPharmacyId ?? workspaceSelectedPharmacyId ?? null);
+
+  const pharmacies = useMemo(() => collectPharmacies(user, adminAssignments), [user, adminAssignments]);
+  const isOrgUser = String(user?.role || "").toUpperCase().includes("ORG") || String(user?.role || "").toUpperCase() === "ORGANIZATION";
+  const isOwner = String(user?.role || "").toUpperCase() === "OWNER";
+  const isWorker = ["PHARMACIST", "OTHER_STAFF"].includes(String(user?.role || "").toUpperCase());
+  const hidePharmacyScope = forceAdminScope || activePersona === "admin";
+  const showPharmacySelector = !hidePharmacyScope && (isOwner || isOrgUser || isWorker) && pharmacies.length > 0;
+  const selectedPharmacy = pharmacies.find((item) => item.id === selectedPharmacyId) ?? null;
+  const title = titleOverride ?? titleForRole(forceAdminScope ? "ADMIN" : user?.role);
+  const accent = accentForScope(selectedPharmacyId, forceAdminScope ? "internal" : workspace);
+
+  useEffect(() => {
+    if (hidePharmacyScope) return;
+    const rawPharmacyId =
+      searchParams.get("pharmacy_id") ??
+      searchParams.get("pharmacy") ??
+      searchParams.get("pharmacyId");
+    const nextPharmacyId = Number(rawPharmacyId);
+    if (Number.isFinite(nextPharmacyId) && pharmacies.some((pharmacy) => pharmacy.id === nextPharmacyId)) {
+      setWorkspace("internal");
+      setSelectedPharmacyId(nextPharmacyId);
+      setWorkspacePharmacyId(nextPharmacyId);
+    }
+  }, [hidePharmacyScope, pharmacies, searchParams, setWorkspace, setWorkspacePharmacyId]);
+
+  useEffect(() => {
+    if (hidePharmacyScope || workspace === "platform") return;
+    if (workspaceSelectedPharmacyId != null && workspaceSelectedPharmacyId !== selectedPharmacyId) {
+      setSelectedPharmacyId(workspaceSelectedPharmacyId);
+    }
+  }, [hidePharmacyScope, selectedPharmacyId, workspace, workspaceSelectedPharmacyId]);
+
+  useEffect(() => {
+    if (hidePharmacyScope) {
+      setSelectedPharmacyId(activeAdminPharmacyId ?? null);
+      setWorkspacePharmacyId(activeAdminPharmacyId ?? null);
+      return;
+    }
+    if (workspace === "platform") {
+      setSelectedPharmacyId(null);
+      setWorkspacePharmacyId(null);
+      return;
+    }
+    if (selectedPharmacyId == null && pharmacies[0]) {
+      setSelectedPharmacyId(pharmacies[0].id);
+      setWorkspacePharmacyId(pharmacies[0].id);
+    }
+  }, [activeAdminPharmacyId, hidePharmacyScope, pharmacies, selectedPharmacyId, setWorkspacePharmacyId, workspace]);
+
+  const applyScopeToCurrentUrl = (pharmacyId: number | null) => {
+    const scoped = addScopedParams(`${location.pathname}?${searchParams.toString()}`, pharmacyId);
+    const [, query = ""] = scoped.split("?");
+    const nextParams = new URLSearchParams(query);
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
+
+  const handleSelectPlatform = () => {
+    setWorkspace("platform");
+    setSelectedPharmacyId(null);
+    setWorkspacePharmacyId(null);
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set("workspace", "platform");
+    nextParams.delete("pharmacy_id");
+    nextParams.delete("pharmacy");
+    nextParams.delete("pharmacyId");
+    nextParams.delete("view");
+    setSearchParams(nextParams, { replace: true });
+    setWorkspaceAnchor(null);
+  };
+
+  const handleSelectPharmacy = (id: number) => {
+    setWorkspace("internal");
+    setSelectedPharmacyId(id);
+    setWorkspacePharmacyId(id);
+    applyScopeToCurrentUrl(id);
+    setWorkspaceAnchor(null);
+  };
+
+  return (
+    <LocalizationProvider dateAdapter={AdapterDayjs}>
+      <Box
+        sx={{
+          "--ct-dashboard-gradient": accent.gradient,
+          "--ct-dashboard-soft": accent.soft,
+          "--ct-dashboard-accent": accent.text,
+          "--ct-dashboard-card-bg": "#FFFFFF",
+          "--ct-dashboard-card-border": "#E5ECF7",
+          "--ct-dashboard-card-shadow": "0 8px 24px rgba(6, 18, 58, 0.04)",
+          "--ct-dashboard-card-shadow-hover": "0 18px 42px rgba(6, 18, 58, 0.10)",
+          "--ct-dashboard-icon-bg": "#EFE7FF",
+          "--ct-dashboard-title": DNA.ink,
+          "--ct-dashboard-muted": DNA.muted,
+          minHeight: "100vh",
+          bgcolor: "var(--ct-page-bg)",
+          color: "var(--ct-text-primary)",
+          fontFamily: '"DM Sans Variable", "DM Sans", "Barlow", Arial, sans-serif',
+        }}
+      >
+      <Box
+        component="header"
+        sx={{
+          position: "sticky",
+          top: 0,
+          zIndex: 1200,
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "stretch",
+          minHeight: { xs: 86, md: 104 },
+          bgcolor: "color-mix(in srgb, var(--ct-surface-bg) 78%, transparent)",
+          backdropFilter: "blur(18px)",
+          borderBottom: "1px solid var(--ct-border-color)",
+        }}
+      >
+        <Stack
+          direction="row"
+          alignItems="stretch"
+          justifyContent="center"
+          sx={{
+            width: "100%",
+            maxWidth: 1660,
+            minHeight: { xs: 86, md: 104 },
+            px: { xs: 0.75, sm: 1.5, md: 2, xl: 3 },
+            overflow: "hidden",
+          }}
+        >
+        <Button
+          onClick={(event) => setMenuAnchor(event.currentTarget)}
+          sx={{
+            position: "relative",
+            width: { xs: 84, sm: 190, md: 250, xl: 300 },
+            minHeight: { xs: 86, md: 104 },
+            flexShrink: 0,
+            borderRadius: "0 0 30px 0",
+            bgcolor: "#FFFFFF",
+            borderRight: "1px solid var(--ct-border-color)",
+            boxShadow: "0 18px 46px rgba(6, 26, 61, 0.18)",
+            p: { xs: 0.75, sm: 1.25, md: 2 },
+            "&:hover": { bgcolor: "#FFFFFF", filter: "brightness(1.02)" },
+            "&:after": {
+              content: '""',
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 4,
+              background: `linear-gradient(90deg, ${DNA.violet}, ${DNA.magenta}, ${DNA.cyan})`,
+            },
+          }}
+        >
+          <Box component="img" src={menuLogo} alt="ChemistTasker menu" sx={{ maxWidth: "100%", maxHeight: { xs: 54, md: 74 }, objectFit: "contain" }} />
+          <KeyboardArrowDownIcon sx={{ ml: { xs: 0.25, md: 1 }, fontSize: { xs: 18, md: 24 }, color: "var(--ct-text-primary)", transform: menuAnchor ? "rotate(180deg)" : "none", transition: "transform .18s" }} />
+        </Button>
+        <MegaMenu
+          anchorEl={menuAnchor}
+          open={Boolean(menuAnchor)}
+          onClose={() => setMenuAnchor(null)}
+          selectedPharmacyId={selectedPharmacyId}
+        />
+
+        <Box
+          sx={{
+            minWidth: 0,
+            flex: 1,
+            display: "grid",
+            gridTemplateColumns: {
+              xs: "minmax(0, 1fr) auto",
+              md: "minmax(0, 1fr) auto",
+              lg: "minmax(260px, 440px) minmax(210px, 1fr) auto",
+              xl: "minmax(360px, 520px) minmax(260px, 1fr) auto",
+            },
+            gridTemplateAreas: {
+              xs: '"scope actions"',
+              md: '"scope actions"',
+              lg: '"scope title actions"',
+            },
+            alignItems: "center",
+            columnGap: { xs: 0.75, md: 1.25, xl: 2 },
+            px: { xs: 0.75, md: 1.5, xl: 2.5 },
+            minHeight: { xs: 86, md: 104 },
+            overflow: "hidden",
+          }}
+        >
+          <Stack
+            direction="row"
+            alignItems="center"
+            justifyContent={{ xs: "flex-start", md: "flex-end" }}
+            spacing={1}
+            sx={{
+              gridArea: "scope",
+              minWidth: 0,
+              maxWidth: "100%",
+              overflowX: "auto",
+              overflowY: "hidden",
+              scrollbarWidth: "none",
+              "&::-webkit-scrollbar": { display: "none" },
+            }}
+          >
+          {showPharmacySelector && (
+            <>
+              <Button
+                onClick={(event) => setWorkspaceAnchor(event.currentTarget)}
+                startIcon={selectedPharmacy ? <StoreIcon /> : <PublicIcon />}
+                endIcon={<KeyboardArrowDownIcon />}
+                sx={{
+                  height: { xs: 48, md: 58 },
+                  minWidth: 0,
+                  width: { xs: 176, sm: 220, md: 260, lg: 250, xl: 300 },
+                  maxWidth: "100%",
+                  flexShrink: 1,
+                  justifyContent: "flex-start",
+                  borderRadius: { xs: "14px", md: "18px" },
+                  border: "1px solid var(--ct-border-color)",
+                  bgcolor: "var(--ct-surface-bg)",
+                  px: { xs: 1.25, md: 2 },
+                  textTransform: "none",
+                  boxShadow: "0 4px 16px rgba(6,18,58,0.05)",
+                }}
+              >
+                <Box sx={{ minWidth: 0, textAlign: "left" }}>
+                  <Typography noWrap sx={{ fontSize: { xs: 12, md: 14 }, fontWeight: 900, color: "var(--ct-text-primary)" }}>
+                    {selectedPharmacy?.name ?? "ChemistTasker Platform"}
+                  </Typography>
+                  <Typography noWrap sx={{ fontSize: { xs: 10, md: 12 }, fontWeight: 700, color: "var(--ct-text-secondary)" }}>
+                    {selectedPharmacy ? "Selected pharmacy scope" : "Public platform workspace"}
+                  </Typography>
+                </Box>
+              </Button>
+              <Menu anchorEl={workspaceAnchor} open={Boolean(workspaceAnchor)} onClose={() => setWorkspaceAnchor(null)}>
+                {canUseInternal && (
+                  <MenuItem onClick={handleSelectPlatform}>
+                    <PublicIcon sx={{ mr: 1.5, color: DNA.violet }} /> ChemistTasker Platform
+                  </MenuItem>
+                )}
+                {pharmacies.map((pharmacy) => (
+                  <MenuItem key={pharmacy.id} onClick={() => handleSelectPharmacy(pharmacy.id)}>
+                    <StoreIcon sx={{ mr: 1.5, color: DNA.blue }} />
+                    <Box>
+                      <Typography sx={{ fontWeight: 800 }}>{pharmacy.name}</Typography>
+                      {pharmacy.helper && <Typography sx={{ fontSize: 12, color: DNA.muted }}>{pharmacy.helper}</Typography>}
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Menu>
+            </>
+          )}
+
+          {isWorker && isAdminUser && (
+            <Stack direction="row" alignItems="center" sx={{ height: { xs: 48, md: 58 }, border: "1px solid var(--ct-border-color)", bgcolor: "var(--ct-surface-bg)", borderRadius: 999, p: 0.5, flexShrink: 0 }}>
+              <Button
+                onClick={() => {
+                  const role = String(user?.role).toUpperCase() as "PHARMACIST" | "OTHER_STAFF";
+                  selectRolePersona(role);
+                  navigate(workerOverviewPath(role), { replace: true });
+                }}
+                sx={{
+                  borderRadius: 999,
+                  height: { xs: 38, md: 46 },
+                  px: { xs: 1.25, md: 2 },
+                  textTransform: "none",
+                  fontSize: { xs: 11, md: 12 },
+                  fontWeight: 900,
+                  color: activePersona === "admin" ? "var(--ct-text-secondary)" : DNA.violet,
+                  bgcolor: activePersona === "admin" ? "transparent" : "var(--ct-soft-primary)",
+                }}
+              >
+                <PersonIcon sx={{ fontSize: 16, mr: 0.75 }} /> Worker
+              </Button>
+              <Button
+                onClick={(event) => setAdminAnchor(event.currentTarget)}
+                sx={{
+                  borderRadius: 999,
+                  height: { xs: 38, md: 46 },
+                  px: { xs: 1.25, md: 2 },
+                  textTransform: "none",
+                  fontSize: { xs: 11, md: 12 },
+                  fontWeight: 900,
+                  color: activePersona === "admin" ? DNA.violet : "var(--ct-text-secondary)",
+                  bgcolor: activePersona === "admin" ? "var(--ct-soft-primary)" : "transparent",
+                }}
+              >
+                <AdminPanelSettingsIcon sx={{ fontSize: 16, mr: 0.75 }} /> Admin
+              </Button>
+              <Menu anchorEl={adminAnchor} open={Boolean(adminAnchor)} onClose={() => setAdminAnchor(null)}>
+                {adminAssignments.map((assignment) => (
+                  <MenuItem
+                    key={assignment.id ?? assignment.pharmacy_id}
+                    onClick={() => {
+                      if (assignment.id != null) selectAdminPersona(assignment.id);
+                      navigate(`/dashboard/admin/${assignment.pharmacy_id}/overview`);
+                      setAdminAnchor(null);
+                    }}
+                  >
+                    <StoreIcon sx={{ mr: 1.5, color: DNA.blue }} />
+                    <Box>
+                      <Typography sx={{ fontWeight: 800 }}>{assignment.pharmacy_name ?? `Pharmacy #${assignment.pharmacy_id}`}</Typography>
+                      <Typography sx={{ fontSize: 12, color: DNA.muted }}>{assignment.admin_level}</Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Menu>
+            </Stack>
+          )}
+          </Stack>
+
+          <Box
+            sx={{
+              gridArea: "title",
+              minWidth: 0,
+              display: { xs: "none", lg: "block" },
+              textAlign: "left",
+              justifySelf: "start",
+              width: "100%",
+              maxWidth: "100%",
+            }}
+          >
+            <Typography noWrap sx={{ fontSize: 12, fontWeight: 900, letterSpacing: "0.14em", textTransform: "uppercase", color: DNA.violet }}>
+              {forceAdminScope ? "Internal Workspace" : workspace === "platform" ? "Public Platform" : "Internal Workspace"}
+            </Typography>
+            <Typography noWrap sx={{ fontSize: 18, fontWeight: 950, color: "var(--ct-text-primary)" }}>
+              {title}
+            </Typography>
+          </Box>
+
+          <Stack
+            direction="row"
+            alignItems="center"
+            justifyContent={{ xs: "flex-start", md: "flex-start" }}
+            spacing={{ xs: 0.5, md: 1 }}
+            sx={{
+              gridArea: "actions",
+              minWidth: 0,
+              justifySelf: "end",
+              display: "flex",
+              width: { xs: "auto", md: 390, lg: 420, xl: 460 },
+              maxWidth: "100%",
+            }}
+          >
+            <TopBarActions
+              hideSearch
+              iconSx={{
+                width: { xs: 38, md: 46 },
+                height: { xs: 38, md: 46 },
+                bgcolor: "var(--ct-surface-bg)",
+                color: "var(--ct-text-secondary)",
+                boxShadow: "0 3px 12px rgba(6,18,58,0.05)",
+                "&:hover": { bgcolor: "var(--ct-hover-bg)", color: DNA.violet },
+              }}
+            />
+          </Stack>
+        </Box>
+        </Stack>
+      </Box>
+
+      <Box
+        component="main"
+        sx={{
+          width: "100%",
+          maxWidth: "1660px",
+          minWidth: 0,
+          mx: "auto",
+          px: { xs: 0.75, sm: 1.5, md: 3 },
+          py: { xs: 1.5, md: 3 },
+          overflowX: "hidden",
+          "& .MuiPaper-root": {
+            borderColor: "var(--ct-border-color)",
+          },
+        }}
+      >
+        {children}
+      </Box>
+      </Box>
+    </LocalizationProvider>
+  );
+}

@@ -115,7 +115,7 @@ export default function OwnerPharmacyDetailPage({
   };
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: "auto", p: 3 }}>
+    <Box sx={{ width: "100%", maxWidth: "none", mx: "auto", px: { xs: 0, sm: 1.5, md: 2, xl: 3 }, py: { xs: 2, md: 3 } }}>
       <Box
         sx={{
           display: "flex",
@@ -133,7 +133,7 @@ export default function OwnerPharmacyDetailPage({
             {[pharmacy.street_address, pharmacy.suburb, pharmacy.state, pharmacy.postcode].filter(Boolean).join(", ")}
           </Typography>
         </Box>
-        <Box sx={{ display: "flex", gap: 1 }}>
+        <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", md: "auto" } }}>
           <Button variant="outlined" onClick={() => (onEditPharmacy ? onEditPharmacy(pharmacy) : navigate(resolvePath("manage-pharmacies/my-pharmacies")))}>Edit</Button>
         </Box>
       </Box>

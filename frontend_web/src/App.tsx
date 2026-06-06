@@ -11,6 +11,7 @@ import {
   getOtherStaffNavDynamic,
   getExplorerNav,
 } from "./navigation";
+import { DashboardNavigationProvider } from "./contexts/DashboardNavigationContext";
 import { getOnboarding } from "@chemisttasker/shared-core";
 
 // ✨ HOOK 1: Your existing hook for onboarding progress
@@ -215,7 +216,9 @@ export default function App() {
       navigation={nav}
       branding={{ title: "ChemistTasker" }}
     >
-      <Outlet />
+      <DashboardNavigationProvider navigation={nav}>
+        <Outlet />
+      </DashboardNavigationProvider>
     </ReactRouterAppProvider>
   );
 }

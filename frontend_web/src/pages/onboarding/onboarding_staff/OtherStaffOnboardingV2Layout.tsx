@@ -11,7 +11,6 @@ import {
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { getOnboardingDetail } from "@chemisttasker/shared-core";
-import AccountDeletionSection from "../../../components/AccountDeletionSection";
 import { UnsavedChangesBoundary } from "../../../hooks/useUnsavedChangesGuard";
 
 import { ThemeProvider, createTheme } from "@mui/material/styles";
@@ -232,9 +231,7 @@ return (
           {step === "profile" && <ProfileV2 />}
         </Box>
 
-
         </Box>
-        <AccountDeletionSection />
       </Paper>
     </Container>
         );

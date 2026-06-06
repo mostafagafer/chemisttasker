@@ -29,7 +29,7 @@ from users.serializers import (
 from django.shortcuts import get_object_or_404
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 import json
-from django.db.models import Q, Count, F, Avg, Exists, OuterRef, Max
+from django.db.models import Q, Count, F, Avg, Exists, OuterRef, Max, Sum
 from django.utils import timezone
 from client_profile.services import get_locked_rate_for_slot, expand_shift_slots, generate_invoice_from_shifts, render_invoice_to_pdf, generate_preview_invoice_lines
 from client_profile.utils import (
@@ -814,6 +814,257 @@ class ExplorerOnboardingV2MeView(generics.RetrieveUpdateAPIView):
 
 
 # Dashboards
+def _parse_dashboard_pharmacy_id(request):
+    raw = (
+        request.query_params.get("pharmacy_id")
+        or request.query_params.get("pharmacy")
+        or request.query_params.get("pharmacyId")
+    )
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise ValidationError({"pharmacy_id": "Invalid pharmacy id."})
+
+
+def _parse_dashboard_workspace(request):
+    raw = str(request.query_params.get("workspace") or "").strip().lower()
+    if raw in {"internal", "platform"}:
+        return raw
+    return "internal" if _parse_dashboard_pharmacy_id(request) is not None else "platform"
+
+
+def _scope_pharmacies(pharmacies, pharmacy_id):
+    if pharmacy_id is None:
+        return pharmacies
+    scoped = pharmacies.filter(id=pharmacy_id)
+    if not scoped.exists():
+        raise PermissionDenied("You do not have access to this pharmacy.")
+    return scoped
+
+
+def _future_shift_filter(today, now):
+    return Q(slots__date__gt=today) | Q(slots__date=today, slots__end_time__gt=now)
+
+
+def _active_shift_filter(today, now):
+    return Q(slots__isnull=True) | _future_shift_filter(today, now)
+
+
+def _public_platform_shifts(today, now):
+    return Shift.objects.filter(
+        visibility="PLATFORM",
+        dedicated_user__isnull=True,
+        slot_assignments__isnull=True,
+    ).filter(
+        _future_shift_filter(today, now)
+    ).distinct()
+
+
+def _user_confirmed_platform_shifts(user, today, now):
+    return Shift.objects.filter(
+        visibility="PLATFORM",
+        slot_assignments__user=user,
+    ).filter(
+        _future_shift_filter(today, now)
+    ).distinct()
+
+
+def _pharmacy_confirmed_shifts(pharmacy_ids):
+    return Shift.objects.filter(
+        pharmacy_id__in=pharmacy_ids,
+        slot_assignments__isnull=False,
+    ).distinct()
+
+
+def _open_active_shifts(shifts_qs, today, now):
+    return shifts_qs.filter(
+        _active_shift_filter(today, now),
+        slot_assignments__isnull=True,
+    ).distinct()
+
+
+def _all_active_shifts(shifts_qs, today, now):
+    return shifts_qs.filter(_active_shift_filter(today, now)).distinct()
+
+
+def _membership_visibility_levels(membership):
+    employment_type = str(getattr(membership, "employment_type", "") or "").upper()
+    if employment_type in {"FULL_TIME", "PART_TIME", "CASUAL"}:
+        return ["FULL_PART_TIME"]
+    if employment_type in {"LOCUM", "SHIFT_HERO"}:
+        return ["LOCUM_CASUAL"]
+    return []
+
+
+def _membership_shift_employment_types(membership):
+    employment_type = str(getattr(membership, "employment_type", "") or "").upper()
+    if employment_type in {"FULL_TIME", "PART_TIME", "CASUAL"}:
+        return ["FULL_TIME", "PART_TIME"]
+    if employment_type in {"LOCUM", "SHIFT_HERO"}:
+        return ["LOCUM"]
+    return []
+
+
+def _worker_visible_pharmacy_shifts(user, pharmacy_ids):
+    memberships = Membership.objects.filter(
+        user=user,
+        is_active=True,
+        pharmacy_id__in=pharmacy_ids,
+    ).select_related("pharmacy__owner", "pharmacy__organization")
+    eligible_filter = Q()
+    for membership in memberships:
+        employment_type = str(getattr(membership, "employment_type", "") or "").upper()
+        if employment_type in {"FULL_TIME", "PART_TIME", "CASUAL"}:
+            eligible_filter |= Q(
+                pharmacy_id=membership.pharmacy_id,
+                visibility="FULL_PART_TIME",
+            )
+        elif employment_type in {"LOCUM", "SHIFT_HERO"}:
+            eligible_filter |= Q(
+                pharmacy_id=membership.pharmacy_id,
+                visibility="LOCUM_CASUAL",
+            )
+
+        owner_id = getattr(getattr(membership, "pharmacy", None), "owner_id", None)
+        if owner_id:
+            eligible_filter |= Q(
+                pharmacy_id__in=pharmacy_ids,
+                visibility="OWNER_CHAIN",
+                pharmacy__owner_id=owner_id,
+            )
+
+        organization_id = getattr(getattr(membership, "pharmacy", None), "organization_id", None)
+        if organization_id:
+            eligible_filter |= Q(
+                pharmacy_id__in=pharmacy_ids,
+                visibility="ORG_CHAIN",
+                pharmacy__organization_id=organization_id,
+            )
+
+    if not eligible_filter:
+        return Shift.objects.none()
+
+    role = str(getattr(user, "role", "") or "").upper()
+    qs = Shift.objects.filter(eligible_filter)
+    if role == "PHARMACIST":
+        qs = qs.filter(role_needed="PHARMACIST")
+    elif role == "OTHER_STAFF":
+        qs = qs.exclude(role_needed="PHARMACIST")
+    return qs.distinct()
+
+
+def _dashboard_shift_box(shift):
+    slot = shift.slots.order_by("date", "start_time").first()
+    return {
+        "id": shift.id,
+        "pharmacy_name": shift.pharmacy.name if shift.pharmacy else "",
+        "date": slot.date if slot else None,
+    }
+
+
+def _format_money(value):
+    amount = Decimal(value or 0)
+    return f"${amount:,.2f}"
+
+
+def _dashboard_activity(*, shifts_qs, confirmed_qs, invoices_qs, pharmacy_name):
+    activity = []
+    latest_shift = shifts_qs.order_by("-created_at").first()
+    if latest_shift:
+        activity.append({
+            "title": "New shift posted",
+            "description": latest_shift.pharmacy.name if latest_shift.pharmacy else pharmacy_name,
+            "time": latest_shift.created_at.strftime("%d %b") if latest_shift.created_at else "",
+            "kind": "shift",
+        })
+
+    latest_confirmed = confirmed_qs.order_by("-slot_assignments__assigned_at").first()
+    if latest_confirmed:
+        activity.append({
+            "title": "Shift confirmed",
+            "description": latest_confirmed.pharmacy.name if latest_confirmed.pharmacy else pharmacy_name,
+            "time": latest_confirmed.slot_assignments.order_by("-assigned_at").first().assigned_at.strftime("%d %b") if latest_confirmed.slot_assignments.exists() else "",
+            "kind": "confirmed",
+        })
+
+    latest_invoice = invoices_qs.order_by("-created_at").first()
+    if latest_invoice:
+        activity.append({
+            "title": "Invoice paid" if latest_invoice.status == "paid" else "Invoice unpaid",
+            "description": f"INV-{latest_invoice.id}",
+            "time": latest_invoice.created_at.strftime("%d %b") if latest_invoice.created_at else "",
+            "kind": "invoice",
+        })
+    return activity[:4]
+
+
+def _dashboard_invoice_summary(invoices_qs):
+    unpaid_qs = invoices_qs.exclude(status="paid")
+    paid_qs = invoices_qs.filter(status="paid")
+    unpaid_total = unpaid_qs.aggregate(total=Sum("total")).get("total") or Decimal("0")
+    paid_total = paid_qs.aggregate(total=Sum("total")).get("total") or Decimal("0")
+    total = invoices_qs.aggregate(total=Sum("total")).get("total") or Decimal("0")
+    return {
+        "total_count": invoices_qs.count(),
+        "unpaid_count": unpaid_qs.count(),
+        "paid_count": paid_qs.count(),
+        "total_billed": _format_money(total),
+        "unpaid_total": _format_money(unpaid_total),
+        "paid_total": _format_money(paid_total),
+    }
+
+
+def _dashboard_upcoming_stats(shifts_qs, today, now):
+    week_end = today + timedelta(days=6)
+    month_end = today + timedelta(days=30)
+    return {
+        "today": shifts_qs.filter(slots__date=today, slots__end_time__gt=now).distinct().count(),
+        "week": shifts_qs.filter(slots__date__gte=today, slots__date__lte=week_end).distinct().count(),
+        "month": shifts_qs.filter(slots__date__gte=today, slots__date__lte=month_end).distinct().count(),
+    }
+
+
+def _dashboard_payload_extras(*, shifts_qs, confirmed_qs, community_qs=None, invoices_qs=None, selected_pharmacy=None, today=None, now=None, open_qs=None, all_qs=None):
+    today = today or date.today()
+    now = now or timezone.now().time()
+    invoices_qs = invoices_qs if invoices_qs is not None else Invoice.objects.none()
+    community_qs = community_qs if community_qs is not None else Shift.objects.none()
+    open_qs = open_qs if open_qs is not None else _open_active_shifts(shifts_qs, today, now)
+    all_qs = all_qs if all_qs is not None else _all_active_shifts(shifts_qs, today, now)
+    pharmacy_name = selected_pharmacy.name if selected_pharmacy else "All pharmacies"
+    upcoming_stats = _dashboard_upcoming_stats(shifts_qs, today, now)
+    invoice_summary = _dashboard_invoice_summary(invoices_qs)
+    return {
+        "selected_pharmacy": (
+            {"id": selected_pharmacy.id, "name": selected_pharmacy.name}
+            if selected_pharmacy else None
+        ),
+        "upcoming_stats": upcoming_stats,
+        "activity": _dashboard_activity(
+            shifts_qs=shifts_qs,
+            confirmed_qs=confirmed_qs,
+            invoices_qs=invoices_qs,
+            pharmacy_name=pharmacy_name,
+        ),
+        "shift_summary": {
+            "upcoming_count": shifts_qs.count(),
+            "confirmed_count": confirmed_qs.count(),
+            "community_count": community_qs.count(),
+            "open_count": open_qs.count(),
+            "all_count": all_qs.count(),
+        },
+        "invoice_summary": invoice_summary,
+        "bills_summary": {
+            "total_billed": invoice_summary["total_billed"],
+            "unpaid_total": invoice_summary["unpaid_total"],
+            "unpaid_count": invoice_summary["unpaid_count"],
+            "paid_count": invoice_summary["paid_count"],
+        },
+    }
+
+
 class OrganizationDashboardView(APIView):
     """
     Any org-level member may view this dashboard.
@@ -831,6 +1082,8 @@ class OrganizationDashboardView(APIView):
 
         org = membership.organization
         scoped_pharmacy_ids = membership_visible_pharmacy_ids(membership)
+        requested_pharmacy_id = _parse_dashboard_pharmacy_id(request)
+        workspace = _parse_dashboard_workspace(request)
 
         claims_qs = PharmacyClaim.objects.filter(
             organization=org
@@ -866,15 +1119,44 @@ class OrganizationDashboardView(APIView):
             if claim.status == PharmacyClaim.Status.ACCEPTED
         ]
 
-        shifts_qs = Shift.objects.filter(
-            pharmacy__organization=org
-        )
-        if membership.role == 'REGION_ADMIN':
-            if scoped_pharmacy_ids:
-                shifts_qs = shifts_qs.filter(pharmacy_id__in=scoped_pharmacy_ids)
-            else:
-                shifts_qs = shifts_qs.none()
+        shifts_qs = Shift.objects.filter(pharmacy__organization=org)
+        selected_pharmacy = None
+        if workspace == "platform":
+            shifts_qs = _public_platform_shifts(date.today(), timezone.now().time())
+        else:
+            if membership.role == 'REGION_ADMIN':
+                if scoped_pharmacy_ids:
+                    shifts_qs = shifts_qs.filter(pharmacy_id__in=scoped_pharmacy_ids)
+                else:
+                    shifts_qs = shifts_qs.none()
+            if requested_pharmacy_id is not None:
+                allowed_pharmacy = Pharmacy.objects.filter(id=requested_pharmacy_id, organization=org)
+                if membership.role == 'REGION_ADMIN':
+                    allowed_pharmacy = allowed_pharmacy.filter(id__in=scoped_pharmacy_ids)
+                if not allowed_pharmacy.exists():
+                    raise PermissionDenied("You do not have access to this pharmacy.")
+                shifts_qs = shifts_qs.filter(pharmacy_id=requested_pharmacy_id)
+                selected_pharmacy = allowed_pharmacy.first()
         shifts = ShiftSerializer(shifts_qs, many=True).data
+        today = date.today()
+        now = timezone.now().time()
+        future_shifts = shifts_qs.filter(_future_shift_filter(today, now)).distinct()
+        confirmed_shifts = _user_confirmed_platform_shifts(request.user, today, now) if workspace == "platform" else shifts_qs.filter(slot_assignments__isnull=False).distinct()
+        invoices_qs = Invoice.objects.filter(user=request.user, pharmacy__isnull=True) if workspace == "platform" else Invoice.objects.filter(pharmacy__organization=org)
+        if workspace != "platform" and requested_pharmacy_id is not None:
+            invoices_qs = invoices_qs.filter(pharmacy_id=requested_pharmacy_id)
+        open_shifts = _open_active_shifts(shifts_qs, today, now)
+        all_active_shifts = _all_active_shifts(shifts_qs, today, now)
+        extras = _dashboard_payload_extras(
+            shifts_qs=future_shifts,
+            confirmed_qs=confirmed_shifts,
+            invoices_qs=invoices_qs,
+            selected_pharmacy=selected_pharmacy,
+            today=today,
+            now=now,
+            open_qs=open_shifts,
+            all_qs=all_active_shifts,
+        )
 
         return Response({
             'organization': {
@@ -888,6 +1170,9 @@ class OrganizationDashboardView(APIView):
             'claimed_pharmacies': accepted_data,
             'pharmacy_claims': claims_data,
             'shifts':            shifts,
+            'active_shifts':      future_shifts.count(),
+            'confirmed_shifts_count': confirmed_shifts.count(),
+            **extras,
         }, status=status.HTTP_200_OK)
 
 class PharmacyClaimViewSet(mixins.ListModelMixin,
@@ -1092,11 +1377,38 @@ class OwnerDashboard(APIView):
     def get(self, request):
         user = request.user
         user_serializer = UserProfileSerializer(user)
+        requested_pharmacy_id = _parse_dashboard_pharmacy_id(request)
+        workspace = _parse_dashboard_workspace(request)
+        today = date.today()
+        now = timezone.now().time()
+
+        if workspace == "platform":
+            public_shifts = _public_platform_shifts(today, now)
+            confirmed_shifts = _user_confirmed_platform_shifts(user, today, now)
+            invoices_qs = Invoice.objects.filter(user=user, pharmacy__isnull=True)
+            extras = _dashboard_payload_extras(
+                shifts_qs=public_shifts,
+                confirmed_qs=confirmed_shifts,
+                community_qs=public_shifts,
+                invoices_qs=invoices_qs,
+                selected_pharmacy=None,
+                today=today,
+                now=now,
+            )
+            return Response({
+                "user": user_serializer.data,
+                "upcoming_shifts_count": public_shifts.count(),
+                "confirmed_shifts_count": confirmed_shifts.count(),
+                "community_shifts_count": public_shifts.count(),
+                "shifts": [_dashboard_shift_box(shift) for shift in public_shifts[:12]],
+                **extras,
+            })
 
         # Pharmacies I control: Owner pharmacies ∪ pharmacies where I’m PHARMACY_ADMIN
         owner_pharmacies = Pharmacy.objects.filter(owner__user=user)
         admin_pharmacies = pharmacies_user_admins(user)
-        pharmacies = (owner_pharmacies | admin_pharmacies).distinct()
+        pharmacies = _scope_pharmacies((owner_pharmacies | admin_pharmacies).distinct(), requested_pharmacy_id)
+        selected_pharmacy = pharmacies.filter(id=requested_pharmacy_id).first() if requested_pharmacy_id else None
 
         if not pharmacies.exists():
             # Keep your exact empty payload behavior for non-owners/non-admins
@@ -1114,10 +1426,8 @@ class OwnerDashboard(APIView):
 
         # Same as before, just using the unified pharmacies set
         shifts_qs = Shift.objects.filter(pharmacy__in=pharmacies).distinct()
-
-        
-        today = date.today()
-        now = timezone.now().time()
+        open_shifts = _open_active_shifts(shifts_qs, today, now)
+        all_active_shifts = _all_active_shifts(shifts_qs, today, now)
 
         # Upcoming shifts
         upcoming_shifts = shifts_qs.filter(
@@ -1146,17 +1456,24 @@ class OwnerDashboard(APIView):
                 'date': shift_date,
             })
 
-        bills_summary = {
-            "total_billed": "Coming soon",
-            "points": "Gamification placeholder"
-        }
+        invoices_qs = Invoice.objects.filter(pharmacy__in=pharmacies)
+        extras = _dashboard_payload_extras(
+            shifts_qs=upcoming_shifts,
+            confirmed_qs=confirmed_shifts,
+            invoices_qs=invoices_qs,
+            selected_pharmacy=selected_pharmacy,
+            today=today,
+            now=now,
+            open_qs=open_shifts,
+            all_qs=all_active_shifts,
+        )
 
         data = {
             "user": user_serializer.data,
             "upcoming_shifts_count": upcoming_shifts.count(),
             "confirmed_shifts_count": confirmed_shifts.count(),
             "shifts": shift_boxes,
-            "bills_summary": bills_summary,
+            **extras,
         }
         return Response(data)
 
@@ -1168,29 +1485,51 @@ class PharmacistDashboard(APIView):
         user_serializer = UserProfileSerializer(user)
         today = date.today()
         now = timezone.now().time()
+        requested_pharmacy_id = _parse_dashboard_pharmacy_id(request)
+        workspace = _parse_dashboard_workspace(request)
+        member_pharmacy_ids = list(Membership.objects.filter(
+            user=user, is_active=True
+        ).values_list('pharmacy_id', flat=True))
+        if workspace == "platform":
+            public_shifts = _public_platform_shifts(today, now)
+            confirmed_shifts = _user_confirmed_platform_shifts(user, today, now)
+            invoices_qs = Invoice.objects.filter(user=user, pharmacy__isnull=True)
+            extras = _dashboard_payload_extras(
+                shifts_qs=public_shifts,
+                confirmed_qs=confirmed_shifts,
+                community_qs=public_shifts,
+                invoices_qs=invoices_qs,
+                selected_pharmacy=None,
+                today=today,
+                now=now,
+            )
+            data = {
+                "user": user_serializer.data,
+                "message": "Welcome Pharmacist!",
+                "upcoming_shifts_count": public_shifts.count(),
+                "confirmed_shifts_count": confirmed_shifts.count(),
+                "community_shifts_count": public_shifts.count(),
+                "shifts": [_dashboard_shift_box(shift) for shift in public_shifts[:12]],
+                "community_shifts": [_dashboard_shift_box(shift) for shift in public_shifts[:12]],
+                **extras,
+            }
+            return Response(data)
+        if requested_pharmacy_id is not None:
+            if requested_pharmacy_id not in member_pharmacy_ids:
+                raise PermissionDenied("You do not have access to this pharmacy.")
+            member_pharmacy_ids = [requested_pharmacy_id]
+        selected_pharmacy = Pharmacy.objects.filter(id=requested_pharmacy_id).first() if requested_pharmacy_id else None
 
-        # Upcoming shifts: assigned to the user, future
-        upcoming_assignments = ShiftSlotAssignment.objects.filter(
-            user=user,
-            slot__date__gt=today
-        ) | ShiftSlotAssignment.objects.filter(
-            user=user,
-            slot__date=today,
-            slot__end_time__gt=now
-        )
-        upcoming_assignments = upcoming_assignments.distinct()
-        upcoming_shifts = Shift.objects.filter(
-            slots__assignments__in=upcoming_assignments
-        ).distinct()
+        # Internal workspace: selected pharmacy behaves like that pharmacy's home page,
+        # scoped to the worker's membership type and current escalation level.
+        visible_shifts = _worker_visible_pharmacy_shifts(user, member_pharmacy_ids)
+        upcoming_shifts = visible_shifts.filter(_future_shift_filter(today, now)).distinct()
+        open_shifts = _open_active_shifts(visible_shifts, today, now)
+        all_active_shifts = _all_active_shifts(visible_shifts, today, now)
 
-        # Confirmed shifts: for this user, same as upcoming for now (can refine if needed)
-        confirmed_shifts = upcoming_shifts
+        confirmed_shifts = _pharmacy_confirmed_shifts(member_pharmacy_ids)
 
         # Community shifts: future, pharmacy__isnull, NO assignments yet
-        member_pharmacy_ids = Membership.objects.filter(
-            user=user, is_active=True
-        ).values_list('pharmacy_id', flat=True)
-
         community_shifts = Shift.objects.filter(
             pharmacy_id__in=member_pharmacy_ids,
             visibility__in=COMMUNITY_LEVELS, # Use the constant you already have
@@ -1221,10 +1560,20 @@ class PharmacistDashboard(APIView):
                 'date': shift_date,
             })
 
-        bills_summary = {
-            "total_billed": "Coming soon",
-            "points": "Gamification placeholder"
-        }
+        invoices_qs = Invoice.objects.filter(user=user)
+        if requested_pharmacy_id is not None:
+            invoices_qs = invoices_qs.filter(pharmacy_id=requested_pharmacy_id)
+        extras = _dashboard_payload_extras(
+            shifts_qs=upcoming_shifts,
+            confirmed_qs=confirmed_shifts,
+            community_qs=community_shifts,
+            invoices_qs=invoices_qs,
+            selected_pharmacy=selected_pharmacy,
+            today=today,
+            now=now,
+            open_qs=open_shifts,
+            all_qs=all_active_shifts,
+        )
 
         data = {
             "user": user_serializer.data,
@@ -1234,9 +1583,9 @@ class PharmacistDashboard(APIView):
             "community_shifts_count": community_shifts.count(),
             "shifts": shifts_data,
             "community_shifts": community_shifts_data,
-            "bills_summary": bills_summary,
+            **extras,
         }
-        return Response(PharmacistDashboardResponseSerializer(data).data)
+        return Response(data)
 
 class OtherStaffDashboard(APIView):
     permission_classes = [IsAuthenticated, IsOtherstaff]
@@ -1246,24 +1595,46 @@ class OtherStaffDashboard(APIView):
         user_serializer = UserProfileSerializer(user)
         today = date.today()
         now = timezone.now().time()
-
-        upcoming_assignments = ShiftSlotAssignment.objects.filter(
-            user=user,
-            slot__date__gt=today
-        ) | ShiftSlotAssignment.objects.filter(
-            user=user,
-            slot__date=today,
-            slot__end_time__gt=now
-        )
-        upcoming_assignments = upcoming_assignments.distinct()
-        upcoming_shifts = Shift.objects.filter(
-            slots__assignments__in=upcoming_assignments
-        ).distinct()
-        confirmed_shifts = upcoming_shifts
-
-        member_pharmacy_ids = Membership.objects.filter(
+        requested_pharmacy_id = _parse_dashboard_pharmacy_id(request)
+        workspace = _parse_dashboard_workspace(request)
+        member_pharmacy_ids = list(Membership.objects.filter(
             user=user, is_active=True
-        ).values_list('pharmacy_id', flat=True)
+        ).values_list('pharmacy_id', flat=True))
+        if workspace == "platform":
+            public_shifts = _public_platform_shifts(today, now)
+            confirmed_shifts = _user_confirmed_platform_shifts(user, today, now)
+            invoices_qs = Invoice.objects.filter(user=user, pharmacy__isnull=True)
+            extras = _dashboard_payload_extras(
+                shifts_qs=public_shifts,
+                confirmed_qs=confirmed_shifts,
+                community_qs=public_shifts,
+                invoices_qs=invoices_qs,
+                selected_pharmacy=None,
+                today=today,
+                now=now,
+            )
+            data = {
+                "user": user_serializer.data,
+                "message": "Welcome Other Staff!",
+                "upcoming_shifts_count": public_shifts.count(),
+                "confirmed_shifts_count": confirmed_shifts.count(),
+                "community_shifts_count": public_shifts.count(),
+                "shifts": [_dashboard_shift_box(shift) for shift in public_shifts[:12]],
+                "community_shifts": [_dashboard_shift_box(shift) for shift in public_shifts[:12]],
+                **extras,
+            }
+            return Response(data)
+        if requested_pharmacy_id is not None:
+            if requested_pharmacy_id not in member_pharmacy_ids:
+                raise PermissionDenied("You do not have access to this pharmacy.")
+            member_pharmacy_ids = [requested_pharmacy_id]
+        selected_pharmacy = Pharmacy.objects.filter(id=requested_pharmacy_id).first() if requested_pharmacy_id else None
+
+        visible_shifts = _worker_visible_pharmacy_shifts(user, member_pharmacy_ids)
+        upcoming_shifts = visible_shifts.filter(_future_shift_filter(today, now)).distinct()
+        open_shifts = _open_active_shifts(visible_shifts, today, now)
+        all_active_shifts = _all_active_shifts(visible_shifts, today, now)
+        confirmed_shifts = _pharmacy_confirmed_shifts(member_pharmacy_ids)
 
         community_shifts = Shift.objects.filter(
             pharmacy_id__in=member_pharmacy_ids,
@@ -1294,10 +1665,20 @@ class OtherStaffDashboard(APIView):
                 'date': shift_date,
             })
 
-        bills_summary = {
-            "total_billed": "Coming soon",
-            "points": "Gamification placeholder"
-        }
+        invoices_qs = Invoice.objects.filter(user=user)
+        if requested_pharmacy_id is not None:
+            invoices_qs = invoices_qs.filter(pharmacy_id=requested_pharmacy_id)
+        extras = _dashboard_payload_extras(
+            shifts_qs=upcoming_shifts,
+            confirmed_qs=confirmed_shifts,
+            community_qs=community_shifts,
+            invoices_qs=invoices_qs,
+            selected_pharmacy=selected_pharmacy,
+            today=today,
+            now=now,
+            open_qs=open_shifts,
+            all_qs=all_active_shifts,
+        )
 
         data = {
             "user": user_serializer.data,
@@ -1307,9 +1688,9 @@ class OtherStaffDashboard(APIView):
             "community_shifts_count": community_shifts.count(),
             "shifts": shifts_data,
             "community_shifts": community_shifts_data,
-            "bills_summary": bills_summary,
+            **extras,
         }
-        return Response(OtherStaffDashboardResponseSerializer(data).data)
+        return Response(data)
 
 class ExplorerDashboard(APIView):
     permission_classes = [IsAuthenticated, IsExplorer]

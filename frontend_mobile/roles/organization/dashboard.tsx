@@ -4,11 +4,18 @@ import { Chip, Divider, IconButton, Surface, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { getActiveShifts } from '@chemisttasker/shared-core';
 import { useAuth } from '@/context/AuthContext';
 import apiClient from '@/utils/apiClient';
 import getShiftPharmacyName from '@/roles/shared/shifts/utils/getShiftPharmacyName';
 import HomeNavigationGrid from '@/components/HomeNavigationGrid';
+import {
+  DashboardActivity,
+  DashboardErrorState,
+  DashboardLoadingState,
+  DashboardScopeSwitcher,
+  DashboardStatsOverview,
+  useScopedDashboard,
+} from '@/roles/shared/dashboard/dashboardScope';
 
 const { width } = Dimensions.get('window');
 
@@ -28,24 +35,25 @@ type PillSummary = {
 export default function OrganizationDashboard() {
   const router = useRouter();
   const { user, logout } = useAuth();
+  const scope = useScopedDashboard(user?.role);
   const [pillSummary, setPillSummary] = useState<PillSummary>({ balance: 0, shift_post_cost: 0 });
   const [shifts, setShifts] = useState<ShiftSummary[]>([]);
+  const [dashboardData, setDashboardData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [shiftsRes, pillRes] = await Promise.all([
-        getActiveShifts().catch(() => []),
+      const [dashboardPayload, pillRes] = await Promise.all([
+        scope.fetchDashboard(),
         apiClient.get('/client-profile/pill-rewards/balance/').catch(() => null),
       ]);
 
-      const list: any[] = Array.isArray((shiftsRes as any)?.results)
-        ? (shiftsRes as any).results
-        : Array.isArray(shiftsRes)
-          ? shiftsRes
-          : [];
+      const list: any[] = Array.isArray(dashboardPayload?.shifts) ? dashboardPayload.shifts : [];
+      setDashboardData(dashboardPayload);
+      setErrorMessage(null);
 
       setShifts(
         list.slice(0, 5).map((shift: any) => ({
@@ -63,11 +71,20 @@ export default function OrganizationDashboard() {
           shift_post_cost: Number(pillRes.data?.shift_post_cost ?? 0),
         });
       }
+    } catch (err: any) {
+      console.error('Unable to load organization dashboard', err);
+      setDashboardData(null);
+      setShifts([]);
+      setErrorMessage(
+        err?.response?.status === 403
+          ? 'You no longer have access to that pharmacy scope. The dashboard scope has been reset.'
+          : err?.response?.data?.detail || 'Unable to load dashboard analytics right now.'
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [scope.fetchDashboard]);
 
   useEffect(() => {
     void loadData();
@@ -106,9 +123,7 @@ export default function OrganizationDashboard() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container} edges={['left', 'right']}>
-        <View style={styles.loadingContainer}>
-          <Text>Loading organization dashboard...</Text>
-        </View>
+        <DashboardLoadingState label="Loading organization dashboard..." />
       </SafeAreaView>
     );
   }
@@ -121,6 +136,15 @@ export default function OrganizationDashboard() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadData} tintColor="#6366F1" />}
         showsVerticalScrollIndicator={false}
       >
+        <DashboardScopeSwitcher
+          pharmacies={scope.pharmacies}
+          scopeLabel={scope.scopeLabel}
+          workspace={scope.workspace}
+          selectedPharmacyId={scope.selectedPharmacyId}
+          onSelectPlatform={scope.selectPlatform}
+          onSelectPharmacy={scope.selectPharmacy}
+        />
+        {errorMessage ? <DashboardErrorState message={errorMessage} onRetry={loadData} /> : null}
         <TouchableOpacity
           style={styles.pillHero}
           onPress={() => router.push('/organization/pills' as any)}
@@ -157,7 +181,11 @@ export default function OrganizationDashboard() {
           </LinearGradient>
         </TouchableOpacity>
 
+        <DashboardStatsOverview data={dashboardData} />
+
         <HomeNavigationGrid items={quickActions} onNavigate={(route) => router.push(route as any)} />
+
+        <DashboardActivity data={dashboardData} />
 
         {shifts.length > 0 && (
           <View style={styles.section}>
@@ -182,7 +210,7 @@ export default function OrganizationDashboard() {
                       </Text>
                       <Text variant="bodySmall" style={styles.shiftRole} numberOfLines={1}>
                         {shift.role || 'Staff'}
-                        {formatShiftDate(shift.date) ? ` · ${formatShiftDate(shift.date)}` : ''}
+                        {formatShiftDate(shift.date) ? ` - ${formatShiftDate(shift.date)}` : ''}
                       </Text>
                     </View>
                   </View>
@@ -325,4 +353,5 @@ const styles = StyleSheet.create({
   bottomMenuTitle: { color: '#111827', fontWeight: '600' },
   bottomMenuDesc: { color: '#6B7280', fontSize: 12, marginTop: 2 },
 });
+
 

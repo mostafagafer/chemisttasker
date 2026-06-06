@@ -17,18 +17,6 @@ const grey = {
   500:"#64748b",600:"#475569",700:"#334155",800:"#1f2937",900:"#0f172a",
 };
 
-// Dark rail/paper used in dashboard
-const greyDark = {
-  bg: "#0b1220",
-  paper: "#0f172a",
-  700:"#334155",
-  600:"#475569",
-  500:"#64748b",
-  400:"#94a3b8",
-  300:"#cbd5e1",
-  divider: "rgba(148,163,184,0.24)",
-};
-
 export function createSleekTheme(mode: Mode): Theme {
   const isLight = mode === "light";
 
@@ -39,6 +27,12 @@ export function createSleekTheme(mode: Mode): Theme {
   const hoverBg = isLight
     ? alpha(grey[200], 0.50)
     : alpha("#ffffff", 0.06);
+  const pageBg = isLight ? grey[50] : "#08111F";
+  const surfaceBg = isLight ? "#fff" : "#101A2D";
+  const elevatedBg = isLight ? "#fff" : "#142036";
+  const textPrimary = isLight ? grey[900] : "#EAF1FF";
+  const textSecondary = isLight ? grey[600] : "#A9B8D3";
+  const borderColor = isLight ? grey[200] : "rgba(148,163,184,0.24)";
 
   return createTheme({
     shape: { borderRadius: 14 },
@@ -46,12 +40,18 @@ export function createSleekTheme(mode: Mode): Theme {
       mode,
       primary: { main: primary[600] },
       background: isLight
-        ? { default: grey[50], paper: "#fff" }
-        : { default: greyDark.bg, paper: greyDark.paper },
-      divider: isLight ? grey[200] : greyDark.divider,
+        ? { default: pageBg, paper: surfaceBg }
+        : { default: pageBg, paper: surfaceBg },
+      divider: borderColor,
       text: isLight
-        ? { primary: grey[900], secondary: grey[600] }
-        : { primary: greyDark[300], secondary: greyDark[500] },
+        ? { primary: textPrimary, secondary: textSecondary }
+        : { primary: textPrimary, secondary: textSecondary },
+      action: {
+        hover: isLight ? alpha(grey[200], 0.5) : alpha("#ffffff", 0.06),
+        selected: isLight ? alpha(primary[600], 0.1) : alpha(primary[400], 0.2),
+        disabledBackground: isLight ? grey[100] : alpha("#ffffff", 0.08),
+        disabled: isLight ? grey[400] : alpha("#EAF1FF", 0.38),
+      },
     },
     typography: {
       fontFamily: [
@@ -60,13 +60,77 @@ export function createSleekTheme(mode: Mode): Theme {
       h1: { fontWeight: 800 }, h2: { fontWeight: 800 }, h3: { fontWeight: 700 },
     },
     components: {
+      MuiCssBaseline: {
+        styleOverrides: {
+          ":root": {
+            colorScheme: mode,
+            "--ct-page-bg": pageBg,
+            "--ct-surface-bg": surfaceBg,
+            "--ct-elevated-bg": elevatedBg,
+            "--ct-text-primary": textPrimary,
+            "--ct-text-secondary": textSecondary,
+            "--ct-border-color": borderColor,
+            "--ct-hover-bg": hoverBg,
+            "--ct-soft-primary": isLight ? alpha(primary[600], 0.1) : alpha(primary[400], 0.18),
+            "--ct-input-bg": isLight ? "#fff" : "#0C1628",
+          },
+          "html, body, #root": {
+            minHeight: "100%",
+          },
+          body: {
+            backgroundColor: pageBg,
+            color: textPrimary,
+            transition: "background-color 160ms ease, color 160ms ease",
+          },
+          "[data-ct-theme='dark']": {
+            colorScheme: "dark",
+          },
+          "[data-ct-theme='dark'] .MuiPaper-root, [data-ct-theme='dark'] .MuiCard-root": {
+            backgroundColor: `${surfaceBg} !important`,
+            color: `${textPrimary} !important`,
+            borderColor: `${borderColor} !important`,
+            backgroundImage: "none !important",
+          },
+          "[data-ct-theme='dark'] .MuiPopover-paper, [data-ct-theme='dark'] .MuiMenu-paper, [data-ct-theme='dark'] .MuiDialog-paper": {
+            backgroundColor: `${elevatedBg} !important`,
+            color: `${textPrimary} !important`,
+            borderColor: `${borderColor} !important`,
+          },
+          "[data-ct-theme='dark'] .MuiTypography-root": {
+            color: "inherit",
+          },
+          "[data-ct-theme='dark'] .MuiTypography-colorTextSecondary, [data-ct-theme='dark'] .MuiFormHelperText-root": {
+            color: `${textSecondary} !important`,
+          },
+          "[data-ct-theme='dark'] .MuiInputBase-root, [data-ct-theme='dark'] .MuiOutlinedInput-root": {
+            backgroundColor: "var(--ct-input-bg) !important",
+            color: `${textPrimary} !important`,
+          },
+          "[data-ct-theme='dark'] .MuiOutlinedInput-notchedOutline": {
+            borderColor: `${borderColor} !important`,
+          },
+          "[data-ct-theme='dark'] .MuiTableCell-root": {
+            color: `${textPrimary} !important`,
+            borderColor: `${borderColor} !important`,
+          },
+          "[data-ct-theme='dark'] .MuiDivider-root": {
+            borderColor: `${borderColor} !important`,
+          },
+          "[data-ct-theme='dark'] .MuiListItemButton-root:hover, [data-ct-theme='dark'] .MuiMenuItem-root:hover": {
+            backgroundColor: `${hoverBg} !important`,
+          },
+          "[data-ct-theme='dark'] a": {
+            color: primary[300],
+          },
+        },
+      },
       // Soft app bar
       MuiAppBar: {
         styleOverrides: {
           root: {
-            backgroundColor: alpha(isLight ? "#ffffff" : greyDark.paper, 0.85),
+            backgroundColor: alpha(isLight ? "#ffffff" : surfaceBg, 0.85),
             backdropFilter: "blur(6px)",
-            borderBottom: `1px solid ${isLight ? grey[200] : greyDark.divider}`,
+            borderBottom: `1px solid ${borderColor}`,
           },
         },
       },
@@ -76,12 +140,14 @@ export function createSleekTheme(mode: Mode): Theme {
         defaultProps: { elevation: 0 },
         styleOverrides: {
           root: {
-            border: `1px solid ${isLight ? grey[200] : greyDark.divider}`,
+            border: `1px solid ${borderColor}`,
             boxShadow: isLight
               ? "0 1px 2px rgba(15,23,42,0.04)"
               : "0 1px 2px rgba(0,0,0,0.25)",
             borderRadius: 14,
             backgroundImage: "none",
+            backgroundColor: surfaceBg,
+            color: textPrimary,
           },
         },
       },
@@ -90,15 +156,15 @@ export function createSleekTheme(mode: Mode): Theme {
       MuiDrawer: {
         styleOverrides: {
           paper: {
-            backgroundColor: isLight ? "#fff" : greyDark.paper,
-            borderRight: `1px solid ${isLight ? grey[200] : greyDark.divider}`,
+            backgroundColor: surfaceBg,
+            borderRight: `1px solid ${borderColor}`,
           },
         },
       },
       MuiListSubheader: {
         styleOverrides: {
           root: {
-            color: isLight ? grey[600] : greyDark[500],
+            color: textSecondary,
             lineHeight: 1.2,
             fontSize: "0.72rem",
             textTransform: "uppercase",
@@ -113,7 +179,7 @@ export function createSleekTheme(mode: Mode): Theme {
         styleOverrides: {
           root: {
             minWidth: 32,
-            color: isLight ? grey[600] : greyDark[500],
+            color: textSecondary,
           },
         },
       },
@@ -153,8 +219,8 @@ export function createSleekTheme(mode: Mode): Theme {
         styleOverrides: {
           root: { borderRadius: 999 },
           outlined: {
-            borderColor: isLight ? grey[200] : greyDark.divider,
-            backgroundColor: isLight ? grey[50] : "transparent",
+            borderColor,
+            backgroundColor: isLight ? grey[50] : alpha("#ffffff", 0.04),
           },
         },
       },
@@ -163,14 +229,41 @@ export function createSleekTheme(mode: Mode): Theme {
         styleOverrides: {
           root: { borderRadius: 12, textTransform: "none", fontWeight: 600 },
           outlined: {
-            borderColor: isLight ? grey[200] : greyDark.divider,
+            borderColor,
             backgroundColor: "transparent",
           },
         },
       },
       MuiCardHeader: {
         styleOverrides: {
-          root: { borderBottom: `1px solid ${isLight ? grey[200] : greyDark.divider}` },
+          root: { borderBottom: `1px solid ${borderColor}` },
+        },
+      },
+      MuiTextField: {
+        defaultProps: { variant: "outlined" },
+      },
+      MuiTableContainer: {
+        styleOverrides: {
+          root: {
+            backgroundColor: surfaceBg,
+            color: textPrimary,
+          },
+        },
+      },
+      MuiDialog: {
+        styleOverrides: {
+          paper: {
+            backgroundColor: elevatedBg,
+            color: textPrimary,
+          },
+        },
+      },
+      MuiPopover: {
+        styleOverrides: {
+          paper: {
+            backgroundColor: elevatedBg,
+            color: textPrimary,
+          },
         },
       },
     },
@@ -212,6 +305,11 @@ export function ColorModeProvider({ children }: { children: React.ReactNode }) {
     if (!saved) setMode(prefersDark ? "dark" : "light");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefersDark]);
+
+  React.useEffect(() => {
+    document.documentElement.dataset.ctTheme = mode;
+    document.documentElement.style.colorScheme = mode;
+  }, [mode]);
 
   const theme = React.useMemo(() => createSleekTheme(mode), [mode]);
   const value = React.useMemo(() => ({ mode, toggleColorMode, setMode }), [mode]);

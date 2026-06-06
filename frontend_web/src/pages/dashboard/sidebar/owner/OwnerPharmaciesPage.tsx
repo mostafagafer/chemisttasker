@@ -23,21 +23,28 @@ export default function OwnerPharmaciesPage({
   const s = surface(t);
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: "auto", p: 3 }}>
-      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
+    <Box sx={{ width: "100%", maxWidth: "none", mx: "auto", px: { xs: 0, sm: 1.5, md: 2, xl: 3 }, py: { xs: 2, md: 3 } }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "repeat(2, minmax(0, 1fr))" }, gap: 1.5 }}>
         {pharmacies.map((p) => {
           const address = [p.street_address, p.suburb].filter(Boolean).join(", ");
           return (
             <Card
               key={p.id}
               variant="outlined"
-              sx={{ flex: "1 1 420px", maxWidth: 560, background: s.bg, borderColor: s.border }}
+              sx={{ minWidth: 0, background: s.bg, borderColor: s.border }}
             >
-              <CardContent sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
+              <CardContent
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: { xs: "auto minmax(0, 1fr)", md: "auto minmax(0, 1fr) auto" },
+                  gap: 2,
+                  alignItems: "flex-start",
+                }}
+              >
                 <Box sx={{ p: 1.2, borderRadius: 2, bgcolor: s.hover }}>
                   <DomainIcon />
                 </Box>
-                <Box sx={{ flex: 1 }}>
+                <Box sx={{ minWidth: 0 }}>
                   <Typography fontWeight={600}>{p.name}</Typography>
                   <Typography variant="body2" sx={{ color: s.textMuted }}>
                     {address}, {p.state} {p.postcode}
@@ -48,7 +55,16 @@ export default function OwnerPharmaciesPage({
                     </Typography>
                   )}
                 </Box>
-                <Stack direction="row" spacing={1}>
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  useFlexGap
+                  flexWrap="wrap"
+                  sx={{
+                    gridColumn: { xs: "1 / -1", md: "auto" },
+                    justifyContent: { xs: "flex-end", md: "flex-start" },
+                  }}
+                >
                   <Button variant="outlined" size="small" onClick={() => onOpenPharmacy(p.id)}>
                     Open
                   </Button>

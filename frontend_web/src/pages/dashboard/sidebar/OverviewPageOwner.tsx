@@ -11,7 +11,7 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import { alpha, useTheme } from "@mui/material/styles";
+import { alpha } from "@mui/material/styles";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import { Link as RouterLink } from "react-router-dom";
 import { useAuth } from "../../../contexts/AuthContext";
@@ -44,8 +44,8 @@ type DashboardData = {
 };
 
 export default function OverviewPageOwner() {
-  const theme = useTheme();
   const { user } = useAuth() as { user: User };
+  const primary = "var(--ct-dashboard-accent, #4A16B8)";
 
   const [ownerProfile, setOwnerProfile] = useState<User | null>(null);
   const [data, setData] = useState<DashboardData | null>(null);
@@ -56,7 +56,7 @@ export default function OverviewPageOwner() {
     let active = true;
     setLoading(true);
 
-    Promise.allSettled([getOwnerDashboard(), getOnboarding("owner")])
+    Promise.allSettled([getOwnerDashboard({ workspace: "platform" }), getOnboarding("owner")])
       .then(([dashboardRes, onboardingRes]) => {
         if (!active) {
           return;
@@ -128,11 +128,6 @@ export default function OverviewPageOwner() {
     { label: "Reward Points", value: data?.bills_summary?.points ?? "--" },
   ];
 
-  const heroGradient = `linear-gradient(135deg, ${alpha(
-    theme.palette.primary.main,
-    0.92,
-  )}, ${alpha(theme.palette.primary.dark, 0.78)})`;
-
   const welcomeName =
     ownerProfile?.first_name ||
     ownerProfile?.username ||
@@ -158,9 +153,10 @@ export default function OverviewPageOwner() {
         sx={{
           p: { xs: 3, md: 4 },
           borderRadius: { xs: 3, md: 4 },
-          backgroundImage: heroGradient,
+          backgroundImage: "var(--ct-dashboard-gradient, linear-gradient(135deg, #063BDA 0%, #6D28D9 52%, #EA0A8E 100%))",
           color: "#fff",
           overflow: "hidden",
+          boxShadow: "0 18px 44px rgba(6, 26, 61, 0.10)",
         }}
       >
         <Stack
@@ -183,7 +179,7 @@ export default function OverviewPageOwner() {
                 color="inherit"
                 component={RouterLink}
                 to="/dashboard/owner/post-shift"
-                sx={{ color: theme.palette.primary.main }}
+                sx={{ color: primary, borderRadius: "14px", fontWeight: 900 }}
               >
                 Post a shift
               </Button>
@@ -192,7 +188,7 @@ export default function OverviewPageOwner() {
                 color="inherit"
                 component={RouterLink}
                 to="/dashboard/owner/manage-pharmacies/my-pharmacies"
-                sx={{ borderColor: alpha("#ffffff", 0.45), color: "#fff" }}
+                sx={{ borderColor: alpha("#ffffff", 0.45), color: "#fff", borderRadius: "14px", fontWeight: 900 }}
               >
                 Manage pharmacies
               </Button>
@@ -226,17 +222,20 @@ export default function OverviewPageOwner() {
             <Paper
               sx={{
                 p: 2.5,
-                borderRadius: 3,
+                borderRadius: { xs: "20px", md: "28px" },
+                bgcolor: "var(--ct-dashboard-card-bg, #FFFFFF)",
+                border: "1px solid var(--ct-dashboard-card-border, #E5ECF7)",
+                boxShadow: "var(--ct-dashboard-card-shadow, 0 8px 24px rgba(6, 18, 58, 0.04))",
                 display: "flex",
                 flexDirection: "column",
                 gap: 1,
                 height: "100%",
               }}
             >
-              <Typography variant="subtitle2" color="text.secondary">
+              <Typography variant="subtitle2" color="var(--ct-dashboard-muted, #5E6B8D)">
                 {card.label}
               </Typography>
-              <Typography variant="h4" fontWeight={800}>
+              <Typography variant="h4" fontWeight={900} color="var(--ct-dashboard-title, #06123A)">
                 {card.value}
               </Typography>
             </Paper>
@@ -244,14 +243,22 @@ export default function OverviewPageOwner() {
         ))}
       </Grid>
 
-      <Paper sx={{ borderRadius: 3, p: { xs: 2, md: 3 } }}>
+      <Paper
+        sx={{
+          borderRadius: { xs: "20px", md: "28px" },
+          bgcolor: "var(--ct-dashboard-card-bg, #FFFFFF)",
+          border: "1px solid var(--ct-dashboard-card-border, #E5ECF7)",
+          boxShadow: "var(--ct-dashboard-card-shadow, 0 8px 24px rgba(6, 18, 58, 0.04))",
+          p: { xs: 2, md: 3 },
+        }}
+      >
         <Stack
           direction={{ xs: "column", sm: "row" }}
           alignItems={{ xs: "flex-start", sm: "center" }}
           spacing={2}
         >
           <Box flex={1}>
-            <Typography variant="h6" fontWeight={700}>
+            <Typography variant="h6" fontWeight={900} color="var(--ct-dashboard-title, #06123A)">
               Upcoming shifts
             </Typography>
             <Typography variant="body2" color="text.secondary">
@@ -286,8 +293,8 @@ export default function OverviewPageOwner() {
                 p: 1.5,
                 borderRadius: 2,
                 transition: "all 0.2s",
-                bgcolor: alpha(theme.palette.primary.main, 0.04),
-                "&:hover": { bgcolor: alpha(theme.palette.primary.main, 0.08) },
+                bgcolor: "var(--ct-dashboard-soft, #EFE7FF)",
+                "&:hover": { bgcolor: "var(--ct-dashboard-icon-bg, #EFE7FF)" },
               }}
             >
               <Box flex={1}>
@@ -302,6 +309,7 @@ export default function OverviewPageOwner() {
                 component={RouterLink}
                 to={`/dashboard/owner/shifts/${shift.id}`}
                 endIcon={<ArrowForwardIcon fontSize="small" />}
+                sx={{ color: primary, fontWeight: 800 }}
               >
                 View shift
               </Button>

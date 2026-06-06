@@ -90,13 +90,25 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
     ];
 
     return (
-        <Box>
-            <Box sx={{ position: 'relative', px: { xs: 1, md: 5 }, pt: 2, pb: 4, mb: 1 }}>
+        <Box sx={{ maxWidth: '100%', overflow: 'hidden' }}>
+            <Box
+                sx={{
+                    position: 'relative',
+                    px: { xs: 0, md: 5 },
+                    pt: 2,
+                    pb: 4,
+                    mb: 1,
+                    overflowX: { xs: 'auto', md: 'visible' },
+                    overflowY: 'hidden',
+                    scrollbarWidth: 'none',
+                    '&::-webkit-scrollbar': { display: 'none' },
+                }}
+            >
                 <Box
                     sx={{
                         position: 'absolute',
-                        left: { xs: 30, md: 78 },
-                        right: { xs: 30, md: 78 },
+                        left: { xs: 31, md: 78 },
+                        right: { xs: 31, md: 78 },
                         top: 54,
                         height: 5,
                         borderRadius: 999,
@@ -106,17 +118,29 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                 <Box
                     sx={{
                         position: 'absolute',
-                        left: { xs: 30, md: 78 },
+                        left: { xs: 31, md: 78 },
                         top: 54,
                         width: `${Math.min(100, Math.max(0, ((Math.max(selectedLevelIdx, uiCurrentLevelIdx) + stepOffset) / Math.max(1, visualSteps.length - 1)) * 100))}%`,
-                        maxWidth: { xs: 'calc(100% - 60px)', md: 'calc(100% - 156px)' },
+                        maxWidth: { xs: `calc(${visualSteps.length * 96}px - 62px)`, md: 'calc(100% - 156px)' },
                         height: 5,
                         borderRadius: 999,
                         background: 'linear-gradient(90deg,#8B5CF6 0%,#7C3AED 38%,#3B82F6 72%,#22D3EE 100%)',
                         boxShadow: '0 0 18px rgba(124,58,237,.35)',
                     }}
                 />
-                <Box sx={{ position: 'relative', zIndex: 1, display: 'grid', gridTemplateColumns: `repeat(${visualSteps.length}, minmax(90px, 1fr))`, gap: { xs: 1, md: 4 } }}>
+                <Box
+                    sx={{
+                        position: 'relative',
+                        zIndex: 1,
+                        display: 'grid',
+                        gridTemplateColumns: {
+                            xs: `repeat(${visualSteps.length}, 96px)`,
+                            md: `repeat(${visualSteps.length}, minmax(90px, 1fr))`,
+                        },
+                        gap: { xs: 0.5, md: 4 },
+                        minWidth: { xs: visualSteps.length * 96, md: 0 },
+                    }}
+                >
                     {visualSteps.map((step) => {
                         const Icon = step.icon;
                         const platformEscalated = 'isPlatform' in step && step.isPlatform && 'escalated' in step && step.escalated;
@@ -180,6 +204,8 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                                 <Typography
                                     sx={{
                                         fontWeight: 800,
+                                        fontSize: { xs: 12, md: 16 },
+                                        lineHeight: 1.15,
                                         color: 'isPlatform' in step && step.isPlatform
                                             ? platformEscalated ? '#111827' : '#94A3B8'
                                             : step.active ? '#7C3AED' : step.reached ? '#111827' : '#94A3B8',
@@ -222,11 +248,11 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                             flexWrap: 'wrap',
                         }}
                     >
-                        <Stack direction="row" spacing={2} alignItems="center">
+                        <Stack direction="row" spacing={2} alignItems="center" sx={{ minWidth: 0 }}>
                             <Box sx={{ width: 56, height: 56, borderRadius: '50%', display: 'grid', placeItems: 'center', color: '#fff', background: 'linear-gradient(135deg,#A855F7,#2563EB)', boxShadow: '0 12px 24px rgba(124,58,237,.28)' }}>
                                 {loading ? <CircularProgress size={22} color="inherit" /> : <TrendingUp />}
                             </Box>
-                            <Box>
+                            <Box sx={{ minWidth: 0 }}>
                                 <Typography sx={{ fontWeight: 900, color: '#111827' }}>
                                     {loading ? 'Escalating...' : 'Ready to widen your search?'}
                                 </Typography>
@@ -236,7 +262,7 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                             </Box>
                         </Stack>
                         {!loading && onClick && (
-                            <Button variant="contained" onClick={onClick} sx={{ minWidth: 260, borderRadius: 2 }}>
+                            <Button variant="contained" onClick={onClick} sx={{ width: { xs: '100%', sm: 'auto' }, minWidth: { xs: 0, sm: 260 }, borderRadius: 2 }}>
                                 {label}
                             </Button>
                         )}

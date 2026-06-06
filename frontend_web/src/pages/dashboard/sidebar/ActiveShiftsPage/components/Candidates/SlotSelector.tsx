@@ -47,24 +47,29 @@ export const SlotSelector: React.FC<SlotSelectorProps> = ({
                     </Typography>
                 </Box>
             </Stack>
-            <Stack direction="row" alignItems="center" spacing={1} justifyContent="center">
+            <Stack direction="row" alignItems="center" spacing={{ xs: 0.25, sm: 1 }} justifyContent="center" sx={{ minWidth: 0 }}>
             <IconButton
                 size="small"
                 onClick={() => onSelectSlot(prevId)}
                 disabled={selectedSlotId === prevId}
+                sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
             >
                 <ChevronLeft />
             </IconButton>
             <Box
                 sx={{
                     display: 'grid',
-                    gridTemplateColumns: { xs: 'repeat(2, minmax(150px, 1fr))', md: 'repeat(5, minmax(150px, 1fr))' },
-                    gap: 1.5,
+                    gridAutoFlow: { xs: 'column', md: 'initial' },
+                    gridAutoColumns: { xs: 'minmax(170px, 78vw)', md: 'initial' },
+                    gridTemplateColumns: { xs: 'none', md: 'repeat(5, minmax(150px, 1fr))' },
+                    gap: { xs: 1, sm: 1.5 },
                     overflowX: 'auto',
                     width: '100%',
-                    px: 1,
+                    px: { xs: 0, sm: 1 },
+                    pb: { xs: 0.5, sm: 0 },
                     scrollBehavior: 'smooth',
                     '&::-webkit-scrollbar': { display: 'none' },
+                    scrollbarWidth: 'none',
                 }}
             >
                 {slots.map((slot) => (
@@ -77,7 +82,7 @@ export const SlotSelector: React.FC<SlotSelectorProps> = ({
                             justifyContent: 'flex-start',
                             alignItems: 'stretch',
                             minHeight: 92,
-                            p: 1.5,
+                            p: { xs: 1.25, sm: 1.5 },
                             borderRadius: 2,
                             borderColor: slot.id === selectedSlotId ? '#8B5CF6' : '#E5E7EB',
                             bgcolor: slot.id === selectedSlotId ? '#FAF5FF' : '#fff',
@@ -130,6 +135,7 @@ export const SlotSelector: React.FC<SlotSelectorProps> = ({
                 size="small"
                 onClick={() => onSelectSlot(nextId)}
                 disabled={selectedSlotId === nextId}
+                sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
             >
                 <ChevronRight />
             </IconButton>

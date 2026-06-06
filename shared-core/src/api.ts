@@ -419,8 +419,9 @@ export function getOrganizationById(id) {
 export function createOrganization(data) {
     return fetchApi('/client-profile/organizations/', { method: 'POST', body: JSON.stringify(data) });
 }
-export function getOrganizationDashboard(orgId) {
-    return fetchApi(`/client-profile/dashboard/organization/${orgId}/`);
+export function getOrganizationDashboard(orgId, params) {
+    const query = buildQuery(params);
+    return fetchApi(`/client-profile/dashboard/organization/${orgId}/${query}`);
 }
 // ============ PHARMACIES ============
 export function getPharmacies(params) {
@@ -1450,14 +1451,17 @@ export async function createRatingService(payload) {
 }
 // ============ HUB ============
 // ============ DASHBOARDS ============
-export function getOwnerDashboard() {
-    return fetchApi('/client-profile/dashboard/owner/');
+export function getOwnerDashboard(params) {
+    const query = buildQuery(params);
+    return fetchApi(`/client-profile/dashboard/owner/${query}`);
 }
-export function getPharmacistDashboard() {
-    return fetchApi('/client-profile/dashboard/pharmacist/');
+export function getPharmacistDashboard(params) {
+    const query = buildQuery(params);
+    return fetchApi(`/client-profile/dashboard/pharmacist/${query}`);
 }
-export function getOtherStaffDashboard() {
-    return fetchApi('/client-profile/dashboard/otherstaff/');
+export function getOtherStaffDashboard(params) {
+    const query = buildQuery(params);
+    return fetchApi(`/client-profile/dashboard/otherstaff/${query}`);
 }
 export function getExplorerDashboard() {
     return fetchApi('/client-profile/dashboard/explorer/');

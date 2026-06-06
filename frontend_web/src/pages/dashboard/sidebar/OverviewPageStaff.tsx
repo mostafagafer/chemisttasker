@@ -1,40 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Divider,
-  Grid,
-  Paper,
-  Skeleton,
-  Stack,
-  Typography,
-} from "@mui/material";
-import { alpha, useTheme } from "@mui/material/styles";
-import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import { Link as RouterLink } from "react-router-dom";
+import { Alert, Box, Grid, Skeleton } from "@mui/material";
+import WorkOutlineIcon from "@mui/icons-material/WorkOutline";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
+import HistoryIcon from "@mui/icons-material/History";
+import PersonIcon from "@mui/icons-material/Person";
+import AppsIcon from "@mui/icons-material/Apps";
+import SchoolIcon from "@mui/icons-material/School";
+import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
+import AccessTimeIcon from "@mui/icons-material/AccessTime";
+import CreditCardIcon from "@mui/icons-material/CreditCard";
+import FavoriteBorderIcon from "@mui/icons-material/FavoriteBorder";
+import { useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../../contexts/AuthContext";
-import { getExplorerDashboard, getOtherStaffDashboard, getPharmacistDashboard } from "@chemisttasker/shared-core";
-
-const formatShiftDate = (value?: string | null) => {
-  if (!value) return "No date provided";
-  return value.replace("T", " ").replace("Z", "");
-};
+import { useWorkspace } from "../../../contexts/WorkspaceContext";
+import { getExplorerDashboard } from "@chemisttasker/shared-core";
+import apiClient from "../../../utils/apiClient";
+import DashboardOverviewTemplate, {
+  defaultDashboardActivity,
+  type DashboardAction,
+  type DashboardMetric,
+} from "../../../components/dashboard/DashboardOverviewTemplate";
 
 type User = {
   id: number;
   email: string;
   first_name?: string;
-  last_name?: string;
   username?: string;
   role?: string;
-};
-
-type ShiftSummary = {
-  id: number;
-  pharmacy_name: string;
-  date: string;
 };
 
 type DashboardData = {
@@ -43,13 +36,35 @@ type DashboardData = {
   upcoming_shifts_count?: number;
   confirmed_shifts_count?: number;
   community_shifts_count?: number;
-  shifts?: ShiftSummary[];
   bills_summary?: Record<string, string>;
+  upcoming_stats?: { today?: number; week?: number; month?: number };
+  shift_summary?: {
+    upcoming_count?: number;
+    confirmed_count?: number;
+    community_count?: number;
+    open_count?: number;
+    all_count?: number;
+  };
+  invoice_summary?: { unpaid_count?: number; unpaid_total?: string; total_billed?: string };
+  activity?: any[];
 };
 
+function firstName(user?: User | null, fallback = "there") {
+  return user?.first_name || user?.username || user?.email?.split("@")[0] || fallback;
+}
+
 export default function OverviewPageStaff() {
-  const theme = useTheme();
   const { user } = useAuth() as { user: User };
+  const { selectedPharmacyId, workspace } = useWorkspace();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const urlPharmacyId = Number(searchParams.get("pharmacy_id") ?? searchParams.get("pharmacy") ?? searchParams.get("pharmacyId"));
+  const effectivePharmacyId =
+    workspace === "internal" && selectedPharmacyId
+      ? selectedPharmacyId
+      : Number.isFinite(urlPharmacyId)
+        ? urlPharmacyId
+        : null;
 
   const role = (user?.role || "").toLowerCase();
   const isPharmacist = role === "pharmacist";
@@ -62,99 +77,73 @@ export default function OverviewPageStaff() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
 
     const load = async () => {
       try {
+        const dashboardParams =
+          workspace === "internal" && selectedPharmacyId
+            ? { workspace: "internal", pharmacy_id: selectedPharmacyId }
+            : effectivePharmacyId
+              ? { workspace: "internal", pharmacy_id: effectivePharmacyId }
+            : { workspace: "platform" };
         const result = isPharmacist
-          ? await getPharmacistDashboard()
+          ? (await apiClient.get("/client-profile/dashboard/pharmacist/", { params: dashboardParams })).data
           : isOtherStaff
-          ? await getOtherStaffDashboard()
-          : await getExplorerDashboard();
+            ? (await apiClient.get("/client-profile/dashboard/otherstaff/", { params: dashboardParams })).data
+            : await getExplorerDashboard();
+        if (cancelled) return;
         setData(result as any);
         setError(null);
       } catch (err: any) {
         if (!isExplorer && err?.response?.status === 403) {
           try {
             const fallback = await getExplorerDashboard();
-            setData(fallback as any);
-            setError(null);
+            if (!cancelled) {
+              setData(fallback as any);
+              setError(null);
+            }
             return;
           } catch {
-            // continue to error handling below
+            // fall through
           }
         }
-        setError("Error loading dashboard.");
-        setData(null);
+        if (!cancelled) {
+          setError("Error loading dashboard.");
+          setData(null);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     void load();
-  }, [isPharmacist, isOtherStaff, isExplorer]);
+    return () => {
+      cancelled = true;
+    };
+  }, [isPharmacist, isOtherStaff, isExplorer, selectedPharmacyId, effectivePharmacyId, workspace]);
 
-  const shifts = useMemo(() => data?.shifts ?? [], [data?.shifts]);
+  const selectedPharmacyName = useMemo(() => {
+    const memberships = Array.isArray((user as any)?.memberships) ? (user as any).memberships : [];
+    const match = memberships.find((membership: any) => Number(membership?.pharmacy_id ?? membership?.pharmacyId ?? membership?.pharmacy?.id) === Number(effectivePharmacyId));
+    return match?.pharmacy_name ?? match?.pharmacyName ?? match?.pharmacy?.name ?? (effectivePharmacyId ? `Pharmacy #${effectivePharmacyId}` : "All pharmacies");
+  }, [effectivePharmacyId, user]);
 
-if (loading) {
-  return (
-    <Box
-      sx={{
-        width: "100%",
-        maxWidth: "1200px",
-        mx: "auto",
-        px: { xs: 1, sm: 2, md: 4 },
-        py: { xs: 4, md: 6 },
-        display: "flex",
-        flexDirection: "column",
-        gap: { xs: 3, md: 4 },
-        minHeight: "calc(100vh - 80px)", // ✅ Make it fill screen height
-      }}
-    >
-      {/* Hero card skeleton */}
-      <Skeleton
-        variant="rounded"
-        height={220}
-        sx={{
-          width: "100%",
-          borderRadius: 3,
-        }}
-      />
-
-      {/* 3 stats skeletons */}
-      <Grid
-        container
-        spacing={2.5}
-        sx={{ width: "100%" }}
-      >
-        {Array.from({ length: 3 }).map((_, idx) => (
-          <Grid size={{ xs: 12, sm: 4 }} key={idx}>
-            <Skeleton
-              variant="rounded"
-              height={120}
-              sx={{
-                width: "100%",
-                borderRadius: 3,
-              }}
-            />
-          </Grid>
-        ))}
-      </Grid>
-
-      {/* Bottom card skeleton */}
-      <Skeleton
-        variant="rounded"
-        height={280}
-        sx={{
-          width: "100%",
-          borderRadius: 3,
-        }}
-      />
-    </Box>
-  );
-}
-
-
+  if (loading) {
+    return (
+      <Box sx={{ width: "100%", maxWidth: 1660, mx: "auto", py: { xs: 3, md: 4 }, display: "flex", flexDirection: "column", gap: { xs: 3, md: 4 } }}>
+        <Skeleton variant="rounded" height={290} sx={{ borderRadius: "22px" }} />
+        <Grid container spacing={2.5}>
+          {Array.from({ length: 4 }).map((_, idx) => (
+            <Grid size={{ xs: 12, sm: 6, md: 3 }} key={idx}>
+              <Skeleton variant="rounded" height={196} sx={{ borderRadius: "20px" }} />
+            </Grid>
+          ))}
+        </Grid>
+      </Box>
+    );
+  }
 
   if (error) {
     return (
@@ -164,277 +153,65 @@ if (loading) {
     );
   }
 
-  const displayName =
-    data?.user?.first_name ||
-    data?.user?.username ||
-    user?.first_name ||
-    user?.username ||
-    (isExplorer ? "Explorer" : "there");
+  const displayName = firstName(data?.user || user, isExplorer ? "Explorer" : "there");
+  const upcoming = {
+    today: Number(data?.upcoming_stats?.today ?? 0),
+    week: Number(data?.upcoming_stats?.week ?? data?.upcoming_shifts_count ?? 0),
+    month: Number(data?.upcoming_stats?.month ?? data?.upcoming_shifts_count ?? 0),
+  };
+  const dashboardTitle = isExplorer ? "Explorer Dashboard" : isPharmacist ? "Pharmacist Dashboard" : "Other Staff Dashboard";
+  const dashboardSubtitle = isExplorer
+    ? "Browse the public ChemistTasker platform, resources and opportunities"
+    : effectivePharmacyId
+      ? `Working inside ${selectedPharmacyName}`
+      : "Review shifts, availability and pharmacy opportunities";
 
-  const subtitle = isExplorer
-    ? data?.message || "Discover open roles and finish onboarding to unlock personalised matches."
-    : "Review your upcoming shifts, update availability, and keep an eye on community opportunities.";
-
-  const statCards = [
-    { label: "Upcoming Shifts", value: data?.upcoming_shifts_count ?? 0 },
-    { label: "Confirmed Shifts", value: data?.confirmed_shifts_count ?? 0 },
-    { label: "Community Shifts", value: data?.community_shifts_count ?? 0 },
-  ];
-
-  const heroChips = isExplorer
+  const actions: DashboardAction[] = isExplorer
     ? [
-        `Community shifts: ${data?.community_shifts_count ?? 0}`,
-        "Complete profile to unlock invites",
+        { title: "Public Shifts", description: "Browse open roles near you", icon: <WorkOutlineIcon />, onClick: () => navigate(`/dashboard/${roleSegment}/shifts/public`), tone: "blue" },
+        { title: "Community Shifts", description: "Explore platform opportunities", icon: <CalendarMonthIcon />, onClick: () => navigate(`/dashboard/${roleSegment}/shifts/community`), tone: "purple" },
+        { title: "Profile", description: "Complete your onboarding", icon: <PersonIcon />, onClick: () => navigate(`/dashboard/${roleSegment}/onboarding`), tone: "pink" },
+        { title: "Talent Hub", description: "Discover learning paths", icon: <AppsIcon />, onClick: () => navigate(`/dashboard/${roleSegment}/interests`), tone: "cyan" },
       ]
     : [
-        `Points: ${data?.bills_summary?.points ?? "--"}`,
-        `Total billed: ${data?.bills_summary?.total_billed ?? "--"}`,
+        { title: "Public Shifts", description: "View open platform shifts", icon: <WorkOutlineIcon />, onClick: () => navigate(`/dashboard/${roleSegment}/shifts/public`), tone: "blue" },
+        { title: "My Roster", description: "Review internal assignments", icon: <CalendarMonthIcon />, onClick: () => navigate(`/dashboard/${roleSegment}/shifts/roster`), tone: "purple" },
+        { title: "Confirmed Shifts", description: "Track your booked work", icon: <ShieldOutlinedIcon />, onClick: () => navigate(`/dashboard/${roleSegment}/shifts/confirmed`), tone: "cyan" },
+        { title: "Availability", description: "Update your working times", icon: <AccessTimeIcon />, onClick: () => navigate(`/dashboard/${roleSegment}/availability`), tone: "pink" },
+        { title: "Invoices", description: "Manage and create invoices", icon: <CreditCardIcon />, onClick: () => navigate(`/dashboard/${roleSegment}/invoice`), tone: "cyan" },
+        { title: "Shift History", description: "Review past shifts", icon: <HistoryIcon />, onClick: () => navigate(`/dashboard/${roleSegment}/shifts/history`), tone: "purple" },
+        { title: "Profile", description: "Documents and preferences", icon: <PersonIcon />, onClick: () => navigate(`/dashboard/${roleSegment}/onboarding`), tone: "pink" },
+        { title: "Learning Materials", description: "Training and resources", icon: <SchoolIcon />, onClick: () => navigate(`/dashboard/${roleSegment}/learning`), tone: "blue", wide: true },
       ];
 
-  const primaryCta = isExplorer
-    ? {
-        label: "Browse community shifts",
-        to: `/dashboard/${roleSegment}/shifts/community`,
-        variant: "contained" as const,
-      }
-    : {
-        label: "View Public shifts",
-        to: `/dashboard/${roleSegment}/shifts/public`,
-        variant: "contained" as const,
-      };
-
-  const secondaryCta = isExplorer
-    ? {
-        label: "Complete profile",
-        to: `/dashboard/${roleSegment}/onboarding`,
-        variant: "outlined" as const,
-      }
-    : {
-        label: "Update availability",
-        to: `/dashboard/${roleSegment}/availability`,
-        variant: "outlined" as const,
-      };
-
-  const heroGradient = `linear-gradient(135deg, ${alpha(
-    theme.palette.primary.main,
-    0.92,
-  )}, ${alpha(theme.palette.secondary.main, 0.65)})`;
+  const metrics: DashboardMetric[] = [
+    { label: "Open Shifts", value: data?.shift_summary?.open_count ?? 0, helper: effectivePharmacyId ? selectedPharmacyName : "Public platform", icon: <CalendarMonthIcon />, tone: "blue" },
+    { label: "Confirmed Shifts", value: data?.shift_summary?.confirmed_count ?? data?.confirmed_shifts_count ?? 0, helper: "Booked work", icon: <ShieldOutlinedIcon />, tone: "purple" },
+    { label: "Count of Shifts", value: data?.shift_summary?.all_count ?? data?.shift_summary?.upcoming_count ?? data?.upcoming_shifts_count ?? 0, helper: "Active shift records", icon: <WorkOutlineIcon />, tone: "cyan" },
+    { label: isExplorer ? "Saved Interests" : "Unpaid Invoices", value: isExplorer ? "No saves yet" : data?.invoice_summary?.unpaid_count ?? 0, helper: isExplorer ? "Start saving topics" : data?.invoice_summary?.unpaid_total ?? "$0.00", icon: isExplorer ? <FavoriteBorderIcon /> : <CreditCardIcon />, tone: "pink" },
+  ];
+  const fallbackActivity = defaultDashboardActivity(selectedPharmacyName, Boolean(effectivePharmacyId));
+  const activityItems =
+    Array.isArray(data?.activity) && data.activity.length > 0
+      ? [...data.activity, ...fallbackActivity].slice(0, 4)
+      : fallbackActivity;
 
   return (
-    <Box
-      sx={{
-        maxWidth: 1200,
-        width: "100%",       // ✅ Ensures full width
-        minHeight: "100vh",  // ✅ Prevents shrinking to top-left corner
-        mx: "auto",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "flex-start",
-        gap: { xs: 2, md: 3 },
-        px: { xs: 1, sm: 2, md: 4 },
-        py: { xs: 2, md: 4 },
-      }}
-    >
-      <Paper
-        elevation={0}
-        sx={{
-          p: { xs: 3, md: 4 },
-          borderRadius: { xs: 3, md: 4 },
-          backgroundImage: heroGradient,
-          color: "#fff",
-        }}
-      >
-        <Stack
-          direction={{ xs: "column", md: "row" }}
-          spacing={{ xs: 3, md: 4 }}
-          alignItems={{ xs: "flex-start", md: "center" }}
-          justifyContent="space-between"
-          sx={{ minWidth: 0 }}
-        >
-          <Box sx={{ minWidth: 0, width: "100%" }}>
-            <Typography
-              variant="h4"
-              fontWeight={800}
-              gutterBottom
-              sx={{
-                fontSize: { xs: "2.25rem", sm: theme.typography.h4.fontSize },
-                lineHeight: 1.05,
-                overflowWrap: "anywhere",
-              }}
-            >
-              Welcome back, {displayName}!
-            </Typography>
-            <Typography
-              variant="body1"
-              sx={{
-                opacity: 0.92,
-                maxWidth: 540,
-                mb: 3,
-                pr: { xs: 0, md: 2 },
-              }}
-            >
-              {subtitle}
-            </Typography>
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              spacing={1.5}
-              sx={{
-                width: "100%",
-                "& > *": {
-                  width: { xs: "100%", sm: "auto" },
-                },
-              }}
-            >
-              <Button
-                variant={primaryCta.variant}
-                color="inherit"
-                component={RouterLink}
-                to={primaryCta.to}
-                sx={
-                  primaryCta.variant === "contained"
-                    ? { color: theme.palette.primary.main, minWidth: 0 }
-                    : { minWidth: 0 }
-                }
-              >
-                {primaryCta.label}
-              </Button>
-              <Button
-                variant={secondaryCta.variant}
-                color="inherit"
-                component={RouterLink}
-                to={secondaryCta.to}
-                sx={{ borderColor: alpha("#ffffff", 0.45), color: "#fff", minWidth: 0 }}
-              >
-                {secondaryCta.label}
-              </Button>
-            </Stack>
-          </Box>
-
-          <Stack
-            direction="column"
-            spacing={1}
-            alignItems={{ xs: "flex-start", md: "flex-end" }}
-            sx={{ width: { xs: "100%", md: "auto" }, minWidth: 0 }}
-          >
-            <Typography
-              variant="body2"
-              sx={{ letterSpacing: ".08em", textTransform: "uppercase", opacity: 0.7 }}
-            >
-              Quick stats
-            </Typography>
-            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ width: "100%" }}>
-              {heroChips.map((chip) => (
-                <Chip
-                  key={chip}
-                  label={chip}
-                  sx={{
-                    maxWidth: "100%",
-                    bgcolor: alpha("#ffffff", 0.2),
-                    color: "#fff",
-                    "& .MuiChip-label": {
-                      display: "block",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    },
-                  }}
-                />
-              ))}
-            </Stack>
-          </Stack>
-        </Stack>
-      </Paper>
-
-      <Grid container spacing={2.5}>
-        {statCards.map((card) => (
-          <Grid size={{ xs: 12, sm: 4 }} key={card.label}>
-            <Paper
-              sx={{
-                p: 2.5,
-                borderRadius: 3,
-                display: "flex",
-                flexDirection: "column",
-                gap: 1,
-                height: "100%",
-              }}
-            >
-              <Typography variant="subtitle2" color="text.secondary">
-                {card.label}
-              </Typography>
-              <Typography variant="h4" fontWeight={800}>
-                {card.value}
-              </Typography>
-            </Paper>
-          </Grid>
-        ))}
-      </Grid>
-
-      <Paper sx={{ borderRadius: 3, p: { xs: 2, md: 3 } }}>
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          alignItems={{ xs: "flex-start", sm: "center" }}
-          spacing={2}
-        >
-          <Box flex={1}>
-            <Typography variant="h6" fontWeight={700}>
-              Upcoming shifts
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Confirm details early and stay ready for handover.
-            </Typography>
-          </Box>
-          {!isExplorer && (
-            <Button
-              component={RouterLink}
-              to={`/dashboard/${roleSegment}/shifts/confirmed`}
-              endIcon={<ArrowForwardIcon />}
-            >
-              View confirmed shifts
-            </Button>
-          )}
-        </Stack>
-
-        <Divider sx={{ my: 2 }} />
-
-        <Stack spacing={1.5}>
-          {shifts.length === 0 && (
-            <Typography variant="body2" color="text.secondary">
-              No shifts scheduled yet. Check community opportunities to get started.
-            </Typography>
-          )}
-
-          {shifts.map((shift) => (
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              key={shift.id}
-              spacing={1}
-              alignItems={{ xs: "flex-start", sm: "center" }}
-              sx={{
-                p: 1.5,
-                borderRadius: 2,
-                transition: "all 0.2s",
-                bgcolor: alpha(theme.palette.primary.main, 0.04),
-                "&:hover": { bgcolor: alpha(theme.palette.primary.main, 0.08) },
-              }}
-            >
-              <Box flex={1}>
-                <Typography fontWeight={600}>{shift.pharmacy_name}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {formatShiftDate(shift.date)}
-                </Typography>
-              </Box>
-              <Button
-                size="small"
-                variant="text"
-                component={RouterLink}
-                to={`/dashboard/${roleSegment}/shifts/${shift.id}`}
-                endIcon={<ArrowForwardIcon fontSize="small" />}
-              >
-                View shift
-              </Button>
-            </Stack>
-          ))}
-        </Stack>
-      </Paper>
-    </Box>
+    <DashboardOverviewTemplate
+      title={dashboardTitle}
+      badge={effectivePharmacyId ? "Internal workspace" : "Public platform"}
+      subtitle={dashboardSubtitle}
+      heroTitle={`Welcome back, ${displayName}!`}
+      heroSubtitle={isExplorer ? data?.message || "Discover open roles and finish onboarding to unlock personalised matches." : "Review your upcoming shifts, update availability, and keep an eye on community opportunities."}
+      primaryAction={{ label: isExplorer ? "Browse community shifts" : "View Public shifts", icon: <WorkOutlineIcon />, onClick: () => navigate(`/dashboard/${roleSegment}/shifts/${isExplorer ? "community" : "public"}`) }}
+      secondaryAction={{ label: isExplorer ? "Complete profile" : "Update availability", icon: <CalendarMonthIcon />, onClick: () => navigate(`/dashboard/${roleSegment}/${isExplorer ? "onboarding" : "availability"}`) }}
+      actions={actions}
+      upcoming={upcoming}
+      upcomingTitle={isExplorer ? "Job Snapshot" : "My Shifts"}
+      activity={activityItems}
+      metrics={metrics}
+      onOpenShifts={() => navigate(`/dashboard/${roleSegment}/shifts/${isExplorer ? "community" : "confirmed"}`)}
+      onOpenActivity={() => navigate(`/dashboard/${roleSegment}/interests`)}
+    />
   );
 }

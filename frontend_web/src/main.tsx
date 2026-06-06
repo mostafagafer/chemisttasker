@@ -1,6 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { Outlet, Navigate } from 'react-router-dom';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { WorkspaceProvider } from './contexts/WorkspaceContext'; // Add this import
 import { ToastProvider } from './contexts/ToastContext';
 import { initSharedCoreApi } from './config/api';
@@ -459,9 +461,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     {/* AuthProvider must wrap RouterProvider */}
     <AuthProvider>
       <WorkspaceProvider> {/* Add this wrapper */}
-        <ToastProvider>
-          <RouterProvider router={router} />
-        </ToastProvider>
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <ToastProvider>
+            <RouterProvider router={router} />
+          </ToastProvider>
+        </LocalizationProvider>
       </WorkspaceProvider> {/* Close wrapper */}
     </AuthProvider>
   </React.StrictMode>

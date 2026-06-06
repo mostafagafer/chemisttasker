@@ -7,6 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/context/AuthContext';
 import apiClient from '@/utils/apiClient';
 import HomeNavigationGrid from '@/components/HomeNavigationGrid';
+import { DashboardPersonaSwitcher } from '@/roles/shared/dashboard/dashboardScope';
 
 export default function AdminHomeScreen() {
   const router = useRouter();
@@ -49,6 +50,8 @@ export default function AdminHomeScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <DashboardPersonaSwitcher role={user?.role} />
+
         <Surface style={styles.hero}>
           <Text variant="labelLarge" style={styles.eyebrow}>Admin workspace</Text>
           <Text variant="headlineSmall" style={styles.title}>{pharmacyName}</Text>

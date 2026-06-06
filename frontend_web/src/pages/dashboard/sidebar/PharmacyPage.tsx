@@ -222,6 +222,12 @@ const RATE_TYPES = [
   { value: "PHARMACIST_PROVIDED", label: "Pharmacist Provided" },
 ] as const;
 const PHARMACY_CACHE_KEY = "pharmacyPage.cache.v2";
+const pharmacyPageFrameSx = {
+  width: "100%",
+  maxWidth: "none",
+  mx: "auto",
+  px: { xs: 0, sm: 1.5, md: 2, xl: 3 },
+} as const;
 
 type PharmacyPageProps = {
   standalone?: boolean;
@@ -1521,7 +1527,7 @@ export default function PharmacyPage({
   }
 
   return (
-    <Box sx={{ flex: 1, minHeight: 0 }}>
+    <Box sx={{ flex: 1, minHeight: 0, width: "100%" }}>
       <GlobalStyles styles={{ ".pac-container": { zIndex: 1400 } }} />
       {!standalone && (
         <TopBar
@@ -1537,9 +1543,7 @@ export default function PharmacyPage({
       {view === "list" && isOrganizationUser && !standalone && (
         <Box
           sx={{
-            maxWidth: 1200,
-            mx: "auto",
-            px: 3,
+            ...pharmacyPageFrameSx,
             pt: 3,
           }}
         >
@@ -1677,9 +1681,7 @@ export default function PharmacyPage({
       {view === "list" && !isOrganizationUser && !standalone && (
         <Box
           sx={{
-            maxWidth: 1200,
-            mx: "auto",
-            px: 3,
+            ...pharmacyPageFrameSx,
             pt: 3,
           }}
         >
@@ -1698,7 +1700,7 @@ export default function PharmacyPage({
             </Box>
             <Button
               variant="contained"
-              sx={{ ml: { sm: "auto" } }}
+              sx={{ ml: { sm: "auto" }, width: { xs: "100%", sm: "auto" } }}
               onClick={() => setOwnerAccordionOpen((prev) => !prev)}
             >
               {ownerAccordionOpen ? "Hide Requests" : "View Requests"}
@@ -1745,10 +1747,10 @@ export default function PharmacyPage({
               ) : (
                 <Stack spacing={2.5}>
                   {ownerClaims.map((claim) => (
-                    <Paper key={claim.id} variant="outlined" sx={{ borderRadius: 3, p: 2.5 }}>
+                    <Paper key={claim.id} variant="outlined" sx={{ borderRadius: 3, p: { xs: 2, md: 2.5 } }}>
                       <Stack spacing={1.5}>
-                        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-                          <Box>
+                        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }} justifyContent="space-between">
+                          <Box sx={{ minWidth: 0 }}>
                             <Typography variant="h6">{claim.pharmacy?.name ?? "Untitled Pharmacy"}</Typography>
                             {claim.pharmacy?.email && (
                               <Typography variant="body2" color="text.secondary">
@@ -1820,14 +1822,13 @@ export default function PharmacyPage({
       {view === "list" && !standalone && (
         <Box
           sx={{
-            maxWidth: 1200,
-            mx: "auto",
-            px: 3,
+            ...pharmacyPageFrameSx,
             pt: 3,
             pb: 1,
             display: "flex",
+            flexDirection: { xs: "column", sm: "row" },
             justifyContent: "space-between",
-            alignItems: "center",
+            alignItems: { xs: "stretch", sm: "center" },
             gap: 2,
           }}
         >
@@ -1841,13 +1842,13 @@ export default function PharmacyPage({
                 : "Manage your locations, staff and admins"}
             </Typography>
           </Box>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ width: { xs: "100%", sm: "auto" } }}>
             {standalone && pharmacies.length > 0 && (
               <Button variant="outlined" onClick={() => navigate(onCompletePath)}>
                 Continue Later
               </Button>
             )}
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => openDialog()}>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => openDialog()} sx={{ width: { xs: "100%", sm: "auto" } }}>
               Add Pharmacy
             </Button>
           </Stack>
@@ -1855,7 +1856,7 @@ export default function PharmacyPage({
       )}
 
       {standalone && view === "list" ? (
-        <Box sx={{ maxWidth: 980, mx: "auto", px: 3, py: 4 }}>
+        <Box sx={{ width: "100%", maxWidth: 980, mx: "auto", px: { xs: 0, sm: 2, md: 3 }, py: { xs: 2, md: 4 } }}>
           <Paper variant="outlined" sx={{ borderRadius: 3 }}>
             <Box sx={{ px: 3, pt: 3 }}>
               <Typography variant="h5" fontWeight={700}>
@@ -1873,14 +1874,12 @@ export default function PharmacyPage({
           </Paper>
         </Box>
       ) : view === "list" && showSkeleton ? (
-        <Box sx={{ maxWidth: 1200, mx: "auto", px: 3, pb: 4 }}>
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
+        <Box sx={{ ...pharmacyPageFrameSx, pb: 4 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "repeat(2, minmax(0, 1fr))" }, gap: 1.5 }}>
             {Array.from({ length: 3 }).map((_, index) => (
               <Box
                 key={index}
                 sx={{
-                  flex: "1 1 420px",
-                  maxWidth: 560,
                   borderRadius: 2,
                   border: "1px solid",
                   borderColor: "divider",
@@ -1923,7 +1922,7 @@ export default function PharmacyPage({
           autoPublishError={autoPublishError}
         />
       ) : (
-        <Box sx={{ maxWidth: 1200, mx: "auto", p: 3 }}>
+        <Box sx={{ ...pharmacyPageFrameSx, pt: 3 }}>
           <Alert severity="info">Select a pharmacy to view its details.</Alert>
         </Box>
       )}

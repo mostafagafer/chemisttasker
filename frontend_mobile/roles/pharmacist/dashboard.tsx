@@ -1,14 +1,22 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Animated, Dimensions } from 'react-native';
-import { Text, Card, Surface, IconButton, Chip, ActivityIndicator, Divider, Avatar, Badge, Button } from 'react-native-paper';
+import { Text, Card, Surface, IconButton, Chip, Divider, Button } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
-import { useWorkspace } from '../../context/WorkspaceContext';
 import { LinearGradient } from 'expo-linear-gradient';
-import { getPharmacistDashboard } from '@chemisttasker/shared-core';
 import getShiftPharmacyName from '@/roles/shared/shifts/utils/getShiftPharmacyName';
 import HomeNavigationGrid from '@/components/HomeNavigationGrid';
+import {
+  DashboardActivity,
+  DashboardErrorState,
+  DashboardLoadingState,
+  DashboardPersonaSwitcher,
+  DashboardScopeSwitcher,
+  DashboardStatsOverview,
+  type DashboardPayload,
+  useScopedDashboard,
+} from '@/roles/shared/dashboard/dashboardScope';
 
 const { width } = Dimensions.get('window');
 
@@ -21,23 +29,6 @@ type ShiftSummary = {
   startDatetime?: string;
   status?: string;
   role?: string;
-};
-
-type DashboardData = {
-  user?: {
-    first_name?: string;
-    last_name?: string;
-    username?: string;
-  };
-  message?: string;
-  upcoming_shifts_count?: number;
-  confirmed_shifts_count?: number;
-  community_shifts_count?: number;
-  shifts?: ShiftSummary[];
-  bills_summary?: {
-    total_billed?: string;
-    points?: string;
-  };
 };
 
 function formatShiftDate(value?: string | null) {
@@ -60,15 +51,15 @@ function formatShiftDate(value?: string | null) {
 
 export default function PharmacistOverviewScreen() {
   const { access, user, logout, isLoading: authLoading } = useAuth();
-  const { workspace, setWorkspace } = useWorkspace();
+  const scope = useScopedDashboard('PHARMACIST');
   const router = useRouter();
 
-  const [data, setData] = useState<DashboardData | null>(null);
+  const [data, setData] = useState<DashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
-  const [menuVisible, setMenuVisible] = useState(false);
 
   const normalizedRole = String(user?.role || '').toUpperCase();
 
@@ -79,8 +70,9 @@ export default function PharmacistOverviewScreen() {
     // If not refreshing, we might want to show loading initially
     if (!refreshing) setLoading(true);
     try {
-      const result = await getPharmacistDashboard();
+      const result = await scope.fetchDashboard();
       setData(result as any);
+      setErrorMessage(null);
 
       // Animate in
       Animated.parallel([
@@ -99,11 +91,16 @@ export default function PharmacistOverviewScreen() {
     } catch (err: any) {
       console.error('Unable to load dashboard', err);
       setData(null);
+      setErrorMessage(
+        err?.response?.status === 403
+          ? 'You no longer have access to that pharmacy scope. The dashboard scope has been reset.'
+          : err?.response?.data?.detail || 'Unable to load dashboard analytics right now.'
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [normalizedRole, access, refreshing, fadeAnim, slideAnim]);
+  }, [normalizedRole, access, refreshing, fadeAnim, slideAnim, scope.fetchDashboard]);
 
   useEffect(() => {
     if (authLoading) {
@@ -152,7 +149,7 @@ export default function PharmacistOverviewScreen() {
     },
     {
       label: 'Total Billed',
-      value: data?.bills_summary?.total_billed ?? '£0',
+      value: data?.bills_summary?.total_billed ?? 'Â£0',
       icon: 'cash',
       color: '#10B981',
       trend: 'This Month',
@@ -207,10 +204,7 @@ export default function PharmacistOverviewScreen() {
   if (loading && !refreshing && !data) {
     return (
       <SafeAreaView style={styles.container} edges={['left', 'right']}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#6366F1" />
-          <Text style={styles.loadingText}>Loading your dashboard...</Text>
-        </View>
+        <DashboardLoadingState />
       </SafeAreaView>
     );
   }
@@ -223,6 +217,16 @@ export default function PharmacistOverviewScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366F1" />}
         showsVerticalScrollIndicator={false}
       >
+        <DashboardPersonaSwitcher role="PHARMACIST" />
+        <DashboardScopeSwitcher
+          pharmacies={scope.pharmacies}
+          scopeLabel={scope.scopeLabel}
+          workspace={scope.workspace}
+          selectedPharmacyId={scope.selectedPharmacyId}
+          onSelectPlatform={scope.selectPlatform}
+          onSelectPharmacy={scope.selectPharmacy}
+        />
+        {errorMessage ? <DashboardErrorState message={errorMessage} onRetry={loadDashboard} /> : null}
         {/* Header */}
         {/* Stats Grid */}
         {/* <View style={styles.statsContainer}>
@@ -307,14 +311,26 @@ export default function PharmacistOverviewScreen() {
           )}
         </LinearGradient>
 
+        <DashboardStatsOverview data={data} />
+
         <LinearGradient colors={['#267DB8', '#433894', '#9A087D']} locations={[0, 0.58, 1]} start={{ x: 0, y: 0.1 }} end={{ x: 1, y: 1 }} style={styles.billingHero}>
           <View pointerEvents="none" style={styles.heroAngleOne} />
           <View pointerEvents="none" style={styles.heroAngleTwo} />
           <Text variant="labelMedium" style={styles.billingEyebrow}>Bills</Text>
           <View style={styles.billingRow}>
             <View>
-              <Text variant="headlineSmall" style={styles.billingValue}>{data?.bills_summary?.total_billed ?? '£0'}</Text>
+              <Text variant="headlineSmall" style={styles.billingValue}>{data?.invoice_summary?.total_billed ?? data?.bills_summary?.total_billed ?? '$0.00'}</Text>
               <Text variant="bodySmall" style={styles.billingText}>Total billed</Text>
+              <View style={styles.billingMetaRow}>
+                <View style={styles.billingMetaItem}>
+                  <Text style={styles.billingMetaValue}>{data?.invoice_summary?.unpaid_count ?? 0}</Text>
+                  <Text style={styles.billingMetaLabel}>Unpaid invoices</Text>
+                </View>
+                <View style={styles.billingMetaItem}>
+                  <Text style={styles.billingMetaValue}>{data?.invoice_summary?.unpaid_total ?? '$0.00'}</Text>
+                  <Text style={styles.billingMetaLabel}>Unpaid total</Text>
+                </View>
+              </View>
             </View>
             <TouchableOpacity style={styles.billingButton} onPress={() => router.push('/pharmacist/invoice' as any)}>
               <Text style={styles.billingButtonText}>Invoices</Text>
@@ -323,6 +339,8 @@ export default function PharmacistOverviewScreen() {
         </LinearGradient>
 
         <HomeNavigationGrid items={quickActions} onNavigate={(route) => router.push(route as any)} />
+
+        <DashboardActivity data={data} />
 
         {/* Bottom Menu */}
         <Surface style={styles.bottomSection}>
@@ -680,6 +698,31 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.78)',
     marginTop: 2,
   },
+  billingMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  billingMetaItem: {
+    minWidth: 118,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  billingMetaValue: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  billingMetaLabel: {
+    color: 'rgba(255,255,255,0.76)',
+    fontSize: 11,
+    marginTop: 2,
+  },
   billingButton: {
     borderRadius: 999,
     paddingHorizontal: 16,
@@ -817,5 +860,6 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
   },
 });
+
 
 

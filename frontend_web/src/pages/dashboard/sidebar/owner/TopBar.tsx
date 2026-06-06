@@ -24,7 +24,7 @@ export default function TopBar({ onBack, breadcrumb }: { onBack?: () => void; br
         borderBottom: `1px solid ${s.border}`,
       }}
     >
-      <Box sx={{ maxWidth: 1200, mx: "auto", px: 2, py: 1.5, display: "flex", alignItems: "center", gap: 2 }}>
+      <Box sx={{ maxWidth: 1200, mx: "auto", px: 2, py: 1.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
         {onBack && (
           <Button variant="outlined" size="small" onClick={onBack}>
             Back

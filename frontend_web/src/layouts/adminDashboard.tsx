@@ -1,15 +1,10 @@
 import { ReactNode, useEffect, useMemo } from "react";
 import { Outlet, useNavigate, useParams } from "react-router-dom";
 import { CircularProgress, Stack, Typography } from "@mui/material";
-import { DashboardLayout } from "@toolpad/core/DashboardLayout";
-import { PageContainer } from "@toolpad/core/PageContainer";
-import CustomAppTitle from "./CustomAppTitle";
 import { useAuth } from "../contexts/AuthContext";
-import TopBarActions from "./TopBarActions";
 import { ColorModeProvider } from "../theme/sleekTheme";
-import DashboardShell from "./DashboardShell";
-import DashboardSidebarFooter from "./DashboardSidebarFooter";
 import { AdminScopeProvider } from "../contexts/AdminScopeContext";
+import DashboardTopShell from "./DashboardTopShell";
 
 export default function AdminDashboardWrapper() {
   const { pharmacyId: pharmacyIdParam } = useParams<{ pharmacyId: string }>();
@@ -104,41 +99,18 @@ export default function AdminDashboardWrapper() {
   }
 
   const layout = (
-    <DashboardLayout
-      sidebarExpandedWidth={288}
-      slots={{
-        appTitle: () => <CustomAppTitle userRole="ADMIN" />,
-        toolbarActions: TopBarActions,
-        sidebarFooter: DashboardSidebarFooter,
-      }}
-    >
-      <PageContainer
-        maxWidth={false}
-        disableGutters
-        slots={{ header: () => null }}
-        sx={{
-          minHeight: "100%",
-          display: "flex",
-          flexDirection: "column",
-          px: { xs: 1.5, md: 3 },
-          py: { xs: 2, md: 3 },
-          gap: { xs: 2, md: 3 },
-        }}
-      >
-        {layoutContent}
-      </PageContainer>
-    </DashboardLayout>
+    <DashboardTopShell titleOverride={assignment.pharmacy_name ?? "Admin Dashboard"} forceAdminScope>
+      {layoutContent}
+    </DashboardTopShell>
   );
 
   return (
     <ColorModeProvider>
-      <DashboardShell>
-        {wrapWithScope ? (
-          <AdminScopeProvider assignment={assignment}>{layout}</AdminScopeProvider>
-        ) : (
-          layout
-        )}
-      </DashboardShell>
+      {wrapWithScope ? (
+        <AdminScopeProvider assignment={assignment}>{layout}</AdminScopeProvider>
+      ) : (
+        layout
+      )}
     </ColorModeProvider>
   );
 }

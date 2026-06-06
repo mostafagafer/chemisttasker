@@ -25,7 +25,6 @@ import { API_BASE_URL } from '../../constants/api';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { useNavigate } from 'react-router-dom';
 import ProfilePhotoUploader from '../../components/profilePhoto/ProfilePhotoUploader';
-import AccountDeletionSection from '../../components/AccountDeletionSection';
 import apiClient from '../../utils/apiClient';
 import { useAuth, type User } from '../../contexts/AuthContext';
 import { UnsavedChangesBoundary, useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
@@ -508,12 +507,6 @@ const handleSubmit = async (e: React.FormEvent) => {
             </Button>
           </Stack>
         </Paper>
-        )}
-
-        {!standalone && (
-        <Box sx={{ mt: 4 }}>
-          <AccountDeletionSection />
-        </Box>
         )}
       </Paper>
     </Container>

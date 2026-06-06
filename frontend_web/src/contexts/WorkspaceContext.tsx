@@ -7,6 +7,8 @@ interface WorkspaceContextType {
   workspace: WorkspaceType;
   setWorkspace: (workspace: WorkspaceType) => void;
   canUseInternal: boolean;
+  selectedPharmacyId: number | null;
+  setSelectedPharmacyId: (pharmacyId: number | null) => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
@@ -14,6 +16,7 @@ const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefin
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [workspace, setWorkspace] = useState<WorkspaceType>('platform');
+  const [selectedPharmacyId, setSelectedPharmacyId] = useState<number | null>(null);
 
   const canUseInternal = useMemo(() => {
     const memberships = Array.isArray((user as any)?.memberships) ? (user as any).memberships : [];
@@ -32,6 +35,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!canUseInternal && workspace !== 'platform') {
       setWorkspace('platform');
+      setSelectedPharmacyId(null);
     }
   }, [canUseInternal, workspace]);
 
@@ -39,15 +43,27 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     (nextWorkspace: WorkspaceType) => {
       if (!canUseInternal) {
         setWorkspace('platform');
+        setSelectedPharmacyId(null);
         return;
       }
       setWorkspace(nextWorkspace);
+      if (nextWorkspace === 'platform') {
+        setSelectedPharmacyId(null);
+      }
     },
     [canUseInternal]
   );
 
   return (
-    <WorkspaceContext.Provider value={{ workspace, setWorkspace: guardedSetWorkspace, canUseInternal }}>
+    <WorkspaceContext.Provider
+      value={{
+        workspace,
+        setWorkspace: guardedSetWorkspace,
+        canUseInternal,
+        selectedPharmacyId,
+        setSelectedPharmacyId,
+      }}
+    >
       {children}
     </WorkspaceContext.Provider>
   );

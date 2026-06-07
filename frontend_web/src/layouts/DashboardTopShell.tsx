@@ -201,14 +201,20 @@ function MegaMenu({
       slotProps={{
         paper: {
           sx: {
-            mt: 1,
-            width: { xs: "calc(100vw - 24px)", md: "min(1460px, calc(100vw - 24px))" },
+            mt: { xs: 0.5, md: 1 },
+            width: { xs: "calc(100vw - 16px)", md: "min(1460px, calc(100vw - 24px))" },
             maxWidth: "none",
-            borderRadius: "0 30px 30px 0",
+            maxHeight: { xs: "calc(100dvh - 96px)", md: "calc(100dvh - 112px)" },
+            borderRadius: { xs: "0 22px 22px 0", md: "0 30px 30px 0" },
             border: "1px solid var(--ct-border-color)",
             boxShadow: "0 28px 70px rgba(2, 18, 44, 0.16)",
-            overflow: "hidden",
+            overflowX: "hidden",
+            overflowY: "auto",
+            WebkitOverflowScrolling: "touch",
           },
+        },
+        list: {
+          sx: { p: 0 },
         },
       }}
     >
@@ -216,14 +222,14 @@ function MegaMenu({
         sx={{
           display: "grid",
           gridTemplateColumns: { xs: "1fr", lg: "repeat(4, minmax(0, 1fr))" },
-          gap: 2,
-          p: 2,
+          gap: { xs: 1.25, md: 2 },
+          p: { xs: 1, md: 2 },
           bgcolor: "var(--ct-elevated-bg)",
         }}
       >
         {groups.map((group) => (
-          <Box key={group.title} sx={{ border: "1px solid var(--ct-border-color)", bgcolor: "var(--ct-page-bg)", borderRadius: 3, p: 1.5 }}>
-            <Typography sx={{ px: 1, pb: 1, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", color: "var(--ct-text-secondary)", textTransform: "uppercase" }}>
+          <Box key={group.title} sx={{ border: "1px solid var(--ct-border-color)", bgcolor: "var(--ct-page-bg)", borderRadius: { xs: 2.5, md: 3 }, p: { xs: 1, md: 1.5 } }}>
+            <Typography sx={{ px: 1, pb: 1, fontSize: 10, fontWeight: 900, letterSpacing: "0.16em", color: "var(--ct-text-secondary)", textTransform: "uppercase" }}>
               {group.title}
             </Typography>
             <Stack direction="row" flexWrap="wrap" gap={1}>
@@ -236,13 +242,16 @@ function MegaMenu({
                     startIcon={item.icon}
                     endIcon={item.child ? undefined : null}
                     sx={{
-                      minHeight: 46,
+                      width: { xs: "100%", sm: "auto" },
+                      minHeight: { xs: 42, md: 46 },
+                      justifyContent: "flex-start",
                       borderRadius: 2,
                       px: 1.5,
                       py: 1,
                       textTransform: "none",
-                      fontSize: 13,
+                      fontSize: { xs: 12.5, md: 13 },
                       fontWeight: 900,
+                      lineHeight: 1.2,
                       color: active ? "var(--ct-dashboard-accent)" : item.child ? "var(--ct-text-secondary)" : "var(--ct-text-primary)",
                       bgcolor: active ? "var(--ct-dashboard-soft)" : item.child ? "var(--ct-hover-bg)" : "var(--ct-surface-bg)",
                       border: `1px solid ${active ? "#C4B5FD" : "transparent"}`,
@@ -667,7 +676,7 @@ export default function DashboardTopShell({
           maxWidth: "1660px",
           minWidth: 0,
           mx: "auto",
-          px: { xs: 0.75, sm: 1.5, md: 3 },
+          px: { xs: 1.5, sm: 2, md: 3 },
           py: { xs: 1.5, md: 3 },
           overflowX: "hidden",
           "& .MuiPaper-root": {

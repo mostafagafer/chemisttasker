@@ -723,6 +723,11 @@ export interface ShiftMemberStatusApi {
     status: "no_response" | "interested" | "rejected" | "accepted";
     is_member: boolean;
     membership_id?: number;
+    pharmacy_id?: number | null;
+    pharmacy_name?: string | null;
+    organization_id?: number | null;
+    organization_name?: string | null;
+    visibility_level?: string | null;
     average_rating?: number | null;
     rating?: number | null;
     user_first_name?: string | null;

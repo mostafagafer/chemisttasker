@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Typography, Paper, Button, CircularProgress, Stack } from '@mui/material';
+import { Box, Typography, Paper, Button, CircularProgress, Stack, Divider, Chip } from '@mui/material';
 import { Shift, ShiftInterest } from '@chemisttasker/shared-core';
 import { CounterOfferList } from './CounterOfferList';
 import { SlotSelector } from './SlotSelector';
@@ -96,6 +96,9 @@ export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
                     slotCandidateCounts={slotCandidateCounts}
                 />
             )}
+            <Divider>
+                <Chip label="Public Candidates" />
+            </Divider>
             {/* Counter Offers Section */}
             <Paper variant="outlined" sx={{ p: 2 }}>
                 <Typography variant="subtitle2" gutterBottom>

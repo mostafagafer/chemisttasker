@@ -7,7 +7,7 @@ import {
     fetchShiftMemberStatus,
 } from '@chemisttasker/shared-core';
 import { TabDataState } from '../types';
-import { PUBLIC_LEVEL_KEY } from '../utils/shiftHelpers';
+import { deriveLevelSequence, getCurrentLevelKey, PUBLIC_LEVEL_KEY } from '../utils/shiftHelpers';
 
 export function useTabData(
     shifts: Shift[],
@@ -91,7 +91,12 @@ export function useTabData(
     useEffect(() => {
         shifts.forEach(shift => {
             const currentLevel = selectedLevelByShift[shift.id] || (shift as any).visibility || PUBLIC_LEVEL_KEY;
-            loadTabDataForShift(shift, currentLevel as EscalationLevelKey);
+            const viewableLevels = deriveLevelSequence(getCurrentLevelKey(shift));
+            const levelsToLoad = new Set<EscalationLevelKey>([
+                ...viewableLevels,
+                currentLevel as EscalationLevelKey,
+            ]);
+            levelsToLoad.forEach(level => loadTabDataForShift(shift, level));
         });
     }, [shifts, selectedLevelByShift, loadTabDataForShift]);
 

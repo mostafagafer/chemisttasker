@@ -80,6 +80,7 @@ from django.db.models.deletion import ProtectedError
 from datetime import timedelta                   # used in TimestampSigner max_age
 from decimal import Decimal                      # used in manual_assign
 import uuid                                      # used in generate_share_link
+from urllib.parse import urlencode
 from django.contrib.auth import get_user_model   # used in ChainViewSet.add_user
 from users.models import User, OrganizationMembership, DeviceToken                    # referenced throughout (accept_user, etc.)
 from users.utils import build_org_invite_context
@@ -969,35 +970,128 @@ def _format_money(value):
     return f"${amount:,.2f}"
 
 
-def _dashboard_activity(*, shifts_qs, confirmed_qs, invoices_qs, pharmacy_name):
+def _dashboard_shift_action_url(shift, dashboard_role):
+    if not shift:
+        return ""
+    role = str(dashboard_role or "").lower()
+    if role == "organization":
+        return f"/dashboard/organization/shifts/{shift.id}"
+    if role == "pharmacist":
+        return f"/dashboard/pharmacist/shifts/{shift.id}"
+    if role == "otherstaff":
+        return f"/dashboard/otherstaff/shifts/{shift.id}"
+    return f"/dashboard/owner/shifts/{shift.id}"
+
+
+def _dashboard_hub_action_url(post):
+    if not post:
+        return ""
+    params = {"post": post.id}
+    if post.community_group_id:
+        params.update({"scope": "group", "group_id": post.community_group_id})
+    elif post.organization_id:
+        params.update({"scope": "organization", "organization_id": post.organization_id})
+    elif post.pharmacy_id:
+        params.update({"scope": "pharmacy", "pharmacy_id": post.pharmacy_id})
+    elif post.platform_hub:
+        params.update({"scope": "platform", "platform_hub": post.platform_hub})
+    return f"/dashboard/pharmacy-hub?{urlencode(params)}"
+
+
+def _dashboard_activity_time(value):
+    return value.strftime("%d %b") if value else ""
+
+
+def _dashboard_activity(*, shifts_qs, confirmed_qs, invoices_qs, pharmacy_name, dashboard_role=None, selected_pharmacy=None, user=None):
     activity = []
-    latest_shift = shifts_qs.order_by("-created_at").first()
+    shift_scope = shifts_qs
+    pharmacy_ids = list(
+        shift_scope.exclude(pharmacy_id__isnull=True)
+        .values_list("pharmacy_id", flat=True)
+        .distinct()[:100]
+    )
+
+    latest_shift = shift_scope.select_related("pharmacy").order_by("-created_at").first()
     if latest_shift:
         activity.append({
-            "title": "New shift posted",
+            "title": "Recent pharmacy shift posted",
             "description": latest_shift.pharmacy.name if latest_shift.pharmacy else pharmacy_name,
-            "time": latest_shift.created_at.strftime("%d %b") if latest_shift.created_at else "",
+            "time": _dashboard_activity_time(latest_shift.created_at),
             "kind": "shift",
+            "target_type": "shift",
+            "target_id": latest_shift.id,
+            "action_url": _dashboard_shift_action_url(latest_shift, dashboard_role),
+            "created_at": latest_shift.created_at.isoformat() if latest_shift.created_at else None,
         })
 
-    latest_confirmed = confirmed_qs.order_by("-slot_assignments__assigned_at").first()
+    hub_qs = PharmacyHubPost.objects.filter(deleted_at__isnull=True)
+    if selected_pharmacy is not None:
+        hub_qs = hub_qs.filter(pharmacy=selected_pharmacy)
+    elif pharmacy_ids:
+        hub_qs = hub_qs.filter(pharmacy_id__in=pharmacy_ids)
+    elif str(dashboard_role or "").lower() == "organization":
+        hub_qs = hub_qs.filter(organization__isnull=False)
+    else:
+        hub_qs = hub_qs.filter(platform_hub=PharmacyHubPost.PlatformHub.PUBLIC)
+    latest_hub_post = hub_qs.select_related("pharmacy", "organization", "community_group").order_by("-created_at").first()
+    if latest_hub_post:
+        description = (
+            getattr(latest_hub_post.pharmacy, "name", None)
+            or getattr(latest_hub_post.organization, "name", None)
+            or getattr(latest_hub_post.community_group, "name", None)
+            or "ChemistTasker Hub"
+        )
+        activity.append({
+            "title": "Recent Hub post",
+            "description": description,
+            "time": _dashboard_activity_time(latest_hub_post.created_at),
+            "kind": "hub",
+            "target_type": "hub_post",
+            "target_id": latest_hub_post.id,
+            "action_url": _dashboard_hub_action_url(latest_hub_post),
+            "created_at": latest_hub_post.created_at.isoformat() if latest_hub_post.created_at else None,
+        })
+
+    reveal_qs = ShiftProfileAccessAudit.objects.filter(
+        shift__in=shift_scope,
+        action=ShiftProfileAccessAudit.Action.REVEAL_PROFILE,
+    ).select_related("shift__pharmacy", "target_user")
+    if str(dashboard_role or "").lower() in {"pharmacist", "otherstaff"} and user is not None:
+        reveal_qs = reveal_qs.filter(target_user=user)
+    latest_reveal = reveal_qs.order_by("-created_at").first()
+    if latest_reveal:
+        target_name = latest_reveal.target_user.get_full_name() or latest_reveal.target_user.email
+        reveal_pharmacy_name = latest_reveal.shift.pharmacy.name if latest_reveal.shift and latest_reveal.shift.pharmacy else pharmacy_name
+        activity.append({
+            "title": "Shift profile revealed",
+            "description": f"{target_name} - {reveal_pharmacy_name}",
+            "time": _dashboard_activity_time(latest_reveal.created_at),
+            "kind": "reveal",
+            "target_type": "shift",
+            "target_id": latest_reveal.shift_id,
+            "action_url": _dashboard_shift_action_url(latest_reveal.shift, dashboard_role),
+            "created_at": latest_reveal.created_at.isoformat() if latest_reveal.created_at else None,
+        })
+
+    latest_confirmed = confirmed_qs.select_related("pharmacy").order_by("-slot_assignments__assigned_at").first()
     if latest_confirmed:
+        latest_assignment = latest_confirmed.slot_assignments.order_by("-assigned_at").first()
         activity.append({
             "title": "Shift confirmed",
             "description": latest_confirmed.pharmacy.name if latest_confirmed.pharmacy else pharmacy_name,
-            "time": latest_confirmed.slot_assignments.order_by("-assigned_at").first().assigned_at.strftime("%d %b") if latest_confirmed.slot_assignments.exists() else "",
+            "time": _dashboard_activity_time(latest_assignment.assigned_at if latest_assignment else None),
             "kind": "confirmed",
+            "target_type": "shift",
+            "target_id": latest_confirmed.id,
+            "action_url": _dashboard_shift_action_url(latest_confirmed, dashboard_role),
+            "created_at": latest_assignment.assigned_at.isoformat() if latest_assignment else None,
         })
 
-    latest_invoice = invoices_qs.order_by("-created_at").first()
-    if latest_invoice:
-        activity.append({
-            "title": "Invoice paid" if latest_invoice.status == "paid" else "Invoice unpaid",
-            "description": f"INV-{latest_invoice.id}",
-            "time": latest_invoice.created_at.strftime("%d %b") if latest_invoice.created_at else "",
-            "kind": "invoice",
-        })
-    return activity[:4]
+    return sorted(
+        activity,
+        key=lambda item: item.get("created_at") or "",
+        reverse=True,
+    )[:4]
 
 
 def _dashboard_invoice_summary(invoices_qs):
@@ -1026,7 +1120,7 @@ def _dashboard_upcoming_stats(shifts_qs, today, now):
     }
 
 
-def _dashboard_payload_extras(*, shifts_qs, confirmed_qs, community_qs=None, invoices_qs=None, selected_pharmacy=None, today=None, now=None, open_qs=None, all_qs=None):
+def _dashboard_payload_extras(*, shifts_qs, confirmed_qs, community_qs=None, invoices_qs=None, selected_pharmacy=None, today=None, now=None, open_qs=None, all_qs=None, dashboard_role=None, user=None):
     today = today or date.today()
     now = now or timezone.now().time()
     invoices_qs = invoices_qs if invoices_qs is not None else Invoice.objects.none()
@@ -1043,10 +1137,13 @@ def _dashboard_payload_extras(*, shifts_qs, confirmed_qs, community_qs=None, inv
         ),
         "upcoming_stats": upcoming_stats,
         "activity": _dashboard_activity(
-            shifts_qs=shifts_qs,
+            shifts_qs=all_qs,
             confirmed_qs=confirmed_qs,
             invoices_qs=invoices_qs,
             pharmacy_name=pharmacy_name,
+            dashboard_role=dashboard_role,
+            selected_pharmacy=selected_pharmacy,
+            user=user,
         ),
         "shift_summary": {
             "upcoming_count": shifts_qs.count(),
@@ -1156,6 +1253,8 @@ class OrganizationDashboardView(APIView):
             now=now,
             open_qs=open_shifts,
             all_qs=all_active_shifts,
+            dashboard_role="organization",
+            user=request.user,
         )
 
         return Response({
@@ -1394,6 +1493,8 @@ class OwnerDashboard(APIView):
                 selected_pharmacy=None,
                 today=today,
                 now=now,
+                dashboard_role="owner",
+                user=user,
             )
             return Response({
                 "user": user_serializer.data,
@@ -1466,6 +1567,8 @@ class OwnerDashboard(APIView):
             now=now,
             open_qs=open_shifts,
             all_qs=all_active_shifts,
+            dashboard_role="owner",
+            user=user,
         )
 
         data = {
@@ -1502,6 +1605,8 @@ class PharmacistDashboard(APIView):
                 selected_pharmacy=None,
                 today=today,
                 now=now,
+                dashboard_role="pharmacist",
+                user=user,
             )
             data = {
                 "user": user_serializer.data,
@@ -1573,6 +1678,8 @@ class PharmacistDashboard(APIView):
             now=now,
             open_qs=open_shifts,
             all_qs=all_active_shifts,
+            dashboard_role="pharmacist",
+            user=user,
         )
 
         data = {
@@ -1612,6 +1719,8 @@ class OtherStaffDashboard(APIView):
                 selected_pharmacy=None,
                 today=today,
                 now=now,
+                dashboard_role="otherstaff",
+                user=user,
             )
             data = {
                 "user": user_serializer.data,
@@ -1678,6 +1787,8 @@ class OtherStaffDashboard(APIView):
             now=now,
             open_qs=open_shifts,
             all_qs=all_active_shifts,
+            dashboard_role="otherstaff",
+            user=user,
         )
 
         data = {
@@ -3075,7 +3186,7 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
         memberships_qs = Membership.objects.filter(
             is_active=True,
             role=shift.role_needed
-        ).select_related('user')
+        ).select_related('user', 'pharmacy', 'pharmacy__organization')
 
         # Apply filtering based on the requested_visibility from the query parameter
         if requested_visibility == 'FULL_PART_TIME':
@@ -3134,7 +3245,17 @@ class BaseShiftViewSet(viewsets.ModelViewSet):
                 'employment_type': membership.employment_type,
                 'role': membership.role,
                 'status': member_interaction_status,
-                'is_member': True
+                'is_member': True,
+                'membership_id': membership.id,
+                'pharmacy_id': membership.pharmacy_id,
+                'pharmacy_name': membership.pharmacy.name if membership.pharmacy else None,
+                'organization_id': membership.pharmacy.organization_id if membership.pharmacy else None,
+                'organization_name': (
+                    membership.pharmacy.organization.name
+                    if membership.pharmacy and membership.pharmacy.organization
+                    else None
+                ),
+                'visibility_level': requested_visibility,
             })
 
         return Response(data)

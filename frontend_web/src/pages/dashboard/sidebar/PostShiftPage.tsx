@@ -70,6 +70,7 @@ import {
   updateOwnerShiftService,
 } from '@chemisttasker/shared-core';
 import skillsCatalog from '../../../../../shared-core/skills_catalog.json';
+import { useColorMode } from '../../../theme/sleekTheme';
 
 // --- Interface Definitions ---
 type PharmacyOption = PharmacySummary & { hasChain?: boolean; claimed?: boolean };
@@ -209,6 +210,8 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
   const { user, activePersona, activeAdminPharmacyId } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { mode } = useColorMode();
+  const isDarkMode = mode === 'dark';
 
   if (!user) return null; // FIX: Added null check for user
 
@@ -1231,7 +1234,12 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
     const stepKey = steps[step]?.key;
     const workloadOptions = ['Sole Pharmacist', 'High Script Load', 'Webster Packs'];
     const ESCALATION_LABELS: Record<string, string> = { FULL_PART_TIME: 'Pharmacy Members', LOCUM_CASUAL: 'Favourite Staff', OWNER_CHAIN: 'Owner Chain', ORG_CHAIN: 'Organization', PLATFORM: 'Platform (Public)' };
-    const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2 } };
+    const fieldSx = {
+      '& .MuiOutlinedInput-root': {
+        borderRadius: 2,
+        bgcolor: isDarkMode ? 'rgba(15, 23, 42, 0.78)' : 'background.paper',
+      },
+    };
     const VISIBILITY_META: Record<string, { eyebrow: string; description: string; accent: string }> = {
       FULL_PART_TIME: {
         eyebrow: 'Internal first',
@@ -1419,7 +1427,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                     <AccordionSummary
                       expandIcon={<ExpandMoreIcon />}
                       sx={{
-                        bgcolor: 'grey.50',
+                        bgcolor: isDarkMode ? 'rgba(15, 23, 42, 0.84)' : 'grey.50',
                         borderBottom: '1px solid',
                         borderColor: 'grey.200',
                         '& .MuiAccordionSummary-content': { alignItems: 'center', gap: 1.5, my: 1.5 }
@@ -1434,7 +1442,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                           label={`${selectedCount} selected`} 
                           color="primary" 
                           variant="outlined"
-                          sx={{ height: 22, fontWeight: 600, bgcolor: 'white' }} 
+                          sx={{ height: 22, fontWeight: 600, bgcolor: isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'white' }} 
                         />
                       )}
                     </AccordionSummary>
@@ -1471,7 +1479,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                                 bgcolor: value === 'required' ? 'rgba(109, 40, 217, 0.06)' : value === 'favorable' ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
                                 transition: 'all 0.2s ease-in-out',
                                 '&:hover': {
-                                  bgcolor: value ? undefined : 'grey.50'
+                                  bgcolor: value ? undefined : isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'grey.50'
                                 }
                               }}
                             >
@@ -1551,7 +1559,9 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                   p: { xs: 2, md: 2.5 },
                   borderRadius: 4,
                   borderColor: 'rgba(109, 40, 217, 0.12)',
-                  background: 'linear-gradient(135deg, rgba(248, 250, 252, 1), rgba(245, 243, 255, 0.95))',
+                  background: isDarkMode
+                    ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(39, 28, 73, 0.82))'
+                    : 'linear-gradient(135deg, rgba(248, 250, 252, 1), rgba(245, 243, 255, 0.95))',
                 }}
               >
                 <Stack spacing={1.25}>
@@ -1591,7 +1601,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                     p: 2,
                     borderRadius: 3,
                     borderColor: postAnonymously ? 'rgba(109, 40, 217, 0.28)' : 'grey.200',
-                    bgcolor: postAnonymously ? 'rgba(245, 243, 255, 0.72)' : 'background.paper',
+                    bgcolor: postAnonymously ? isDarkMode ? 'rgba(109, 40, 217, 0.18)' : 'rgba(245, 243, 255, 0.72)' : 'background.paper',
                   }}
                 >
                   <FormControlLabel
@@ -1652,7 +1662,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                               cursor: 'pointer',
                               height: '100%',
                               borderColor: isSelected ? 'primary.main' : 'grey.200',
-                              bgcolor: isSelected ? 'rgba(245, 243, 255, 0.96)' : 'background.paper',
+                              bgcolor: isSelected ? isDarkMode ? 'rgba(109, 40, 217, 0.2)' : 'rgba(245, 243, 255, 0.96)' : 'background.paper',
                               backgroundImage: meta.accent,
                               boxShadow: isSelected ? '0 12px 30px rgba(109, 40, 217, 0.14)' : 'none',
                               transition: 'all 180ms ease',
@@ -1699,7 +1709,9 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                     p: 2.5,
                     borderRadius: 3,
                     borderColor: 'grey.200',
-                    background: 'linear-gradient(180deg, rgba(255,255,255,1), rgba(249,250,251,1))',
+                    background: isDarkMode
+                      ? 'linear-gradient(180deg, rgba(16, 27, 47, 1), rgba(15, 23, 42, 0.94))'
+                      : 'linear-gradient(180deg, rgba(255,255,255,1), rgba(249,250,251,1))',
                   }}
                 >
                   <Stack spacing={2}>
@@ -1713,7 +1725,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                     </Box>
                     <Stack spacing={1.25}>
                     {showNotifyPharmacyStaff && (
-                        <Paper variant="outlined" sx={{ borderRadius: 2.5, borderColor: notifyPharmacyStaff ? 'rgba(109, 40, 217, 0.28)' : 'grey.200', bgcolor: notifyPharmacyStaff ? 'rgba(245, 243, 255, 0.72)' : 'background.paper' }}>
+                        <Paper variant="outlined" sx={{ borderRadius: 2.5, borderColor: notifyPharmacyStaff ? 'rgba(109, 40, 217, 0.28)' : 'grey.200', bgcolor: notifyPharmacyStaff ? isDarkMode ? 'rgba(109, 40, 217, 0.18)' : 'rgba(245, 243, 255, 0.72)' : 'background.paper' }}>
                           <FormControlLabel
                             control={(
                               <Checkbox
@@ -1727,7 +1739,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                         </Paper>
                     )}
                     {showNotifyFavoriteStaff && (
-                        <Paper variant="outlined" sx={{ borderRadius: 2.5, borderColor: notifyFavoriteStaff ? 'rgba(109, 40, 217, 0.28)' : 'grey.200', bgcolor: notifyFavoriteStaff ? 'rgba(245, 243, 255, 0.72)' : 'background.paper' }}>
+                        <Paper variant="outlined" sx={{ borderRadius: 2.5, borderColor: notifyFavoriteStaff ? 'rgba(109, 40, 217, 0.28)' : 'grey.200', bgcolor: notifyFavoriteStaff ? isDarkMode ? 'rgba(109, 40, 217, 0.18)' : 'rgba(245, 243, 255, 0.72)' : 'background.paper' }}>
                           <FormControlLabel
                             control={(
                               <Checkbox
@@ -1741,7 +1753,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                         </Paper>
                     )}
                     {showNotifyChainMembers && (
-                        <Paper variant="outlined" sx={{ borderRadius: 2.5, borderColor: notifyChainMembers ? 'rgba(109, 40, 217, 0.28)' : 'grey.200', bgcolor: notifyChainMembers ? 'rgba(245, 243, 255, 0.72)' : 'background.paper' }}>
+                        <Paper variant="outlined" sx={{ borderRadius: 2.5, borderColor: notifyChainMembers ? 'rgba(109, 40, 217, 0.28)' : 'grey.200', bgcolor: notifyChainMembers ? isDarkMode ? 'rgba(109, 40, 217, 0.18)' : 'rgba(245, 243, 255, 0.72)' : 'background.paper' }}>
                           <FormControlLabel
                             control={(
                               <Checkbox
@@ -1787,7 +1799,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                               p: 2,
                               borderRadius: 3,
                               borderColor: escalationDates[tier] ? 'rgba(109, 40, 217, 0.24)' : 'grey.200',
-                              bgcolor: escalationDates[tier] ? 'rgba(245, 243, 255, 0.6)' : 'background.paper',
+                              bgcolor: escalationDates[tier] ? isDarkMode ? 'rgba(109, 40, 217, 0.16)' : 'rgba(245, 243, 255, 0.6)' : 'background.paper',
                             }}
                           >
                             <Stack spacing={1.5}>
@@ -1835,7 +1847,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                   p: { xs: 1.5, sm: 2 },
                   borderRadius: 3,
                   borderColor: 'grey.200',
-                  bgcolor: 'grey.50',
+                  bgcolor: isDarkMode ? 'rgba(15, 23, 42, 0.84)' : 'grey.50',
                   mx: 0,
                   display: 'flex',
                   flexDirection: 'column',
@@ -2446,7 +2458,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
                           border: '1px solid',
                           borderColor: 'grey.200',
                           borderRadius: 2.5,
-                          bgcolor: '#fff',
+                          bgcolor: 'background.paper',
                           boxShadow: '0 2px 10px rgba(15, 23, 42, 0.04)',
                         }}
                       >
@@ -2661,9 +2673,18 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
 
   const theme = createTheme({
     palette: {
+      mode,
       primary: { main: '#6D28D9', light: '#8B5CF6', dark: '#5B21B6' },
       secondary: { main: '#10B981', light: '#6EE7B7', dark: '#047857' },
-      background: { default: '#F9FAFB', paper: '#FFFFFF' },
+      background: {
+        default: isDarkMode ? '#07111f' : '#F9FAFB',
+        paper: isDarkMode ? '#101b2f' : '#FFFFFF',
+      },
+      text: {
+        primary: isDarkMode ? '#F8FAFC' : '#111827',
+        secondary: isDarkMode ? '#CBD5E1' : '#64748B',
+      },
+      divider: isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(15, 23, 42, 0.12)',
     },
     typography: {
       fontFamily: "'Inter', sans-serif",
@@ -2675,9 +2696,143 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
     components: {
       MuiPaper: {
         styleOverrides: {
-          root: {
-            boxShadow: '0 8px 32px 0 rgba(0,0,0,0.07)',
-          },
+          root: ({ theme }) => ({
+            boxShadow: theme.palette.mode === 'dark'
+              ? '0 18px 46px rgba(0,0,0,0.34)'
+              : '0 8px 32px 0 rgba(0,0,0,0.07)',
+            backgroundImage: 'none',
+            borderColor: theme.palette.divider,
+          }),
+        },
+      },
+      MuiOutlinedInput: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            backgroundColor: theme.palette.mode === 'dark' ? 'rgba(15, 23, 42, 0.78)' : theme.palette.background.paper,
+            color: theme.palette.text.primary,
+            '& .MuiOutlinedInput-notchedOutline': {
+              borderColor: theme.palette.mode === 'dark' ? 'rgba(148, 163, 184, 0.32)' : 'rgba(15, 23, 42, 0.18)',
+            },
+            '&:hover .MuiOutlinedInput-notchedOutline': {
+              borderColor: theme.palette.primary.light,
+            },
+            '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+              borderColor: theme.palette.primary.main,
+            },
+          }),
+          input: ({ theme }) => ({
+            color: theme.palette.text.primary,
+            '&::placeholder': {
+              color: theme.palette.text.secondary,
+              opacity: 0.85,
+            },
+          }),
+        },
+      },
+      MuiInputLabel: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            color: theme.palette.text.secondary,
+            '&.Mui-focused': {
+              color: theme.palette.primary.light,
+            },
+          }),
+        },
+      },
+      MuiFormLabel: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            color: theme.palette.text.secondary,
+          }),
+        },
+      },
+      MuiFormControlLabel: {
+        styleOverrides: {
+          label: ({ theme }) => ({
+            color: theme.palette.text.primary,
+          }),
+        },
+      },
+      MuiSelect: {
+        styleOverrides: {
+          icon: ({ theme }) => ({
+            color: theme.palette.text.secondary,
+          }),
+        },
+      },
+      MuiMenu: {
+        styleOverrides: {
+          paper: ({ theme }) => ({
+            backgroundColor: theme.palette.background.paper,
+            color: theme.palette.text.primary,
+            border: `1px solid ${theme.palette.divider}`,
+          }),
+        },
+      },
+      MuiMenuItem: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            color: theme.palette.text.primary,
+            '&:hover': {
+              backgroundColor: theme.palette.mode === 'dark' ? 'rgba(109, 40, 217, 0.18)' : 'rgba(109, 40, 217, 0.08)',
+            },
+          }),
+        },
+      },
+      MuiAccordion: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            backgroundColor: theme.palette.background.paper,
+            color: theme.palette.text.primary,
+            borderColor: theme.palette.divider,
+            backgroundImage: 'none',
+          }),
+        },
+      },
+      MuiAccordionSummary: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            backgroundColor: theme.palette.mode === 'dark' ? 'rgba(15, 23, 42, 0.84)' : '#F8FAFC',
+            color: theme.palette.text.primary,
+          }),
+        },
+      },
+      MuiChip: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            color: theme.palette.text.primary,
+            borderColor: theme.palette.divider,
+            fontWeight: 500,
+          }),
+          outlined: ({ theme }) => ({
+            backgroundColor: theme.palette.mode === 'dark' ? 'rgba(15, 23, 42, 0.72)' : '#FFFFFF',
+          }),
+        },
+      },
+      MuiCheckbox: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            color: theme.palette.mode === 'dark' ? '#94A3B8' : undefined,
+          }),
+        },
+      },
+      MuiToggleButton: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            color: theme.palette.text.secondary,
+            borderColor: theme.palette.divider,
+            '&.Mui-selected': {
+              color: `${theme.palette.common.white} !important`,
+            },
+          }),
+        },
+      },
+      MuiAlert: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            backgroundColor: theme.palette.mode === 'dark' ? 'rgba(30, 41, 59, 0.92)' : undefined,
+            color: theme.palette.text.primary,
+          }),
         },
       },
       MuiButton: {
@@ -2686,13 +2841,6 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
             textTransform: 'none',
             fontWeight: 600,
             borderRadius: 8,
-          },
-        },
-      },
-      MuiChip: {
-        styleOverrides: {
-          root: {
-            fontWeight: 500,
           },
         },
       },
@@ -2707,7 +2855,7 @@ const PostShiftPage: React.FC<PostShiftPageProps> = ({ onCompleted }) => {
         sx={{
           px: isEmbedded ? { xs: 1, sm: 2, md: 3 } : { xs: 1.5, sm: 2.5, md: 4 },
           py: isEmbedded ? 2 : 4,
-          bgcolor: isEmbedded ? 'transparent' : '#F9FAFB',
+          bgcolor: isEmbedded ? 'transparent' : 'background.default',
           minHeight: isEmbedded ? 'auto' : '100vh',
           maxWidth: isEmbedded ? '100%' : { xs: '100%', lg: 1200, xl: 1400 },
         }}

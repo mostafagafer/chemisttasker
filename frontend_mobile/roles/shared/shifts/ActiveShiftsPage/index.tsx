@@ -171,6 +171,18 @@ const isActiveCounterOffer = (offer: any): boolean => {
     return !['accepted', 'rejected', 'declined', 'cancelled', 'canceled', 'expired'].includes(status);
 };
 
+const getCandidateUserId = (record: any): number | null => {
+    const raw =
+        record?.userId ??
+        record?.user_id ??
+        record?.userDetail?.id ??
+        record?.user_detail?.id ??
+        (typeof record?.user === 'object' ? record.user?.id : record?.user) ??
+        null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+};
+
 type ActiveShiftsPageProps = {
     shiftId?: number | null;
     title?: string;
@@ -784,15 +796,45 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                     const selectedLevel = selectedLevelByShift[shift.id] ?? shiftLevel;
                     const tabKey = getTabKey(shift.id, selectedLevel);
                     const currentTabData = tabData[tabKey] || { loading: false };
+                    const viewableLevelKeys = deriveLevelSequence(shiftLevel);
+                    const communityLevelKeys = viewableLevelKeys.filter(level => level !== PUBLIC_LEVEL_KEY);
+                    const communityTabData = communityLevelKeys.map(level => tabData[getTabKey(shift.id, level)]);
+                    const communityDataLoading = communityLevelKeys.some((level, index) => {
+                        const data = communityTabData[index];
+                        return !data || data.loading;
+                    });
                     const selectedSlotId = isSingleUserShift
                         ? null
                         : selectedSlotByShift[shift.id] ?? resolveSlotId(shift.slots?.[0]) ?? null;
                     const offers = counterOffersByShift[shift.id];
                     const counterOffersLoaded = Object.prototype.hasOwnProperty.call(counterOffersByShift, shift.id);
                     const counterOffersLoading = counterOffersLoadingByShift[shift.id] ?? false;
+                    const slotIds = getSlotIds(shift);
+                    const consolidatedMembersBySlot = slotIds.reduce<Record<number, ShiftMemberStatus[]>>((acc, slotId) => {
+                        acc[slotId] = dedupeMembers(communityLevelKeys.flatMap((level, index) => (
+                            communityTabData[index]?.membersBySlot?.[slotId] || []
+                        ).map((member: any) => ({ ...member, sourceVisibility: level }))));
+                        return acc;
+                    }, {});
+                    const consolidatedMembers = dedupeMembers(communityLevelKeys.flatMap((level, index) => (
+                        communityTabData[index]?.members || []
+                    ).map((member: any) => ({ ...member, sourceVisibility: level }))));
+                    const knownCommunityUserIds = new Set(
+                        consolidatedMembers
+                            .map(getCandidateUserId)
+                            .filter((id): id is number => id != null)
+                    );
+                    const publicInterests = (currentTabData.interestsAll || []).filter((interest: any) => {
+                        const userId = getCandidateUserId(interest);
+                        return userId == null || !knownCommunityUserIds.has(userId);
+                    });
+                    const publicOffers = (offers || []).filter((offer: any) => {
+                        const userId = getCandidateUserId(offer);
+                        return userId == null || !knownCommunityUserIds.has(userId);
+                    });
                     const membersForView = isSingleUserShift
-                        ? currentTabData.members || []
-                        : currentTabData.membersBySlot?.[selectedSlotId ?? -1] || [];
+                        ? consolidatedMembers
+                        : consolidatedMembersBySlot[selectedSlotId ?? -1] || [];
 
                     const cardBorderColor = getCardBorderColor((shift as any).visibility ?? 'PLATFORM');
                     const summaryText = getShiftSummary(shift);
@@ -806,12 +848,12 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                     const slotsCount = Array.isArray((shift as any).slots) ? (shift as any).slots.length : 0;
                     const showPaymentRequired = shouldShowPaymentRequired(shift, selectedSlotId);
                     const allMembers = isSingleUserShift
-                        ? (currentTabData.members || [])
-                        : Object.values(currentTabData.membersBySlot || {}).flatMap((slotMembers: any) => (
+                        ? consolidatedMembers
+                        : Object.values(consolidatedMembersBySlot || {}).flatMap((slotMembers: any) => (
                             Array.isArray(slotMembers) ? slotMembers : []
                         ));
-                    const allInterests = currentTabData.interestsAll || [];
-                    const allOffers = offers || [];
+                    const allInterests = publicInterests;
+                    const allOffers = publicOffers;
                     const candidatesCount = countUniquePeople([
                         ...dedupeMembers(allMembers),
                         ...allInterests,
@@ -1039,37 +1081,60 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                         {currentTabData.loading ? (
                                             <ActivityIndicator style={{ padding: 20 }} />
                                         ) : selectedLevel === PUBLIC_LEVEL_KEY ? (
-                                            counterOffersLoading || !counterOffersLoaded ? (
+                                            <>
+                                                {counterOffersLoading || !counterOffersLoaded ? (
+                                                    <ActivityIndicator style={{ padding: 20 }} />
+                                                ) : (
+                                                    <PublicLevelView
+                                                        shift={shift}
+                                                        slotId={selectedSlotId}
+                                                        slotHasUpdates={slotHasUpdatesByShift[shift.id] || {}}
+                                                        interestsAll={publicInterests}
+                                                        counterOffers={publicOffers}
+                                                        counterOffersLoaded={counterOffersLoaded}
+                                                        onReveal={handleRevealInterest}
+                                                        onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
+                                                        onReviewOffer={(s, o, slotId) =>
+                                                            handleReviewOffer(s, o, currentTabData, slotId)
+                                                        }
+                                                        revealingInterestId={revealingInterestId}
+                                                    />
+                                                )}
+                                                {communityDataLoading ? (
+                                                    <ActivityIndicator style={{ padding: 20 }} />
+                                                ) : (
+                                                    <CommunityLevelView
+                                                        shift={shift}
+                                                        members={membersForView}
+                                                        selectedSlotId={selectedSlotId}
+                                                        slotHasUpdates={slotHasUpdatesByShift[shift.id] || {}}
+                                                        offers={offers || []}
+                                                        showSlotSelector={false}
+                                                        onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
+                                                        onReviewCandidate={(member, _shiftId, offer, slotId) =>
+                                                            handleReviewCandidate(shift, member, offer, slotId)
+                                                        }
+                                                        reviewLoadingId={reviewLoadingId}
+                                                    />
+                                                )}
+                                            </>
+                                        ) : (
+                                            communityDataLoading ? (
                                                 <ActivityIndicator style={{ padding: 20 }} />
                                             ) : (
-                                                <PublicLevelView
+                                                <CommunityLevelView
                                                     shift={shift}
-                                                    slotId={selectedSlotId}
+                                                    members={membersForView}
+                                                    selectedSlotId={selectedSlotId}
                                                     slotHasUpdates={slotHasUpdatesByShift[shift.id] || {}}
-                                                    interestsAll={currentTabData.interestsAll || []}
-                                                    counterOffers={offers || []}
-                                                    counterOffersLoaded={counterOffersLoaded}
-                                                    onReveal={handleRevealInterest}
+                                                    offers={offers || []}
                                                     onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
-                                                    onReviewOffer={(s, o, slotId) =>
-                                                        handleReviewOffer(s, o, currentTabData, slotId)
+                                                    onReviewCandidate={(member, _shiftId, offer, slotId) =>
+                                                        handleReviewCandidate(shift, member, offer, slotId)
                                                     }
-                                                    revealingInterestId={revealingInterestId}
+                                                    reviewLoadingId={reviewLoadingId}
                                                 />
                                             )
-                                        ) : (
-                                            <CommunityLevelView
-                                                shift={shift}
-                                                members={membersForView}
-                                                selectedSlotId={selectedSlotId}
-                                                slotHasUpdates={slotHasUpdatesByShift[shift.id] || {}}
-                                                offers={offers || []}
-                                                onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
-                                                onReviewCandidate={(member, _shiftId, offer, slotId) =>
-                                                    handleReviewCandidate(shift, member, offer, slotId)
-                                                }
-                                                reviewLoadingId={reviewLoadingId}
-                                            />
                                         )}
                                     </>
                                 )}

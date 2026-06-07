@@ -3,7 +3,7 @@
 
 import React from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
-import { Surface, Text, Button, ActivityIndicator, Divider } from 'react-native-paper';
+import { Surface, Text, Button, ActivityIndicator, Divider, Chip } from 'react-native-paper';
 import { Shift, ShiftInterest } from '@chemisttasker/shared-core';
 import { customTheme } from '../../theme';
 import CounterOfferList from './CounterOfferList';
@@ -98,6 +98,12 @@ export default function PublicLevelView({
                     slotHasUpdates={slotHasUpdates}
                 />
             )}
+
+            <View style={styles.dividerContainer}>
+                <Divider style={styles.dividerLine} />
+                <Chip mode="outlined" style={styles.dividerChip}>Public Candidates</Chip>
+                <Divider style={styles.dividerLine} />
+            </View>
 
             {/* Counter Offers Section */}
             <Surface style={styles.section} elevation={1}>
@@ -209,6 +215,18 @@ const styles = StyleSheet.create({
     },
     divider: {
         marginBottom: customTheme.spacing.sm,
+    },
+    dividerContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: customTheme.spacing.sm,
+        marginVertical: customTheme.spacing.sm,
+    },
+    dividerLine: {
+        flex: 1,
+    },
+    dividerChip: {
+        backgroundColor: customTheme.colors.greyLight,
     },
     emptyText: {
         textAlign: 'center',

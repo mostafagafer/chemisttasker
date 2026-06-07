@@ -17,7 +17,6 @@ import { useWorkspace } from "../../../contexts/WorkspaceContext";
 import { getExplorerDashboard } from "@chemisttasker/shared-core";
 import apiClient from "../../../utils/apiClient";
 import DashboardOverviewTemplate, {
-  defaultDashboardActivity,
   type DashboardAction,
   type DashboardMetric,
 } from "../../../components/dashboard/DashboardOverviewTemplate";
@@ -190,11 +189,7 @@ export default function OverviewPageStaff() {
     { label: "Count of Shifts", value: data?.shift_summary?.all_count ?? data?.shift_summary?.upcoming_count ?? data?.upcoming_shifts_count ?? 0, helper: "Active shift records", icon: <WorkOutlineIcon />, tone: "cyan" },
     { label: isExplorer ? "Saved Interests" : "Unpaid Invoices", value: isExplorer ? "No saves yet" : data?.invoice_summary?.unpaid_count ?? 0, helper: isExplorer ? "Start saving topics" : data?.invoice_summary?.unpaid_total ?? "$0.00", icon: isExplorer ? <FavoriteBorderIcon /> : <CreditCardIcon />, tone: "pink" },
   ];
-  const fallbackActivity = defaultDashboardActivity(selectedPharmacyName, Boolean(effectivePharmacyId));
-  const activityItems =
-    Array.isArray(data?.activity) && data.activity.length > 0
-      ? [...data.activity, ...fallbackActivity].slice(0, 4)
-      : fallbackActivity;
+  const activityItems = Array.isArray(data?.activity) ? data.activity : [];
 
   return (
     <DashboardOverviewTemplate
@@ -211,7 +206,7 @@ export default function OverviewPageStaff() {
       activity={activityItems}
       metrics={metrics}
       onOpenShifts={() => navigate(`/dashboard/${roleSegment}/shifts/${isExplorer ? "community" : "confirmed"}`)}
-      onOpenActivity={() => navigate(`/dashboard/${roleSegment}/interests`)}
+      onOpenActivity={() => navigate(`/dashboard/${roleSegment}/shifts/${isExplorer ? "community" : "confirmed"}`)}
     />
   );
 }

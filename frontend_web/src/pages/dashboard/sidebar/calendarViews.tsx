@@ -202,7 +202,7 @@ const WorkerDayView: any = (props: any) => {
   const nowOffset = clampPercentage((moment().diff(start, 'minutes') / totalMinutes) * 100);
 
   return (
-    <Box sx={{ overflowX: 'auto', border: 1, borderColor: 'divider', borderRadius: 2, minWidth: 720 }}>
+    <Box sx={{ overflowX: 'auto', border: 1, borderColor: 'divider', borderRadius: 2, minWidth: 720, bgcolor: 'background.paper', color: 'text.primary' }}>
       <Box sx={{ display: 'grid', gridTemplateColumns: '220px 1fr', borderBottom: 1, borderColor: 'divider', backgroundColor: 'background.paper', position: 'sticky', top: 0, zIndex: 2 }}>
         <Box sx={{ p: 1.5 }}>
           <Typography variant="caption" sx={{ fontWeight: 600, textTransform: 'uppercase', color: 'text.secondary' }}>
@@ -288,7 +288,7 @@ const WorkerDayView: any = (props: any) => {
                     top: 0,
                     bottom: 0,
                     width: '1px',
-                    backgroundColor: 'rgba(0,0,0,0.08)'
+                    backgroundColor: 'divider'
                   }}
                 />
               );
@@ -382,7 +382,7 @@ const FortnightView: any = (props: any) => {
       .join(' ');
     const style = {
       ...(original?.style ?? {}),
-      backgroundColor: isSecondWeek ? 'rgba(0,0,0,0.025)' : original?.style?.backgroundColor
+      backgroundColor: isSecondWeek ? 'rgba(148, 163, 184, 0.08)' : original?.style?.backgroundColor
     };
     return { ...original, className: className || undefined, style };
   };

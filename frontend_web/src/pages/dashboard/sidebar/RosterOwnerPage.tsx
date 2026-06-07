@@ -127,7 +127,7 @@ const LEAVE_TYPES_MAP: { [key: string]: string } = {
 
 // --- Skeleton Component for Unified Loading ---
 const RosterPageSkeleton = () => (
-    <Container sx={{ py: 4 }}>
+    <Container maxWidth={false} disableGutters sx={{ width: '100%', py: { xs: 1, md: 2 } }}>
         <Typography variant="h4" gutterBottom><Skeleton width="40%" /></Typography>
         <Skeleton variant="rectangular" height={48} sx={{ mb: 3 }} />
         <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2}}>
@@ -832,20 +832,47 @@ export default function RosterOwnerPage() {
 
   // --- Render Method ---
   return (
-    <Container sx={{ py: 4 }}>
-      <Typography variant="h4" gutterBottom>Internal Roster</Typography>
+    <Box sx={{ width: '100%', minWidth: 0 }}>
+      <Typography variant="h4" gutterBottom sx={{ fontSize: { xs: 26, md: 34 }, fontWeight: 800 }}>
+        Internal Roster
+      </Typography>
 
-      <Tabs value={selectedPharmacyId ?? false} onChange={handleTabChange} sx={{ mb: 3 }} textColor="primary" indicatorColor="primary">
+      <Tabs
+        value={selectedPharmacyId ?? false}
+        onChange={handleTabChange}
+        sx={{
+          mb: { xs: 2, md: 3 },
+          maxWidth: '100%',
+          '& .MuiTabs-scroller': { overflowX: 'auto !important' },
+          '& .MuiTab-root': {
+            minWidth: { xs: 170, md: 220 },
+            maxWidth: { xs: 220, md: 320 },
+            px: { xs: 1.5, md: 2 },
+          },
+        }}
+        textColor="primary"
+        indicatorColor="primary"
+        variant="scrollable"
+        scrollButtons="auto"
+        allowScrollButtonsMobile
+      >
         {pharmacies.map(p => (
           <Tab key={p.id} label={p.name} value={Number(p.id)} />
         ))}
       </Tabs>
       
-      <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2}}>
+      <Box sx={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: { xs: 'stretch', md: 'center' },
+        flexDirection: { xs: 'column', md: 'row' },
+        gap: { xs: 1.5, md: 2 },
+        mb: 2,
+      }}>
           <Stack direction="row" spacing={2} alignItems="center">
             <Typography variant="h5">Roster Calendar</Typography>
           </Stack>
-          <FormControl sx={{ m: 1, width: 300 }}>
+          <FormControl sx={{ width: { xs: '100%', sm: 300 }, alignSelf: { xs: 'stretch', md: 'center' } }}>
               <InputLabel>Filter by Role</InputLabel>
               <Select
                   multiple
@@ -872,9 +899,42 @@ export default function RosterOwnerPage() {
 
       <Box sx={{ 
         position: 'relative',
-        '.rbc-calendar': { height: 'auto', minHeight: '800px' },
-        '.rbc-time-view': { height: 'auto' },
-        '.rbc-time-content': { height: 'auto', overflowY: 'visible', maxHeight: 'none' }
+        width: '100%',
+        minWidth: 0,
+        overflowX: 'auto',
+        pb: 1,
+        '.rbc-calendar': {
+          minWidth: { xs: 900, md: 0 },
+          height: { xs: 'calc(100vh - 330px)', md: 'calc(100vh - 310px)' },
+          minHeight: { xs: 620, md: 720 },
+        },
+        '.rbc-toolbar': {
+          alignItems: 'center',
+          gap: 1,
+          flexWrap: 'wrap',
+          marginBottom: 1.5,
+        },
+        '.rbc-toolbar-label': {
+          flex: { xs: '1 0 100%', sm: '1 1 auto' },
+          order: { xs: -1, sm: 0 },
+          textAlign: { xs: 'left', sm: 'center' },
+          fontWeight: 700,
+          py: { xs: 0.5, sm: 0 },
+        },
+        '.rbc-btn-group': {
+          display: 'inline-flex',
+          whiteSpace: 'nowrap',
+        },
+        '.rbc-time-view': { minHeight: 0 },
+        '.rbc-time-content': { minHeight: 0 },
+        '.rbc-month-view': { minHeight: 0 },
+        '.rbc-event': { minWidth: 0 },
+        '.rbc-event-content': {
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        },
       }}>
         {isAssignmentsLoading && (
             <Box sx={{
@@ -1254,7 +1314,7 @@ export default function RosterOwnerPage() {
               }
             />
       
-    </Container>
+    </Box>
   );
 }
 

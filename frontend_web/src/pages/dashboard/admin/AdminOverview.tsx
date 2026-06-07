@@ -8,7 +8,6 @@ import StoreIcon from "@mui/icons-material/Store";
 import WorkOutlineIcon from "@mui/icons-material/WorkOutline";
 import { useNavigate } from "react-router-dom";
 import DashboardOverviewTemplate, {
-  defaultDashboardActivity,
   type DashboardAction,
   type DashboardMetric,
 } from "../../../components/dashboard/DashboardOverviewTemplate";
@@ -81,11 +80,15 @@ export default function AdminOverview() {
     { label: "Count of Shifts", value: dashboardData?.shift_summary?.all_count ?? dashboardData?.shift_summary?.upcoming_count ?? 0, helper: "Active shift records", icon: <ManageAccountsIcon />, tone: "cyan" },
     { label: "Unpaid Invoices", value: dashboardData?.invoice_summary?.unpaid_count ?? 0, helper: dashboardData?.invoice_summary?.unpaid_total ?? "$0.00", icon: <StoreIcon />, tone: "pink" },
   ];
-  const fallbackActivity = defaultDashboardActivity(pharmacyName, true);
-  const activityItems =
-    Array.isArray(dashboardData?.activity) && dashboardData.activity.length > 0
-      ? [...dashboardData.activity, ...fallbackActivity].slice(0, 4)
-      : fallbackActivity;
+  const activityItems = Array.isArray(dashboardData?.activity)
+    ? dashboardData.activity.map((item: any) => ({
+        ...item,
+        action_url:
+          typeof item?.action_url === "string" && item.action_url.startsWith("/dashboard/owner/shifts/")
+            ? item.action_url.replace("/dashboard/owner", adminBasePath)
+            : item?.action_url,
+      }))
+    : [];
 
   return (
     <DashboardOverviewTemplate
@@ -110,7 +113,7 @@ export default function AdminOverview() {
       activity={activityItems}
       metrics={metrics}
       onOpenShifts={() => navigate(`${adminBasePath}/shift-center`)}
-      onOpenActivity={() => navigate(`${adminBasePath}/pills`)}
+      onOpenActivity={() => navigate(`${adminBasePath}/shift-center`)}
     />
   );
 }

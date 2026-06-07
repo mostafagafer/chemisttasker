@@ -12,7 +12,6 @@ import StoreIcon from "@mui/icons-material/Store";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { getOrganizationDashboard } from "@chemisttasker/shared-core";
 import DashboardOverviewTemplate, {
-  defaultDashboardActivity,
   type DashboardAction,
   type DashboardMetric,
 } from "../../../components/dashboard/DashboardOverviewTemplate";
@@ -135,11 +134,7 @@ export default function OrganizationOverviewPage() {
     { label: "Count of Shifts", value: data?.shift_summary?.all_count ?? activeShifts, helper: "Active shift records", icon: <CalendarMonthIcon />, tone: "blue" },
     { label: "Confirmed Shifts", value: data?.shift_summary?.confirmed_count ?? data?.confirmed_shifts_count ?? 0, helper: "Booked work", icon: <GroupsIcon />, tone: "pink" },
   ];
-  const fallbackActivity = defaultDashboardActivity(scopeName, Boolean(selectedPharmacy));
-  const activityItems =
-    Array.isArray(data?.activity) && data.activity.length > 0
-      ? [...data.activity, ...fallbackActivity].slice(0, 4)
-      : fallbackActivity;
+  const activityItems = Array.isArray(data?.activity) ? data.activity : [];
 
   if (!orgId) {
     return <Alert severity="warning">No organization membership was found for this account.</Alert>;
@@ -165,7 +160,7 @@ export default function OrganizationOverviewPage() {
         activity={activityItems}
         metrics={metrics}
         onOpenShifts={() => navigate("/dashboard/organization/shift-center")}
-        onOpenActivity={() => navigate("/dashboard/organization/pills")}
+        onOpenActivity={() => navigate("/dashboard/organization/shift-center")}
       />
       {!data && !error && <CircularProgress size={24} />}
       {error && <Alert severity="error">{error}</Alert>}

@@ -18,6 +18,7 @@ interface CommunityLevelViewProps {
     slotHasUpdates?: Record<number, boolean>;
     slotCandidateCounts?: Record<number, number>;
     offers: any[];
+    showSlotSelector?: boolean;
     onSelectSlot: (slotId: number) => void;
     onReviewCandidate: (member: ShiftMemberStatus, shiftId: number, offer: any | null, slotId: number | null) => void;
     reviewLoadingId?: number | null;
@@ -30,6 +31,7 @@ export const CommunityLevelView: React.FC<CommunityLevelViewProps> = ({
     slotHasUpdates,
     slotCandidateCounts,
     offers,
+    showSlotSelector = true,
     onSelectSlot,
     onReviewCandidate,
     reviewLoadingId,
@@ -56,7 +58,7 @@ export const CommunityLevelView: React.FC<CommunityLevelViewProps> = ({
     return (
         <Stack spacing={2}>
             {/* Slot Selector for multi-slot shifts */}
-            {multiSlots && (
+            {showSlotSelector && multiSlots && (
                 <SlotSelector
                     slots={slots}
                     selectedSlotId={selectedSlotId}
@@ -67,19 +69,20 @@ export const CommunityLevelView: React.FC<CommunityLevelViewProps> = ({
             )}
 
             <Divider>
-                <Chip label="Candidates" />
+                <Chip label="Community Candidates" />
             </Divider>
 
             <Box
                 sx={{
                     display: 'grid',
                     gridTemplateColumns: {
-                        xs: '1fr',
+                        xs: 'repeat(2, minmax(0, 1fr))',
                         sm: 'repeat(2, minmax(0, 1fr))',
                         lg: 'repeat(4, minmax(230px, 1fr))',
                     },
-                    gap: 2,
+                    gap: { xs: 1.25, sm: 2 },
                     alignItems: 'stretch',
+                    justifyContent: 'center',
                 }}
             >
                 <StatusCard

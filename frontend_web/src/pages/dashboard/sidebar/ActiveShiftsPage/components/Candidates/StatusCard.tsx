@@ -153,9 +153,9 @@ export const StatusCard: React.FC<StatusCardProps> = ({
                 background: (theme) => theme.palette[color].light,
                 boxShadow: '0 12px 28px rgba(15,23,42,.06)',
                 border: (theme) => `1px solid ${theme.palette[color].main}33`,
-                borderRadius: 3,
+                borderRadius: { xs: 2, sm: 3 },
                 height: '100%',
-                minHeight: 190,
+                minHeight: { xs: 168, sm: 190 },
                 display: 'flex',
                 flexDirection: 'column',
                 overflow: 'hidden',
@@ -164,17 +164,21 @@ export const StatusCard: React.FC<StatusCardProps> = ({
             <CardHeader
                 sx={{
                     pb: 0,
-                    pt: 1.5,
-                    px: 2,
+                    pt: { xs: 1, sm: 1.5 },
+                    px: { xs: 1, sm: 2 },
                     '& .MuiCardHeader-content': { minWidth: 0 },
                     '& .MuiCardHeader-action': { alignSelf: 'flex-start', mt: 0 },
+                    '& .MuiCardHeader-avatar': { mr: { xs: 0.75, sm: 2 } },
                 }}
                 avatar={
                     <Avatar
                         sx={{
+                            width: { xs: 32, sm: 40 },
+                            height: { xs: 32, sm: 40 },
                             bgcolor: '#fff',
                             color: (theme) => theme.palette[color].dark,
                             boxShadow: '0 10px 20px rgba(15,23,42,.10)',
+                            '& svg': { fontSize: { xs: 19, sm: 24 } },
                         }}
                     >
                         {icon}
@@ -182,7 +186,13 @@ export const StatusCard: React.FC<StatusCardProps> = ({
                 }
                 title={
                     <Typography
-                        sx={{ fontSize: 18, fontWeight: 900, color: (theme) => theme.palette[color].dark }}
+                        sx={{
+                            fontSize: { xs: 14, sm: 18 },
+                            fontWeight: 900,
+                            color: (theme) => theme.palette[color].dark,
+                            lineHeight: 1.12,
+                            overflowWrap: 'anywhere',
+                        }}
                     >
                         {title}
                     </Typography>
@@ -195,16 +205,16 @@ export const StatusCard: React.FC<StatusCardProps> = ({
                             backgroundColor: (theme) => theme.palette[color].dark,
                             color: 'white',
                             fontWeight: 'bold',
-                            height: 24,
-                            minWidth: 28,
-                            '& .MuiChip-label': { px: 1 },
+                            height: { xs: 22, sm: 24 },
+                            minWidth: { xs: 24, sm: 28 },
+                            '& .MuiChip-label': { px: { xs: 0.75, sm: 1 } },
                         }}
                     />
                 }
             />
-            <CardContent sx={{ pt: 1.25, pb: '16px !important', px: 2, flex: 1, minHeight: 0 }}>
-                <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'center', minHeight: 70 }}>
+            <CardContent sx={{ pt: { xs: 0.75, sm: 1.25 }, pb: { xs: '12px !important', sm: '16px !important' }, px: { xs: 1, sm: 2 }, flex: 1, minHeight: 0 }}>
+                <Stack spacing={{ xs: 1, sm: 1.5 }} sx={{ height: '100%', minHeight: 0, alignItems: 'center', textAlign: 'center' }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'center', minHeight: { xs: 52, sm: 70 }, transform: { xs: 'scale(.78)', sm: 'none' }, transformOrigin: 'center' }}>
                         <StatusIllustration title={title} color={color} />
                     </Box>
                     {members.length > 0 ? (
@@ -238,6 +248,9 @@ export const StatusCard: React.FC<StatusCardProps> = ({
                                     ? getOfferForMember(member)
                                     : { offer: null, slotId: null };
                                 const hasOffer = Boolean(match.offer);
+                                const sourceVisibility = memberAny.sourceVisibility ?? memberAny.visibilityLevel ?? memberAny.visibility_level;
+                                const organizationName = memberAny.organizationName ?? memberAny.organization_name;
+                                const showOrganizationLabel = sourceVisibility === 'ORG_CHAIN' && Boolean(organizationName);
                                 return (
                                     <Paper
                                         key={memberAny.userId}
@@ -288,6 +301,22 @@ export const StatusCard: React.FC<StatusCardProps> = ({
                                                     }}
                                                 />
                                             )}
+                                            {showOrganizationLabel && (
+                                                <Chip
+                                                    label={organizationName}
+                                                    size="small"
+                                                    variant="outlined"
+                                                    sx={{
+                                                        alignSelf: 'flex-start',
+                                                        maxWidth: '100%',
+                                                        bgcolor: '#fff',
+                                                        '& .MuiChip-label': {
+                                                            overflow: 'hidden',
+                                                            textOverflow: 'ellipsis',
+                                                        },
+                                                    }}
+                                                />
+                                            )}
                                         {title === 'Interested' && (
                                             <Button
                                                 size="small"
@@ -320,11 +349,11 @@ export const StatusCard: React.FC<StatusCardProps> = ({
                             })}
                         </Stack>
                     ) : (
-                        <Box sx={{ maxWidth: 220, mx: 'auto', textAlign: 'center' }}>
-                            <Typography color="text.secondary" sx={{ fontWeight: 800, lineHeight: 1.25 }}>
+                        <Box sx={{ maxWidth: { xs: 130, sm: 220 }, mx: 'auto', textAlign: 'center' }}>
+                            <Typography color="text.secondary" sx={{ fontWeight: 800, lineHeight: 1.25, fontSize: { xs: 13, sm: 16 } }}>
                                 No candidates yet.
                             </Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, lineHeight: 1.45 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, lineHeight: 1.35, fontSize: { xs: 10.5, sm: 12 } }}>
                                 {title === 'Interested'
                                     ? "When candidates show interest, they'll appear here."
                                     : title === 'Assigned'

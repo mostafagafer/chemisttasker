@@ -196,6 +196,18 @@ const isActiveCounterOffer = (offer: any): boolean => {
     return !['accepted', 'rejected', 'declined', 'cancelled', 'canceled', 'expired'].includes(status);
 };
 
+const getCandidateUserId = (record: any): number | null => {
+    const raw =
+        record?.userId ??
+        record?.user_id ??
+        record?.userDetail?.id ??
+        record?.user_detail?.id ??
+        (typeof record?.user === 'object' ? record.user?.id : record?.user) ??
+        null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+};
+
 type ActiveShiftsPageProps = {
     shiftId?: number | null;
     title?: string;
@@ -756,15 +768,45 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
         const selectedLevel = selectedLevelByShift[shift.id] ?? shiftLevel;
         const tabKey = getTabKey(shift.id, selectedLevel);
         const currentTabData = tabData[tabKey] || { loading: false };
+        const viewableLevelKeys = deriveLevelSequence(shiftLevel);
+        const communityLevelKeys = viewableLevelKeys.filter(level => level !== PUBLIC_LEVEL_KEY);
+        const communityTabData = communityLevelKeys.map(level => tabData[getTabKey(shift.id, level)]);
+        const communityDataLoading = communityLevelKeys.some((level, index) => {
+            const data = communityTabData[index];
+            return !data || data.loading;
+        });
         const selectedSlotId = isSingleUserShift
             ? null
             : selectedSlotByShift[shift.id] ?? shift.slots?.[0]?.id ?? null;
         const offers = counterOffersByShift[shift.id];
         const counterOffersLoaded = Object.prototype.hasOwnProperty.call(counterOffersByShift, shift.id);
         const counterOffersLoading = counterOffersLoadingByShift[shift.id] ?? false;
+        const slotIds = getSlotIds(shift);
+        const consolidatedMembersBySlot = slotIds.reduce<Record<number, ShiftMemberStatus[]>>((acc, slotId) => {
+            acc[slotId] = dedupeMembers(communityLevelKeys.flatMap((level, index) => (
+                communityTabData[index]?.membersBySlot?.[slotId] || []
+            ).map((member: any) => ({ ...member, sourceVisibility: level }))));
+            return acc;
+        }, {});
+        const consolidatedMembers = dedupeMembers(communityLevelKeys.flatMap((level, index) => (
+            communityTabData[index]?.members || []
+        ).map((member: any) => ({ ...member, sourceVisibility: level }))));
+        const knownCommunityUserIds = new Set(
+            consolidatedMembers
+                .map(getCandidateUserId)
+                .filter((id): id is number => id != null)
+        );
+        const publicInterests = (currentTabData.interestsAll || []).filter((interest: any) => {
+            const userId = getCandidateUserId(interest);
+            return userId == null || !knownCommunityUserIds.has(userId);
+        });
+        const publicOffers = (offers || []).filter((offer: any) => {
+            const userId = getCandidateUserId(offer);
+            return userId == null || !knownCommunityUserIds.has(userId);
+        });
         const membersForView = isSingleUserShift
-            ? currentTabData.members || []
-            : currentTabData.membersBySlot?.[selectedSlotId ?? -1] || [];
+            ? consolidatedMembers
+            : consolidatedMembersBySlot[selectedSlotId ?? -1] || [];
 
         const cardBorderColor = getCardBorderColor((shift as any).visibility ?? 'PLATFORM');
         const summaryText = getShiftSummary(shift);
@@ -776,12 +818,12 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
         const slotsCount = Array.isArray((shift as any).slots) ? (shift as any).slots.length : 0;
         const showPaymentRequired = shouldShowPaymentRequired(shift, selectedSlotId);
         const allMembers = isSingleUserShift
-            ? (currentTabData.members || [])
-            : Object.values(currentTabData.membersBySlot || {}).flatMap((slotMembers: any) => (
+            ? consolidatedMembers
+            : Object.values(consolidatedMembersBySlot || {}).flatMap((slotMembers: any) => (
                 Array.isArray(slotMembers) ? slotMembers : []
             ));
-        const allInterests = currentTabData.interestsAll || [];
-        const allOffers = offers || [];
+        const allInterests = publicInterests;
+        const allOffers = publicOffers;
         const candidatesCount = countUniquePeople([
             ...dedupeMembers(allMembers),
             ...allInterests,
@@ -792,8 +834,8 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
             ...allInterests,
             ...allOffers.filter(isActiveCounterOffer),
         ]);
-        const slotCandidateCounts = getSlotIds(shift).reduce<Record<number, number>>((acc, slotId) => {
-            const slotMembers = currentTabData.membersBySlot?.[slotId] || [];
+        const slotCandidateCounts = slotIds.reduce<Record<number, number>>((acc, slotId) => {
+            const slotMembers = consolidatedMembersBySlot[slotId] || [];
             const slotInterests = allInterests.filter((interest: any) => interestBelongsToSlot(interest, slotId));
             const slotOffers = allOffers.filter((offer: any) => offerBelongsToSlot(offer, slotId));
             acc[slotId] = countUniquePeople([
@@ -936,13 +978,13 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                             <Stack sx={{ ml: { md: 'auto' }, width: '100%', maxWidth: { md: 670 }, alignItems: { xs: 'stretch', md: 'flex-end' }, minWidth: 0 }}>
                                 {headerActions}
                                 <Stack
-                                    direction={{ xs: 'column', sm: 'row' }}
+                                    direction="row"
                                     sx={{
                                         mt: 1.25,
                                         width: '100%',
-                                        maxWidth: { md: 560 },
+                                        maxWidth: { xs: '100%', md: 560 },
                                         border: '1px solid #E5E7EB',
-                                        borderRadius: 2.5,
+                                        borderRadius: { xs: 2, sm: 2.5 },
                                         bgcolor: '#fff',
                                         overflow: 'hidden',
                                     }}
@@ -955,18 +997,31 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                                 display: 'flex',
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
-                                                gap: 1.2,
-                                                minHeight: { xs: 58, sm: 70 },
-                                                px: { xs: 1.5, sm: 2 },
-                                                borderLeft: { xs: 0, sm: itemIdx === 0 ? 0 : '1px solid #E5E7EB' },
-                                                borderTop: { xs: itemIdx === 0 ? 0 : '1px solid #E5E7EB', sm: 0 },
+                                                gap: { xs: 0.5, sm: 1.2 },
+                                                minHeight: { xs: 52, sm: 70 },
+                                                px: { xs: 0.75, sm: 2 },
+                                                borderLeft: itemIdx === 0 ? 0 : '1px solid #E5E7EB',
                                                 minWidth: 0,
                                             }}
                                         >
-                                            <Box sx={{ color: '#4F46E5', display: 'flex' }}>{item.icon}</Box>
-                                            <Box>
-                                                <Typography sx={{ fontWeight: 900, lineHeight: 1, fontSize: 22 }}>{item.value}</Typography>
-                                                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>{item.label}</Typography>
+                                            <Box sx={{ color: '#4F46E5', display: 'flex', '& svg': { fontSize: { xs: 18, sm: 20 } } }}>{item.icon}</Box>
+                                            <Box sx={{ minWidth: 0 }}>
+                                                <Typography sx={{ fontWeight: 900, lineHeight: 1, fontSize: { xs: 18, sm: 22 }, textAlign: 'center' }}>{item.value}</Typography>
+                                                <Typography
+                                                    variant="caption"
+                                                    color="text.secondary"
+                                                    sx={{
+                                                        display: 'block',
+                                                        fontWeight: 700,
+                                                        fontSize: { xs: 10.5, sm: 12 },
+                                                        lineHeight: 1.15,
+                                                        textAlign: 'center',
+                                                        overflow: 'hidden',
+                                                        textOverflow: 'ellipsis',
+                                                    }}
+                                                >
+                                                    {item.label}
+                                                </Typography>
                                             </Box>
                                         </Box>
                                     ))}
@@ -1081,8 +1136,8 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                         slotId={selectedSlotId}
                                         slotHasUpdates={slotHasUpdatesByShift[shift.id] || {}}
                                         slotCandidateCounts={slotCandidateCounts}
-                                        interestsAll={currentTabData.interestsAll || []}
-                                        counterOffers={offers || []}
+                                        interestsAll={publicInterests}
+                                        counterOffers={publicOffers}
                                         counterOffersLoaded={counterOffersLoaded}
                                         onReveal={handleRevealInterest}
                                         onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
@@ -1093,19 +1148,49 @@ const ActiveShiftsPage: React.FC<ActiveShiftsPageProps> = ({ shiftId = null, tit
                                     />
                                 )
                             ) : (
-                                <CommunityLevelView
-                                    shift={shift}
-                                    members={membersForView}
-                                    selectedSlotId={selectedSlotId}
-                                    slotHasUpdates={slotHasUpdatesByShift[shift.id] || {}}
-                                    slotCandidateCounts={slotCandidateCounts}
-                                    offers={offers || []}
-                                    onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
-                                    onReviewCandidate={(member, _shiftId, offer, slotId) =>
-                                        handleReviewCandidate(shift, member, offer, slotId)
-                                    }
-                                    reviewLoadingId={reviewLoadingId}
-                                />
+                                communityDataLoading ? (
+                                    <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
+                                        <CircularProgress />
+                                    </Box>
+                                ) : (
+                                    <CommunityLevelView
+                                        shift={shift}
+                                        members={membersForView}
+                                        selectedSlotId={selectedSlotId}
+                                        slotHasUpdates={slotHasUpdatesByShift[shift.id] || {}}
+                                        slotCandidateCounts={slotCandidateCounts}
+                                        offers={offers || []}
+                                        onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
+                                        onReviewCandidate={(member, _shiftId, offer, slotId) =>
+                                            handleReviewCandidate(shift, member, offer, slotId)
+                                        }
+                                        reviewLoadingId={reviewLoadingId}
+                                    />
+                                )
+                            )}
+                            {selectedLevel === PUBLIC_LEVEL_KEY && (
+                                <Box sx={{ mt: 2.5 }}>
+                                    {communityDataLoading ? (
+                                        <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
+                                            <CircularProgress />
+                                        </Box>
+                                    ) : (
+                                        <CommunityLevelView
+                                            shift={shift}
+                                            members={membersForView}
+                                            selectedSlotId={selectedSlotId}
+                                            slotHasUpdates={slotHasUpdatesByShift[shift.id] || {}}
+                                            slotCandidateCounts={slotCandidateCounts}
+                                            offers={offers || []}
+                                            showSlotSelector={false}
+                                            onSelectSlot={(slotId) => handleSlotSelection(shift.id, slotId)}
+                                            onReviewCandidate={(member, _shiftId, offer, slotId) =>
+                                                handleReviewCandidate(shift, member, offer, slotId)
+                                            }
+                                            reviewLoadingId={reviewLoadingId}
+                                        />
+                                    )}
+                                </Box>
                             )}
                         </Box>
                     )}

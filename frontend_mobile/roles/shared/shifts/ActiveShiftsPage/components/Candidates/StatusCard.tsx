@@ -105,6 +105,9 @@ export default function StatusCard({
                                 : { offer: null, slotId: null };
                             const hasOffer = Boolean(match.offer);
                             const userId = memberAny.userId || memberAny.user_id || memberAny.id;
+                            const sourceVisibility = memberAny.sourceVisibility ?? memberAny.visibilityLevel ?? memberAny.visibility_level;
+                            const organizationName = memberAny.organizationName ?? memberAny.organization_name;
+                            const showOrganizationLabel = sourceVisibility === 'ORG_CHAIN' && Boolean(organizationName);
 
                             return (
                                 <Surface key={userId} style={styles.memberCard} elevation={1}>
@@ -138,6 +141,11 @@ export default function StatusCard({
                                                     textStyle={{ color: customTheme.colors.warning }}
                                                 >
                                                     {ratingValue.toFixed(1)}
+                                                </Chip>
+                                            )}
+                                            {showOrganizationLabel && (
+                                                <Chip mode="outlined" compact>
+                                                    {organizationName}
                                                 </Chip>
                                             )}
                                         </View>

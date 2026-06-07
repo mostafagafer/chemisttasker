@@ -5,6 +5,7 @@ import {
   Typography,
   Stack,
   Button,
+  ButtonBase,
   Chip,
   CircularProgress,
 } from "@mui/material";
@@ -19,7 +20,10 @@ import FavoriteBorderIcon from "@mui/icons-material/FavoriteBorder";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
 import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import ForumIcon from "@mui/icons-material/Forum";
+import VisibilityIcon from "@mui/icons-material/Visibility";
 import { alpha } from "@mui/material/styles";
+import { useNavigate } from "react-router-dom";
 import apiClient from "../../../../utils/apiClient";
 import { useAuth } from "../../../../contexts/AuthContext";
 import type { PharmacyDTO } from "./types";
@@ -55,8 +59,13 @@ type ActivityItem = {
   title: string;
   description: string;
   time: string;
-  icon: React.ReactNode;
-  color: string;
+  icon?: React.ReactNode;
+  color?: string;
+  kind?: string;
+  target_id?: number | string;
+  targetId?: number | string;
+  action_url?: string;
+  actionUrl?: string;
 };
 
 const toneStyles = {
@@ -74,6 +83,25 @@ function firstNameFromUser(user: any) {
     user?.email?.split("@")[0] ||
     "there";
   return String(raw).split(/\s+/)[0];
+}
+
+function activityIcon(event: ActivityItem) {
+  if (event.icon) return event.icon;
+  if (event.kind === "hub") return <ForumIcon />;
+  if (event.kind === "reveal") return <VisibilityIcon />;
+  if (event.kind === "confirmed") return <ShieldOutlinedIcon />;
+  if (event.kind === "invoice") return <CreditCardIcon />;
+  if (event.kind === "pharmacy") return <StoreIcon />;
+  return <CalendarMonthIcon />;
+}
+
+function activityColor(event: ActivityItem) {
+  if (event.color) return event.color;
+  if (event.kind === "hub") return "#063BDA";
+  if (event.kind === "reveal") return "#EA0A8E";
+  if (event.kind === "confirmed") return "#00C853";
+  if (event.kind === "invoice") return "#FF5A00";
+  return "#5B18E8";
 }
 
 export default function OwnerOverviewHome({
@@ -104,6 +132,7 @@ export default function OwnerOverviewHome({
   onOpenPills: () => void;
 }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [pillBalance, setPillBalance] = useState<number | null>(null);
   const [shiftPostCost, setShiftPostCost] = useState<number | null>(null);
 
@@ -201,25 +230,23 @@ export default function OwnerOverviewHome({
     { label: "Unpaid Invoices", value: unpaidInvoiceCount, helper: unpaidInvoiceTotal, icon: <CreditCardIcon />, tone: "pink" },
   ];
 
-  const fallbackActivity: ActivityItem[] = [
-    { title: "New shift posted", description: activePharmacyName, time: "2m ago", icon: <CalendarMonthIcon />, color: "#5B18E8" },
-    { title: "Shift confirmed", description: `${activePharmacyName} accepted a shift`, time: "15m ago", icon: <ShieldOutlinedIcon />, color: "#00C853" },
-    { title: selectedPharmacy ? "Pharmacy selected" : "New pharmacy added", description: activePharmacyName, time: "1h ago", icon: <StoreIcon />, color: "#5B18E8" },
-    { title: "Invoice paid", description: "INV-2024-1256", time: "2h ago", icon: <CreditCardIcon />, color: "#FF5A00" },
-  ];
-
   const realActivity: ActivityItem[] = Array.isArray(dashboardData?.activity)
     ? dashboardData.activity.map((event: any) => ({
         title: event.title,
         description: event.description,
         time: event.time,
-        icon: event.kind === "confirmed" ? <ShieldOutlinedIcon /> : event.kind === "invoice" ? <CreditCardIcon /> : event.kind === "pharmacy" ? <StoreIcon /> : <CalendarMonthIcon />,
-        color: event.kind === "confirmed" ? "#00C853" : event.kind === "invoice" ? "#FF5A00" : "#5B18E8",
+        kind: event.kind,
+        target_id: event.target_id,
+        action_url: event.action_url,
       }))
     : [];
-  const activityItems: ActivityItem[] = realActivity.length > 0
-    ? [...realActivity, ...fallbackActivity].slice(0, 4)
-    : fallbackActivity;
+  const activityItems: ActivityItem[] = realActivity;
+  const handleActivityClick = (event: ActivityItem) => {
+    const actionUrl = event.actionUrl || event.action_url;
+    if (actionUrl) {
+      navigate(actionUrl);
+    }
+  };
 
   return (
     <Box
@@ -232,12 +259,12 @@ export default function OwnerOverviewHome({
         fontFamily: '"DM Sans Variable", "DM Sans", "Barlow", Arial, sans-serif',
         display: "flex",
         flexDirection: "column",
-        gap: { xs: 2.5, md: 3.5 },
+        gap: { xs: 2, md: 3.5 },
       }}
     >
       <Box>
         <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
-          <Typography sx={{ fontSize: { xs: 28, md: 34 }, lineHeight: 1, fontWeight: 950, color: DNA.ink }}>
+          <Typography sx={{ fontSize: { xs: 26, md: 34 }, lineHeight: 1.08, fontWeight: 950, color: DNA.ink, overflowWrap: "anywhere" }}>
             Owner Dashboard
           </Typography>
           <Chip
@@ -252,7 +279,7 @@ export default function OwnerOverviewHome({
             }}
           />
         </Stack>
-        <Typography sx={{ mt: 1.5, color: DNA.muted, fontSize: 17, fontWeight: 700 }}>
+        <Typography sx={{ mt: 1.25, color: DNA.muted, fontSize: { xs: 15, md: 17 }, fontWeight: 700, lineHeight: 1.45, overflowWrap: "anywhere" }}>
           Manage {totalPharmacies} active {totalPharmacies === 1 ? "pharmacy" : "pharmacies"}, teams and operations
         </Typography>
       </Box>
@@ -261,16 +288,17 @@ export default function OwnerOverviewHome({
         sx={{
           display: "grid",
           gridTemplateColumns: { xs: "1fr", xl: "minmax(0, 1fr) 388px" },
-          gap: { xs: 2.5, md: 3 },
+          gap: { xs: 2, md: 3 },
           alignItems: "start",
+          minWidth: 0,
         }}
       >
-        <Stack spacing={{ xs: 2.5, md: 3 }}>
+        <Stack spacing={{ xs: 2, md: 3 }} sx={{ minWidth: 0 }}>
           <Paper
         sx={{
-          p: { xs: 3, md: 4 },
+          p: { xs: 2, sm: 3, md: 4 },
           minHeight: { xs: "auto", md: 290 },
-          borderRadius: { xs: "24px", md: "22px" },
+          borderRadius: { xs: "18px", md: "22px" },
           backgroundImage: "linear-gradient(135deg, #143EEA 0%, #2429B8 45%, #8B1CF6 72%, #D20DAE 100%)",
           color: "#fff",
           overflow: "hidden",
@@ -293,25 +321,25 @@ export default function OwnerOverviewHome({
         />
         <Stack
           direction={{ xs: "column", md: "row" }}
-          spacing={{ xs: 3, md: 5 }}
-          alignItems={{ xs: "flex-start", md: "center" }}
+          spacing={{ xs: 2.25, md: 5 }}
+          alignItems={{ xs: "stretch", md: "center" }}
           justifyContent="space-between"
-          sx={{ position: "relative", zIndex: 1 }}
+          sx={{ position: "relative", zIndex: 1, minWidth: 0 }}
         >
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant="h4" fontWeight={950} gutterBottom sx={{ fontSize: { xs: 34, sm: 44, md: 50 }, lineHeight: 1.04, overflowWrap: "anywhere" }}>
+            <Typography variant="h4" fontWeight={950} gutterBottom sx={{ fontSize: { xs: 28, sm: 38, md: 50 }, lineHeight: 1.08, overflowWrap: "anywhere" }}>
               Welcome back, {displayName}!
             </Typography>
-            <Typography variant="body1" sx={{ opacity: 0.96, maxWidth: 620, fontWeight: 800, fontSize: { xs: 16, md: 18 } }}>
+            <Typography variant="body1" sx={{ opacity: 0.96, maxWidth: 620, fontWeight: 800, fontSize: { xs: 15, md: 18 }, lineHeight: 1.45, overflowWrap: "anywhere" }}>
               Here's what's happening across your pharmacies today.
             </Typography>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 3, "& > *": { width: { xs: "100%", sm: "auto" } } }}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} sx={{ mt: { xs: 2, md: 3 }, "& > *": { width: { xs: "100%", sm: "auto" } } }}>
               <Button
                 variant="contained"
                 color="inherit"
                 startIcon={<CalendarMonthIcon />}
                 onClick={onPostShift}
-                sx={{ color: "#063BDA", borderRadius: "12px", fontWeight: 950, minHeight: 56, px: 3 }}
+                sx={{ color: "#063BDA", borderRadius: "12px", fontWeight: 950, minHeight: { xs: 48, md: 56 }, px: { xs: 2, md: 3 }, justifyContent: "center" }}
               >
                 Post a shift
               </Button>
@@ -320,7 +348,7 @@ export default function OwnerOverviewHome({
                 color="inherit"
                 startIcon={<StoreIcon />}
                 onClick={onOpenManage}
-                sx={{ borderColor: alpha("#ffffff", 0.34), color: "#fff", borderRadius: "12px", fontWeight: 950, minHeight: 56, px: 3, bgcolor: alpha("#ffffff", 0.08) }}
+                sx={{ borderColor: alpha("#ffffff", 0.34), color: "#fff", borderRadius: "12px", fontWeight: 950, minHeight: { xs: 48, md: 56 }, px: { xs: 2, md: 3 }, justifyContent: "center", bgcolor: alpha("#ffffff", 0.08) }}
               >
                 Manage pharmacies
               </Button>
@@ -337,8 +365,8 @@ export default function OwnerOverviewHome({
               zIndex: 1,
               width: { xs: "100%", md: "auto" },
               minWidth: { xs: 0, md: 320 },
-              p: { xs: 2, md: 2.5 },
-              borderRadius: { xs: "20px", md: "24px" },
+              p: { xs: 1.5, md: 2.5 },
+              borderRadius: { xs: "16px", md: "24px" },
               cursor: "pointer",
               bgcolor: alpha("#ffffff", 0.13),
               border: `1px solid ${alpha("#ffffff", 0.26)}`,
@@ -355,8 +383,8 @@ export default function OwnerOverviewHome({
               src="/images/drugs.png"
               alt=""
               sx={{
-                width: { xs: 72, sm: 88, md: 98 },
-                height: { xs: 72, sm: 88, md: 98 },
+                width: { xs: 58, sm: 78, md: 98 },
+                height: { xs: 58, sm: 78, md: 98 },
                 objectFit: "contain",
                 flexShrink: 0,
                 filter: `contrast(1.08) saturate(1.08) drop-shadow(0 14px 22px ${alpha("#111827", 0.26)})`,
@@ -370,11 +398,11 @@ export default function OwnerOverviewHome({
                 {pillBalance == null ? (
                   <CircularProgress size={22} sx={{ color: "#fff" }} />
                 ) : (
-                  <Typography sx={{ fontSize: { xs: 44, md: 58 }, fontWeight: 950, lineHeight: 1 }}>
+                <Typography sx={{ fontSize: { xs: 34, md: 58 }, fontWeight: 950, lineHeight: 1 }}>
                     {pillBalance}
                   </Typography>
                 )}
-                <Typography variant="body2" sx={{ opacity: 0.9, fontWeight: 900, fontSize: 18 }}>
+                <Typography variant="body2" sx={{ opacity: 0.9, fontWeight: 900, fontSize: { xs: 15, md: 18 } }}>
                   pills
                 </Typography>
               </Stack>
@@ -382,9 +410,9 @@ export default function OwnerOverviewHome({
                 <Chip
                   size="small"
                   label={shiftPostCost != null ? `${shiftPostCost} pills per shift post` : "Custom rates"}
-                  sx={{ bgcolor: alpha("#ffffff", 0.18), color: "#fff", fontWeight: 800 }}
+                  sx={{ maxWidth: "100%", bgcolor: alpha("#ffffff", 0.18), color: "#fff", fontWeight: 800, "& .MuiChip-label": { overflow: "hidden", textOverflow: "ellipsis" } }}
                 />
-                <Chip size="small" label="View activity" sx={{ bgcolor: alpha("#ffffff", 0.18), color: "#fff", fontWeight: 800 }} />
+                <Chip size="small" label="View activity" sx={{ maxWidth: "100%", bgcolor: alpha("#ffffff", 0.18), color: "#fff", fontWeight: 800 }} />
               </Stack>
             </Stack>
           </Stack>
@@ -395,7 +423,8 @@ export default function OwnerOverviewHome({
             sx={{
               display: "grid",
               gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(4, minmax(0, 1fr))" },
-              gap: { xs: 1.75, md: 2.5 },
+              gap: { xs: 1.5, md: 2.5 },
+              minWidth: 0,
             }}
           >
             {quickActions.map((action) => {
@@ -406,53 +435,49 @@ export default function OwnerOverviewHome({
                   role="button"
                   onClick={action.onClick}
                   sx={{
-                    minHeight: 196,
+                    minHeight: { xs: 132, md: 196 },
                     gridColumn: { lg: action.wide ? "span 2" : "span 1" },
-                    borderRadius: "20px",
+                    borderRadius: { xs: "16px", md: "20px" },
                     bgcolor: "#FFFFFF",
                     border: `1px solid ${DNA.line}`,
                     boxShadow: "0 8px 24px rgba(6, 18, 58, 0.06)",
                     transition: "all 0.2s ease",
                     cursor: "pointer",
-                    p: { xs: 2.5, md: 3 },
+                    p: { xs: 2, md: 3 },
                     display: "flex",
                     flexDirection: "column",
-                    gap: 2,
+                    justifyContent: "center",
                     "&:hover": {
                       transform: { xs: "none", md: "translateY(-4px)" },
                       boxShadow: "0 18px 42px rgba(6, 18, 58, 0.12)",
                     },
                   }}
                 >
-                  <Stack direction="row" spacing={2.5} alignItems="flex-start" sx={{ minWidth: 0 }}>
+                  <Stack direction="row" spacing={{ xs: 1.75, md: 2.75 }} alignItems="flex-start" sx={{ minWidth: 0, width: "100%" }}>
                     <Box
                       sx={{
-                        width: 64,
-                        height: 64,
-                        borderRadius: "18px",
+                        width: { xs: 52, md: 64 },
+                        height: { xs: 52, md: 64 },
+                        borderRadius: { xs: "15px", md: "18px" },
                         bgcolor: tone.bg,
                         color: tone.color,
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
                         flexShrink: 0,
-                        "& svg": { fontSize: 34 },
+                        "& svg": { fontSize: { xs: 28, md: 34 } },
                       }}
                     >
                       {action.icon}
                     </Box>
-                    <Stack spacing={1.25} sx={{ minWidth: 0 }}>
-                      <Typography fontWeight={950} color={DNA.ink} sx={{ fontSize: 18, lineHeight: 1.2 }}>
+                    <Stack spacing={{ xs: 0.75, md: 1.15 }} sx={{ minWidth: 0, flex: 1 }}>
+                      <Typography fontWeight={950} color={DNA.ink} sx={{ fontSize: { xs: 20, md: 22 }, lineHeight: 1.12, overflowWrap: "anywhere" }}>
                         {action.title}
                       </Typography>
-                      <Typography variant="body2" sx={{ color: DNA.muted, fontWeight: 700, lineHeight: 1.55, maxWidth: 180 }}>
+                      <Typography variant="body2" sx={{ color: DNA.muted, fontWeight: 800, fontSize: { xs: 15, md: 16 }, lineHeight: 1.32, maxWidth: action.wide ? 360 : { xs: "none", md: 220 }, overflowWrap: "anywhere" }}>
                         {action.description}
                       </Typography>
                     </Stack>
-                  </Stack>
-                  <Stack direction="row" alignItems="center" spacing={1.25} sx={{ mt: "auto", color: tone.link, fontWeight: 950 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 950, fontSize: 16 }}>Open</Typography>
-                    <ArrowForwardIcon fontSize="small" />
                   </Stack>
                 </Paper>
               );
@@ -493,18 +518,34 @@ export default function OwnerOverviewHome({
                 <Typography variant="body2" sx={{ color: DNA.muted, fontWeight: 700 }}>
                   No recent activity yet.
                 </Typography>
-              ) : activityItems.map((event) => (
-                <Stack key={`${event.title}-${event.time}`} direction="row" spacing={2} alignItems="flex-start" sx={{ py: 1.8 }}>
-                  <Box sx={{ color: event.color, width: 24, pt: 0.25, "& svg": { fontSize: 24 } }}>{event.icon}</Box>
+              ) : activityItems.map((event) => {
+                const actionUrl = event.actionUrl || event.action_url;
+                return (
+                <ButtonBase
+                  key={`${event.kind || "activity"}-${event.targetId || event.target_id || event.title}-${event.time}`}
+                  onClick={() => handleActivityClick(event)}
+                  disabled={!actionUrl}
+                  sx={{
+                    width: "100%",
+                    display: "block",
+                    textAlign: "left",
+                    borderRadius: 1,
+                    cursor: actionUrl ? "pointer" : "default",
+                    "&:hover": actionUrl ? { bgcolor: alpha("#5B18E8", 0.05) } : undefined,
+                  }}
+                >
+                <Stack direction="row" spacing={2} alignItems="flex-start" sx={{ py: 1.8, px: 0.75 }}>
+                  <Box sx={{ color: activityColor(event), width: 24, pt: 0.25, "& svg": { fontSize: 24 } }}>{activityIcon(event)}</Box>
                   <Box sx={{ minWidth: 0, flex: 1 }}>
                     <Typography sx={{ color: DNA.ink, fontWeight: 950, fontSize: 14 }}>{event.title}</Typography>
                     <Typography noWrap sx={{ color: DNA.muted, fontWeight: 700, fontSize: 13 }}>{event.description}</Typography>
                   </Box>
                   <Typography sx={{ color: "#7A86A3", fontWeight: 800, fontSize: 12, whiteSpace: "nowrap" }}>{event.time}</Typography>
                 </Stack>
-              ))}
+                </ButtonBase>
+              )})}
             </Stack>
-            <Button onClick={onOpenPills} endIcon={<ArrowForwardIcon />} sx={{ mt: 2, px: 0, color: "#4C0DDE", fontWeight: 950 }}>
+            <Button onClick={onOpenShifts} endIcon={<ArrowForwardIcon />} sx={{ mt: 2, px: 0, color: "#4C0DDE", fontWeight: 950 }}>
               View all activity
             </Button>
           </Paper>
@@ -516,7 +557,7 @@ export default function OwnerOverviewHome({
           display: "grid",
           gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", xl: "repeat(4, minmax(0, 1fr))" },
           overflow: "hidden",
-          borderRadius: "20px",
+          borderRadius: { xs: "16px", md: "20px" },
           bgcolor: "#FFFFFF",
           border: `1px solid ${DNA.line}`,
           boxShadow: "0 8px 24px rgba(6, 18, 58, 0.06)",
@@ -530,36 +571,36 @@ export default function OwnerOverviewHome({
               sx={{
                 display: "flex",
                 alignItems: "center",
-                gap: 2.25,
-                minHeight: 132,
-                px: { xs: 2.5, md: 4 },
-                py: 2.5,
+                gap: { xs: 1.5, md: 2.25 },
+                minHeight: { xs: 104, md: 132 },
+                px: { xs: 2, md: 4 },
+                py: { xs: 2, md: 2.5 },
                 borderLeft: { xl: index === 0 ? "none" : `1px solid ${DNA.line}` },
                 borderTop: { xs: index === 0 ? "none" : `1px solid ${DNA.line}`, sm: index < 2 ? "none" : `1px solid ${DNA.line}`, xl: "none" },
               }}
             >
               <Box
                 sx={{
-                  width: 66,
-                  height: 66,
-                  borderRadius: "18px",
+                  width: { xs: 54, md: 66 },
+                  height: { xs: 54, md: 66 },
+                  borderRadius: { xs: "15px", md: "18px" },
                   bgcolor: tone.bg,
                   color: tone.color,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   flexShrink: 0,
-                  "& svg": { fontSize: 36 },
+                  "& svg": { fontSize: { xs: 30, md: 36 } },
                 }}
               >
                 {item.icon}
               </Box>
               <Box sx={{ minWidth: 0 }}>
                 <Typography sx={{ color: DNA.muted, fontWeight: 800, fontSize: 14 }}>{item.label}</Typography>
-                <Typography sx={{ color: DNA.ink, fontWeight: 950, fontSize: { xs: 22, md: 24 }, lineHeight: 1.18 }}>
+                <Typography sx={{ color: DNA.ink, fontWeight: 950, fontSize: { xs: 21, md: 24 }, lineHeight: 1.18, overflowWrap: "anywhere" }}>
                   {item.value}
                 </Typography>
-                <Typography sx={{ color: DNA.muted, fontWeight: 700, fontSize: 13, mt: 0.5 }}>{item.helper}</Typography>
+                <Typography sx={{ color: DNA.muted, fontWeight: 700, fontSize: 13, mt: 0.5, overflowWrap: "anywhere" }}>{item.helper}</Typography>
               </Box>
             </Box>
           );

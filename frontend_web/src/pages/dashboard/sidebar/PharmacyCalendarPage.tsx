@@ -112,6 +112,12 @@ const formatTimeRange = (start?: string | null, end?: string | null) => {
 
 export default function PharmacyCalendarPage() {
     const theme = useTheme();
+    const isDarkMode = theme.palette.mode === "dark";
+    const pageBg = isDarkMode ? "var(--ct-page-bg, #07111f)" : "#f8fafc";
+    const cardBg = isDarkMode ? "var(--ct-elevated-bg, #101b2f)" : "#FFFFFF";
+    const subtleBg = isDarkMode ? alpha(theme.palette.common.white, 0.045) : alpha(theme.palette.primary.main, 0.04);
+    const hoverBg = isDarkMode ? alpha(theme.palette.primary.light, 0.12) : alpha(theme.palette.primary.main, 0.08);
+    const borderColor = isDarkMode ? alpha(theme.palette.common.white, 0.12) : "rgba(15, 23, 42, 0.10)";
     const [searchParams, setSearchParams] = useSearchParams();
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [selectedDay, setSelectedDay] = useState<Date>(new Date());
@@ -609,16 +615,16 @@ export default function PharmacyCalendarPage() {
     const noPharmacies = memberships.length === 0;
 
     return (
-        <Box sx={{ p: { xs: 2, md: 4 }, minHeight: "100vh", bgcolor: "#f8fafc" }}>
+        <Box sx={{ p: { xs: 2, md: 4 }, minHeight: "100vh", bgcolor: pageBg, color: "text.primary" }}>
             <Paper
                 elevation={0}
                 sx={{
                     p: 3,
                     mb: 3,
                     borderRadius: 3,
-                    background: "white",
+                    background: cardBg,
                     border: "1px solid",
-                    borderColor: "divider",
+                    borderColor,
                 }}
             >
                 <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} spacing={2}>
@@ -742,9 +748,9 @@ export default function PharmacyCalendarPage() {
                             flex: 2,
                             p: 3,
                             borderRadius: 3,
-                            background: "white",
+                            background: cardBg,
                             border: "1px solid",
-                            borderColor: "divider",
+                            borderColor,
                             position: "relative",
                         }}
                     >
@@ -753,7 +759,7 @@ export default function PharmacyCalendarPage() {
                                 sx={{
                                     position: "absolute",
                                     inset: 0,
-                                    bgcolor: "rgba(255,255,255,0.6)",
+                                    bgcolor: subtleBg,
                                     zIndex: 1,
                                     display: "flex",
                                     alignItems: "center",
@@ -784,7 +790,7 @@ export default function PharmacyCalendarPage() {
                                             border: "1px solid",
                                             borderColor: "divider",
                                             borderRadius: 1.5,
-                                            "&:hover": { bgcolor: alpha(theme.palette.primary.main, 0.08) },
+                                            "&:hover": { bgcolor: hoverBg },
                                         }}
                                     >
                                         <ChevronLeft fontSize="small" />
@@ -796,7 +802,7 @@ export default function PharmacyCalendarPage() {
                                             border: "1px solid",
                                             borderColor: "divider",
                                             borderRadius: 1.5,
-                                            "&:hover": { bgcolor: alpha(theme.palette.primary.main, 0.08) },
+                                            "&:hover": { bgcolor: hoverBg },
                                         }}
                                     >
                                         <ChevronRight fontSize="small" />
@@ -867,7 +873,7 @@ export default function PharmacyCalendarPage() {
                                             position: "relative",
                                             transition: "all 0.2s ease",
                                             bgcolor: isSelected
-                                                ? alpha(theme.palette.primary.main, 0.1)
+                                                ? alpha(theme.palette.primary.main, isDarkMode ? 0.22 : 0.1)
                                                 : "transparent",
                                             border: "2px solid",
                                             borderColor: isSelected
@@ -876,7 +882,7 @@ export default function PharmacyCalendarPage() {
                                                     ? alpha(theme.palette.primary.main, 0.3)
                                                     : "transparent",
                                             "&:hover": {
-                                                bgcolor: alpha(theme.palette.primary.main, 0.05),
+                                                bgcolor: hoverBg,
                                             },
                                         }}
                                     >
@@ -951,9 +957,9 @@ export default function PharmacyCalendarPage() {
                             flex: 1,
                             p: 3,
                             borderRadius: 3,
-                            background: "white",
+                            background: cardBg,
                             border: "1px solid",
-                            borderColor: "divider",
+                            borderColor,
                             minWidth: { lg: 360 },
                             maxHeight: { lg: "75vh" },
                             overflowY: "auto",

@@ -16,6 +16,7 @@ interface CommunityLevelViewProps {
     selectedSlotId: number | null;
     slotHasUpdates?: Record<number, boolean>;
     offers: any[];
+    showSlotSelector?: boolean;
     onSelectSlot: (slotId: number) => void;
     onReviewCandidate: (member: ShiftMemberStatus, shiftId: number, offer: any | null, slotId: number | null) => void;
     reviewLoadingId?: number | null;
@@ -27,6 +28,7 @@ export default function CommunityLevelView({
     selectedSlotId,
     slotHasUpdates,
     offers,
+    showSlotSelector = true,
     onSelectSlot,
     onReviewCandidate,
     reviewLoadingId,
@@ -53,7 +55,7 @@ export default function CommunityLevelView({
     return (
         <ScrollView contentContainerStyle={styles.container}>
             {/* Slot Selector for multi-slot shifts */}
-            {multiSlots && (
+            {showSlotSelector && multiSlots && (
                 <SlotSelector
                     slots={slots}
                     selectedSlotId={selectedSlotId}
@@ -64,7 +66,7 @@ export default function CommunityLevelView({
 
             <View style={styles.dividerContainer}>
                 <Divider style={styles.divider} />
-                <Chip mode="outlined" style={styles.dividerChip}>Candidates</Chip>
+                <Chip mode="outlined" style={styles.dividerChip}>Community Candidates</Chip>
                 <Divider style={styles.divider} />
             </View>
 

@@ -116,7 +116,7 @@ const ShiftsBoard: React.FC<ShiftsBoardProps> = ({
             if (pharmacistRatePref) return;
             if (user?.role !== 'PHARMACIST') return;
             try {
-                const dash: any = await getPharmacistDashboard();
+                const dash: any = await getPharmacistDashboard({ workspace: 'platform' });
                 const fromDash =
                     dash?.rate_preference ||
                     dash?.ratePreference ||

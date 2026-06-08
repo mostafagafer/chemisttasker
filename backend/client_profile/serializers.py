@@ -306,7 +306,7 @@ class OwnerOnboardingV2Serializer(UploadValidationMixin, serializers.ModelSerial
     profile_photo = serializers.ImageField(required=False, allow_null=True)
     profile_photo_url = serializers.SerializerMethodField(read_only=True)
     tab = serializers.CharField(write_only=True, required=False)
-    submitted_for_verification = serializers.BooleanField(write_only=True, required=False)
+    submitted_for_verification = serializers.BooleanField(required=False)
     progress_percent = serializers.SerializerMethodField()
     ahpra_years_since_first_registration = serializers.SerializerMethodField(read_only=True)
     upload_validation_map = {
@@ -355,7 +355,7 @@ class OwnerOnboardingV2Serializer(UploadValidationMixin, serializers.ModelSerial
 
     def update(self, instance, validated_data):
         tab = (self.initial_data.get("tab") or "basic").strip().lower()
-        submit = bool(self.initial_data.get("submitted_for_verification"))
+        submit = bool(validated_data.pop("submitted_for_verification", False))
 
         if tab != "basic":
             tab = "basic"

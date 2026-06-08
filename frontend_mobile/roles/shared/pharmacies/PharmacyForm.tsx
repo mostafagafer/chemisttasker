@@ -49,6 +49,11 @@ type Props = {
 const STATES = ['NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'NT', 'ACT'];
 const EMPLOYMENT_TYPES = ["PART_TIME", "FULL_TIME", "LOCUMS"];
 const ROLE_OPTIONS = ["PHARMACIST", "INTERN", "ASSISTANT", "TECHNICIAN", "STUDENT", "ADMIN", "DRIVER"];
+const prettifyOptionLabel = (value: string) =>
+    value
+        .split('_')
+        .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+        .join(' ');
 const RATE_TYPES = [
     { value: 'FIXED', label: 'Fixed (Hourly)' },
     { value: 'FLEXIBLE', label: 'Flexible' },
@@ -111,6 +116,7 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [activeTab, setActiveTab] = useState(0); // 0 to 6
+    const lastTabIndex = TABS.length - 1;
 
     // Form State
     const [form, setForm] = useState({
@@ -463,6 +469,10 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
         }
     };
 
+    const handleNext = () => {
+        setActiveTab((prev) => Math.min(prev + 1, lastTabIndex));
+    };
+
     const title = useMemo(() => (mode === 'edit' ? 'Edit Pharmacy' : 'Add Pharmacy'), [mode]);
 
     return (
@@ -514,22 +524,6 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                             {/* TAB 0: GENERAL */}
                             {activeTab === 0 && (
                                 <>
-                                    <TextInput
-                                        label="Pharmacy Name *"
-                                        value={form.name}
-                                        onChangeText={(v) => setForm(p => ({ ...p, name: v }))}
-                                        mode="outlined"
-                                        style={styles.input}
-                                    />
-                                    <TextInput
-                                        label="Email"
-                                        value={form.email}
-                                        onChangeText={(v) => setForm(p => ({ ...p, email: v }))}
-                                        mode="outlined"
-                                        style={styles.input}
-                                        keyboardType="email-address"
-                                    />
-
                                     {!form.google_place_id ? (
                                         <GooglePlacesInput
                                             label="Search Address *"
@@ -599,6 +593,23 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                                             />
                                         </>
                                     )}
+                                    <TextInput
+                                        label="Pharmacy Name *"
+                                        value={form.name}
+                                        onChangeText={(v) => setForm(p => ({ ...p, name: v }))}
+                                        mode="outlined"
+                                        style={styles.input}
+                                    />
+                                    <TextInput
+                                        label="Email"
+                                        value={form.email}
+                                        onChangeText={(v) => setForm(p => ({ ...p, email: v }))}
+                                        mode="outlined"
+                                        style={styles.input}
+                                        keyboardType="email-address"
+                                    />
+
+
 
                                 </>
                             )}
@@ -648,22 +659,49 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                             {/* TAB 3: STAFFING */}
                             {activeTab === 3 && (
                                 <>
-                                    <Text style={styles.sectionHeader}>Employment Types</Text>
-                                    {EMPLOYMENT_TYPES.map(type => (
-                                        <View key={type} style={styles.checkRow}>
-                                            <Checkbox status={employmentTypes.includes(type) ? 'checked' : 'unchecked'} onPress={() => toggleList(employmentTypes, setEmploymentTypes, type)} />
-                                            <Text>{type.replace('_', ' ')}</Text>
-                                        </View>
-                                    ))}
+                                    <View style={styles.selectionSection}>
+                                        <Text style={styles.sectionHeader}>Employment Types</Text>
+                                        <Text style={styles.sectionHelper}>Choose the employment arrangements this pharmacy supports.</Text>
+                                        {EMPLOYMENT_TYPES.map(type => {
+                                            const checked = employmentTypes.includes(type);
+                                            return (
+                                                <TouchableOpacity
+                                                    key={type}
+                                                    style={[styles.selectionCard, checked && styles.selectionCardActive]}
+                                                    onPress={() => toggleList(employmentTypes, setEmploymentTypes, type)}
+                                                    activeOpacity={0.85}
+                                                >
+                                                    <Checkbox status={checked ? 'checked' : 'unchecked'} onPress={() => toggleList(employmentTypes, setEmploymentTypes, type)} />
+                                                    <View style={styles.selectionTextBlock}>
+                                                        <Text style={styles.selectionTitle}>{prettifyOptionLabel(type)}</Text>
+                                                        <Text style={styles.selectionSubtitle}>Available for this pharmacy</Text>
+                                                    </View>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
 
-                                    <Divider style={{ marginVertical: 16 }} />
-                                    <Text style={styles.sectionHeader}>Roles Needed</Text>
-                                    {ROLE_OPTIONS.map(role => (
-                                        <View key={role} style={styles.checkRow}>
-                                            <Checkbox status={rolesNeeded.includes(role) ? 'checked' : 'unchecked'} onPress={() => toggleList(rolesNeeded, setRolesNeeded, role)} />
-                                            <Text>{role}</Text>
-                                        </View>
-                                    ))}
+                                    <View style={styles.selectionSection}>
+                                        <Text style={styles.sectionHeader}>Roles Needed</Text>
+                                        <Text style={styles.sectionHelper}>Mark the staff profiles this pharmacy expects to hire or assign.</Text>
+                                        {ROLE_OPTIONS.map(role => {
+                                            const checked = rolesNeeded.includes(role);
+                                            return (
+                                                <TouchableOpacity
+                                                    key={role}
+                                                    style={[styles.selectionCard, checked && styles.selectionCardActive]}
+                                                    onPress={() => toggleList(rolesNeeded, setRolesNeeded, role)}
+                                                    activeOpacity={0.85}
+                                                >
+                                                    <Checkbox status={checked ? 'checked' : 'unchecked'} onPress={() => toggleList(rolesNeeded, setRolesNeeded, role)} />
+                                                    <View style={styles.selectionTextBlock}>
+                                                        <Text style={styles.selectionTitle}>{prettifyOptionLabel(role)}</Text>
+                                                        <Text style={styles.selectionSubtitle}>Include in staffing requests</Text>
+                                                    </View>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
                                 </>
                             )}
 
@@ -789,6 +827,10 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                             <Button
                                 mode="outlined"
                                 onPress={() => {
+                                    if (activeTab > 0) {
+                                        setActiveTab((prev) => Math.max(prev - 1, 0));
+                                        return;
+                                    }
                                     unsaved.confirmDiscard(() => {
                                         if (onCancel) onCancel();
                                         else router.back();
@@ -797,10 +839,18 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                                 disabled={saving}
                                 style={{ flex: 1 }}
                             >
-                                Cancel
+                                {activeTab > 0 ? 'Back' : 'Cancel'}
                             </Button>
-                            <Button mode="contained" onPress={handleSave} loading={saving} disabled={saving} style={{ flex: 1 }}>
-                                {mode === 'edit' ? 'Save Changes' : 'Create Pharmacy'}
+                            <Button
+                                mode="contained"
+                                onPress={activeTab === lastTabIndex ? handleSave : handleNext}
+                                loading={activeTab === lastTabIndex ? saving : false}
+                                disabled={saving}
+                                style={{ flex: 1 }}
+                            >
+                                {activeTab === lastTabIndex
+                                    ? mode === 'edit' ? 'Save Changes' : 'Create Pharmacy'
+                                    : 'Next'}
                             </Button>
                         </View>
                     </ScrollView>
@@ -853,13 +903,43 @@ const styles = StyleSheet.create({
     label: { fontSize: 14, color: surfaceTokens.textMuted, marginBottom: 4, marginTop: 8 },
     rowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
     radioItem: { flexDirection: 'row', alignItems: 'center' },
-    checkRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 4 },
+    selectionSection: {
+        gap: 10,
+    },
+    selectionCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: surfaceTokens.border,
+        backgroundColor: '#FBFCFE',
+    },
+    selectionCardActive: {
+        borderColor: surfaceTokens.primary,
+        backgroundColor: 'rgba(99, 102, 241, 0.08)',
+    },
+    selectionTextBlock: {
+        flex: 1,
+        gap: 2,
+    },
+    selectionTitle: {
+        color: surfaceTokens.text,
+        fontWeight: '700',
+    },
+    selectionSubtitle: {
+        color: surfaceTokens.textMuted,
+        fontSize: 12,
+    },
     toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
     actions: { flexDirection: 'row', gap: 12, marginTop: 12 },
     centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
     error: { color: surfaceTokens.error, marginBottom: 8 },
     mb: { marginBottom: 12 },
     fileText: { fontSize: 12, fontStyle: 'italic', marginBottom: 8, color: surfaceTokens.primary },
-    sectionHeader: { fontSize: 16, fontWeight: '600', marginTop: 8, marginBottom: 8 },
+    sectionHeader: { fontSize: 16, fontWeight: '700', marginTop: 8, marginBottom: 2, color: surfaceTokens.text },
+    sectionHelper: { fontSize: 12, color: surfaceTokens.textMuted, marginBottom: 4 },
     helperText: { fontSize: 12, color: surfaceTokens.textMuted, marginBottom: 8 },
 });

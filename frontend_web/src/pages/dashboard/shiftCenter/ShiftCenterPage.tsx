@@ -1,11 +1,10 @@
-import { SyntheticEvent, useEffect, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Box,
+  ButtonBase,
   Paper,
   Stack,
-  Tabs,
-  Tab,
   Typography,
   alpha,
   useTheme,
@@ -50,7 +49,7 @@ function ShiftCenterLayout({ scope, basePath, title, subtitle }: BaseProps) {
     }
   }, [params.section, basePath, navigate]);
 
-  const handleTabChange = (_: SyntheticEvent, value: Section) => {
+  const handleTabChange = (value: Section) => {
     if (value === currentSection) {
       return;
     }
@@ -167,61 +166,70 @@ function ShiftCenterLayout({ scope, basePath, title, subtitle }: BaseProps) {
           overflow: "hidden",
         }}
       >
-        <Tabs
-          value={currentSection}
-          onChange={handleTabChange}
-          variant="scrollable"
-          allowScrollButtonsMobile
+        <Box
           sx={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: { xs: 0.75, sm: 1.5 },
             px: { xs: 1.5, md: 2.5 },
             pt: { xs: 1.5, md: 2 },
             maxWidth: "100%",
-            "& .MuiTabs-flexContainer": {
-              gap: { xs: 1, sm: 1.5 },
-              justifyContent: { xs: "flex-start", md: "center" },
-            },
-            "& .MuiTabs-indicator": {
-              display: "none",
-            },
-            "& .MuiTab-root": {
-              textTransform: "none",
-              fontWeight: 700,
-              fontSize: { xs: 14, sm: 16 },
-              minHeight: 52,
-              minWidth: { xs: 164, sm: 190 },
-              borderRadius: 999,
-              px: { xs: 2, sm: 3.5 },
-              py: { xs: 1, sm: 1.3 },
-              color: alpha(theme.palette.text.primary, 0.72),
-              border: `1px solid ${alpha(theme.palette.divider, 0.6)}`,
-              transition: theme.transitions.create(["color", "background-color", "border-color", "box-shadow"]),
-              "&.Mui-selected": {
-                color: theme.palette.primary.main,
-                backgroundColor: alpha(theme.palette.primary.main, 0.15),
-                borderColor: alpha(theme.palette.primary.main, 0.45),
-                boxShadow: `0 6px 16px ${alpha(theme.palette.primary.main, 0.18)}`,
-              },
-              "&:not(.Mui-selected):hover": {
-                backgroundColor: alpha(theme.palette.primary.main, 0.08),
-                borderColor: alpha(theme.palette.primary.main, 0.25),
-              },
-              "& .MuiTab-iconWrapper": {
-                marginRight: theme.spacing(1),
-              },
-            },
+            minWidth: 0,
           }}
         >
-          {tabItems.map((tab) => (
-            <Tab
-              key={tab.value}
-              value={tab.value}
-              label={tab.label}
-              icon={tab.icon}
-              iconPosition="start"
-              disableRipple
-            />
-          ))}
-        </Tabs>
+          {tabItems.map((tab) => {
+            const selected = currentSection === tab.value;
+            return (
+              <ButtonBase
+                key={tab.value}
+                onClick={() => handleTabChange(tab.value)}
+                disableRipple
+                sx={{
+                  minWidth: 0,
+                  width: "100%",
+                  minHeight: { xs: 44, sm: 52 },
+                  borderRadius: 999,
+                  px: { xs: 0.75, sm: 2.25, md: 3.5 },
+                  py: { xs: 0.85, sm: 1.3 },
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: { xs: 0.5, sm: 1 },
+                  color: selected ? theme.palette.primary.main : alpha(theme.palette.text.primary, 0.72),
+                  border: `1px solid ${selected ? alpha(theme.palette.primary.main, 0.38) : alpha(theme.palette.divider, 0.6)}`,
+                  backgroundColor: selected ? alpha(theme.palette.primary.main, 0.12) : "#fff",
+                  boxShadow: selected ? `0 6px 16px ${alpha(theme.palette.primary.main, 0.18)}` : "none",
+                  transition: theme.transitions.create(["color", "background-color", "border-color", "box-shadow"]),
+                  "&:hover": {
+                    backgroundColor: selected ? alpha(theme.palette.primary.main, 0.16) : alpha(theme.palette.primary.main, 0.08),
+                    borderColor: alpha(theme.palette.primary.main, selected ? 0.45 : 0.25),
+                  },
+                  "& svg": {
+                    fontSize: { xs: 16, sm: 20 },
+                    flexShrink: 0,
+                  },
+                }}
+              >
+                {tab.icon}
+                <Typography
+                  component="span"
+                  sx={{
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "clip",
+                    whiteSpace: "nowrap",
+                    textTransform: "none",
+                    fontWeight: 800,
+                    fontSize: { xs: 10.5, sm: 14, md: 16 },
+                    lineHeight: 1.1,
+                  }}
+                >
+                  {tab.label}
+                </Typography>
+              </ButtonBase>
+            );
+          })}
+        </Box>
         <Box
           sx={{
             px: { xs: 0.75, sm: 1.5, md: 2.5 },

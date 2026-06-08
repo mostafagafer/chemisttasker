@@ -17,7 +17,6 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
-  FormControlLabel,
   FormGroup,
   GlobalStyles,
   GridLegacy as Grid,
@@ -39,6 +38,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/AddCircleOutline";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { AxiosError } from "axios";
@@ -67,6 +67,10 @@ import {
 } from "@chemisttasker/shared-core";
 
 const GOOGLE_LIBRARIES = ["places"] as Array<"places">;
+const LIGHT_SURFACE = "#FFFFFF";
+const LIGHT_BORDER = "#D9E2F2";
+const HERO_GRADIENT_START = "#6366F1";
+const HERO_GRADIENT_END = "#8B5CF6";
 
 type PharmacyApi = {
   id: string | number;
@@ -221,12 +225,75 @@ const RATE_TYPES = [
   { value: "FLEXIBLE", label: "Flexible" },
   { value: "PHARMACIST_PROVIDED", label: "Pharmacist Provided" },
 ] as const;
+const RATE_MINIMUM_EXAMPLE = "55";
+const prettifyOptionLabel = (value: string) =>
+  value
+    .split("_")
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ");
 const PHARMACY_CACHE_KEY = "pharmacyPage.cache.v2";
 const pharmacyPageFrameSx = {
   width: "100%",
   maxWidth: "none",
   mx: "auto",
   px: { xs: 0, sm: 1.5, md: 2, xl: 3 },
+} as const;
+const pharmacyFormLightSx = {
+  color: "#111827",
+  "& .MuiTabs-root": {
+    borderBottomColor: LIGHT_BORDER,
+  },
+  "& .MuiTab-root": {
+    color: "#475569",
+    fontWeight: 700,
+    textTransform: "none",
+  },
+  "& .MuiTab-root.Mui-selected": {
+    color: HERO_GRADIENT_START,
+  },
+  "& .MuiOutlinedInput-root": {
+    bgcolor: LIGHT_SURFACE,
+    color: "#111827",
+    borderRadius: 2,
+    "& .MuiInputBase-input": {
+      color: "#111827",
+      WebkitTextFillColor: "#111827",
+    },
+    "& .MuiSelect-select": {
+      color: "#111827",
+    },
+    "& fieldset": {
+      borderColor: LIGHT_BORDER,
+    },
+    "&:hover fieldset": {
+      borderColor: "#B8C4DB",
+    },
+    "&.Mui-focused fieldset": {
+      borderColor: HERO_GRADIENT_START,
+      borderWidth: 1,
+    },
+  },
+  "& .MuiInputLabel-root": {
+    color: "#64748B",
+  },
+  "& .MuiInputLabel-root.Mui-focused": {
+    color: HERO_GRADIENT_START,
+  },
+  "& .MuiFormHelperText-root": {
+    color: "#64748B",
+  },
+  "& .MuiTypography-root": {
+    color: "#111827",
+  },
+  "& .MuiTypography-body2": {
+    color: "#64748B",
+  },
+  "& .MuiFormControlLabel-label": {
+    color: "#111827",
+  },
+  "& .MuiCheckbox-root.Mui-checked": {
+    color: HERO_GRADIENT_START,
+  },
 } as const;
 
 type PharmacyPageProps = {
@@ -327,6 +394,7 @@ export default function PharmacyPage({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Pharmacy | null>(null);
   const [tabIndex, setTabIndex] = useState(0);
+  const lastTabIndex = tabLabels.length - 1;
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
@@ -362,7 +430,7 @@ export default function PharmacyPage({
   const [publicHolidaysStart, setPublicHolidaysStart] = useState("");
   const [publicHolidaysEnd, setPublicHolidaysEnd] = useState("");
 
-  const [defaultRateType, setDefaultRateType] = useState<string>("");
+  const [defaultRateType, setDefaultRateType] = useState<string>("FIXED");
   const [defaultFixedRate, setDefaultFixedRate] = useState<string>("");
   const [rateWeekday, setRateWeekday] = useState("");
   const [rateSaturday, setRateSaturday] = useState("");
@@ -444,6 +512,17 @@ export default function PharmacyPage({
   }, [ownerClaims]);
 
   const normalizedTargetPharmacyCount = Math.max(1, targetPharmacyCount || 1);
+  const toggleArrayValue = (
+    current: string[],
+    nextValue: string,
+    setter: React.Dispatch<React.SetStateAction<string[]>>
+  ) => {
+    setter(
+      current.includes(nextValue)
+        ? current.filter((item) => item !== nextValue)
+        : [...current, nextValue]
+    );
+  };
 
   const renderPharmacyFormSections = () => (
     <>
@@ -455,11 +534,38 @@ export default function PharmacyPage({
       <Tabs
         value={tabIndex}
         onChange={(_, i) => setTabIndex(i)}
-        centered
-        sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}
+        variant="scrollable"
+        scrollButtons="auto"
+        allowScrollButtonsMobile
+        sx={{
+          mb: 2.5,
+          minHeight: 0,
+          "& .MuiTabs-flexContainer": {
+            gap: 1,
+            flexWrap: "wrap",
+          },
+          "& .MuiTabs-indicator": {
+            display: "none",
+          },
+        }}
       >
         {tabLabels.map((label) => (
-          <Tab key={label} label={label} />
+          <Tab
+            key={label}
+            label={label}
+            sx={{
+              minHeight: 40,
+              borderRadius: 999,
+              border: `1px solid ${LIGHT_BORDER}`,
+              bgcolor: "#F8FAFF",
+              px: 2,
+              py: 0.5,
+              "&.Mui-selected": {
+                bgcolor: alpha(HERO_GRADIENT_START, 0.12),
+                borderColor: alpha(HERO_GRADIENT_START, 0.32),
+              },
+            }}
+          />
         ))}
       </Tabs>
 
@@ -600,46 +706,110 @@ export default function PharmacyPage({
       )}
 
       {tabIndex === 3 && (
-        <Box sx={{ p: 2 }}>
-          <Typography variant="h6">Employment Types</Typography>
-          <FormGroup sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, mb: 2 }}>
-            {EMPLOYMENT_TYPE_OPTIONS.map((option) => (
-              <FormControlLabel
-                key={option}
-                control={
-                  <Checkbox
-                    checked={employmentTypes.includes(option)}
-                    onChange={() =>
-                      setEmploymentTypes((prev) =>
-                        prev.includes(option) ? prev.filter((x) => x !== option) : [...prev, option]
-                      )
-                    }
-                  />
-                }
-                label={option.replace("_", " ")}
-              />
-            ))}
-          </FormGroup>
+        <Box sx={{ p: { xs: 1, md: 2 } }}>
+          <Stack spacing={3}>
+            <Box
+              sx={{
+                p: { xs: 2, md: 2.5 },
+                borderRadius: 3,
+                border: `1px solid ${LIGHT_BORDER}`,
+                bgcolor: "#F8FAFF",
+              }}
+            >
+              <Typography variant="h6" fontWeight={800} sx={{ mb: 0.75 }}>
+                Employment Types
+              </Typography>
+              <Typography variant="body2" sx={{ color: "#64748B", mb: 2 }}>
+                Choose the employment arrangements this pharmacy supports.
+              </Typography>
+              <FormGroup sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(3, minmax(0, 1fr))" }, gap: 1.5 }}>
+                {EMPLOYMENT_TYPE_OPTIONS.map((option) => (
+                  <Box
+                    key={option}
+                    onClick={() => toggleArrayValue(employmentTypes, option, setEmploymentTypes)}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1.25,
+                      p: 1.5,
+                      borderRadius: 2.5,
+                      border: `1px solid ${employmentTypes.includes(option) ? alpha(HERO_GRADIENT_START, 0.34) : LIGHT_BORDER}`,
+                      bgcolor: employmentTypes.includes(option) ? alpha(HERO_GRADIENT_START, 0.08) : LIGHT_SURFACE,
+                      cursor: "pointer",
+                      transition: "background-color 120ms ease, border-color 120ms ease, transform 120ms ease",
+                      "&:hover": {
+                        borderColor: alpha(HERO_GRADIENT_START, 0.28),
+                        transform: "translateY(-1px)",
+                      },
+                    }}
+                  >
+                    <Checkbox
+                      checked={employmentTypes.includes(option)}
+                      onChange={() => toggleArrayValue(employmentTypes, option, setEmploymentTypes)}
+                      sx={{ p: 0.5 }}
+                    />
+                    <Box>
+                      <Typography fontWeight={700}>{prettifyOptionLabel(option)}</Typography>
+                      <Typography variant="body2" sx={{ color: "#64748B" }}>
+                        Available for this pharmacy
+                      </Typography>
+                    </Box>
+                  </Box>
+                ))}
+              </FormGroup>
+            </Box>
 
-          <Typography variant="h6">Roles Needed</Typography>
-          <FormGroup sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
-            {ROLE_OPTIONS.map((option) => (
-              <FormControlLabel
-                key={option}
-                control={
-                  <Checkbox
-                    checked={rolesNeeded.includes(option)}
-                    onChange={() =>
-                      setRolesNeeded((prev) =>
-                        prev.includes(option) ? prev.filter((x) => x !== option) : [...prev, option]
-                      )
-                    }
-                  />
-                }
-                label={option.charAt(0) + option.slice(1).toLowerCase()}
-              />
-            ))}
-          </FormGroup>
+            <Box
+              sx={{
+                p: { xs: 2, md: 2.5 },
+                borderRadius: 3,
+                border: `1px solid ${LIGHT_BORDER}`,
+                bgcolor: LIGHT_SURFACE,
+              }}
+            >
+              <Typography variant="h6" fontWeight={800} sx={{ mb: 0.75 }}>
+                Roles Needed
+              </Typography>
+              <Typography variant="body2" sx={{ color: "#64748B", mb: 2 }}>
+                Mark the staff profiles this pharmacy expects to hire or assign.
+              </Typography>
+              <FormGroup sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" }, gap: 1.5 }}>
+                {ROLE_OPTIONS.map((option) => (
+                  <Box
+                    key={option}
+                    onClick={() => toggleArrayValue(rolesNeeded, option, setRolesNeeded)}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1.25,
+                      p: 1.5,
+                      borderRadius: 2.5,
+                      border: `1px solid ${rolesNeeded.includes(option) ? alpha(HERO_GRADIENT_START, 0.34) : LIGHT_BORDER}`,
+                      bgcolor: rolesNeeded.includes(option) ? alpha(HERO_GRADIENT_START, 0.08) : "#FBFCFE",
+                      cursor: "pointer",
+                      transition: "background-color 120ms ease, border-color 120ms ease, transform 120ms ease",
+                      "&:hover": {
+                        borderColor: alpha(HERO_GRADIENT_START, 0.28),
+                        transform: "translateY(-1px)",
+                      },
+                    }}
+                  >
+                    <Checkbox
+                      checked={rolesNeeded.includes(option)}
+                      onChange={() => toggleArrayValue(rolesNeeded, option, setRolesNeeded)}
+                      sx={{ p: 0.5 }}
+                    />
+                    <Box>
+                      <Typography fontWeight={700}>{prettifyOptionLabel(option)}</Typography>
+                      <Typography variant="body2" sx={{ color: "#64748B" }}>
+                        Include in staffing requests
+                      </Typography>
+                    </Box>
+                  </Box>
+                ))}
+              </FormGroup>
+            </Box>
+          </Stack>
         </Box>
       )}
 
@@ -694,9 +864,6 @@ export default function PharmacyPage({
               label="Rate Strategy"
               onChange={(e) => setDefaultRateType(e.target.value)}
             >
-              <MenuItem value="">
-                <em>None</em>
-              </MenuItem>
               {RATE_TYPES.map((type) => (
                 <MenuItem key={type.value} value={type.value}>
                   {type.label}
@@ -710,74 +877,87 @@ export default function PharmacyPage({
               <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
                 Base Rates
               </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                These rates apply when "Fixed" or "Flexible" is selected. They are disabled if you choose
-                "Pharmacist Provided".
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    label="Weekday Rate"
-                    type="number"
-                    fullWidth
-                    value={rateWeekday}
-                    onChange={(e) => setRateWeekday(e.target.value)}
-                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    label="Saturday Rate"
-                    type="number"
-                    fullWidth
-                    value={rateSaturday}
-                    onChange={(e) => setRateSaturday(e.target.value)}
-                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    label="Sunday Rate"
-                    type="number"
-                    fullWidth
-                    value={rateSunday}
-                    onChange={(e) => setRateSunday(e.target.value)}
-                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    label="Public Holiday Rate"
-                    type="number"
-                    fullWidth
-                    value={ratePublicHoliday}
-                    onChange={(e) => setRatePublicHoliday(e.target.value)}
-                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    label="Early Morning Rate (Before 8am)"
-                    type="number"
-                    fullWidth
-                    value={rateEarlyMorning}
-                    onChange={(e) => setRateEarlyMorning(e.target.value)}
-                    // helperText="Before 8am"
-                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    label="Late Night Rate (After 7pm)"
-                    type="number"
-                    fullWidth
-                    value={rateLateNight}
-                    onChange={(e) => setRateLateNight(e.target.value)}
-                    // helperText="After 7pm"
-                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                  />
-                </Grid>
-              </Grid>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            These rates apply when "Fixed" or "Flexible" is selected. They are disabled if you choose
+            "Pharmacist Provided".
+          </Typography>
+          <Typography variant="body2" sx={{ color: "#64748B", mb: 2 }}>
+            Enter rates in AUD. Minimum example: {RATE_MINIMUM_EXAMPLE}.
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Weekday Rate"
+                type="number"
+                fullWidth
+                value={rateWeekday}
+                onChange={(e) => setRateWeekday(e.target.value)}
+                placeholder={RATE_MINIMUM_EXAMPLE}
+                inputProps={{ min: 55, step: "0.01" }}
+                InputProps={{ startAdornment: <InputAdornment position="start">AUD</InputAdornment> }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Saturday Rate"
+                type="number"
+                fullWidth
+                value={rateSaturday}
+                onChange={(e) => setRateSaturday(e.target.value)}
+                placeholder={RATE_MINIMUM_EXAMPLE}
+                inputProps={{ min: 55, step: "0.01" }}
+                InputProps={{ startAdornment: <InputAdornment position="start">AUD</InputAdornment> }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Sunday Rate"
+                type="number"
+                fullWidth
+                value={rateSunday}
+                onChange={(e) => setRateSunday(e.target.value)}
+                placeholder={RATE_MINIMUM_EXAMPLE}
+                inputProps={{ min: 55, step: "0.01" }}
+                InputProps={{ startAdornment: <InputAdornment position="start">AUD</InputAdornment> }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Public Holiday Rate"
+                type="number"
+                fullWidth
+                value={ratePublicHoliday}
+                onChange={(e) => setRatePublicHoliday(e.target.value)}
+                placeholder={RATE_MINIMUM_EXAMPLE}
+                inputProps={{ min: 55, step: "0.01" }}
+                InputProps={{ startAdornment: <InputAdornment position="start">AUD</InputAdornment> }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Early Morning Rate (Before 8am)"
+                type="number"
+                fullWidth
+                value={rateEarlyMorning}
+                onChange={(e) => setRateEarlyMorning(e.target.value)}
+                placeholder={RATE_MINIMUM_EXAMPLE}
+                inputProps={{ min: 55, step: "0.01" }}
+                InputProps={{ startAdornment: <InputAdornment position="start">AUD</InputAdornment> }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Late Night Rate (After 7pm)"
+                type="number"
+                fullWidth
+                value={rateLateNight}
+                onChange={(e) => setRateLateNight(e.target.value)}
+                placeholder={RATE_MINIMUM_EXAMPLE}
+                inputProps={{ min: 55, step: "0.01" }}
+                InputProps={{ startAdornment: <InputAdornment position="start">AUD</InputAdornment> }}
+              />
+            </Grid>
+          </Grid>
             </Box>
           )}
         </Box>
@@ -1189,7 +1369,7 @@ export default function PharmacyPage({
       setSundaysEnd(pharmacy.sundays_end || "");
       setPublicHolidaysStart(pharmacy.public_holidays_start || "");
       setPublicHolidaysEnd(pharmacy.public_holidays_end || "");
-      setDefaultRateType(pharmacy.default_rate_type || "");
+      setDefaultRateType(pharmacy.default_rate_type || "FIXED");
       setDefaultFixedRate(pharmacy.default_fixed_rate || "");
       setRateWeekday(pharmacy.rate_weekday || "");
       setRateSaturday(pharmacy.rate_saturday || "");
@@ -1225,7 +1405,7 @@ export default function PharmacyPage({
       setSundaysEnd("");
       setPublicHolidaysStart("");
       setPublicHolidaysEnd("");
-      setDefaultRateType("");
+      setDefaultRateType("FIXED");
       setDefaultFixedRate("");
       setRateWeekday("");
       setRateSaturday("");
@@ -1432,6 +1612,14 @@ export default function PharmacyPage({
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleNextTab = () => {
+    setTabIndex((prev) => Math.min(prev + 1, lastTabIndex));
+  };
+
+  const handlePreviousTab = () => {
+    setTabIndex((prev) => Math.max(prev - 1, 0));
   };
 
   const handleEditPharmacyDto = (dto: OwnerPharmacyDTO) => {
@@ -1856,19 +2044,97 @@ export default function PharmacyPage({
       )}
 
       {standalone && view === "list" ? (
-        <Box sx={{ width: "100%", maxWidth: 980, mx: "auto", px: { xs: 0, sm: 2, md: 3 }, py: { xs: 2, md: 4 } }}>
-          <Paper variant="outlined" sx={{ borderRadius: 3 }}>
-            <Box sx={{ px: 3, pt: 3 }}>
-              <Typography variant="h5" fontWeight={700}>
-                Add Pharmacy
+        <Box sx={{ width: "100%", maxWidth: 1320, mx: "auto", px: { xs: 2, sm: 3, md: 4 }, py: { xs: 2, md: 4 } }}>
+          <Box
+            sx={{
+              borderRadius: { xs: 3, md: 4 },
+              overflow: "hidden",
+              mb: 2,
+              background: `linear-gradient(135deg, ${HERO_GRADIENT_START}, ${HERO_GRADIENT_END})`,
+              color: "#FFFFFF",
+              minHeight: { xs: 180, md: 220 },
+              display: "grid",
+              placeItems: "center",
+              textAlign: "center",
+              px: 3,
+              py: { xs: 4, md: 5 },
+            }}
+          >
+            <Stack spacing={1.25} alignItems="center" sx={{ maxWidth: 760 }}>
+              <Typography variant="h3" sx={{ fontWeight: 800, color: "#FFFFFF" }}>
+                Add your pharmacy
               </Typography>
+              <Typography variant="body1" sx={{ color: "rgba(255,255,255,0.88)" }}>
+                Create the first pharmacy in your workspace. You can add more locations, documents and operating details here.
+              </Typography>
+              {normalizedTargetPharmacyCount > 1 && (
+                <Chip
+                  label={`${normalizedTargetPharmacyCount} pharmacies planned`}
+                  sx={{
+                    mt: 0.5,
+                    bgcolor: "rgba(255,255,255,0.2)",
+                    color: "#FFFFFF",
+                    border: "1px solid rgba(255,255,255,0.24)",
+                    fontWeight: 700,
+                  }}
+                />
+              )}
+            </Stack>
+          </Box>
+
+          <Paper
+            variant="outlined"
+            sx={{
+              borderRadius: 4,
+              borderColor: LIGHT_BORDER,
+              bgcolor: LIGHT_SURFACE,
+              boxShadow: "0 18px 42px rgba(99, 102, 241, 0.08)",
+              overflow: "hidden",
+            }}
+          >
+            <Box sx={{ px: { xs: 2, md: 4 }, pt: { xs: 2.5, md: 3.5 }, pb: 1.5 }}>
+              <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} justifyContent="space-between" alignItems={{ xs: "flex-start", md: "center" }}>
+                <Box>
+                  <Typography variant="h5" fontWeight={800} sx={{ color: "#111827" }}>
+                    Pharmacy details
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: "#64748B" }}>
+                    Enter location, regulatory, staffing and hours information for this pharmacy.
+                  </Typography>
+                </Box>
+                {pharmacies.length > 0 && (
+                  <Button variant="outlined" onClick={() => navigate(onCompletePath)} sx={{ borderColor: LIGHT_BORDER, color: "#111827" }}>
+                    Continue Later
+                  </Button>
+                )}
+              </Stack>
             </Box>
-            <Box sx={{ px: 2, pb: 1 }}>
+            <Box sx={{ px: { xs: 1.5, md: 3 }, pb: 1, ...pharmacyFormLightSx }}>
               {renderPharmacyFormSections()}
             </Box>
-            <Stack direction="row" justifyContent="flex-end" sx={{ px: 3, pb: 3 }}>
-              <Button variant="contained" onClick={handleSave} disabled={isSaving}>
-                {isSaving ? "Saving..." : editing ? "Save Changes" : "Create Pharmacy"}
+            <Stack direction="row" justifyContent="space-between" sx={{ px: { xs: 2, md: 4 }, pb: { xs: 2.5, md: 3.5 } }}>
+              <Button
+                variant="outlined"
+                onClick={tabIndex > 0 ? handlePreviousTab : () => navigate(onCompletePath)}
+                sx={{ borderColor: LIGHT_BORDER, color: "#111827" }}
+              >
+                {tabIndex > 0 ? "Back" : "Continue Later"}
+              </Button>
+              <Button
+                variant="contained"
+                onClick={tabIndex === lastTabIndex ? handleSave : handleNextTab}
+                disabled={isSaving}
+                sx={{
+                  bgcolor: "#7C8CF8",
+                  color: "#FFFFFF",
+                  px: 3,
+                  boxShadow: "none",
+                  "&:hover": { bgcolor: "#6978F5", boxShadow: "none" },
+                }}
+              >
+                {tabIndex === lastTabIndex
+                  ? isSaving ? "Saving..." : editing ? "Save Changes" : "Create Pharmacy"
+                  : "Next"}
               </Button>
             </Stack>
           </Paper>
@@ -2054,15 +2320,43 @@ export default function PharmacyPage({
       </Dialog>
 
       {!standalone && (
-      <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="md" disableEnforceFocus>
+      <Dialog
+        open={dialogOpen}
+        onClose={closeDialog}
+        fullWidth
+        maxWidth="md"
+        disableEnforceFocus
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            bgcolor: LIGHT_SURFACE,
+            border: `1px solid ${LIGHT_BORDER}`,
+            boxShadow: "0 18px 42px rgba(99, 102, 241, 0.08)",
+          },
+        }}
+      >
         <DialogTitle>{editing ? "Edit Pharmacy" : "Add Pharmacy"}</DialogTitle>
-        <DialogContent sx={{ minHeight: 450 }}>
+        <DialogContent sx={{ minHeight: 450, ...pharmacyFormLightSx }}>
           {renderPharmacyFormSections()}
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeDialog}>Cancel</Button>
-          <Button variant="contained" onClick={handleSave} disabled={isSaving}>
-            {isSaving ? "Saving..." : editing ? "Save Changes" : "Create Pharmacy"}
+          <Button onClick={tabIndex > 0 ? handlePreviousTab : closeDialog}>
+            {tabIndex > 0 ? "Back" : "Cancel"}
+          </Button>
+          <Button
+            variant="contained"
+            onClick={tabIndex === lastTabIndex ? handleSave : handleNextTab}
+            disabled={isSaving}
+            sx={{
+              bgcolor: "#7C8CF8",
+              color: "#FFFFFF",
+              boxShadow: "none",
+              "&:hover": { bgcolor: "#6978F5", boxShadow: "none" },
+            }}
+          >
+            {tabIndex === lastTabIndex
+              ? isSaving ? "Saving..." : editing ? "Save Changes" : "Create Pharmacy"
+              : "Next"}
           </Button>
         </DialogActions>
       </Dialog>

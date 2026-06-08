@@ -21,6 +21,7 @@ import { useWorkspace } from "../contexts/WorkspaceContext";
 import { useDashboardNavigation } from "../contexts/DashboardNavigationContext";
 import TopBarActions from "./TopBarActions";
 import menuLogo from "../assets/clipsnap-edit-6-1-2026.png";
+import { getOnboardingDetail } from "@chemisttasker/shared-core";
 
 const DNA = {
   navy: "#061A3D",
@@ -138,6 +139,18 @@ function collectPharmacies(user: any, adminAssignments: any[]): PharmacyOption[]
   });
 
   return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function coerceVerified(value: unknown): boolean {
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function isOverallVerified(user: any): boolean {
+  return (
+    coerceVerified(user?.verified) ||
+    coerceVerified(user?.pharmacist_profile?.verified) ||
+    coerceVerified(user?.other_staff_profile?.verified)
+  );
 }
 
 function MegaMenu({
@@ -314,16 +327,45 @@ export default function DashboardTopShell({
   const [workspaceAnchor, setWorkspaceAnchor] = useState<HTMLElement | null>(null);
   const [adminAnchor, setAdminAnchor] = useState<HTMLElement | null>(null);
   const [selectedPharmacyId, setSelectedPharmacyId] = useState<number | null>(activeAdminPharmacyId ?? workspaceSelectedPharmacyId ?? null);
+  const [workerVerified, setWorkerVerified] = useState<boolean>(() => isOverallVerified(user));
 
   const pharmacies = useMemo(() => collectPharmacies(user, adminAssignments), [user, adminAssignments]);
   const isOrgUser = String(user?.role || "").toUpperCase().includes("ORG") || String(user?.role || "").toUpperCase() === "ORGANIZATION";
   const isOwner = String(user?.role || "").toUpperCase() === "OWNER";
   const isWorker = ["PHARMACIST", "OTHER_STAFF"].includes(String(user?.role || "").toUpperCase());
+  const canUsePlatformWorkspace = isWorker && workerVerified && activePersona !== "admin" && !forceAdminScope;
   const hidePharmacyScope = forceAdminScope || activePersona === "admin";
   const showPharmacySelector = !hidePharmacyScope && (isOwner || isOrgUser || isWorker) && pharmacies.length > 0;
   const selectedPharmacy = pharmacies.find((item) => item.id === selectedPharmacyId) ?? null;
   const title = titleOverride ?? titleForRole(forceAdminScope ? "ADMIN" : user?.role);
   const accent = accentForScope(selectedPharmacyId, forceAdminScope ? "internal" : workspace);
+
+  useEffect(() => {
+    const initialVerified = isOverallVerified(user);
+    setWorkerVerified(initialVerified);
+
+    if (!user || !isWorker || initialVerified) return;
+
+    let cancelled = false;
+    const roleKey = String(user.role).toUpperCase() === "PHARMACIST" ? "pharmacist" : "other_staff";
+
+    getOnboardingDetail(roleKey)
+      .then((onboarding: any) => {
+        if (cancelled) return;
+        const verifiedFlag =
+          onboarding?.verified ??
+          onboarding?.data?.verified ??
+          (roleKey === "pharmacist" ? onboarding?.ahpra_verified : undefined);
+        setWorkerVerified(coerceVerified(verifiedFlag));
+      })
+      .catch(() => {
+        if (!cancelled) setWorkerVerified(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isWorker, user]);
 
   useEffect(() => {
     if (hidePharmacyScope) return;
@@ -345,6 +387,34 @@ export default function DashboardTopShell({
       setSelectedPharmacyId(workspaceSelectedPharmacyId);
     }
   }, [hidePharmacyScope, selectedPharmacyId, workspace, workspaceSelectedPharmacyId]);
+
+  useEffect(() => {
+    if (canUsePlatformWorkspace || workspace !== "platform") return;
+    setWorkspace("internal");
+    const fallbackPharmacyId = selectedPharmacyId ?? workspaceSelectedPharmacyId ?? pharmacies[0]?.id ?? null;
+    setSelectedPharmacyId(fallbackPharmacyId);
+    setWorkspacePharmacyId(fallbackPharmacyId);
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set("workspace", "internal");
+    nextParams.delete("pharmacy_id");
+    nextParams.delete("pharmacy");
+    nextParams.delete("pharmacyId");
+    nextParams.delete("view");
+    if (fallbackPharmacyId != null) {
+      nextParams.set("pharmacy_id", String(fallbackPharmacyId));
+    }
+    setSearchParams(nextParams, { replace: true });
+  }, [
+    canUsePlatformWorkspace,
+    pharmacies,
+    searchParams,
+    selectedPharmacyId,
+    setSearchParams,
+    setWorkspace,
+    setWorkspacePharmacyId,
+    workspace,
+    workspaceSelectedPharmacyId,
+  ]);
 
   useEffect(() => {
     if (hidePharmacyScope) {
@@ -373,6 +443,10 @@ export default function DashboardTopShell({
   };
 
   const handleSelectPlatform = () => {
+    if (!canUsePlatformWorkspace) {
+      setWorkspaceAnchor(null);
+      return;
+    }
     setWorkspace("platform");
     setSelectedPharmacyId(null);
     setWorkspacePharmacyId(null);
@@ -424,9 +498,9 @@ export default function DashboardTopShell({
           justifyContent: "center",
           alignItems: "stretch",
           minHeight: { xs: 86, md: 104 },
-          bgcolor: "color-mix(in srgb, var(--ct-surface-bg) 78%, transparent)",
+          background: "linear-gradient(90deg, rgba(6,59,218,0.10) 0%, rgba(109,40,217,0.09) 42%, rgba(234,10,142,0.08) 72%, rgba(8,190,234,0.10) 100%)",
           backdropFilter: "blur(18px)",
-          borderBottom: "1px solid var(--ct-border-color)",
+          borderBottom: "1px solid rgba(109,40,217,0.16)",
         }}
       >
         <Stack
@@ -449,11 +523,14 @@ export default function DashboardTopShell({
             minHeight: { xs: 86, md: 104 },
             flexShrink: 0,
             borderRadius: "0 0 30px 0",
-            bgcolor: "#FFFFFF",
-            borderRight: "1px solid var(--ct-border-color)",
-            boxShadow: "0 18px 46px rgba(6, 26, 61, 0.18)",
+            background: "linear-gradient(135deg, rgba(6,59,218,0.13) 0%, rgba(109,40,217,0.11) 52%, rgba(234,10,142,0.09) 100%)",
+            borderRight: "1px solid rgba(109,40,217,0.16)",
+            boxShadow: "0 18px 46px rgba(6, 26, 61, 0.12)",
             p: { xs: 0.75, sm: 1.25, md: 2 },
-            "&:hover": { bgcolor: "#FFFFFF", filter: "brightness(1.02)" },
+            "&:hover": {
+              background: "linear-gradient(135deg, rgba(6,59,218,0.18) 0%, rgba(109,40,217,0.15) 52%, rgba(234,10,142,0.12) 100%)",
+              filter: "brightness(1.02)",
+            },
             "&:after": {
               content: '""',
               position: "absolute",
@@ -544,7 +621,7 @@ export default function DashboardTopShell({
                 </Box>
               </Button>
               <Menu anchorEl={workspaceAnchor} open={Boolean(workspaceAnchor)} onClose={() => setWorkspaceAnchor(null)}>
-                {canUseInternal && (
+                {canUsePlatformWorkspace && canUseInternal && (
                   <MenuItem onClick={handleSelectPlatform}>
                     <PublicIcon sx={{ mr: 1.5, color: DNA.violet }} /> ChemistTasker Platform
                   </MenuItem>

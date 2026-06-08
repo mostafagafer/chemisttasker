@@ -223,6 +223,7 @@ export default function PharmacistOverviewScreen() {
           scopeLabel={scope.scopeLabel}
           workspace={scope.workspace}
           selectedPharmacyId={scope.selectedPharmacyId}
+          canSelectPlatform={scope.canSelectPlatform}
           onSelectPlatform={scope.selectPlatform}
           onSelectPharmacy={scope.selectPharmacy}
         />

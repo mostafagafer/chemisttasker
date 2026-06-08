@@ -1,5 +1,5 @@
 // src/pages/onboarding/OwnerOnboarding.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Container,
@@ -16,11 +16,13 @@ import {
   Chip,
   Stack,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
 import PersonAddAltIcon from '@mui/icons-material/PersonAddAlt';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { API_BASE_URL } from '../../constants/api';
 import { getOnboardingDetail, updateOnboardingForm } from '@chemisttasker/shared-core';
 import { useNavigate } from 'react-router-dom';
@@ -58,6 +60,12 @@ const GENDER_OPTIONS = [
   { value: 'PREFER_NOT_TO_SAY', label: 'Prefer not to say' },
 ];
 
+const LIGHT_PAGE_BG = '#F4F7FB';
+const LIGHT_SURFACE = '#FFFFFF';
+const LIGHT_BORDER = '#D9E2F2';
+const HERO_GRADIENT_START = '#6366F1';
+const HERO_GRADIENT_END = '#8B5CF6';
+
 type OwnerOnboardingProps = {
   standalone?: boolean;
   onSuccessPath?: string;
@@ -90,6 +98,7 @@ function OwnerOnboardingContent({
   const [profilePhotoFile, setProfilePhotoFile] = useState<File | null>(null);
   const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(null);
   const [profilePhotoCleared, setProfilePhotoCleared] = useState(false);
+  const [lockedNames, setLockedNames] = useState({ first: false, last: false });
   const [subscriptionSummary, setSubscriptionSummary] = useState<{
     active: boolean;
     status: string;
@@ -106,6 +115,56 @@ function OwnerOnboardingContent({
       profilePhotoPreview,
     },
   });
+  const displayName = useMemo(() => {
+    const name = [data.first_name, data.last_name].filter(Boolean).join(' ').trim();
+    return name || data.username || 'Owner setup';
+  }, [data.first_name, data.last_name, data.username]);
+  const roleLabel = ROLE_OPTIONS.find((option) => option.value === data.role)?.label ?? 'Owner';
+  const showAhpra = data.role === 'PHARMACIST' || Boolean(data.ahpra_number);
+  const inputSx = {
+    '& .MuiOutlinedInput-root': {
+      bgcolor: LIGHT_SURFACE,
+      color: '#111827',
+      borderRadius: 2,
+      '& .MuiInputBase-input': {
+        color: '#111827',
+        WebkitTextFillColor: '#111827',
+      },
+      '& .MuiInputBase-input.Mui-disabled': {
+        color: '#475569',
+        WebkitTextFillColor: '#475569',
+      },
+      '& .MuiSelect-select': {
+        color: '#111827',
+      },
+      '& .MuiInputAdornment-root': {
+        color: '#64748B',
+      },
+      '& fieldset': {
+        borderColor: LIGHT_BORDER,
+      },
+      '&:hover fieldset': {
+        borderColor: '#B8C4DB',
+      },
+      '&.Mui-focused fieldset': {
+        borderColor: HERO_GRADIENT_START,
+        borderWidth: 1,
+      },
+      '&.Mui-disabled': {
+        bgcolor: '#F3F6FB',
+      },
+    },
+    '& .MuiInputLabel-root': {
+      color: '#64748B',
+    },
+    '& .MuiInputLabel-root.Mui-focused': {
+      color: HERO_GRADIENT_START,
+    },
+    '& .MuiFormHelperText-root': {
+      color: '#64748B',
+      marginLeft: 0,
+    },
+  } as const;
 
   useEffect(() => {
     getOnboardingDetail(roleKey)
@@ -126,6 +185,10 @@ function OwnerOnboardingContent({
           ahpra_verification_note: d.ahpra_verification_note || null,
         };
         setData(nextData);
+        setLockedNames({
+          first: Boolean(d.first_name),
+          last: Boolean(d.last_name),
+        });
         const nextPhoto =
           d.profile_photo_url || (d.profile_photo ? `${API_BASE_URL}${d.profile_photo}` : null);
         setProfilePhotoPreview(nextPhoto);
@@ -266,7 +329,8 @@ const handleSubmit = async (e: React.FormEvent) => {
   return (
     <UnsavedChangesBoundary>
       {() => (
-    <Container maxWidth="lg">
+    <Box sx={{ bgcolor: LIGHT_PAGE_BG, minHeight: standalone ? 'calc(100vh - 72px)' : 'auto', py: { xs: 2, md: standalone ? 3 : 0 } }}>
+    <Container maxWidth="xl">
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       <Snackbar
@@ -280,12 +344,22 @@ const handleSubmit = async (e: React.FormEvent) => {
         </Alert>
       </Snackbar>
 
-      <Paper sx={{ p: 4, mt: 4 }} elevation={3}>
-        <Typography variant="h5" gutterBottom>
-          {standalone ? 'Complete Owner Setup' : 'Complete Onboarding'}
-        </Typography>
-
-        <Box sx={{ mb: 3 }}>
+      <Box
+        sx={{
+          borderRadius: { xs: 3, md: 4 },
+          overflow: 'hidden',
+          mb: 2,
+          background: `linear-gradient(135deg, ${HERO_GRADIENT_START}, ${HERO_GRADIENT_END})`,
+          color: '#FFFFFF',
+          minHeight: { xs: 220, md: 260 },
+          display: 'grid',
+          placeItems: 'center',
+          textAlign: 'center',
+          px: 2,
+          py: { xs: 3, md: 4 },
+        }}
+      >
+        <Stack spacing={1.5} alignItems="center">
           <ProfilePhotoUploader
             value={profilePhotoPreview}
             onChange={(file, previewUrl, cleared) => {
@@ -294,8 +368,44 @@ const handleSubmit = async (e: React.FormEvent) => {
               setProfilePhotoCleared(Boolean(cleared) && !file);
             }}
             disabled={loading}
-            helperText="This image will appear in chat and Hub for your owner persona."
+            title=""
+            helperText=""
           />
+          <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
+            {displayName}
+          </Typography>
+          <Chip
+            label={roleLabel.toUpperCase()}
+            size="small"
+            sx={{
+              bgcolor: alpha('#FFFFFF', 0.22),
+              color: '#FFFFFF',
+              fontWeight: 800,
+              letterSpacing: 0,
+              border: `1px solid ${alpha('#FFFFFF', 0.28)}`,
+            }}
+          />
+        </Stack>
+      </Box>
+
+      <Paper
+        sx={{
+          p: { xs: 2, md: 3 },
+          borderRadius: 3,
+          border: `1px solid ${LIGHT_BORDER}`,
+          boxShadow: '0 18px 42px rgba(99, 102, 241, 0.08)',
+          bgcolor: LIGHT_SURFACE,
+          color: '#111827',
+        }}
+        elevation={0}
+      >
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h5" sx={{ fontWeight: 800, color: '#111827' }}>
+            {standalone ? 'Complete Owner Setup' : 'Complete Onboarding'}
+          </Typography>
+          <Typography variant="body2" sx={{ color: '#64748B' }}>
+            Finish your owner profile before adding your pharmacy workspace.
+          </Typography>
         </Box>
 
         <Box component="form" onSubmit={handleSubmit}>
@@ -307,6 +417,16 @@ const handleSubmit = async (e: React.FormEvent) => {
             value={data.first_name}
             onChange={handleChange}
             required
+            disabled={lockedNames.first}
+            helperText={lockedNames.first ? 'Locked after initial registration.' : undefined}
+            InputProps={lockedNames.first ? {
+              endAdornment: (
+                <InputAdornment position="end">
+                  <LockOutlinedIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            } : undefined}
+            sx={inputSx}
           />
 
           <TextField
@@ -317,6 +437,16 @@ const handleSubmit = async (e: React.FormEvent) => {
             value={data.last_name}
             onChange={handleChange}
             required
+            disabled={lockedNames.last}
+            helperText={lockedNames.last ? 'Locked after initial registration.' : undefined}
+            InputProps={lockedNames.last ? {
+              endAdornment: (
+                <InputAdornment position="end">
+                  <LockOutlinedIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            } : undefined}
+            sx={inputSx}
           />
 
           <TextField
@@ -327,6 +457,7 @@ const handleSubmit = async (e: React.FormEvent) => {
             value={data.username}
             onChange={handleChange}
             required
+            sx={inputSx}
           />
 
           <TextField
@@ -338,6 +469,7 @@ const handleSubmit = async (e: React.FormEvent) => {
             onChange={handleChange}
             required
             disabled={isMobileVerified}
+            sx={inputSx}
           />
           <Box sx={{ mt: 1, mb: 1 }}>
             <VerifiedChip ok={isMobileVerified} label="Mobile Verified" />
@@ -351,6 +483,7 @@ const handleSubmit = async (e: React.FormEvent) => {
             name="gender"
             value={data.gender}
             onChange={handleChange}
+            sx={inputSx}
           >
             <MenuItem value="">Select gender</MenuItem>
             {GENDER_OPTIONS.map(o => (
@@ -361,11 +494,27 @@ const handleSubmit = async (e: React.FormEvent) => {
           </TextField>
 
           <FormControlLabel
+            sx={{
+              mt: 0.5,
+              color: '#111827',
+              '& .MuiFormControlLabel-label': {
+                color: '#111827',
+                fontWeight: 600,
+              },
+            }}
             control={
               <Switch
                 checked={data.chain_pharmacy}
                 onChange={handleSwitch}
                 name="chain_pharmacy"
+                sx={{
+                  '& .MuiSwitch-switchBase.Mui-checked': {
+                    color: HERO_GRADIENT_START,
+                  },
+                  '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                    backgroundColor: HERO_GRADIENT_START,
+                  },
+                }}
               />
             }
             label="Do you have more than one pharmacy?"
@@ -383,6 +532,7 @@ const handleSubmit = async (e: React.FormEvent) => {
               inputProps={{ min: 1 }}
               helperText="You can add more pharmacies after setup as well."
               required
+              sx={inputSx}
             />
           )}
 
@@ -395,6 +545,7 @@ const handleSubmit = async (e: React.FormEvent) => {
             value={data.role}
             onChange={handleChange}
             required
+            sx={inputSx}
           >
             {ROLE_OPTIONS.map(o => (
               <MenuItem key={o.value} value={o.value}>
@@ -403,7 +554,7 @@ const handleSubmit = async (e: React.FormEvent) => {
             ))}
           </TextField>
 
-          {data.role === 'PHARMACIST' && (
+          {showAhpra && (
             <>
               <TextField
                 fullWidth
@@ -412,11 +563,12 @@ const handleSubmit = async (e: React.FormEvent) => {
                 name="ahpra_number"
                 value={data.ahpra_number}
                 onChange={handleChange}
-                required
+                required={data.role === 'PHARMACIST'}
                 helperText={AHPRA_CONSENT_TEXT}
                 InputProps={{
                   startAdornment: <InputAdornment position="start">PHA</InputAdornment>,
                 }}
+                sx={inputSx}
               />
               <TextField
                 fullWidth
@@ -428,6 +580,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                     : ''
                 }
                 disabled
+                sx={inputSx}
               />
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mt: 1 }}>
                 <VerifiedChip ok={data.ahpra_verified} label="AHPRA" />
@@ -438,7 +591,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                     sx={{
                       color: data.ahpra_verified
                         ? 'success.main'
-                        : (data.ahpra_verification_note ? 'error.main' : 'text.secondary'),
+                        : (data.ahpra_verification_note ? 'error.main' : '#64748B'),
                       flex: '1 1 260px',
                       minWidth: 180,
                       maxWidth: 520,
@@ -456,7 +609,18 @@ const handleSubmit = async (e: React.FormEvent) => {
           )}
 
           <Box sx={{ mt: 3, textAlign: 'right' }}>
-            <Button type="submit" variant="contained" disabled={loading}>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={loading}
+              sx={{
+                bgcolor: '#7C8CF8',
+                color: '#FFFFFF',
+                px: 3,
+                boxShadow: 'none',
+                '&:hover': { bgcolor: '#6978F5', boxShadow: 'none' },
+              }}
+            >
               {loading ? 'Saving…' : 'Submit'}
             </Button>
           </Box>
@@ -472,7 +636,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                   Refer a colleague 
                 </Typography>
               </Stack>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" sx={{ color: '#64748B' }}>
                 Copy a referral link. When your friend registers with it, pills can be awarded to your account.
               </Typography>
             </Box>
@@ -493,7 +657,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                   Subscription and seats
                 </Typography>
               </Stack>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" sx={{ color: '#64748B' }}>
                 {subscriptionSummary?.active
                   ? `Active subscription with ${subscriptionSummary.staffCount} total seats (${subscriptionSummary.extraSeatCount} extra).`
                   : 'No active subscription yet. Once active, you can manage extra seats here.'}
@@ -510,6 +674,7 @@ const handleSubmit = async (e: React.FormEvent) => {
         )}
       </Paper>
     </Container>
+    </Box>
       )}
     </UnsavedChangesBoundary>
   );

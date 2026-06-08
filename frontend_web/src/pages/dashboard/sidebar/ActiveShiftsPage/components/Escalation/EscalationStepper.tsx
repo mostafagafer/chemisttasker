@@ -95,22 +95,21 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                 sx={{
                     position: 'relative',
                     px: { xs: 0, md: 5 },
-                    pt: 2,
-                    pb: 4,
+                    pt: { xs: 1, md: 2 },
+                    pb: { xs: 1.5, md: 4 },
                     mb: 1,
-                    overflowX: { xs: 'auto', md: 'visible' },
+                    overflowX: 'hidden',
                     overflowY: 'hidden',
-                    scrollbarWidth: 'none',
-                    '&::-webkit-scrollbar': { display: 'none' },
                 }}
             >
                 <Box
                     sx={{
                         position: 'absolute',
-                        left: { xs: 31, md: 78 },
-                        right: { xs: 31, md: 78 },
-                        top: 54,
-                        height: 5,
+                        display: 'block',
+                        left: { xs: 18, sm: 25, md: 78 },
+                        right: { xs: 18, sm: 25, md: 78 },
+                        top: { xs: 26, sm: 33, md: 54 },
+                        height: { xs: 4, md: 5 },
                         borderRadius: 999,
                         bgcolor: '#E5E7EB',
                     }}
@@ -118,11 +117,12 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                 <Box
                     sx={{
                         position: 'absolute',
-                        left: { xs: 31, md: 78 },
-                        top: 54,
+                        display: 'block',
+                        left: { xs: 18, sm: 25, md: 78 },
+                        top: { xs: 26, sm: 33, md: 54 },
                         width: `${Math.min(100, Math.max(0, ((Math.max(selectedLevelIdx, uiCurrentLevelIdx) + stepOffset) / Math.max(1, visualSteps.length - 1)) * 100))}%`,
-                        maxWidth: { xs: `calc(${visualSteps.length * 96}px - 62px)`, md: 'calc(100% - 156px)' },
-                        height: 5,
+                        maxWidth: { xs: 'calc(100% - 36px)', sm: 'calc(100% - 50px)', md: 'calc(100% - 156px)' },
+                        height: { xs: 4, md: 5 },
                         borderRadius: 999,
                         background: 'linear-gradient(90deg,#8B5CF6 0%,#7C3AED 38%,#3B82F6 72%,#22D3EE 100%)',
                         boxShadow: '0 0 18px rgba(124,58,237,.35)',
@@ -134,23 +134,26 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                         zIndex: 1,
                         display: 'grid',
                         gridTemplateColumns: {
-                            xs: `repeat(${visualSteps.length}, 96px)`,
+                            xs: `repeat(${visualSteps.length}, minmax(0, 1fr))`,
                             md: `repeat(${visualSteps.length}, minmax(90px, 1fr))`,
                         },
-                        gap: { xs: 0.5, md: 4 },
-                        minWidth: { xs: visualSteps.length * 96, md: 0 },
+                        columnGap: { xs: 0.75, sm: 1.25, md: 4 },
+                        rowGap: 0,
+                        width: '100%',
+                        minWidth: 0,
                     }}
                 >
                     {visualSteps.map((step) => {
                         const Icon = step.icon;
                         const platformEscalated = 'isPlatform' in step && step.isPlatform && 'escalated' in step && step.escalated;
                         const circle = (
-                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: { xs: 0.75, md: 1 }, width: '100%', minWidth: 0 }}>
                                 <Box
                                     sx={{
                                         position: 'relative',
-                                        width: { xs: 62, md: 82 },
-                                        height: { xs: 62, md: 82 },
+                                        width: { xs: 36, sm: 50, md: 82 },
+                                        height: { xs: 36, sm: 50, md: 82 },
+                                        mb: { xs: 0.75, md: 0 },
                                         borderRadius: '50%',
                                         display: 'grid',
                                         placeItems: 'center',
@@ -162,9 +165,9 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                                     <Box
                                         sx={{
                                             position: 'absolute',
-                                            inset: 7,
+                                            inset: { xs: 4, md: 7 },
                                             borderRadius: '50%',
-                                            background: step.reached && !('isPlatform' in step && step.isPlatform)
+                                            background: step.reached
                                                 ? 'radial-gradient(circle at 30% 20%, rgba(255,255,255,.88), transparent 34%), linear-gradient(135deg,#7C3AED,#9333EA 48%,#38BDF8)'
                                                 : 'linear-gradient(135deg,#E5E7EB,#CBD5E1)',
                                             opacity: step.selectable || step.reached ? 1 : 0.7,
@@ -177,39 +180,44 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                                             alt="Chemisttasker"
                                             sx={{
                                                 position: 'relative',
-                                                width: { xs: 42, md: 56 },
-                                                height: { xs: 42, md: 56 },
+                                                width: { xs: 24, sm: 34, md: 56 },
+                                                height: { xs: 24, sm: 34, md: 56 },
                                                 objectFit: 'contain',
                                                 filter: platformEscalated ? 'drop-shadow(0 2px 3px rgba(15,23,42,.20))' : 'grayscale(1)',
                                                 opacity: platformEscalated ? 1 : 0.42,
                                             }}
                                         />
                                     ) : Icon ? (
-                                        <Icon sx={{ position: 'relative', color: '#fff', fontSize: { xs: 25, md: 34 }, filter: 'drop-shadow(0 2px 3px rgba(15,23,42,.28))' }} />
+                                        <Icon sx={{ position: 'relative', color: '#fff', fontSize: { xs: 17, sm: 22, md: 34 }, filter: 'drop-shadow(0 2px 3px rgba(15,23,42,.28))' }} />
                                     ) : null}
                                     <Box
                                         sx={{
                                             position: 'absolute',
-                                            bottom: -9,
-                                            width: 16,
-                                            height: 16,
+                                            bottom: { xs: -7, md: -9 },
+                                            width: { xs: 11, md: 16 },
+                                            height: { xs: 11, md: 16 },
                                             borderRadius: '50%',
                                             bgcolor: 'isPlatform' in step && step.isPlatform
                                                 ? (platformEscalated ? '#7C3AED' : '#CBD5E1')
                                                 : step.reached ? '#7C3AED' : '#CBD5E1',
-                                            border: '3px solid #fff',
+                                            border: { xs: '2px solid #fff', md: '3px solid #fff' },
                                         }}
                                     />
                                 </Box>
                                 <Typography
                                     sx={{
                                         fontWeight: 800,
-                                        fontSize: { xs: 12, md: 16 },
-                                        lineHeight: 1.15,
+                                        fontSize: { xs: 6.5, sm: 9, md: 16 },
+                                        lineHeight: { xs: 1, md: 1.15 },
                                         color: 'isPlatform' in step && step.isPlatform
                                             ? platformEscalated ? '#111827' : '#94A3B8'
                                             : step.active ? '#7C3AED' : step.reached ? '#111827' : '#94A3B8',
                                         textAlign: 'center',
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'clip',
+                                        width: '100%',
+                                        maxWidth: '100%',
                                     }}
                                 >
                                     {step.label}
@@ -217,11 +225,11 @@ export const EscalationStepper: React.FC<EscalationStepperProps> = ({
                             </Box>
                         );
                         return step.selectable && 'onClick' in step ? (
-                            <ButtonBase key={String(step.key)} onClick={step.onClick} sx={{ borderRadius: 3 }}>
+                            <ButtonBase key={String(step.key)} onClick={step.onClick} sx={{ borderRadius: 3, width: '100%', minWidth: 0 }}>
                                 {circle}
                             </ButtonBase>
                         ) : (
-                            <Box key={String(step.key)}>{circle}</Box>
+                            <Box key={String(step.key)} sx={{ width: '100%', minWidth: 0 }}>{circle}</Box>
                         );
                     })}
                 </Box>

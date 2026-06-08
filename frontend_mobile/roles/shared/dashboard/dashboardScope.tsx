@@ -43,6 +43,11 @@ export type DashboardPayload = {
 
 const ORG_ROLES = new Set(['ORGANIZATION', 'ORG_ADMIN', 'ORG_OWNER', 'ORG_STAFF', 'CHIEF_ADMIN', 'REGION_ADMIN']);
 
+const isWorkerRole = (role?: string | null) => {
+  const normalized = String(role || '').toUpperCase();
+  return normalized === 'PHARMACIST' || normalized === 'OTHER_STAFF';
+};
+
 const addPharmacy = (map: Map<number, PharmacyOption>, idRaw: unknown, nameRaw: unknown, helper?: string) => {
   const id = Number(idRaw);
   if (!Number.isFinite(id)) return;
@@ -99,15 +104,18 @@ export function useScopedDashboard(roleOverride?: string | null) {
     selectedPharmacyName,
     setSelectedPharmacyId,
     setSelectedPharmacyName,
+    canUsePlatform,
   } = useWorkspace();
   const role = roleOverride ?? user?.role;
   const pharmacies = useMemo(() => collectDashboardPharmacies(user), [user]);
+  const canSelectPlatform = canUsePlatform && isWorkerRole(role);
 
   const selectPlatform = useCallback(() => {
+    if (!canSelectPlatform) return;
     setWorkspace('platform');
     setSelectedPharmacyId(null);
     setSelectedPharmacyName(null);
-  }, [setSelectedPharmacyId, setSelectedPharmacyName, setWorkspace]);
+  }, [canSelectPlatform, setSelectedPharmacyId, setSelectedPharmacyName, setWorkspace]);
 
   const selectPharmacy = useCallback(
     (pharmacy: PharmacyOption) => {
@@ -122,9 +130,11 @@ export function useScopedDashboard(roleOverride?: string | null) {
     const endpoint = dashboardEndpointForRole(role);
     if (!endpoint) return null;
     const params =
-      workspace === 'internal' && selectedPharmacyId != null
+      workspace === 'platform' && canSelectPlatform
+        ? { workspace: 'platform' }
+        : selectedPharmacyId != null
         ? { workspace: 'internal', pharmacy_id: selectedPharmacyId }
-        : { workspace: 'platform' };
+        : { workspace: 'internal' };
     try {
       const response = await apiClient.get(endpoint, { params });
       const selected = response.data?.selected_pharmacy;
@@ -138,13 +148,14 @@ export function useScopedDashboard(roleOverride?: string | null) {
         const firstPharmacy = pharmacies[0];
         if (firstPharmacy && workspace === 'internal') {
           selectPharmacy(firstPharmacy);
-        } else {
+        } else if (canSelectPlatform) {
           selectPlatform();
         }
       }
       throw error;
     }
   }, [
+    canSelectPlatform,
     pharmacies,
     role,
     selectPharmacy,
@@ -157,9 +168,9 @@ export function useScopedDashboard(roleOverride?: string | null) {
   ]);
 
   const scopeLabel =
-    workspace === 'internal'
-      ? selectedPharmacyName || pharmacies.find((item) => item.id === selectedPharmacyId)?.name || 'Selected pharmacy'
-      : 'ChemistTasker Platform';
+    workspace === 'platform' && canSelectPlatform
+      ? 'ChemistTasker Platform'
+      : selectedPharmacyName || pharmacies.find((item) => item.id === selectedPharmacyId)?.name || 'Selected pharmacy';
 
   return {
     workspace,
@@ -169,6 +180,7 @@ export function useScopedDashboard(roleOverride?: string | null) {
     fetchDashboard,
     selectPlatform,
     selectPharmacy,
+    canSelectPlatform,
   };
 }
 
@@ -177,6 +189,7 @@ export function DashboardScopeSwitcher({
   scopeLabel,
   workspace,
   selectedPharmacyId,
+  canSelectPlatform = false,
   onSelectPlatform,
   onSelectPharmacy,
 }: {
@@ -184,6 +197,7 @@ export function DashboardScopeSwitcher({
   scopeLabel: string;
   workspace: 'platform' | 'internal';
   selectedPharmacyId: number | null;
+  canSelectPlatform?: boolean;
   onSelectPlatform: () => void;
   onSelectPharmacy: (pharmacy: PharmacyOption) => void;
 }) {
@@ -209,18 +223,22 @@ export function DashboardScopeSwitcher({
           <Text variant="titleMedium" style={styles.modalTitle}>
             Dashboard scope
           </Text>
-          <Button
-            mode={workspace === 'platform' ? 'contained' : 'text'}
-            icon="earth"
-            contentStyle={styles.optionContent}
-            onPress={() => {
-              onSelectPlatform();
-              setVisible(false);
-            }}
-          >
-            ChemistTasker Platform
-          </Button>
-          <Divider style={styles.divider} />
+          {canSelectPlatform && (
+            <>
+              <Button
+                mode={workspace === 'platform' ? 'contained' : 'text'}
+                icon="earth"
+                contentStyle={styles.optionContent}
+                onPress={() => {
+                  onSelectPlatform();
+                  setVisible(false);
+                }}
+              >
+                ChemistTasker Platform
+              </Button>
+              <Divider style={styles.divider} />
+            </>
+          )}
           {pharmacies.length === 0 ? (
             <Text style={styles.emptyText}>No internal pharmacies are available for this account.</Text>
           ) : (

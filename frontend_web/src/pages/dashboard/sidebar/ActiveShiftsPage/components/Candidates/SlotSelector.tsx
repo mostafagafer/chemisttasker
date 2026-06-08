@@ -1,6 +1,6 @@
 import React from 'react';
-import { Stack, Box, IconButton, Button, Typography } from '@mui/material';
-import { ChevronLeft, ChevronRight, Groups } from '@mui/icons-material';
+import { Stack, Box, Button, Typography } from '@mui/material';
+import { Groups } from '@mui/icons-material';
 
 interface SlotSelectorProps {
     slots: any[];
@@ -32,11 +32,6 @@ export const SlotSelector: React.FC<SlotSelectorProps> = ({
         return computedCount ?? slot?.candidateCount ?? slot?.candidate_count ?? slot?.assignedCount ?? slot?.assigned_count ?? 0;
     };
 
-    const currentIdx = slots.findIndex((s) => s.id === selectedSlotId);
-    const prevId = slots[Math.max(0, currentIdx - 1)]?.id ?? slots[0]?.id ?? null;
-    const nextId =
-        slots[Math.min(slots.length - 1, currentIdx + 1)]?.id ?? slots[slots.length - 1]?.id ?? null;
-
     return (
         <Box sx={{ mb: 2.5 }}>
             <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
@@ -47,29 +42,13 @@ export const SlotSelector: React.FC<SlotSelectorProps> = ({
                     </Typography>
                 </Box>
             </Stack>
-            <Stack direction="row" alignItems="center" spacing={{ xs: 0.25, sm: 1 }} justifyContent="center" sx={{ minWidth: 0 }}>
-            <IconButton
-                size="small"
-                onClick={() => onSelectSlot(prevId)}
-                disabled={selectedSlotId === prevId}
-                sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
-            >
-                <ChevronLeft />
-            </IconButton>
             <Box
                 sx={{
                     display: 'grid',
-                    gridAutoFlow: { xs: 'column', md: 'initial' },
-                    gridAutoColumns: { xs: 'minmax(170px, 78vw)', md: 'initial' },
-                    gridTemplateColumns: { xs: 'none', md: 'repeat(5, minmax(150px, 1fr))' },
+                    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
                     gap: { xs: 1, sm: 1.5 },
-                    overflowX: 'auto',
                     width: '100%',
-                    px: { xs: 0, sm: 1 },
-                    pb: { xs: 0.5, sm: 0 },
-                    scrollBehavior: 'smooth',
-                    '&::-webkit-scrollbar': { display: 'none' },
-                    scrollbarWidth: 'none',
+                    px: 0,
                 }}
             >
                 {slots.map((slot) => (
@@ -81,8 +60,9 @@ export const SlotSelector: React.FC<SlotSelectorProps> = ({
                             position: 'relative',
                             justifyContent: 'flex-start',
                             alignItems: 'stretch',
-                            minHeight: 92,
-                            p: { xs: 1.25, sm: 1.5 },
+                            minHeight: { xs: 84, sm: 92 },
+                            minWidth: 0,
+                            p: { xs: 0.9, sm: 1.5 },
                             borderRadius: 2,
                             borderColor: slot.id === selectedSlotId ? '#8B5CF6' : '#E5E7EB',
                             bgcolor: slot.id === selectedSlotId ? '#FAF5FF' : '#fff',
@@ -97,8 +77,8 @@ export const SlotSelector: React.FC<SlotSelectorProps> = ({
                                 return (
                                     <>
                                         <Typography variant="caption" sx={{ color: '#64748B', fontWeight: 700 }}>{parts.day}</Typography>
-                                        <Typography sx={{ color: '#111827', fontWeight: 900, lineHeight: 1.2 }}>{parts.date}</Typography>
-                                        <Box component="span" sx={{ mt: 1, px: 1, py: 0.25, borderRadius: 999, bgcolor: '#F3E8FF', color: '#7C3AED', fontSize: 12, fontWeight: 800 }}>
+                                        <Typography sx={{ color: '#111827', fontWeight: 900, lineHeight: 1.15, fontSize: { xs: 13, sm: 16 } }}>{parts.date}</Typography>
+                                        <Box component="span" sx={{ mt: 1, px: { xs: 0.6, sm: 1 }, py: 0.25, borderRadius: 999, bgcolor: '#F3E8FF', color: '#7C3AED', fontSize: { xs: 9.5, sm: 12 }, fontWeight: 800, maxWidth: '100%', whiteSpace: 'normal', lineHeight: 1.2 }}>
                                             {parts.time}
                                         </Box>
                                         <Typography variant="caption" sx={{ mt: 0.75, color: '#475569', fontWeight: 700 }}>
@@ -131,15 +111,6 @@ export const SlotSelector: React.FC<SlotSelectorProps> = ({
                     </Button>
                 ))}
             </Box>
-            <IconButton
-                size="small"
-                onClick={() => onSelectSlot(nextId)}
-                disabled={selectedSlotId === nextId}
-                sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
-            >
-                <ChevronRight />
-            </IconButton>
-        </Stack>
         </Box>
     );
 };

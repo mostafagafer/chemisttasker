@@ -1,7 +1,20 @@
 import React from 'react';
-import { Box, Typography, Paper, Button, CircularProgress, Stack, Divider, Chip } from '@mui/material';
+import {
+    Avatar,
+    Box,
+    Button,
+    Card,
+    CardContent,
+    CardHeader,
+    Chip,
+    CircularProgress,
+    Divider,
+    Paper,
+    Stack,
+    Typography,
+} from '@mui/material';
+import { LocalOffer, PersonAdd } from '@mui/icons-material';
 import { Shift, ShiftInterest } from '@chemisttasker/shared-core';
-import { CounterOfferList } from './CounterOfferList';
 import { SlotSelector } from './SlotSelector';
 import { getInterestDisplayName } from '../../utils/candidateHelpers';
 
@@ -18,6 +31,131 @@ interface PublicLevelViewProps {
     onSelectSlot?: (slotId: number) => void;
     revealingInterestId: number | null;
 }
+
+const publicCardPalettes = {
+    offer: {
+        bg: 'linear-gradient(180deg,#F7F0FF 0%,#EFE6FF 100%)',
+        fg: '#6D28D9',
+        border: '#C4B5FD',
+        shadow: 'rgba(109,40,217,.14)',
+    },
+    match: {
+        bg: 'linear-gradient(180deg,#E8FCFF 0%,#DDF8FF 100%)',
+        fg: '#008EA6',
+        border: '#A5F3FC',
+        shadow: 'rgba(8,190,234,.16)',
+    },
+};
+
+const PublicCandidateCard: React.FC<{
+    title: string;
+    count: number;
+    icon: React.ReactElement;
+    palette: keyof typeof publicCardPalettes;
+    emptyTitle: string;
+    emptySubtitle: string;
+    children: React.ReactNode;
+}> = ({ title, count, icon, palette, emptyTitle, emptySubtitle, children }) => {
+    const colors = publicCardPalettes[palette];
+
+    return (
+    <Card
+        sx={{
+            background: colors.bg,
+            boxShadow: `0 12px 28px ${colors.shadow}`,
+            border: `1px solid ${colors.border}`,
+            borderRadius: { xs: 2, sm: 3 },
+            height: '100%',
+            minHeight: { xs: 168, sm: 190 },
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+        }}
+    >
+        <CardHeader
+            sx={{
+                pb: 0,
+                pt: { xs: 1, sm: 1.5 },
+                px: { xs: 1, sm: 2 },
+                '& .MuiCardHeader-content': { minWidth: 0 },
+                '& .MuiCardHeader-action': { alignSelf: 'flex-start', mt: 0 },
+                '& .MuiCardHeader-avatar': { mr: { xs: 0.75, sm: 2 } },
+            }}
+            avatar={
+                <Avatar
+                    sx={{
+                        width: { xs: 32, sm: 40 },
+                        height: { xs: 32, sm: 40 },
+                        bgcolor: '#fff',
+                        color: colors.fg,
+                        boxShadow: `0 10px 20px ${colors.shadow}`,
+                        '& svg': { fontSize: { xs: 19, sm: 24 } },
+                    }}
+                >
+                    {icon}
+                </Avatar>
+            }
+            title={
+                <Typography
+                    sx={{
+                        fontSize: { xs: 14, sm: 18 },
+                        fontWeight: 900,
+                        color: colors.fg,
+                        lineHeight: 1.12,
+                        overflowWrap: 'anywhere',
+                    }}
+                >
+                    {title}
+                </Typography>
+            }
+            action={
+                <Chip
+                    label={count}
+                    size="small"
+                    sx={{
+                        backgroundColor: colors.fg,
+                        color: 'white',
+                        fontWeight: 'bold',
+                        height: { xs: 22, sm: 24 },
+                        minWidth: { xs: 24, sm: 28 },
+                        '& .MuiChip-label': { px: { xs: 0.75, sm: 1 } },
+                    }}
+                />
+            }
+        />
+        <CardContent sx={{ pt: { xs: 1, sm: 1.5 }, pb: { xs: '12px !important', sm: '16px !important' }, px: { xs: 1, sm: 2 }, flex: 1, minHeight: 0 }}>
+            {count > 0 ? (
+                <Stack
+                    spacing={1}
+                    sx={{
+                        maxHeight: 245,
+                        overflowY: 'auto',
+                        pr: 0.25,
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none',
+                        '&::-webkit-scrollbar': {
+                            display: 'none',
+                            width: 0,
+                            height: 0,
+                        },
+                    }}
+                >
+                    {children}
+                </Stack>
+            ) : (
+                <Box sx={{ maxWidth: { xs: 160, sm: 240 }, mx: 'auto', py: 3, textAlign: 'center' }}>
+                    <Typography color="text.secondary" sx={{ fontWeight: 800, lineHeight: 1.25, fontSize: { xs: 13, sm: 16 } }}>
+                        {emptyTitle}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, lineHeight: 1.35, fontSize: { xs: 10.5, sm: 12 } }}>
+                        {emptySubtitle}
+                    </Typography>
+                </Box>
+            )}
+        </CardContent>
+    </Card>
+    );
+};
 
 export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
     shift,
@@ -99,30 +237,32 @@ export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
             <Divider>
                 <Chip label="Public Candidates" />
             </Divider>
-            {/* Counter Offers Section */}
-            <Paper variant="outlined" sx={{ p: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                    Counter Offers ({slotOffers.length})
-                </Typography>
-                {slotOffers.length > 0 ? (
-                    <CounterOfferList
-                        offers={slotOffers}
-                        slotId={slotId}
-                        onOpenOffer={(offer) => {
-                            const offerSlotId = slotId ?? getOfferSlotId(offer);
-                            onReviewOffer(shift, offer, offerSlotId);
-                        }}
-                        labelResolver={(offer: any) => {
-                            const offerSlotId = slotId ?? getOfferSlotId(offer);
-                            const interest = findInterestForOffer(offer, offerSlotId);
-                            return interest && !interest.revealed ? 'Reveal offer' : 'Review offer';
-                        }}
-                        titleResolver={(offer: any) => {
-                            const offerSlotId = slotId ?? getOfferSlotId(offer);
-                            const interest = findInterestForOffer(offer, offerSlotId);
-
+            <Box
+                sx={{
+                    display: 'grid',
+                    gridTemplateColumns: {
+                        xs: 'repeat(1, minmax(0, 1fr))',
+                        md: 'repeat(2, minmax(230px, 1fr))',
+                    },
+                    gap: { xs: 1.25, sm: 2 },
+                    alignItems: 'stretch',
+                }}
+            >
+                <PublicCandidateCard
+                    title="Counter offers"
+                    count={slotOffers.length}
+                    icon={<LocalOffer />}
+                    palette="offer"
+                    emptyTitle="No counter offers yet."
+                    emptySubtitle="When candidates send counter offers, they'll appear here."
+                >
+                    {slotOffers.map((offer) => {
+                        const offerSlotId = slotId ?? getOfferSlotId(offer);
+                        const interest = findInterestForOffer(offer, offerSlotId);
+                        const label = interest && !interest.revealed ? 'Reveal offer' : 'Review offer';
+                        const isRevealLabel = label.toLowerCase().includes('reveal');
+                        const title = (() => {
                             if (interest && interest.revealed) {
-                                // Try to get name from interest.user object
                                 if (interest.user) {
                                     const userObj = typeof interest.user === 'object' ? interest.user : null;
                                     if (userObj) {
@@ -134,73 +274,91 @@ export const PublicLevelView: React.FC<PublicLevelViewProps> = ({
                                                     : userObj.name || userObj.displayName || userObj.display_name;
                                         if (name) return name;
                                     }
-                                    // If it's a string, use it directly
                                     if (typeof userObj === 'string') return userObj;
                                 }
-                                // Fallback to displayName from interest itself
                                 const displayName = (interest as any).displayName || interest.userName;
                                 if (displayName) return displayName;
                             }
                             return 'Someone sent a counter offer';
-                        }}
-                    />
-                ) : (
-                    <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
-                        No counter offers yet.
-                    </Typography>
-                )}
-            </Paper>
+                        })();
 
-            {/* Simple Interests Section */}
-            <Paper variant="outlined" sx={{ p: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                    Interests ({slotInterestsFiltered.length})
-                </Typography>
-                {slotInterestsFiltered.length > 0 ? (
-                    <Stack spacing={1}>
-                        {slotInterestsFiltered.map(interest => {
-                            return (
-                                <Box
-                                    key={interest.id}
-                                    sx={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        p: 1.5,
-                                        borderRadius: 1,
-                                        border: '1px solid',
-                                        borderColor: 'divider',
-                                        bgcolor: 'background.paper',
-                                    }}
-                                >
-                                    <Typography variant="body2">
-                                        {interest.revealed
-                                            ? getInterestDisplayName(interest, interest.user)
-                                            : 'Anonymous Interest User'}
+                        return (
+                            <Paper
+                                key={offer.id}
+                                variant="outlined"
+                                sx={{
+                                    p: 1.25,
+                                    borderRadius: 2,
+                                    bgcolor: '#fff',
+                                    minWidth: 0,
+                                    boxShadow: '0 8px 18px rgba(15,23,42,.04)',
+                                }}
+                            >
+                                <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                                    <Typography fontWeight={800} sx={{ lineHeight: 1.2, overflowWrap: 'anywhere', minWidth: 0 }}>
+                                        {title}
                                     </Typography>
                                     <Button
                                         size="small"
-                                        variant={interest.revealed ? 'outlined' : 'contained'}
-                                        onClick={() => onReveal(shift, interest)}
-                                        disabled={revealingInterestId === interest.id}
-                                        startIcon={
-                                            revealingInterestId === interest.id ? (
-                                                <CircularProgress size={16} color="inherit" />
-                                            ) : undefined
-                                        }
+                                        variant={isRevealLabel ? 'contained' : 'outlined'}
+                                        color="secondary"
+                                        sx={{ flexShrink: 0, minHeight: 36, borderRadius: 1.5, fontWeight: 800 }}
+                                        onClick={() => onReviewOffer(shift, offer, offerSlotId)}
                                     >
-                                        {interest.revealed ? 'Review' : 'Reveal'}
+                                        {label}
                                     </Button>
-                                </Box>
-                            );
-                        })}
-                    </Stack>
-                ) : (
-                    <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
-                        No interests yet.
-                    </Typography>
-                )}
-            </Paper>
+                                </Stack>
+                            </Paper>
+                        );
+                    })}
+                </PublicCandidateCard>
+
+                <PublicCandidateCard
+                    title="Interested matches"
+                    count={slotInterestsFiltered.length}
+                    icon={<PersonAdd />}
+                    palette="match"
+                    emptyTitle="No matches yet."
+                    emptySubtitle="When public candidates show interest, they'll appear here."
+                >
+                    {slotInterestsFiltered.map((interest) => (
+                        <Paper
+                            key={interest.id}
+                            variant="outlined"
+                            sx={{
+                                p: 1.25,
+                                borderRadius: 2,
+                                bgcolor: '#fff',
+                                minWidth: 0,
+                                boxShadow: '0 8px 18px rgba(15,23,42,.04)',
+                            }}
+                        >
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                                <Typography fontWeight={800} sx={{ lineHeight: 1.2, overflowWrap: 'anywhere', minWidth: 0 }}>
+                                    {interest.revealed
+                                        ? getInterestDisplayName(interest, interest.user)
+                                        : 'Anonymous Interest User'}
+                                </Typography>
+                                <Button
+                                    size="small"
+                                    variant={interest.revealed ? 'outlined' : 'contained'}
+                                    color="secondary"
+                                    sx={{ flexShrink: 0, minHeight: 36, borderRadius: 1.5, fontWeight: 800 }}
+                                    onClick={() => onReveal(shift, interest)}
+                                    disabled={revealingInterestId === interest.id}
+                                    startIcon={
+                                        revealingInterestId === interest.id ? (
+                                            <CircularProgress size={16} color="inherit" />
+                                        ) : undefined
+                                    }
+                                >
+                                    {interest.revealed ? 'Review' : 'Reveal'}
+                                </Button>
+                            </Stack>
+                        </Paper>
+                    ))}
+                </PublicCandidateCard>
+            </Box>
         </Stack>
     );
 };

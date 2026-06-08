@@ -1,8 +1,8 @@
 // SlotSelector Component
-// Horizontal selector for multi-slot shifts
+// Wrapped selector for multi-slot shifts
 
 import React from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { IconButton, Surface, Text } from 'react-native-paper';
 import { customTheme } from '../../theme';
 
@@ -38,12 +38,6 @@ export default function SlotSelector({ slots, selectedSlotId, onSelectSlot, slot
     const getSlotCandidateCount = (slot: any) =>
         slot?.candidateCount ?? slot?.candidate_count ?? slot?.assignedCount ?? slot?.assigned_count ?? 0;
 
-    const currentIdx = normalizedSlots.findIndex((s) => s._slotId === selectedSlotId);
-    const prevId = normalizedSlots[Math.max(0, currentIdx - 1)]?._slotId ?? normalizedSlots[0]?._slotId ?? null;
-    const nextId =
-        normalizedSlots[Math.min(normalizedSlots.length - 1, currentIdx + 1)]?._slotId ??
-        normalizedSlots[normalizedSlots.length - 1]?._slotId ?? null;
-
     return (
         <Surface style={styles.container} elevation={0}>
             <View style={styles.headerRow}>
@@ -52,22 +46,7 @@ export default function SlotSelector({ slots, selectedSlotId, onSelectSlot, slot
                     <Text style={styles.subheading}>{normalizedSlots.length} upcoming shifts</Text>
                 </View>
             </View>
-            <View style={styles.selectorRow}>
-                <IconButton
-                    icon="chevron-left"
-                    size={20}
-                    onPress={() => {
-                        if (prevId != null) onSelectSlot(prevId);
-                    }}
-                    disabled={prevId == null || selectedSlotId === prevId}
-                    style={styles.navButton}
-                />
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.scrollView}
-                    contentContainerStyle={styles.scrollContent}
-                >
+            <View style={styles.selectorGrid}>
                     {normalizedSlots.map((slot) => {
                         const parts = formatParts(slot);
                         const selected = slot._slotId === selectedSlotId;
@@ -92,16 +71,6 @@ export default function SlotSelector({ slots, selectedSlotId, onSelectSlot, slot
                             </TouchableOpacity>
                         );
                     })}
-                </ScrollView>
-                <IconButton
-                    icon="chevron-right"
-                    size={20}
-                    onPress={() => {
-                        if (nextId != null) onSelectSlot(nextId);
-                    }}
-                    disabled={nextId == null || selectedSlotId === nextId}
-                    style={styles.navButton}
-                />
             </View>
         </Surface>
     );
@@ -138,6 +107,11 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
     },
+    selectorGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: customTheme.spacing.xs,
+    },
     scrollContent: {
         paddingHorizontal: customTheme.spacing.xs,
         gap: customTheme.spacing.md,
@@ -147,13 +121,13 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     slotButton: {
-        width: 156,
-        minHeight: 96,
-        borderRadius: 16,
+        width: '31.5%',
+        minHeight: 86,
+        borderRadius: 12,
         borderWidth: 1,
         borderColor: '#E5E7EB',
         backgroundColor: '#FFFFFF',
-        padding: customTheme.spacing.md,
+        padding: customTheme.spacing.sm,
         position: 'relative',
     },
     slotButtonSelected: {
@@ -167,7 +141,7 @@ const styles = StyleSheet.create({
     },
     slotDate: {
         color: '#111827',
-        fontSize: 16,
+        fontSize: 13,
         fontWeight: '900',
         marginTop: 2,
     },
@@ -180,7 +154,7 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         backgroundColor: '#F3E8FF',
         color: '#7C3AED',
-        fontSize: 12,
+        fontSize: 10,
         fontWeight: '800',
     },
     slotFooter: {
@@ -202,16 +176,16 @@ const styles = StyleSheet.create({
     },
     slotCandidateCount: {
         position: 'absolute',
-        right: 10,
-        bottom: 8,
+        right: 7,
+        bottom: 6,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 1,
     },
     slotCandidateIcon: {
         margin: 0,
-        width: 18,
-        height: 18,
+        width: 16,
+        height: 16,
     },
     slotCandidateText: {
         color: '#64748B',

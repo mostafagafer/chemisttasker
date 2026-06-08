@@ -164,6 +164,7 @@ export default function OwnerDashboard() {
           scopeLabel={scope.scopeLabel}
           workspace={scope.workspace}
           selectedPharmacyId={scope.selectedPharmacyId}
+          canSelectPlatform={scope.canSelectPlatform}
           onSelectPlatform={scope.selectPlatform}
           onSelectPharmacy={scope.selectPharmacy}
         />

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { Alert, Box, CircularProgress, Paper } from "@mui/material";
+import { Alert, Box, CircularProgress, Container, Paper, Toolbar } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import { Navigate } from "react-router-dom";
 import PharmacyPage from "../dashboard/sidebar/PharmacyPage";
 import { getOwnerSetupStatus, ownerSetupPaths } from "../../utils/ownerSetup";
+import logoBanner from "../../assets/logo-banner.jpg";
 
 export default function OwnerSetupPharmaciesPage() {
   const [redirectPath, setRedirectPath] = useState<string | null>(null);
@@ -36,28 +38,20 @@ export default function OwnerSetupPharmaciesPage() {
     };
   }, []);
 
-  if (loading) {
-    return (
-      <Box sx={{ minHeight: "60vh", display: "grid", placeItems: "center" }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
   if (redirectPath) {
     return <Navigate to={redirectPath} replace />;
   }
 
-  if (error) {
-    return (
-      <Box sx={{ maxWidth: 760, mx: "auto", p: 3 }}>
-        <Alert severity="error">{error}</Alert>
-      </Box>
-    );
-  }
-
-  return (
-    <Paper elevation={0} sx={{ bgcolor: "transparent", py: 2 }}>
+  const content = loading ? (
+    <Box sx={{ minHeight: "60vh", display: "grid", placeItems: "center" }}>
+      <CircularProgress />
+    </Box>
+  ) : error ? (
+    <Box sx={{ maxWidth: 760, mx: "auto", p: 3 }}>
+      <Alert severity="error">{error}</Alert>
+    </Box>
+  ) : (
+    <Paper elevation={0} sx={{ bgcolor: "transparent", py: { xs: 2, md: 3 } }}>
       <PharmacyPage
         standalone
         onNeedsOnboardingPath={ownerSetupPaths.onboarding}
@@ -65,5 +59,35 @@ export default function OwnerSetupPharmaciesPage() {
         targetPharmacyCount={targetPharmacyCount}
       />
     </Paper>
+  );
+
+  return (
+    <Box sx={{ minHeight: "100vh", bgcolor: "#F4F7FB" }}>
+      <Box
+        component="header"
+        sx={{
+          position: "sticky",
+          top: 0,
+          zIndex: 1100,
+          bgcolor: alpha("#FFFFFF", 0.96),
+          backdropFilter: "blur(10px)",
+          borderBottom: "1px solid #E5EAF3",
+        }}
+      >
+        <Container maxWidth="xl">
+          <Toolbar disableGutters sx={{ minHeight: { xs: 64, md: 72 } }}>
+            <Box component="a" href="/" sx={{ display: "inline-flex", alignItems: "center" }}>
+              <Box
+                component="img"
+                src={logoBanner}
+                alt="ChemistTaskerRx Logo"
+                sx={{ height: { xs: 42, md: 50 }, width: "auto", display: "block" }}
+              />
+            </Box>
+          </Toolbar>
+        </Container>
+      </Box>
+      {content}
+    </Box>
   );
 }

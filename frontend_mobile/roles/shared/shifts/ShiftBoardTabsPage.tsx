@@ -22,8 +22,9 @@ const TABS = [
 ];
 
 export default function ShiftBoardTabsPage() {
-    const { workspace, canUseInternal } = useWorkspace();
-    const effectiveWorkspace: 'internal' | 'platform' = canUseInternal ? workspace : 'platform';
+    const { workspace, canUsePlatform } = useWorkspace();
+    const effectiveWorkspace: 'internal' | 'platform' =
+        workspace === 'platform' && canUsePlatform ? 'platform' : 'internal';
     const [activeTab, setActiveTab] = useState<ShiftBoardTab>('browse');
 
     // Use the appropriate view based on workspace

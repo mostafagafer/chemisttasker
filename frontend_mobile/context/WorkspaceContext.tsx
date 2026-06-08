@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from './AuthContext';
+import { getOnboardingDetail } from '@chemisttasker/shared-core';
 
 type WorkspaceType = 'internal' | 'platform';
 
@@ -9,6 +10,7 @@ interface WorkspaceContextType {
   setWorkspace: (workspace: WorkspaceType) => void;
   isLoading: boolean;
   canUseInternal: boolean;
+  canUsePlatform: boolean;
   selectedPharmacyId: number | null;
   setSelectedPharmacyId: (pharmacyId: number | null) => void;
   selectedPharmacyName: string | null;
@@ -21,13 +23,32 @@ const WORKSPACE_STORAGE_KEY = '@chemisttasker_workspace';
 const PHARMACY_ID_STORAGE_KEY = '@chemisttasker_selected_pharmacy_id';
 const PHARMACY_NAME_STORAGE_KEY = '@chemisttasker_selected_pharmacy_name';
 
+function coerceVerified(value: unknown): boolean {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+function isOverallVerified(user: any): boolean {
+  return (
+    coerceVerified(user?.verified) ||
+    coerceVerified(user?.pharmacist_profile?.verified) ||
+    coerceVerified(user?.other_staff_profile?.verified)
+  );
+}
+
+function isWorkerRole(role?: string | null): boolean {
+  const normalized = String(role || '').toUpperCase();
+  return normalized === 'PHARMACIST' || normalized === 'OTHER_STAFF';
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { user, isLoading: authLoading } = useAuth();
-  const [workspace, setWorkspaceState] = useState<WorkspaceType>('platform');
+  const [workspace, setWorkspaceState] = useState<WorkspaceType>('internal');
   const [selectedPharmacyId, setSelectedPharmacyIdState] = useState<number | null>(null);
   const [selectedPharmacyName, setSelectedPharmacyNameState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [canUseInternal, setCanUseInternal] = useState(false);
+  const [workerVerified, setWorkerVerified] = useState(false);
+  const canUsePlatform = isWorkerRole(user?.role) && workerVerified;
 
   useEffect(() => {
     loadWorkspace();
@@ -50,17 +71,49 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   useEffect(() => {
+    const initialVerified = isOverallVerified(user);
+    setWorkerVerified(initialVerified);
+
+    if (!user || !isWorkerRole(user?.role) || initialVerified) return;
+
+    let cancelled = false;
+    const roleKey = String(user.role).toUpperCase() === 'PHARMACIST' ? 'pharmacist' : 'other_staff';
+
+    getOnboardingDetail(roleKey)
+      .then((onboarding: any) => {
+        if (cancelled) return;
+        const verifiedFlag =
+          onboarding?.verified ??
+          onboarding?.data?.verified ??
+          (roleKey === 'pharmacist' ? onboarding?.ahpra_verified : undefined);
+        setWorkerVerified(coerceVerified(verifiedFlag));
+      })
+      .catch(() => {
+        if (!cancelled) setWorkerVerified(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
     if (authLoading) return;
-    if (!canUseInternal) {
-      if (workspace !== 'platform') {
-        setWorkspaceState('platform');
-      }
-      setSelectedPharmacyIdState(null);
-      setSelectedPharmacyNameState(null);
-      AsyncStorage.setItem(WORKSPACE_STORAGE_KEY, 'platform').catch(() => null);
-      AsyncStorage.multiRemove([PHARMACY_ID_STORAGE_KEY, PHARMACY_NAME_STORAGE_KEY]).catch(() => null);
+    if (!canUsePlatform && workspace === 'platform') {
+      setWorkspaceState('internal');
+      AsyncStorage.setItem(WORKSPACE_STORAGE_KEY, 'internal').catch(() => null);
+      return;
     }
-  }, [authLoading, canUseInternal, workspace]);
+    if (!canUseInternal) {
+      if (canUsePlatform && workspace !== 'platform') {
+        setWorkspaceState('platform');
+        setSelectedPharmacyIdState(null);
+        setSelectedPharmacyNameState(null);
+        AsyncStorage.setItem(WORKSPACE_STORAGE_KEY, 'platform').catch(() => null);
+        AsyncStorage.multiRemove([PHARMACY_ID_STORAGE_KEY, PHARMACY_NAME_STORAGE_KEY]).catch(() => null);
+      }
+    }
+  }, [authLoading, canUseInternal, canUsePlatform, workspace]);
 
   const loadWorkspace = async () => {
     try {
@@ -85,7 +138,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   };
 
   const setWorkspace = async (newWorkspace: WorkspaceType) => {
-    const targetWorkspace: WorkspaceType = canUseInternal ? newWorkspace : 'platform';
+    const targetWorkspace: WorkspaceType = newWorkspace === 'platform' && canUsePlatform ? 'platform' : 'internal';
     try {
       await AsyncStorage.setItem(WORKSPACE_STORAGE_KEY, targetWorkspace);
       setWorkspaceState(targetWorkspace);
@@ -137,6 +190,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setWorkspace,
         isLoading,
         canUseInternal,
+        canUsePlatform,
         selectedPharmacyId,
         setSelectedPharmacyId,
         selectedPharmacyName,

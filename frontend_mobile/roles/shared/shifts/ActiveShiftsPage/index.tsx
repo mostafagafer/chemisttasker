@@ -1375,7 +1375,7 @@ const styles = StyleSheet.create({
     },
     statsRow: {
         flexDirection: 'row',
-        alignSelf: 'flex-end',
+        alignSelf: 'center',
         width: '78%',
         marginTop: customTheme.spacing.md,
         marginBottom: customTheme.spacing.sm,

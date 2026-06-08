@@ -75,13 +75,6 @@ export default function OwnerSetupPharmacyScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
-        <Text variant="headlineMedium" style={styles.title}>Add Your Pharmacy</Text>
-        <Text variant="bodyMedium" style={styles.subtitle}>
-          Add your first pharmacy now. You can keep building the rest of your workspace after this step.
-        </Text>
-      </View>
-
       <PharmacyForm
         key={formKey}
         mode="create"
@@ -131,18 +124,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#F9FAFB',
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-    gap: 6,
-  },
-  title: {
-    fontWeight: '700',
-    color: '#111827',
-  },
-  subtitle: {
-    color: '#6B7280',
   },
 });

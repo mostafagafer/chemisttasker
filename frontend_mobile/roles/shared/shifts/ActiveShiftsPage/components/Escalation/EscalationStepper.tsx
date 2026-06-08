@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { Image, View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Text, Surface, Button, ActivityIndicator, IconButton } from 'react-native-paper';
 import { EscalationLevelKey, Shift } from '@chemisttasker/shared-core';
 import { customTheme, levelColors } from '../../theme';
@@ -48,7 +48,7 @@ export default function EscalationStepper({
     if (!allowedKeys.size) {
         ESCALATION_LEVELS.forEach((level) => allowedKeys.add(level));
     }
-    const levelSequence = ESCALATION_LEVELS.filter((level) => allowedKeys.has(level));
+    const levelSequence = ESCALATION_LEVELS;
     const currentIndex = Math.max(0, levelSequence.indexOf(currentLevel));
     const selectedIndex = levelSequence.indexOf(selectedLevel);
     const uiCurrentIndex = showPrivateFirst ? -1 : currentIndex;
@@ -62,16 +62,15 @@ export default function EscalationStepper({
 
     return (
         <View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.container}>
-                <View style={styles.track} />
-                <View style={[styles.progressTrack, { width: `${Math.min(100, Math.max(0, ((Math.max(selectedIndex, uiCurrentIndex) + (showPrivateFirst ? 1 : 0)) / Math.max(1, levelSequence.length - 1 + (showPrivateFirst ? 1 : 0))) * 100))}%` }]} />
+            <View style={styles.container}>
                 {showPrivateFirst && (
-                    <Surface style={styles.stepWrap} elevation={0}>
+                    <Surface style={[styles.stepWrap, styles.stepItem]} elevation={0}>
+                        <View style={[styles.stepConnector, styles.stepConnectorReached]} />
                         <View style={[styles.stepCircle, styles.stepCircleReached]}>
-                            <IconButton icon="lock" size={26} iconColor="#fff" style={styles.stepIcon} />
+                            <IconButton icon="lock" size={20} iconColor="#fff" style={styles.stepIcon} />
                         </View>
                         <View style={styles.stepDot} />
-                        <Text style={[styles.stepText, styles.privateStepText]} numberOfLines={1}>
+                        <Text style={[styles.stepText, styles.privateStepText]} numberOfLines={2}>
                             Direct / Private
                         </Text>
                     </Surface>
@@ -82,13 +81,19 @@ export default function EscalationStepper({
                     const isCompleted = index < uiCurrentIndex;
                     const color = levelColors[level] || customTheme.colors.grey;
                     const isPlatform = level === 'PLATFORM';
-                    const isPlatformEscalated = isPlatform && index <= uiCurrentIndex;
+                    const isPlatformEscalated = isPlatform && (index <= uiCurrentIndex || isSelected);
+                    const isReached = isActive || isCompleted || isSelected;
                     const selectable = index <= uiCurrentIndex + 1 && allowedKeys.has(level);
+                    const connectorReached =
+                        index < Math.max(selectedIndex, uiCurrentIndex) ||
+                        (showPrivateFirst && index === 0);
+                    const showConnector = index < levelSequence.length - 1;
 
                     const label = resolveLabel(level);
                     return (
                         <TouchableOpacity
                             key={level}
+                            style={styles.stepTouch}
                             activeOpacity={0.8}
                             disabled={!selectable}
                             onPress={() => onSelectLevel(level)}
@@ -100,7 +105,15 @@ export default function EscalationStepper({
                                 ]}
                                 elevation={0}
                             >
-                                <View style={[styles.stepCircle, (isActive || isCompleted || isSelected) && !isPlatform ? styles.stepCircleReached : styles.stepCircleMuted, isSelected && !isPlatform && { borderColor: color }]}>
+                                {showConnector && (
+                                    <View
+                                        style={[
+                                            styles.stepConnector,
+                                            connectorReached ? styles.stepConnectorReached : styles.stepConnectorMuted,
+                                        ]}
+                                    />
+                                )}
+                                <View style={[styles.stepCircle, isReached ? styles.stepCircleReached : styles.stepCircleMuted, isSelected && !isPlatform && { borderColor: color }]}>
                                     {isPlatform ? (
                                         <Image
                                             source={chemisttaskerBadge}
@@ -111,16 +124,16 @@ export default function EscalationStepper({
                                             resizeMode="contain"
                                         />
                                     ) : (
-                                        <IconButton icon={levelIcons[level]} size={26} iconColor="#fff" style={styles.stepIcon} />
+                                        <IconButton icon={levelIcons[level]} size={20} iconColor="#fff" style={styles.stepIcon} />
                                     )}
                                 </View>
-                                <View style={[styles.stepDot, { backgroundColor: isPlatform ? (isPlatformEscalated ? color : '#CBD5E1') : isActive || isCompleted || isSelected ? color : '#CBD5E1' }]} />
+                                <View style={[styles.stepDot, { backgroundColor: isPlatform ? (isPlatformEscalated || isSelected ? color : '#CBD5E1') : isReached ? color : '#CBD5E1' }]} />
                                 <Text
                                     style={[
                                         styles.stepText,
                                         { color: isPlatform ? (isPlatformEscalated ? '#111827' : customTheme.colors.textMuted) : isSelected ? color : isActive || isCompleted ? '#111827' : customTheme.colors.textMuted },
                                     ]}
-                                    numberOfLines={1}
+                                    numberOfLines={2}
                                 >
                                     {label}
                                 </Text>
@@ -128,7 +141,7 @@ export default function EscalationStepper({
                         </TouchableOpacity>
                     );
                 })}
-            </ScrollView>
+            </View>
 
             {escalating ? (
                 <View style={styles.escalateBox}>
@@ -159,39 +172,50 @@ export default function EscalationStepper({
 const styles = StyleSheet.create({
     container: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-start',
+        justifyContent: 'center',
+        flexWrap: 'nowrap',
         position: 'relative',
-        paddingVertical: customTheme.spacing.lg,
-        paddingHorizontal: customTheme.spacing.md,
-        gap: customTheme.spacing.xl,
+        paddingVertical: customTheme.spacing.sm,
+        paddingHorizontal: 0,
+        gap: 2,
     },
     track: {
         position: 'absolute',
-        left: 42,
-        right: 42,
-        top: 48,
-        height: 5,
+        left: 20,
+        right: 20,
+        top: 28,
+        height: 4,
         borderRadius: 999,
         backgroundColor: '#E5E7EB',
     },
     progressTrack: {
         position: 'absolute',
-        left: 42,
-        top: 48,
-        height: 5,
+        left: 20,
+        top: 28,
+        height: 4,
         borderRadius: 999,
         backgroundColor: '#7C3AED',
     },
     stepWrap: {
-        minWidth: 118,
+        width: '100%',
         alignItems: 'center',
         backgroundColor: 'transparent',
+        position: 'relative',
+    },
+    stepItem: {
+        flex: 1,
+        minWidth: 0,
+    },
+    stepTouch: {
+        flex: 1,
+        minWidth: 0,
     },
     stepCircle: {
-        width: 72,
-        height: 72,
-        borderRadius: 36,
-        borderWidth: 6,
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        borderWidth: 3,
         borderColor: '#E9D5FF',
         alignItems: 'center',
         justifyContent: 'center',
@@ -200,6 +224,22 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.24,
         shadowRadius: 14,
         elevation: 5,
+        zIndex: 2,
+    },
+    stepConnector: {
+        position: 'absolute',
+        top: 19,
+        left: '50%',
+        right: '-50%',
+        height: 4,
+        borderRadius: 999,
+        zIndex: 0,
+    },
+    stepConnectorReached: {
+        backgroundColor: '#7C3AED',
+    },
+    stepConnectorMuted: {
+        backgroundColor: '#E5E7EB',
     },
     stepCircleReached: {
         backgroundColor: '#7C3AED',
@@ -211,28 +251,33 @@ const styles = StyleSheet.create({
     },
     stepIcon: {
         margin: 0,
+        width: 30,
+        height: 30,
     },
     platformBadge: {
-        width: 52,
-        height: 52,
+        width: 28,
+        height: 28,
     },
     platformBadgeDisabled: {
         opacity: 0.42,
         tintColor: '#94A3B8',
     },
     stepDot: {
-        width: 16,
-        height: 16,
-        borderRadius: 8,
+        width: 10,
+        height: 10,
+        borderRadius: 5,
         marginTop: -3,
-        marginBottom: 4,
+        marginBottom: 3,
         backgroundColor: '#7C3AED',
-        borderWidth: 3,
+        borderWidth: 2,
         borderColor: '#fff',
     },
     stepText: {
-        fontSize: 11,
-        fontWeight: '600',
+        fontSize: 7.5,
+        lineHeight: 8.5,
+        fontWeight: '700',
+        textAlign: 'center',
+        maxWidth: 72,
     },
     privateStep: {
         backgroundColor: '#E0F2FE',

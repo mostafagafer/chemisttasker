@@ -30,8 +30,9 @@ const getTabsForWorkspace = (workspace: 'internal' | 'platform') => {
 
 export default function OtherStaffShiftsScreen() {
   const params = useLocalSearchParams<{ tab?: string; shift_id?: string; offer_id?: string }>();
-  const { workspace, canUseInternal } = useWorkspace();
-  const effectiveWorkspace: 'internal' | 'platform' = canUseInternal ? workspace : 'platform';
+  const { workspace, canUsePlatform } = useWorkspace();
+  const effectiveWorkspace: 'internal' | 'platform' =
+    workspace === 'platform' && canUsePlatform ? 'platform' : 'internal';
   const incomingTab = typeof params.tab === 'string' ? params.tab.toLowerCase() : null;
   const boardTabOverride = incomingTab === 'accepted' ? 'accepted' : undefined;
   const [activeTab, setActiveTab] = useState('public');

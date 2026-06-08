@@ -10,6 +10,52 @@ from client_profile.rewards import (
     get_pill_balance,
     seed_default_reward_rules,
 )
+from client_profile.serializers import OwnerOnboardingV2Serializer
+
+
+class OwnerOnboardingV2SerializerTests(TestCase):
+    def test_submission_flag_is_saved_and_returned(self):
+        User = get_user_model()
+        user = User.objects.create_user(
+            email="owner@example.com",
+            password="password",
+            role="OWNER",
+            username="owneruser",
+            first_name="Owner",
+            last_name="User",
+            mobile_number="0400000000",
+            is_otp_verified=True,
+            is_mobile_verified=True,
+        )
+        onboarding = OwnerOnboarding.objects.create(
+            user=user,
+            phone_number="0400000000",
+            role=OwnerOnboarding.ROLE_CHOICES[0][0],
+            chain_pharmacy=False,
+            number_of_pharmacies=1,
+        )
+
+        serializer = OwnerOnboardingV2Serializer(
+            onboarding,
+            data={
+                "first_name": "Owner",
+                "last_name": "User",
+                "username": "owneruser",
+                "phone_number": "0400000000",
+                "role": "MANAGER",
+                "chain_pharmacy": False,
+                "number_of_pharmacies": 1,
+                "submitted_for_verification": True,
+            },
+            partial=True,
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+        onboarding.refresh_from_db()
+
+        self.assertTrue(onboarding.submitted_for_verification)
+        self.assertTrue(OwnerOnboardingV2Serializer(onboarding).data["submitted_for_verification"])
 
 
 class PillRewardsTests(TestCase):

@@ -97,6 +97,7 @@ export default function InvoiceDetail({ basePath }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
   const [snackbar, setSnackbar] = useState('');
 
   const load = useCallback(async () => {
@@ -217,11 +218,26 @@ export default function InvoiceDetail({ basePath }: Props) {
     setSending(true);
     try {
       await sendInvoiceEmail(invoice.id);
+      setInvoice((current) => (current ? { ...current, status: 'sent' } : current));
       setSnackbar('Email sent');
     } catch (err: any) {
       setSnackbar(err?.message || 'Failed to send email');
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleMarkPaid = async () => {
+    if (!invoice) return;
+    setUpdatingStatus(true);
+    try {
+      await updateInvoice(invoice.id, { status: 'paid' } as any);
+      setInvoice((current) => (current ? { ...current, status: 'paid' } : current));
+      setSnackbar('Invoice marked as paid');
+    } catch (err: any) {
+      setSnackbar(err?.message || 'Failed to update invoice');
+    } finally {
+      setUpdatingStatus(false);
     }
   };
 
@@ -592,6 +608,17 @@ export default function InvoiceDetail({ basePath }: Props) {
           >
             Send email
           </Button>
+          {['sent', 'pending'].includes(String(invoice.status || '').toLowerCase()) ? (
+            <Button
+              mode="outlined"
+              icon="cash-check"
+              onPress={handleMarkPaid}
+              loading={updatingStatus}
+              style={styles.actionBtn}
+            >
+              Mark as paid
+            </Button>
+          ) : null}
           <Button mode="outlined" icon="file-pdf-box" onPress={handleOpenPdf} style={styles.actionBtn}>
             Open PDF
           </Button>
@@ -610,7 +637,8 @@ const statusStyle = (status?: string) => {
   if (!status) return base;
   const key = status.toLowerCase();
   if (key === 'paid') return { bg: '#DCFCE7', fg: '#166534' };
-  if (key === 'pending') return { bg: '#FEF3C7', fg: '#92400E' };
+  if (key === 'sent' || key === 'pending') return { bg: '#FEF3C7', fg: '#92400E' };
+  if (key === 'draft') return { bg: '#E0E7FF', fg: '#4338CA' };
   if (key === 'overdue') return { bg: '#FEE2E2', fg: '#B91C1C' };
   return base;
 };

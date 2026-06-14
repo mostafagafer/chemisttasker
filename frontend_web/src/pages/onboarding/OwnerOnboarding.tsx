@@ -63,8 +63,9 @@ const GENDER_OPTIONS = [
 const LIGHT_PAGE_BG = '#F4F7FB';
 const LIGHT_SURFACE = '#FFFFFF';
 const LIGHT_BORDER = '#D9E2F2';
-const HERO_GRADIENT_START = '#6366F1';
-const HERO_GRADIENT_END = '#8B5CF6';
+const HERO_GRADIENT_START = '#143EEA';
+const HERO_GRADIENT_END = '#D20DAE';
+const HERO_GRADIENT = 'linear-gradient(135deg, #143EEA 0%, #2429B8 45%, #8B1CF6 72%, #D20DAE 100%)';
 
 type OwnerOnboardingProps = {
   standalone?: boolean;
@@ -349,42 +350,117 @@ const handleSubmit = async (e: React.FormEvent) => {
           borderRadius: { xs: 3, md: 4 },
           overflow: 'hidden',
           mb: 2,
-          background: `linear-gradient(135deg, ${HERO_GRADIENT_START}, ${HERO_GRADIENT_END})`,
+          backgroundImage: HERO_GRADIENT,
           color: '#FFFFFF',
-          minHeight: { xs: 220, md: 260 },
-          display: 'grid',
-          placeItems: 'center',
-          textAlign: 'center',
-          px: 2,
-          py: { xs: 3, md: 4 },
+          minHeight: { xs: 250, md: 300 },
+          position: 'relative',
+          boxShadow: '0 22px 54px rgba(6, 26, 61, 0.12)',
+          px: { xs: 2, md: 4 },
+          py: { xs: 2.5, md: 4 },
         }}
       >
-        <Stack spacing={1.5} alignItems="center">
-          <ProfilePhotoUploader
-            value={profilePhotoPreview}
-            onChange={(file, previewUrl, cleared) => {
-              setProfilePhotoFile(file);
-              setProfilePhotoPreview(previewUrl);
-              setProfilePhotoCleared(Boolean(cleared) && !file);
-            }}
-            disabled={loading}
-            title=""
-            helperText=""
-          />
-          <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
-            {displayName}
-          </Typography>
-          <Chip
-            label={roleLabel.toUpperCase()}
-            size="small"
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            backgroundImage: [
+              `radial-gradient(circle at 64% 98%, ${alpha('#8FE8FF', 0.14)} 0 110px, transparent 111px)`,
+              `radial-gradient(circle at 72% 96%, ${alpha('#6FE7DD', 0.16)} 0 190px, transparent 191px)`,
+              `radial-gradient(circle at 66% 96%, ${alpha('#FFFFFF', 0.12)} 0 275px, transparent 276px)`,
+              `linear-gradient(100deg, transparent 0 78%, ${alpha('#D20DAE', 0.75)} 78% 100%)`,
+            ].join(', '),
+            pointerEvents: 'none',
+          }}
+        />
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          spacing={{ xs: 2.5, md: 4 }}
+          alignItems={{ xs: 'stretch', md: 'center' }}
+          justifyContent="space-between"
+          sx={{ position: 'relative', zIndex: 1, minHeight: '100%' }}
+        >
+          <Box sx={{ maxWidth: 760 }}>
+            <Chip
+              label="Owner onboarding"
+              size="small"
+              sx={{
+                mb: 1.5,
+                bgcolor: alpha('#FFFFFF', 0.14),
+                color: '#FFFFFF',
+                fontWeight: 900,
+                textTransform: 'uppercase',
+                letterSpacing: '.08em',
+                border: `1px solid ${alpha('#FFFFFF', 0.24)}`,
+              }}
+            />
+            <Typography
+              variant="h3"
+              sx={{
+                fontSize: { xs: 34, md: 56 },
+                fontWeight: 900,
+                lineHeight: 1.04,
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {displayName}
+            </Typography>
+            <Typography
+              variant="body1"
+              sx={{
+                mt: 1.5,
+                maxWidth: 620,
+                fontSize: { xs: 15, md: 20 },
+                fontWeight: 700,
+                lineHeight: 1.45,
+                color: alpha('#FFFFFF', 0.96),
+              }}
+            >
+              Finish your profile details now so your pharmacy workspace can be created without delays.
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ mt: { xs: 2, md: 3 } }}>
+              <Chip
+                label={roleLabel}
+                sx={{
+                  bgcolor: '#FFFFFF',
+                  color: '#063BDA',
+                  fontWeight: 900,
+                  '& .MuiChip-label': { px: 1.75 },
+                }}
+              />
+              <Chip
+                label="Required before workspace setup"
+                sx={{
+                  bgcolor: alpha('#FFFFFF', 0.14),
+                  color: '#FFFFFF',
+                  fontWeight: 800,
+                  border: `1px solid ${alpha('#FFFFFF', 0.24)}`,
+                }}
+              />
+            </Stack>
+          </Box>
+          <Box
             sx={{
-              bgcolor: alpha('#FFFFFF', 0.22),
-              color: '#FFFFFF',
-              fontWeight: 800,
-              letterSpacing: 0,
-              border: `1px solid ${alpha('#FFFFFF', 0.28)}`,
+              alignSelf: { xs: 'flex-start', md: 'center' },
+              p: { xs: 1.5, md: 2 },
+              borderRadius: 3,
+              bgcolor: alpha('#FFFFFF', 0.12),
+              border: `1px solid ${alpha('#FFFFFF', 0.24)}`,
+              boxShadow: `inset 0 1px 0 ${alpha('#FFFFFF', 0.18)}`,
+              backdropFilter: 'blur(8px)',
             }}
-          />
+          >
+            <ProfilePhotoUploader
+              value={profilePhotoPreview}
+              onChange={(file, previewUrl, cleared) => {
+                setProfilePhotoFile(file);
+                setProfilePhotoPreview(previewUrl);
+                setProfilePhotoCleared(Boolean(cleared) && !file);
+              }}
+              disabled={loading}
+              title=""
+              helperText=""
+            />
+          </Box>
         </Stack>
       </Box>
 

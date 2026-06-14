@@ -75,6 +75,16 @@ type UpcomingStat = {
   month: number;
 };
 
+type DashboardInvoicePanel = {
+  title: string;
+  total: string;
+  totalLabel: string;
+  unpaidCount: string | number;
+  unpaidTotal: string;
+  buttonLabel: string;
+  onClick: () => void;
+};
+
 const toneStyles: Record<DashboardTone, { bg: string; color: string; link: string }> = {
   blue: { bg: "#E7F0FF", color: "#063BDA", link: "#063BDA" },
   purple: { bg: "#EFE7FF", color: "#6D28D9", link: "#4C0DDE" },
@@ -116,6 +126,7 @@ export default function DashboardOverviewTemplate({
   upcomingTitle = "Upcoming Shifts",
   activity = [],
   metrics,
+  invoicePanel,
   onOpenShifts,
   onOpenActivity,
 }: {
@@ -132,6 +143,7 @@ export default function DashboardOverviewTemplate({
   upcomingTitle?: string;
   activity?: DashboardActivity[];
   metrics: DashboardMetric[];
+  invoicePanel?: DashboardInvoicePanel;
   onOpenShifts: () => void;
   onOpenActivity?: () => void;
 }) {
@@ -331,6 +343,78 @@ export default function DashboardOverviewTemplate({
               View all activity
             </Button>
           </Paper>
+
+          {invoicePanel && (
+            <Paper
+              sx={{
+                position: "relative",
+                overflow: "hidden",
+                borderRadius: "22px",
+                p: { xs: 2.5, md: 3 },
+                color: "#fff",
+                background: "linear-gradient(100deg, #267DB8 0%, #433894 58%, #9A087D 100%)",
+                boxShadow: "0 10px 28px rgba(37, 99, 235, 0.18)",
+              }}
+            >
+              <Box
+                sx={{
+                  position: "absolute",
+                  inset: 0,
+                  backgroundImage: [
+                    `linear-gradient(64deg, ${alpha("#ffffff", 0.12)} 0 22%, transparent 22% 100%)`,
+                    `linear-gradient(118deg, transparent 0 86%, ${alpha("#ffffff", 0.08)} 86% 100%)`,
+                  ].join(", "),
+                  pointerEvents: "none",
+                }}
+              />
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                alignItems={{ xs: "flex-start", sm: "center" }}
+                justifyContent="space-between"
+                spacing={2}
+                sx={{ position: "relative", zIndex: 1 }}
+              >
+                <Box>
+                  <Typography sx={{ textTransform: "uppercase", letterSpacing: ".08em", opacity: 0.72, fontSize: 13, fontWeight: 800, mb: 1 }}>
+                    {invoicePanel.title}
+                  </Typography>
+                  <Typography sx={{ fontSize: { xs: 30, md: 38 }, fontWeight: 950, lineHeight: 1.08 }}>
+                    {invoicePanel.total}
+                  </Typography>
+                  <Typography sx={{ opacity: 0.84, fontSize: 14, fontWeight: 700, mt: 0.5 }}>
+                    {invoicePanel.totalLabel}
+                  </Typography>
+                  <Stack direction="row" spacing={1.25} flexWrap="wrap" useFlexGap sx={{ mt: 2 }}>
+                    <Box sx={{ minWidth: 128, px: 1.5, py: 1.1, borderRadius: "16px", bgcolor: alpha("#ffffff", 0.13), border: `1px solid ${alpha("#ffffff", 0.2)}` }}>
+                      <Typography sx={{ fontSize: 24, fontWeight: 950, lineHeight: 1 }}>{invoicePanel.unpaidCount}</Typography>
+                      <Typography sx={{ fontSize: 12, opacity: 0.76, fontWeight: 700, mt: 0.4 }}>Unpaid invoices</Typography>
+                    </Box>
+                    <Box sx={{ minWidth: 128, px: 1.5, py: 1.1, borderRadius: "16px", bgcolor: alpha("#ffffff", 0.13), border: `1px solid ${alpha("#ffffff", 0.2)}` }}>
+                      <Typography sx={{ fontSize: 24, fontWeight: 950, lineHeight: 1 }}>{invoicePanel.unpaidTotal}</Typography>
+                      <Typography sx={{ fontSize: 12, opacity: 0.76, fontWeight: 700, mt: 0.4 }}>Unpaid total</Typography>
+                    </Box>
+                  </Stack>
+                </Box>
+                <Button
+                  variant="outlined"
+                  onClick={invoicePanel.onClick}
+                  sx={{
+                    alignSelf: { xs: "flex-start", sm: "center" },
+                    borderRadius: "999px",
+                    px: 2.25,
+                    py: 0.8,
+                    color: "#fff",
+                    borderColor: alpha("#ffffff", 0.28),
+                    bgcolor: alpha("#ffffff", 0.12),
+                    fontWeight: 900,
+                    textTransform: "none",
+                  }}
+                >
+                  {invoicePanel.buttonLabel}
+                </Button>
+              </Stack>
+            </Paper>
+          )}
         </Stack>
       </Box>
 

@@ -93,9 +93,9 @@ import PosterShiftDetailPage from './pages/dashboard/sidebar/PosterShiftDetailPa
 import WorkerShiftDetailPage from './pages/dashboard/sidebar/WorkerShiftDetailPage';
 import ChatPage from './pages/dashboard/sidebar/chat/ChatPage';
 import HubPage from './pages/dashboard/sidebar/hub/HubPage';
-import InvoiceManagePage from './pages/dashboard/sidebar/InvoiceManagePage';
-import InvoiceGeneratePage from './pages/dashboard/sidebar/InvoiceGeneratePage';
-import InvoiceDetailPage from './pages/dashboard/sidebar/InvoiceDetailPage';
+import InvoiceManagePage from './pages/dashboard/sidebar/Invoices/InvoiceManagePage';
+import InvoiceGeneratePage from './pages/dashboard/sidebar/Invoices/InvoiceGeneratePage';
+import InvoiceDetailPage from './pages/dashboard/sidebar/Invoices/InvoiceDetailPage';
 import PharmacyCalendarPage from './pages/dashboard/sidebar/PharmacyCalendarPage';
 
 import { AuthProvider } from './contexts/AuthContext';

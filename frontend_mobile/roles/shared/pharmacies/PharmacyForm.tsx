@@ -9,6 +9,7 @@ import {
     View,
     TouchableOpacity,
     Alert,
+    Linking,
 } from 'react-native';
 import {
     ActivityIndicator,
@@ -27,6 +28,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
+import { LinearGradient } from 'expo-linear-gradient';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import {
     createPharmacy,
     updatePharmacy,
@@ -44,6 +47,8 @@ type Props = {
     pharmacyId?: string;
     onSuccess?: () => void;
     onCancel?: () => void;
+    onContinueLater?: () => void;
+    showSetupHero?: boolean;
 };
 
 const STATES = ['NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'NT', 'ACT'];
@@ -59,18 +64,27 @@ const RATE_TYPES = [
     { value: 'FLEXIBLE', label: 'Flexible' },
     { value: 'PHARMACIST_PROVIDED', label: 'Pharmacist Provided' },
 ];
+const RATE_MINIMUM_EXAMPLE = '55';
+const GOVERNMENT_AWARD_GUIDE_URL = 'https://calculate.fairwork.gov.au/payguides/fairwork/ma000012/pdf';
 
 const TABS = [
-    { label: 'Basic', icon: 'domain' },
-    { label: 'Regulatory', icon: 'check-decagram' },
-    { label: 'Docs', icon: 'file-document' },
-    { label: 'Employment', icon: 'account-group' },
-    { label: 'Hours', icon: 'clock-outline' },
-    { label: 'Rate', icon: 'cash' },
-    { label: 'About', icon: 'message' },
+    { label: 'Basic', shortLabel: 'Basic', icon: 'domain' },
+    { label: 'Regulatory', shortLabel: 'Reg', icon: 'check-decagram' },
+    { label: 'Docs', shortLabel: 'Docs', icon: 'file-document' },
+    { label: 'Employment', shortLabel: 'Staff', icon: 'account-group' },
+    { label: 'Hours', shortLabel: 'Hours', icon: 'clock-outline' },
+    { label: 'Rate', shortLabel: 'Rate', icon: 'cash' },
+    { label: 'About', shortLabel: 'About', icon: 'message' },
 ];
 
-export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: Props) {
+export default function PharmacyForm({
+    mode,
+    pharmacyId,
+    onSuccess,
+    onCancel,
+    onContinueLater,
+    showSetupHero = false,
+}: Props) {
     const router = useRouter();
     const initialStateRef = useRef({
         employmentTypes: [] as string[],
@@ -382,8 +396,22 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
         return true;
     };
 
-    const handleSave = async () => {
-        if (!validate()) return;
+    const hasDraftContent = useMemo(() => {
+        if (employmentTypes.length > 0 || rolesNeeded.length > 0) return true;
+        if (files.approval || files.sops || files.induction || files.sump) return true;
+        return Object.entries(form).some(([key, value]) => {
+            if (typeof value === 'boolean') return value;
+            if (typeof value === 'number') return value !== 0;
+            if (typeof value !== 'string') return value != null;
+            const trimmed = value.trim();
+            if (!trimmed) return false;
+            if (key === 'state') return trimmed !== 'NSW';
+            return true;
+        });
+    }, [employmentTypes, files, form, rolesNeeded]);
+
+    const persistPharmacy = async ({ afterSave }: { afterSave?: () => void } = {}) => {
+        if (!validate()) return false;
         setSaving(true);
         setError('');
 
@@ -410,8 +438,6 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
             payload.roles_needed = rolesNeeded;
 
             const hasFiles = Boolean(files.approval || files.sops || files.induction || files.sump);
-
-            
 
             if (hasFiles) {
                 const formData = new FormData();
@@ -456,17 +482,40 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                 form,
                 rolesNeeded,
             };
-            if (onSuccess) onSuccess();
+            if (afterSave) afterSave();
+            else if (onSuccess) onSuccess();
             else router.back();
+            return true;
 
         } catch (err: any) {
             const apiMessage = formatApiError(err?.response?.data);
             const detail = apiMessage || err?.message;
             setError(detail || 'Save failed');
             console.error(err);
+            return false;
         } finally {
             setSaving(false);
         }
+    };
+
+    const handleSave = async () => {
+        await persistPharmacy();
+    };
+
+    const handleContinueLater = async () => {
+        if (!hasDraftContent) {
+            if (onContinueLater) onContinueLater();
+            else if (onCancel) onCancel();
+            else router.back();
+            return;
+        }
+        await persistPharmacy({
+            afterSave: () => {
+                if (onContinueLater) onContinueLater();
+                else if (onCancel) onCancel();
+                else router.back();
+            },
+        });
     };
 
     const handleNext = () => {
@@ -482,27 +531,79 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
             >
-                <View style={styles.header}>
-                    <Text style={styles.title}>{title}</Text>
-                </View>
+                {showSetupHero ? (
+                    <LinearGradient
+                        colors={['#143EEA', '#2429B8', '#8B1CF6', '#D20DAE']}
+                        locations={[0, 0.45, 0.72, 1]}
+                        start={{ x: 0, y: 0.1 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.hero}
+                    >
+                        <View style={styles.heroOrbLg} />
+                        <View style={styles.heroOrbMd} />
+                        <View style={styles.heroOrbSm} />
+                        <View style={styles.heroStripe} />
+                        <View style={styles.heroContent}>
+                            <View style={styles.heroTextBlock}>
+                                <View style={styles.heroBadge}>
+                                    <Text style={styles.heroBadgeText}>Pharmacy setup</Text>
+                                </View>
+                                <Text style={styles.heroTitle}>Add your pharmacy</Text>
+                                <Text style={styles.heroSubtitle}>
+                                    Create the first pharmacy in your workspace. Add location, documents, staffing and hours now, then finish the rest later.
+                                </Text>
+                                {/* <View style={styles.heroChipRow}>
+                                    <View style={styles.heroChipPrimary}>
+                                        <Text style={styles.heroChipPrimaryText}>Basic details first</Text>
+                                    </View>
+                                    <View style={styles.heroChipSecondary}>
+                                        <Text style={styles.heroChipSecondaryText}>7 sections to complete</Text>
+                                    </View>
+                                </View> */}
+                            </View>
+                            {/* <View style={styles.heroSummaryCard}>
+                                <Text style={styles.heroSummaryLabel}>Setup flow</Text>
+                                <Text style={styles.heroSummaryValue}>7</Text>
+                                <Text style={styles.heroSummaryTitle}>sections to complete</Text>
+                                <Text style={styles.heroSummaryText}>
+                                    Basic, regulatory, docs, employment, hours, rate and about.
+                                </Text>
+                            </View> */}
+                        </View>
+                    </LinearGradient>
+                ) : (
+                    <View style={styles.header}>
+                        <Text style={styles.title}>{title}</Text>
+                    </View>
+                )}
 
                 {/* TABS */}
-                <View>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsContainer}>
-                        {TABS.map((tab, idx) => (
-                            <Chip
-                                key={tab.label}
-                                icon={tab.icon}
-                                selected={activeTab === idx}
-                                onPress={() => setActiveTab(idx)}
-                                style={[styles.tabChip, activeTab === idx && styles.activeTabChip]}
-                                textStyle={activeTab === idx ? { color: '#fff' } : {}}
-                                mode="flat"
-                            >
-                                {tab.label}
-                            </Chip>
-                        ))}
-                    </ScrollView>
+                <View style={styles.tabsOuter}>
+                    <View style={styles.tabsContainer}>
+                        {TABS.map((tab, idx) => {
+                            const active = activeTab === idx;
+                            return (
+                                <TouchableOpacity
+                                    key={tab.label}
+                                    onPress={() => setActiveTab(idx)}
+                                    activeOpacity={0.9}
+                                    style={[
+                                        styles.tabButton,
+                                        active && styles.activeTabButton,
+                                    ]}
+                                >
+                                    <MaterialCommunityIcons
+                                        name={tab.icon as any}
+                                        size={16}
+                                        color={active ? '#143EEA' : '#6D28D9'}
+                                    />
+                                    <Text style={active ? styles.activeTabButtonText : styles.tabButtonText}>
+                                        {tab.shortLabel}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
                 </View>
                 <Divider />
 
@@ -662,45 +763,49 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                                     <View style={styles.selectionSection}>
                                         <Text style={styles.sectionHeader}>Employment Types</Text>
                                         <Text style={styles.sectionHelper}>Choose the employment arrangements this pharmacy supports.</Text>
-                                        {EMPLOYMENT_TYPES.map(type => {
-                                            const checked = employmentTypes.includes(type);
-                                            return (
-                                                <TouchableOpacity
-                                                    key={type}
-                                                    style={[styles.selectionCard, checked && styles.selectionCardActive]}
-                                                    onPress={() => toggleList(employmentTypes, setEmploymentTypes, type)}
-                                                    activeOpacity={0.85}
-                                                >
-                                                    <Checkbox status={checked ? 'checked' : 'unchecked'} onPress={() => toggleList(employmentTypes, setEmploymentTypes, type)} />
-                                                    <View style={styles.selectionTextBlock}>
-                                                        <Text style={styles.selectionTitle}>{prettifyOptionLabel(type)}</Text>
-                                                        <Text style={styles.selectionSubtitle}>Available for this pharmacy</Text>
-                                                    </View>
-                                                </TouchableOpacity>
-                                            );
-                                        })}
+                                        <View style={styles.selectionGrid}>
+                                            {EMPLOYMENT_TYPES.map(type => {
+                                                const checked = employmentTypes.includes(type);
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={type}
+                                                        style={[styles.selectionCard, styles.selectionCardGrid, checked && styles.selectionCardActive]}
+                                                        onPress={() => toggleList(employmentTypes, setEmploymentTypes, type)}
+                                                        activeOpacity={0.85}
+                                                    >
+                                                        <Checkbox status={checked ? 'checked' : 'unchecked'} onPress={() => toggleList(employmentTypes, setEmploymentTypes, type)} />
+                                                        <View style={styles.selectionTextBlock}>
+                                                            <Text style={styles.selectionTitle}>{prettifyOptionLabel(type)}</Text>
+                                                            <Text style={styles.selectionSubtitle}>Available for this pharmacy</Text>
+                                                        </View>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
                                     </View>
 
                                     <View style={styles.selectionSection}>
                                         <Text style={styles.sectionHeader}>Roles Needed</Text>
                                         <Text style={styles.sectionHelper}>Mark the staff profiles this pharmacy expects to hire or assign.</Text>
-                                        {ROLE_OPTIONS.map(role => {
-                                            const checked = rolesNeeded.includes(role);
-                                            return (
-                                                <TouchableOpacity
-                                                    key={role}
-                                                    style={[styles.selectionCard, checked && styles.selectionCardActive]}
-                                                    onPress={() => toggleList(rolesNeeded, setRolesNeeded, role)}
-                                                    activeOpacity={0.85}
-                                                >
-                                                    <Checkbox status={checked ? 'checked' : 'unchecked'} onPress={() => toggleList(rolesNeeded, setRolesNeeded, role)} />
-                                                    <View style={styles.selectionTextBlock}>
-                                                        <Text style={styles.selectionTitle}>{prettifyOptionLabel(role)}</Text>
-                                                        <Text style={styles.selectionSubtitle}>Include in staffing requests</Text>
-                                                    </View>
-                                                </TouchableOpacity>
-                                            );
-                                        })}
+                                        <View style={styles.selectionGrid}>
+                                            {ROLE_OPTIONS.map(role => {
+                                                const checked = rolesNeeded.includes(role);
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={role}
+                                                        style={[styles.selectionCard, styles.selectionCardGrid, checked && styles.selectionCardActive]}
+                                                        onPress={() => toggleList(rolesNeeded, setRolesNeeded, role)}
+                                                        activeOpacity={0.85}
+                                                    >
+                                                        <Checkbox status={checked ? 'checked' : 'unchecked'} onPress={() => toggleList(rolesNeeded, setRolesNeeded, role)} />
+                                                        <View style={styles.selectionTextBlock}>
+                                                            <Text style={styles.selectionTitle}>{prettifyOptionLabel(role)}</Text>
+                                                            <Text style={styles.selectionSubtitle}>Include in staffing requests</Text>
+                                                        </View>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
                                     </View>
                                 </>
                             )}
@@ -719,6 +824,17 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                             {/* TAB 5: RATE */}
                             {activeTab === 5 && (
                                 <>
+                                    <TouchableOpacity
+                                        onPress={() => Linking.openURL(GOVERNMENT_AWARD_GUIDE_URL)}
+                                        activeOpacity={0.88}
+                                        style={styles.rateNotice}
+                                    >
+                                        <Text style={styles.rateNoticeEyebrow}>Award Guide</Text>
+                                        <Text style={styles.rateNoticeTitle}>Staff are paid according to the current government award rate.</Text>
+                                        <Text style={styles.rateNoticeText}>The rate details below apply to the locum Pharmacist rates for this pharmacy.</Text>
+                                        <Text style={styles.rateNoticeLink}>View Fair Work award guide</Text>
+                                        <Text style={styles.rateNoticeMeta}>Published 6 February 2026</Text>
+                                    </TouchableOpacity>
                                     <Text style={styles.label}>Default Rate Type</Text>
                                     <Menu
                                         visible={rateMenuVisible}
@@ -743,63 +859,70 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
 
                                     {form.default_rate_type === 'FIXED' && (
                                         <TextInput
-                                            label="Default Fixed Rate ($)"
+                                            label="Default Fixed Rate (AUD)"
                                             value={form.default_fixed_rate}
                                             onChangeText={v => setForm(p => ({ ...p, default_fixed_rate: v }))}
                                             mode="outlined"
                                             keyboardType="numeric"
+                                            placeholder={RATE_MINIMUM_EXAMPLE}
                                             style={styles.input}
                                         />
                                     )}
                                     {form.default_rate_type && form.default_rate_type !== 'PHARMACIST_PROVIDED' && (
                                         <>
-                                            <Text style={styles.label}>Base Rates</Text>
+                                            <Text style={styles.label}>Base Rates (AUD)</Text>
                                             <TextInput
-                                                label="Weekday Rate"
+                                                label="Weekday Rate (AUD)"
                                                 value={form.rate_weekday}
                                                 onChangeText={v => setForm(p => ({ ...p, rate_weekday: v }))}
                                                 mode="outlined"
                                                 keyboardType="numeric"
+                                                placeholder={RATE_MINIMUM_EXAMPLE}
                                                 style={styles.input}
                                             />
                                             <TextInput
-                                                label="Saturday Rate"
+                                                label="Saturday Rate (AUD)"
                                                 value={form.rate_saturday}
                                                 onChangeText={v => setForm(p => ({ ...p, rate_saturday: v }))}
                                                 mode="outlined"
                                                 keyboardType="numeric"
+                                                placeholder={RATE_MINIMUM_EXAMPLE}
                                                 style={styles.input}
                                             />
                                             <TextInput
-                                                label="Sunday Rate"
+                                                label="Sunday Rate (AUD)"
                                                 value={form.rate_sunday}
                                                 onChangeText={v => setForm(p => ({ ...p, rate_sunday: v }))}
                                                 mode="outlined"
                                                 keyboardType="numeric"
+                                                placeholder={RATE_MINIMUM_EXAMPLE}
                                                 style={styles.input}
                                             />
                                             <TextInput
-                                                label="Public Holiday Rate"
+                                                label="Public Holiday Rate (AUD)"
                                                 value={form.rate_public_holiday}
                                                 onChangeText={v => setForm(p => ({ ...p, rate_public_holiday: v }))}
                                                 mode="outlined"
                                                 keyboardType="numeric"
+                                                placeholder={RATE_MINIMUM_EXAMPLE}
                                                 style={styles.input}
                                             />
                                             <TextInput
-                                                label="Early Morning Rate"
+                                                label="Early Morning Rate (AUD)"
                                                 value={form.rate_early_morning}
                                                 onChangeText={v => setForm(p => ({ ...p, rate_early_morning: v }))}
                                                 mode="outlined"
                                                 keyboardType="numeric"
+                                                placeholder={RATE_MINIMUM_EXAMPLE}
                                                 style={styles.input}
                                             />
                                             <TextInput
-                                                label="Late Night Rate"
+                                                label="Late Night Rate (AUD)"
                                                 value={form.rate_late_night}
                                                 onChangeText={v => setForm(p => ({ ...p, rate_late_night: v }))}
                                                 mode="outlined"
                                                 keyboardType="numeric"
+                                                placeholder={RATE_MINIMUM_EXAMPLE}
                                                 style={styles.input}
                                             />
                                         </>
@@ -831,6 +954,10 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                                         setActiveTab((prev) => Math.max(prev - 1, 0));
                                         return;
                                     }
+                                    if (onContinueLater) {
+                                        void handleContinueLater();
+                                        return;
+                                    }
                                     unsaved.confirmDiscard(() => {
                                         if (onCancel) onCancel();
                                         else router.back();
@@ -839,7 +966,7 @@ export default function PharmacyForm({ mode, pharmacyId, onSuccess, onCancel }: 
                                 disabled={saving}
                                 style={{ flex: 1 }}
                             >
-                                {activeTab > 0 ? 'Back' : 'Cancel'}
+                                {activeTab > 0 ? 'Back' : onContinueLater ? 'Continue Later' : 'Cancel'}
                             </Button>
                             <Button
                                 mode="contained"
@@ -888,16 +1015,237 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: surfaceTokens.bgDark },
     header: { padding: 16, backgroundColor: surfaceTokens.bg },
     title: { fontWeight: '700', fontSize: 24 },
-    content: { padding: 16, paddingBottom: 40, gap: 12 },
-    tabsContainer: { paddingHorizontal: 16, paddingVertical: 12, gap: 8, backgroundColor: surfaceTokens.bg },
-    tabChip: { backgroundColor: surfaceTokens.bg },
-    activeTabChip: { backgroundColor: surfaceTokens.primary },
+    hero: {
+        marginHorizontal: 16,
+        marginTop: 12,
+        marginBottom: 8,
+        minHeight: 240,
+        borderRadius: 24,
+        overflow: 'hidden',
+        paddingHorizontal: 20,
+        paddingVertical: 22,
+        position: 'relative',
+    },
+    heroContent: {
+        flex: 1,
+        justifyContent: 'space-between',
+        gap: 18,
+    },
+    heroTextBlock: {
+        gap: 10,
+        zIndex: 1,
+    },
+    heroBadge: {
+        alignSelf: 'flex-start',
+        borderRadius: 999,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        backgroundColor: 'rgba(255,255,255,0.14)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.24)',
+    },
+    heroBadgeText: {
+        color: '#FFFFFF',
+        fontSize: 11,
+        fontWeight: '800',
+        letterSpacing: 1,
+        textTransform: 'uppercase',
+    },
+    heroTitle: {
+        color: '#FFFFFF',
+        fontSize: 42,
+        lineHeight: 44,
+        fontWeight: '900',
+    },
+    heroSubtitle: {
+        maxWidth: 640,
+        color: 'rgba(255,255,255,0.96)',
+        fontSize: 16,
+        lineHeight: 24,
+        fontWeight: '700',
+    },
+    heroChipRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+    },
+    heroChipPrimary: {
+        borderRadius: 999,
+        paddingHorizontal: 14,
+        paddingVertical: 9,
+        backgroundColor: '#FFFFFF',
+    },
+    heroChipPrimaryText: {
+        color: '#063BDA',
+        fontSize: 13,
+        fontWeight: '900',
+    },
+    heroChipSecondary: {
+        borderRadius: 999,
+        paddingHorizontal: 14,
+        paddingVertical: 9,
+        backgroundColor: 'rgba(255,255,255,0.14)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.24)',
+    },
+    heroChipSecondaryText: {
+        color: '#FFFFFF',
+        fontSize: 13,
+        fontWeight: '800',
+    },
+    heroSummaryCard: {
+        alignSelf: 'flex-start',
+        width: '100%',
+        maxWidth: 320,
+        borderRadius: 22,
+        paddingHorizontal: 16,
+        paddingVertical: 16,
+        backgroundColor: 'rgba(255,255,255,0.12)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.24)',
+    },
+    heroSummaryLabel: {
+        color: 'rgba(255,255,255,0.72)',
+        fontSize: 12,
+        fontWeight: '800',
+        letterSpacing: 1,
+        textTransform: 'uppercase',
+    },
+    heroSummaryValue: {
+        marginTop: 6,
+        color: '#FFFFFF',
+        fontSize: 44,
+        lineHeight: 48,
+        fontWeight: '900',
+    },
+    heroSummaryTitle: {
+        marginTop: 2,
+        color: '#FFFFFF',
+        fontSize: 18,
+        fontWeight: '900',
+    },
+    heroSummaryText: {
+        marginTop: 10,
+        color: 'rgba(255,255,255,0.86)',
+        fontSize: 14,
+        lineHeight: 20,
+        fontWeight: '700',
+    },
+    heroOrbLg: {
+        position: 'absolute',
+        right: -36,
+        bottom: -82,
+        width: 320,
+        height: 320,
+        borderRadius: 160,
+        backgroundColor: 'rgba(255,255,255,0.10)',
+    },
+    heroOrbMd: {
+        position: 'absolute',
+        right: 18,
+        bottom: -40,
+        width: 220,
+        height: 220,
+        borderRadius: 110,
+        backgroundColor: 'rgba(143,232,255,0.12)',
+    },
+    heroOrbSm: {
+        position: 'absolute',
+        right: 72,
+        bottom: 8,
+        width: 140,
+        height: 140,
+        borderRadius: 70,
+        backgroundColor: 'rgba(255,255,255,0.16)',
+    },
+    heroStripe: {
+        position: 'absolute',
+        right: -12,
+        top: -6,
+        bottom: -6,
+        width: 110,
+        backgroundColor: 'rgba(210,13,174,0.44)',
+        transform: [{ skewX: '-10deg' }],
+    },
+    content: {
+        paddingHorizontal: 16,
+        paddingTop: 18,
+        paddingBottom: 40,
+        gap: 14,
+        width: '100%',
+        maxWidth: 980,
+        alignSelf: 'center',
+    },
+    tabsOuter: {
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingTop: 6,
+        paddingBottom: 14,
+        backgroundColor: surfaceTokens.bg,
+    },
+    tabsContainer: {
+        width: '100%',
+        flexDirection: 'row',
+        flexWrap: 'nowrap',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 4,
+        paddingHorizontal: 0,
+    },
+    tabButton: {
+        flex: 1,
+        minWidth: 0,
+        backgroundColor: '#FFFFFF',
+        borderColor: '#D9E2F2',
+        borderWidth: 1,
+        minHeight: 56,
+        borderRadius: 16,
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 4,
+        paddingHorizontal: 2,
+        paddingVertical: 6,
+        shadowColor: '#06123A',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+        elevation: 2,
+    },
+    tabButtonText: {
+        color: '#42526E',
+        fontWeight: '800',
+        fontSize: 10,
+        textAlign: 'center',
+    },
+    activeTabButton: {
+        backgroundColor: 'rgba(20,62,234,0.10)',
+        borderColor: 'rgba(20,62,234,0.28)',
+        borderWidth: 1,
+        shadowColor: '#143EEA',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.12,
+        shadowRadius: 16,
+        elevation: 3,
+    },
+    activeTabButtonText: {
+        color: '#143EEA',
+        fontWeight: '800',
+        fontSize: 10,
+        textAlign: 'center',
+    },
     card: {
         padding: 16,
-        borderRadius: 12,
+        borderRadius: 22,
         backgroundColor: surfaceTokens.bg,
         gap: 12,
         zIndex: 2000, // Critical for dropdown to float over other elements
+        borderWidth: 1,
+        borderColor: '#D9E2F2',
+        shadowColor: '#06123A',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.06,
+        shadowRadius: 18,
+        elevation: 3,
     },
     input: { backgroundColor: surfaceTokens.bg, marginBottom: 8 },
     label: { fontSize: 14, color: surfaceTokens.textMuted, marginBottom: 4, marginTop: 8 },
@@ -905,17 +1253,37 @@ const styles = StyleSheet.create({
     radioItem: { flexDirection: 'row', alignItems: 'center' },
     selectionSection: {
         gap: 10,
+        padding: 16,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: '#D9E2F2',
+        backgroundColor: '#F8FAFF',
+    },
+    selectionGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
     },
     selectionCard: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         gap: 8,
         paddingHorizontal: 12,
-        paddingVertical: 10,
+        paddingVertical: 12,
         borderRadius: 14,
         borderWidth: 1,
-        borderColor: surfaceTokens.border,
+        borderColor: '#D9E2F2',
         backgroundColor: '#FBFCFE',
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.04,
+        shadowRadius: 12,
+        elevation: 1,
+    },
+    selectionCardGrid: {
+        flexBasis: '47%',
+        flexGrow: 1,
+        minWidth: 140,
     },
     selectionCardActive: {
         borderColor: surfaceTokens.primary,
@@ -942,4 +1310,46 @@ const styles = StyleSheet.create({
     sectionHeader: { fontSize: 16, fontWeight: '700', marginTop: 8, marginBottom: 2, color: surfaceTokens.text },
     sectionHelper: { fontSize: 12, color: surfaceTokens.textMuted, marginBottom: 4 },
     helperText: { fontSize: 12, color: surfaceTokens.textMuted, marginBottom: 8 },
+    rateNotice: {
+        marginBottom: 10,
+        padding: 16,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: 'rgba(20,62,234,0.12)',
+        backgroundColor: '#F7F9FF',
+        shadowColor: '#143EEA',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.05,
+        shadowRadius: 16,
+        elevation: 2,
+        gap: 4,
+    },
+    rateNoticeEyebrow: {
+        color: '#6D28D9',
+        fontSize: 12,
+        fontWeight: '800',
+        textTransform: 'uppercase',
+        letterSpacing: 0.8,
+    },
+    rateNoticeTitle: {
+        color: surfaceTokens.text,
+        fontSize: 15,
+        fontWeight: '800',
+        lineHeight: 22,
+    },
+    rateNoticeText: {
+        color: surfaceTokens.textMuted,
+        fontSize: 13,
+        lineHeight: 20,
+    },
+    rateNoticeLink: {
+        marginTop: 4,
+        color: '#143EEA',
+        fontSize: 13,
+        fontWeight: '800',
+    },
+    rateNoticeMeta: {
+        color: '#64748B',
+        fontSize: 12,
+    },
 });

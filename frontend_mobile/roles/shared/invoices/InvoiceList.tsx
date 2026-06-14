@@ -16,7 +16,14 @@ import {
   getInvoices,
   getInvoicePdfUrl,
   sendInvoiceEmail,
+  updateInvoice,
 } from '@chemisttasker/shared-core';
+import MobileInvoiceStats from './MobileInvoiceStats';
+import {
+  filterInvoicesByTimeframe,
+  formatInvoiceCurrency,
+  type InvoiceTimeframe,
+} from './invoiceStats';
 
 type Invoice = {
   id: number;
@@ -44,6 +51,7 @@ export default function InvoiceList({ basePath }: Props) {
   const [page, setPage] = useState(1);
   const [menuFor, setMenuFor] = useState<number | null>(null);
   const [snackbar, setSnackbar] = useState<string>('');
+  const [timeframe, setTimeframe] = useState<InvoiceTimeframe>('this_year');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,16 +90,27 @@ export default function InvoiceList({ basePath }: Props) {
     });
   }, [invoices]);
 
-  const paginated = useMemo(() => sorted.slice(0, page * PAGE_SIZE), [sorted, page]);
+  const filtered = useMemo(
+    () => filterInvoicesByTimeframe(sorted, timeframe),
+    [sorted, timeframe],
+  );
+
+  const paginated = useMemo(() => filtered.slice(0, page * PAGE_SIZE), [filtered, page]);
+
+  React.useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    if (page > maxPage) {
+      setPage(maxPage);
+    }
+  }, [filtered.length, page]);
 
   const formatDate = (value?: string) =>
     value ? new Date(value).toLocaleDateString() : 'Date N/A';
 
   const amountFor = (item: Invoice) => {
-    const val = (item.total as any) ?? (item.total_amount as any);
-    if (val === undefined || val === null || val === '') return '$0.00';
+    const val = (item.total as any) ?? (item.total_amount as any) ?? 0;
     const num = Number(val);
-    return isFinite(num) ? `$${num.toFixed(2)}` : String(val);
+    return Number.isFinite(num) ? formatInvoiceCurrency(num) : String(val);
   };
 
   const onOpenPdf = (id: number) => {
@@ -106,10 +125,30 @@ export default function InvoiceList({ basePath }: Props) {
   const onSendEmail = async (id: number) => {
     try {
       await sendInvoiceEmail(id);
+      setInvoices((prev) => prev.map((invoice) => (
+        invoice.id === id ? { ...invoice, status: 'sent' } : invoice
+      )));
       setSnackbar('Invoice email sent');
     } catch (err: any) {
       setSnackbar(err?.message || 'Failed to send email');
     }
+  };
+
+  const onMarkPaid = async (id: number) => {
+    try {
+      await updateInvoice(id, { status: 'paid' } as any);
+      setInvoices((prev) => prev.map((invoice) => (
+        invoice.id === id ? { ...invoice, status: 'paid' } : invoice
+      )));
+      setSnackbar('Invoice marked as paid');
+    } catch (err: any) {
+      setSnackbar(err?.message || 'Failed to update invoice');
+    }
+  };
+
+  const canMarkPaid = (status?: string) => {
+    const normalized = String(status || '').toLowerCase();
+    return normalized === 'sent' || normalized === 'pending';
   };
 
   const onDelete = (id: number) => {
@@ -185,9 +224,19 @@ export default function InvoiceList({ basePath }: Props) {
               <Menu.Item
                 leadingIcon="email-send"
                 title="Send email"
+                disabled={String(item.status || '').toLowerCase() !== 'draft'}
                 onPress={() => {
                   setMenuFor(null);
                   void onSendEmail(item.id);
+                }}
+              />
+              <Menu.Item
+                leadingIcon="cash-check"
+                title="Mark as paid"
+                disabled={!canMarkPaid(item.status)}
+                onPress={() => {
+                  setMenuFor(null);
+                  void onMarkPaid(item.id);
                 }}
               />
               <Menu.Item
@@ -216,12 +265,12 @@ export default function InvoiceList({ basePath }: Props) {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <View style={{ flex: 1 }}>
+        <View style={styles.headerCopy}>
           <Text variant="headlineMedium" style={styles.headerTitle}>
             Invoices
           </Text>
           <Text variant="bodyMedium" style={styles.headerSubtitle}>
-            Manage and send your invoices
+            Manage draft, sent, and paid invoices
           </Text>
         </View>
         <IconButton
@@ -242,12 +291,22 @@ export default function InvoiceList({ basePath }: Props) {
           keyExtractor={item => String(item.id)}
           contentContainerStyle={styles.listContent}
           renderItem={renderItem}
+          ListHeaderComponent={
+            <MobileInvoiceStats
+              invoices={sorted}
+              timeframe={timeframe}
+              onTimeframeChange={(value: InvoiceTimeframe) => {
+                setPage(1);
+                setTimeframe(value);
+              }}
+            />
+          }
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#4F46E5" />
           }
           onEndReachedThreshold={0.4}
           onEndReached={() => {
-            if (paginated.length < sorted.length) setPage(p => p + 1);
+            if (paginated.length < filtered.length) setPage(p => p + 1);
           }}
           ListEmptyComponent={
             <View style={styles.empty}>
@@ -272,7 +331,8 @@ const statusStyle = (status?: string) => {
   if (!status) return base;
   const key = status.toLowerCase();
   if (key === 'paid') return { backgroundColor: '#DCFCE7', color: '#166534' };
-  if (key === 'pending') return { backgroundColor: '#FEF3C7', color: '#B45309' };
+  if (key === 'sent' || key === 'pending') return { backgroundColor: '#FEF3C7', color: '#B45309' };
+  if (key === 'draft') return { backgroundColor: '#E0E7FF', color: '#4338CA' };
   if (key === 'overdue') return { backgroundColor: '#FEE2E2', color: '#B91C1C' };
   return base;
 };
@@ -286,10 +346,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 12,
   },
+  headerCopy: { flex: 1 },
   headerTitle: { fontWeight: '700' },
   headerSubtitle: { color: '#6B7280' },
   loader: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  listContent: { padding: 12, gap: 10 },
+  listContent: { paddingHorizontal: 12, paddingBottom: 12, gap: 10 },
   card: {
     borderRadius: 14,
     backgroundColor: '#FFFFFF',

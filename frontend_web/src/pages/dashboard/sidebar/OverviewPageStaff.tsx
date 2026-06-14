@@ -205,6 +205,15 @@ export default function OverviewPageStaff() {
       upcomingTitle={isExplorer ? "Job Snapshot" : "My Shifts"}
       activity={activityItems}
       metrics={metrics}
+      invoicePanel={isExplorer ? undefined : {
+        title: "Invoices",
+        total: data?.invoice_summary?.total_billed ?? data?.bills_summary?.total_billed ?? "$0.00",
+        totalLabel: "Total income this month",
+        unpaidCount: data?.invoice_summary?.unpaid_count ?? 0,
+        unpaidTotal: data?.invoice_summary?.unpaid_total ?? "$0.00",
+        buttonLabel: "Invoices",
+        onClick: () => navigate(`/dashboard/${roleSegment}/invoice`),
+      }}
       onOpenShifts={() => navigate(`/dashboard/${roleSegment}/shifts/${isExplorer ? "community" : "confirmed"}`)}
       onOpenActivity={() => navigate(`/dashboard/${roleSegment}/shifts/${isExplorer ? "community" : "confirmed"}`)}
     />

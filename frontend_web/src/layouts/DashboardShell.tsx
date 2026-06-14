@@ -35,6 +35,7 @@ export default function DashboardShell({ children }: PropsWithChildren) {
           const appBarToolbarSelector = '[data-dashboard-shell] .MuiAppBar-root .MuiToolbar-root';
           const appBarTitleSlotSelector = '[data-dashboard-shell] .MuiAppBar-root .MuiToolbar-root > :first-of-type';
           const appBarActionsSlotSelector = '[data-dashboard-shell] .MuiAppBar-root .MuiToolbar-root > :last-child';
+          const contentPaperSelector = '[data-dashboard-shell] main .MuiPaper-root';
 
           return {
             [navDrawerSelector]: {
@@ -111,6 +112,11 @@ export default function DashboardShell({ children }: PropsWithChildren) {
                 duration: theme.transitions.duration.shortest,
               }),
             },
+            [contentPaperSelector]: {
+              transition: theme.transitions.create(["box-shadow", "transform", "border-color"], {
+                duration: theme.transitions.duration.shortest,
+              }),
+            },
             [sidebarHandleSelector]: {
               display: "none",
               position: "fixed",
@@ -119,11 +125,12 @@ export default function DashboardShell({ children }: PropsWithChildren) {
               transform: "translateY(-50%)",
               zIndex: theme.zIndex.drawer + 2,
               boxShadow: theme.shadows[6],
-              backgroundColor: theme.palette.background.paper,
-              border: `1px solid ${alpha(theme.palette.primary.main, 0.25)}`,
+              background: "linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(239,247,255,0.98) 100%)",
+              border: `1px solid ${alpha(theme.palette.primary.main, 0.22)}`,
               color: theme.palette.primary.main,
               "&:hover": {
                 backgroundColor: alpha(theme.palette.primary.main, 0.12),
+                boxShadow: theme.shadows[10],
               },
             },
             [collapsedSidebarHandleSelector]: {
@@ -152,7 +159,16 @@ export default function DashboardShell({ children }: PropsWithChildren) {
           };
         }}
       />
-      <Box data-dashboard-shell sx={{ minHeight: "100vh", position: "relative" }}>
+      <Box
+        data-dashboard-shell
+        sx={{
+          minHeight: "100vh",
+          position: "relative",
+          isolation: "isolate",
+          background:
+            "radial-gradient(circle at top left, rgba(20,62,234,0.08) 0, transparent 30%), radial-gradient(circle at top right, rgba(234,10,142,0.07) 0, transparent 34%), linear-gradient(180deg, #F8FBFF 0%, #F4F8FF 100%)",
+        }}
+      >
         {children}
         <IconButton
           data-sidebar-handle

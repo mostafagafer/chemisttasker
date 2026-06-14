@@ -486,6 +486,26 @@ export default function DashboardTopShell({
           bgcolor: "var(--ct-page-bg)",
           color: "var(--ct-text-primary)",
           fontFamily: '"DM Sans Variable", "DM Sans", "Barlow", Arial, sans-serif',
+          position: "relative",
+          isolation: "isolate",
+          "&::before": {
+            content: '""',
+            position: "fixed",
+            inset: 0,
+            pointerEvents: "none",
+            background:
+              "radial-gradient(circle at 0% 0%, rgba(20,62,234,0.08) 0, transparent 28%), radial-gradient(circle at 100% 0%, rgba(234,10,142,0.08) 0, transparent 28%), radial-gradient(circle at 50% 100%, rgba(8,190,234,0.06) 0, transparent 24%)",
+            zIndex: -2,
+          },
+          "&::after": {
+            content: '""',
+            position: "fixed",
+            inset: 0,
+            pointerEvents: "none",
+            background:
+              "linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0) 22%, rgba(255,255,255,0.1) 100%)",
+            zIndex: -1,
+          },
         }}
       >
       <Box
@@ -498,9 +518,33 @@ export default function DashboardTopShell({
           justifyContent: "center",
           alignItems: "stretch",
           minHeight: { xs: 86, md: 104 },
-          background: "linear-gradient(90deg, rgba(6,59,218,0.10) 0%, rgba(109,40,217,0.09) 42%, rgba(234,10,142,0.08) 72%, rgba(8,190,234,0.10) 100%)",
+          background: "linear-gradient(90deg, rgba(6,59,218,0.12) 0%, rgba(109,40,217,0.11) 42%, rgba(234,10,142,0.10) 72%, rgba(8,190,234,0.10) 100%)",
           backdropFilter: "blur(18px)",
           borderBottom: "1px solid rgba(109,40,217,0.16)",
+          boxShadow: "0 12px 34px rgba(6,18,58,0.07)",
+          overflow: "hidden",
+          "&::before": {
+            content: '""',
+            position: "absolute",
+            left: "18%",
+            top: -120,
+            width: 320,
+            height: 320,
+            borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0) 72%)",
+            pointerEvents: "none",
+          },
+          "&::after": {
+            content: '""',
+            position: "absolute",
+            right: -60,
+            bottom: -140,
+            width: 360,
+            height: 360,
+            borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(139,28,246,0.18) 0%, rgba(139,28,246,0) 72%)",
+            pointerEvents: "none",
+          },
         }}
       >
         <Stack
@@ -756,6 +800,8 @@ export default function DashboardTopShell({
           px: { xs: 1.5, sm: 2, md: 3 },
           py: { xs: 1.5, md: 3 },
           overflowX: "hidden",
+          position: "relative",
+          zIndex: 1,
           "& .MuiPaper-root": {
             borderColor: "var(--ct-border-color)",
           },

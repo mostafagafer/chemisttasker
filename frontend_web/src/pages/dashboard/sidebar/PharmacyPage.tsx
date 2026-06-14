@@ -40,7 +40,14 @@ import {
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/AddCircleOutline";
+import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
+import BusinessRoundedIcon from "@mui/icons-material/BusinessRounded";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ForumRoundedIcon from "@mui/icons-material/ForumRounded";
+import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
+import PaymentsRoundedIcon from "@mui/icons-material/PaymentsRounded";
+import TaskAltRoundedIcon from "@mui/icons-material/TaskAltRounded";
+import TopicRoundedIcon from "@mui/icons-material/TopicRounded";
 import { AxiosError } from "axios";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useJsApiLoader, Autocomplete } from "@react-google-maps/api";
@@ -52,6 +59,7 @@ import OwnerPharmacyDetailPage from "./owner/OwnerPharmacyDetailPage";
 import TopBar from "./owner/TopBar";
 import type { MembershipDTO, PharmacyAdminDTO, PharmacyDTO as OwnerPharmacyDTO } from "./owner/types";
 import { ORG_ROLES } from "../../../constants/roles";
+import { clearOwnerPharmacySetupSkipped, markOwnerPharmacySetupSkipped } from "../../../utils/ownerSetup";
 import {
   claimOnboarding,
   createPharmacy,
@@ -69,8 +77,9 @@ import {
 const GOOGLE_LIBRARIES = ["places"] as Array<"places">;
 const LIGHT_SURFACE = "#FFFFFF";
 const LIGHT_BORDER = "#D9E2F2";
-const HERO_GRADIENT_START = "#6366F1";
-const HERO_GRADIENT_END = "#8B5CF6";
+const HERO_GRADIENT_START = "#143EEA";
+// const HERO_GRADIENT_END = "#D20DAE";
+const HERO_GRADIENT = "linear-gradient(135deg, #143EEA 0%, #2429B8 45%, #8B1CF6 72%, #D20DAE 100%)";
 
 type PharmacyApi = {
   id: string | number;
@@ -217,7 +226,15 @@ const CLAIM_STATUS_COLORS: Record<ClaimStatus, "success" | "warning" | "error"> 
 const formatDateTime = (value?: string | null) =>
   value ? new Date(value).toLocaleString() : "-";
 
-const tabLabels = ["Basic", "Regulatory", "Docs", "Employment", "Hours", "Rate", "About"];
+const tabLabels = [
+  { label: "Basic", icon: <BusinessRoundedIcon fontSize="small" /> },
+  { label: "Regulatory", icon: <TaskAltRoundedIcon fontSize="small" /> },
+  { label: "Docs", icon: <TopicRoundedIcon fontSize="small" /> },
+  { label: "Employment", icon: <GroupRoundedIcon fontSize="small" /> },
+  { label: "Hours", icon: <AccessTimeRoundedIcon fontSize="small" /> },
+  { label: "Rate", icon: <PaymentsRoundedIcon fontSize="small" /> },
+  { label: "About", icon: <ForumRoundedIcon fontSize="small" /> },
+];
 const EMPLOYMENT_TYPE_OPTIONS = ["PART_TIME", "FULL_TIME", "LOCUMS"];
 const ROLE_OPTIONS = ["PHARMACIST", "INTERN", "ASSISTANT", "TECHNICIAN", "STUDENT", "ADMIN", "DRIVER"];
 const RATE_TYPES = [
@@ -226,6 +243,7 @@ const RATE_TYPES = [
   { value: "PHARMACIST_PROVIDED", label: "Pharmacist Provided" },
 ] as const;
 const RATE_MINIMUM_EXAMPLE = "55";
+const GOVERNMENT_AWARD_GUIDE_URL = "https://calculate.fairwork.gov.au/payguides/fairwork/ma000012/pdf";
 const prettifyOptionLabel = (value: string) =>
   value
     .split("_")
@@ -534,35 +552,61 @@ export default function PharmacyPage({
       <Tabs
         value={tabIndex}
         onChange={(_, i) => setTabIndex(i)}
-        variant="scrollable"
-        scrollButtons="auto"
-        allowScrollButtonsMobile
         sx={{
-          mb: 2.5,
+          mb: 3,
           minHeight: 0,
+          display: "flex",
+          justifyContent: "center",
           "& .MuiTabs-flexContainer": {
-            gap: 1,
+            justifyContent: "center",
+            gap: 1.25,
             flexWrap: "wrap",
+          },
+          "& .MuiTabs-scroller": {
+            overflow: "visible !important",
           },
           "& .MuiTabs-indicator": {
             display: "none",
           },
         }}
       >
-        {tabLabels.map((label) => (
+        {tabLabels.map((tab) => (
           <Tab
-            key={label}
-            label={label}
+            key={tab.label}
+            icon={tab.icon}
+            iconPosition="start"
+            label={tab.label}
             sx={{
-              minHeight: 40,
+              minHeight: { xs: 44, md: 48 },
               borderRadius: 999,
               border: `1px solid ${LIGHT_BORDER}`,
-              bgcolor: "#F8FAFF",
-              px: 2,
+              bgcolor: "#FFFFFF",
+              color: "#42526E",
+              px: { xs: 1.5, md: 2.25 },
               py: 0.5,
+              textTransform: "none",
+              fontWeight: 900,
+              fontSize: { xs: 13, md: 14 },
+              boxShadow: "0 8px 18px rgba(6,18,58,0.04)",
+              transition: "transform 140ms ease, border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease",
+              "& .MuiTab-iconWrapper": {
+                mb: "0 !important",
+                mr: 0.9,
+                color: "#6D28D9",
+              },
               "&.Mui-selected": {
-                bgcolor: alpha(HERO_GRADIENT_START, 0.12),
-                borderColor: alpha(HERO_GRADIENT_START, 0.32),
+                color: "#143EEA",
+                bgcolor: alpha(HERO_GRADIENT_START, 0.1),
+                borderColor: alpha(HERO_GRADIENT_START, 0.28),
+                boxShadow: "0 14px 30px rgba(20, 62, 234, 0.12)",
+                "& .MuiTab-iconWrapper": {
+                  color: "#143EEA",
+                },
+              },
+              "&:hover": {
+                transform: "translateY(-1px)",
+                borderColor: alpha(HERO_GRADIENT_START, 0.22),
+                bgcolor: alpha("#FFFFFF", 0.98),
               },
             }}
           />
@@ -850,18 +894,55 @@ export default function PharmacyPage({
 
       {tabIndex === 5 && (
         <Box sx={{ p: 2 }}>
-          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
-            Default Rate Strategy
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Select how you want to handle rates for Pharmacist shifts.
+          <Box
+            component="a"
+            href={GOVERNMENT_AWARD_GUIDE_URL}
+            target="_blank"
+            rel="noreferrer"
+            sx={{
+              display: "block",
+              mb: 2,
+              p: 2,
+              borderRadius: 3,
+              border: `1px solid ${alpha(HERO_GRADIENT_START, 0.12)}`,
+              bgcolor: "#F7F9FF",
+              boxShadow: "0 10px 24px rgba(20, 62, 234, 0.06)",
+              textDecoration: "none",
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{
+                color: "#6D28D9",
+                fontWeight: 900,
+                textTransform: "uppercase",
+                letterSpacing: ".08em",
+              }}
+            >
+              Award Guide
+            </Typography>
+            <Typography sx={{ mt: 0.5, color: "#111827", fontSize: 15, fontWeight: 800, lineHeight: 1.45 }}>
+              Staff are paid according to the current government award rate.
+            </Typography>
+            <Typography sx={{ mt: 0.5, color: "#64748B", fontSize: 13, lineHeight: 1.6 }}>
+              The rate details below apply to the locum Pharmacist rates for this pharmacy.
+            </Typography>
+            <Typography sx={{ mt: 1, color: HERO_GRADIENT_START, fontSize: 13, fontWeight: 800 }}>
+              View Fair Work award guide
+            </Typography>
+            <Typography sx={{ mt: 0.25, color: "#64748B", fontSize: 12 }}>
+              Published 6 February 2026
+            </Typography>
+          </Box>
+          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5 }}>
+            Default Rate Type
           </Typography>
           <FormControl fullWidth margin="normal">
-            <InputLabel id="rate-type-label">Rate Strategy</InputLabel>
+            <InputLabel id="rate-type-label">Default Rate Type</InputLabel>
             <Select
               labelId="rate-type-label"
               value={defaultRateType}
-              label="Rate Strategy"
+              label="Default Rate Type"
               onChange={(e) => setDefaultRateType(e.target.value)}
             >
               {RATE_TYPES.map((type) => (
@@ -1501,10 +1582,35 @@ export default function PharmacyPage({
     return path.startsWith("http") ? path : `${API_BASE_URL}${path}`;
   };
 
-  const handleSave = async () => {
+  const hasDraftContent =
+    Boolean(
+      name.trim() ||
+      email.trim() ||
+      streetAddress.trim() ||
+      suburb.trim() ||
+      postcode.trim() ||
+      abn.trim() ||
+      googlePlaceId ||
+      about.trim() ||
+      approvalCertFile ||
+      sopsFile ||
+      inductionGuidesFile ||
+      sumpDocsFile
+    ) ||
+    employmentTypes.length > 0 ||
+    rolesNeeded.length > 0;
+
+  const canCreatePharmacyDraft =
+    Boolean(name.trim() && streetAddress.trim() && suburb.trim() && postcode.trim()) &&
+    abnDigits.length === 11 &&
+    (!defaultRateType ||
+      defaultRateType === "PHARMACIST_PROVIDED" ||
+      Boolean(rateWeekday && rateSaturday && rateSunday && ratePublicHoliday));
+
+  const persistPharmacy = async ({ redirectAfterSave = false }: { redirectAfterSave?: boolean } = {}) => {
     if (abnDigits.length !== 11) {
       setError("ABN must be 11 digits.");
-      return;
+      return false;
     }
 
     if (defaultRateType && defaultRateType !== "PHARMACIST_PROVIDED") {
@@ -1512,7 +1618,7 @@ export default function PharmacyPage({
         setError(
           "Please fill in base rates (Weekday, Saturday, Sunday, Public Holiday) or select 'Pharmacist Provided'."
         );
-        return;
+        return false;
       }
     }
 
@@ -1580,10 +1686,16 @@ export default function PharmacyPage({
         if (activePharmacyId === editing.id) {
           setActivePharmacyId(saved.id);
         }
+        if (redirectAfterSave) {
+          closeDialog();
+          navigate(onCompletePath);
+          return true;
+        }
       } else {
         const res = await createPharmacy(fd);
         const saved = normalizePharmacy(res);
         const nextCount = pharmacies.some((p) => p.id === saved.id) ? pharmacies.length : pharmacies.length + 1;
+        clearOwnerPharmacySetupSkipped();
         setPharmacies((prev) => {
           if (scopedPharmacyId != null && Number(saved.id) !== scopedPharmacyId) {
             return prev;
@@ -1592,6 +1704,11 @@ export default function PharmacyPage({
         });
         await loadMembers(saved.id);
         showSnackbar("Pharmacy added!", "success");
+        if (redirectAfterSave) {
+          closeDialog();
+          navigate(onCompletePath);
+          return true;
+        }
         if (standalone) {
           if (normalizedTargetPharmacyCount > 1 && nextCount < normalizedTargetPharmacyCount) {
             setAdditionalPharmacyPromptOpen(true);
@@ -1603,15 +1720,37 @@ export default function PharmacyPage({
         }
       }
       closeDialog();
+      return true;
     } catch (err) {
       if (err instanceof AxiosError) {
         setError(err.response?.data?.detail || err.message);
       } else {
         setError("An unexpected error occurred.");
       }
+      return false;
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleSave = async () => {
+    await persistPharmacy();
+  };
+
+  const handleContinueLater = async () => {
+    if (!hasDraftContent) {
+      markOwnerPharmacySetupSkipped();
+      navigate(onCompletePath);
+      return;
+    }
+    if (!editing && !canCreatePharmacyDraft) {
+      showSnackbar("Pharmacy draft was not saved. Finish the required basic details and ABN before saving.", "info");
+      markOwnerPharmacySetupSkipped();
+      navigate(onCompletePath);
+      return;
+    }
+    markOwnerPharmacySetupSkipped();
+    await persistPharmacy({ redirectAfterSave: true });
   };
 
   const handleNextTab = () => {
@@ -2032,8 +2171,8 @@ export default function PharmacyPage({
           </Box>
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ width: { xs: "100%", sm: "auto" } }}>
             {standalone && pharmacies.length > 0 && (
-              <Button variant="outlined" onClick={() => navigate(onCompletePath)}>
-                Continue Later
+              <Button variant="outlined" onClick={handleContinueLater} disabled={isSaving}>
+                Save & Continue Later
               </Button>
             )}
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => openDialog()} sx={{ width: { xs: "100%", sm: "auto" } }}>
@@ -2050,35 +2189,133 @@ export default function PharmacyPage({
               borderRadius: { xs: 3, md: 4 },
               overflow: "hidden",
               mb: 2,
-              background: `linear-gradient(135deg, ${HERO_GRADIENT_START}, ${HERO_GRADIENT_END})`,
+              backgroundImage: HERO_GRADIENT,
               color: "#FFFFFF",
-              minHeight: { xs: 180, md: 220 },
-              display: "grid",
-              placeItems: "center",
-              textAlign: "center",
-              px: 3,
-              py: { xs: 4, md: 5 },
+              minHeight: { xs: 250, md: 300 },
+              position: "relative",
+              boxShadow: "0 22px 54px rgba(6, 26, 61, 0.12)",
+              px: { xs: 2, md: 4 },
+              py: { xs: 2.5, md: 4 },
             }}
           >
-            <Stack spacing={1.25} alignItems="center" sx={{ maxWidth: 760 }}>
-              <Typography variant="h3" sx={{ fontWeight: 800, color: "#FFFFFF" }}>
-                Add your pharmacy
-              </Typography>
-              <Typography variant="body1" sx={{ color: "rgba(255,255,255,0.88)" }}>
-                Create the first pharmacy in your workspace. You can add more locations, documents and operating details here.
-              </Typography>
-              {normalizedTargetPharmacyCount > 1 && (
+            <Box
+              sx={{
+                position: "absolute",
+                inset: 0,
+                backgroundImage: [
+                  `radial-gradient(circle at 64% 98%, ${alpha("#8FE8FF", 0.14)} 0 110px, transparent 111px)`,
+                  `radial-gradient(circle at 72% 96%, ${alpha("#6FE7DD", 0.16)} 0 190px, transparent 191px)`,
+                  `radial-gradient(circle at 66% 96%, ${alpha("#FFFFFF", 0.12)} 0 275px, transparent 276px)`,
+                  `linear-gradient(100deg, transparent 0 78%, ${alpha("#D20DAE", 0.75)} 78% 100%)`,
+                ].join(", "),
+                pointerEvents: "none",
+              }}
+            />
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={{ xs: 2.5, md: 4 }}
+              alignItems={{ xs: "stretch", md: "center" }}
+              justifyContent="space-between"
+              sx={{ position: "relative", zIndex: 1, minHeight: "100%" }}
+            >
+              <Box sx={{ maxWidth: 760 }}>
                 <Chip
-                  label={`${normalizedTargetPharmacyCount} pharmacies planned`}
+                  label="Pharmacy setup"
+                  size="small"
                   sx={{
-                    mt: 0.5,
-                    bgcolor: "rgba(255,255,255,0.2)",
+                    mb: 1.5,
+                    bgcolor: alpha("#FFFFFF", 0.14),
                     color: "#FFFFFF",
-                    border: "1px solid rgba(255,255,255,0.24)",
-                    fontWeight: 700,
+                    fontWeight: 900,
+                    textTransform: "uppercase",
+                    letterSpacing: ".08em",
+                    border: `1px solid ${alpha("#FFFFFF", 0.24)}`,
                   }}
                 />
-              )}
+                <Typography
+                  variant="h3"
+                  sx={{
+                    fontSize: { xs: 34, md: 56 },
+                    fontWeight: 900,
+                    lineHeight: 1.04,
+                    color: "#FFFFFF",
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  Add your pharmacy
+                </Typography>
+                <Typography
+                  variant="body1"
+                  sx={{
+                    mt: 1.5,
+                    maxWidth: 680,
+                    fontSize: { xs: 15, md: 20 },
+                    fontWeight: 700,
+                    lineHeight: 1.45,
+                    color: alpha("#FFFFFF", 0.96),
+                  }}
+                >
+                  Create the first pharmacy in your workspace. You can add more locations, documents and operating details here.
+                </Typography>
+                {/* <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} sx={{ mt: { xs: 2, md: 3 } }}>
+                  <Chip
+                    label="Basic details first"
+                    sx={{
+                      bgcolor: "#FFFFFF",
+                      color: "#063BDA",
+                      fontWeight: 900,
+                      "& .MuiChip-label": { px: 1.75 },
+                    }}
+                  />
+                  {normalizedTargetPharmacyCount > 1 ? (
+                    <Chip
+                      label={`${normalizedTargetPharmacyCount} pharmacies planned`}
+                      sx={{
+                        bgcolor: alpha("#FFFFFF", 0.14),
+                        color: "#FFFFFF",
+                        fontWeight: 800,
+                        border: `1px solid ${alpha("#FFFFFF", 0.24)}`,
+                      }}
+                    />
+                  ) : (
+                    <Chip
+                      label="Location, docs, staffing and hours"
+                      sx={{
+                        bgcolor: alpha("#FFFFFF", 0.14),
+                        color: "#FFFFFF",
+                        fontWeight: 800,
+                        border: `1px solid ${alpha("#FFFFFF", 0.24)}`,
+                      }}
+                    />
+                  )}
+                </Stack> */}
+              </Box>
+              {/* <Box
+                sx={{
+                  alignSelf: { xs: "flex-start", md: "center" },
+                  minWidth: { xs: "100%", md: 280 },
+                  maxWidth: 340,
+                  p: { xs: 1.75, md: 2.25 },
+                  borderRadius: 3,
+                  bgcolor: alpha("#FFFFFF", 0.12),
+                  border: `1px solid ${alpha("#FFFFFF", 0.24)}`,
+                  boxShadow: `inset 0 1px 0 ${alpha("#FFFFFF", 0.18)}`,
+                  backdropFilter: "blur(8px)",
+                }}
+              >
+                <Typography variant="body2" sx={{ textTransform: "uppercase", letterSpacing: ".08em", opacity: 0.72, fontSize: { xs: 12, md: 14 } }}>
+                  Setup flow
+                </Typography>
+                <Typography sx={{ mt: 0.75, fontSize: { xs: 30, md: 46 }, fontWeight: 950, lineHeight: 1 }}>
+                  7
+                </Typography>
+                <Typography sx={{ mt: 0.5, fontWeight: 900, fontSize: { xs: 15, md: 18 } }}>
+                  sections to complete
+                </Typography>
+                <Typography sx={{ mt: 1.25, color: alpha("#FFFFFF", 0.86), fontWeight: 700, lineHeight: 1.45 }}>
+                  Basic, regulatory, docs, employment, hours, rate and about.
+                </Typography>
+              </Box> */}
             </Stack>
           </Box>
 
@@ -2093,18 +2330,24 @@ export default function PharmacyPage({
             }}
           >
             <Box sx={{ px: { xs: 2, md: 4 }, pt: { xs: 2.5, md: 3.5 }, pb: 1.5 }}>
-              <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} justifyContent="space-between" alignItems={{ xs: "flex-start", md: "center" }}>
-                <Box>
-                  <Typography variant="h5" fontWeight={800} sx={{ color: "#111827" }}>
+              <Stack
+                direction="column"
+                spacing={1.75}
+                justifyContent="center"
+                alignItems="center"
+                sx={{ textAlign: "center" }}
+              >
+                <Box sx={{ maxWidth: 740 }}>
+                  <Typography variant="h5" fontWeight={900} sx={{ color: "#111827", letterSpacing: "-0.02em" }}>
                     Pharmacy details
                   </Typography>
-                  <Typography variant="body2" sx={{ color: "#64748B" }}>
+                  <Typography variant="body1" sx={{ color: "#64748B", mt: 0.75, fontWeight: 700 }}>
                     Enter location, regulatory, staffing and hours information for this pharmacy.
                   </Typography>
                 </Box>
                 {pharmacies.length > 0 && (
-                  <Button variant="outlined" onClick={() => navigate(onCompletePath)} sx={{ borderColor: LIGHT_BORDER, color: "#111827" }}>
-                    Continue Later
+                  <Button variant="outlined" onClick={handleContinueLater} disabled={isSaving} sx={{ borderColor: LIGHT_BORDER, color: "#111827" }}>
+                    Save & Continue Later
                   </Button>
                 )}
               </Stack>
@@ -2115,10 +2358,11 @@ export default function PharmacyPage({
             <Stack direction="row" justifyContent="space-between" sx={{ px: { xs: 2, md: 4 }, pb: { xs: 2.5, md: 3.5 } }}>
               <Button
                 variant="outlined"
-                onClick={tabIndex > 0 ? handlePreviousTab : () => navigate(onCompletePath)}
+                onClick={tabIndex > 0 ? handlePreviousTab : handleContinueLater}
                 sx={{ borderColor: LIGHT_BORDER, color: "#111827" }}
+                disabled={isSaving}
               >
-                {tabIndex > 0 ? "Back" : "Continue Later"}
+                {tabIndex > 0 ? "Back" : "Save & Continue Later"}
               </Button>
               <Button
                 variant="contained"
@@ -2324,22 +2568,33 @@ export default function PharmacyPage({
         open={dialogOpen}
         onClose={closeDialog}
         fullWidth
-        maxWidth="md"
+        maxWidth="xl"
         disableEnforceFocus
         PaperProps={{
           sx: {
-            borderRadius: 3,
+            width: "min(1320px, calc(100vw - 32px))",
+            maxWidth: "1320px",
+            minHeight: "min(860px, calc(100vh - 48px))",
+            borderRadius: 4,
             bgcolor: LIGHT_SURFACE,
             border: `1px solid ${LIGHT_BORDER}`,
             boxShadow: "0 18px 42px rgba(99, 102, 241, 0.08)",
+            overflow: "hidden",
           },
         }}
       >
         <DialogTitle>{editing ? "Edit Pharmacy" : "Add Pharmacy"}</DialogTitle>
-        <DialogContent sx={{ minHeight: 450, ...pharmacyFormLightSx }}>
+        <DialogContent
+          sx={{
+            minHeight: 640,
+            px: { xs: 2, md: 3 },
+            pb: 2,
+            ...pharmacyFormLightSx,
+          }}
+        >
           {renderPharmacyFormSections()}
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 2.5 } }}>
           <Button onClick={tabIndex > 0 ? handlePreviousTab : closeDialog}>
             {tabIndex > 0 ? "Back" : "Cancel"}
           </Button>

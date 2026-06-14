@@ -80,6 +80,8 @@ export default function OwnerSetupPharmacyScreen() {
         mode="create"
         onSuccess={handleCreateSuccess}
         onCancel={() => router.replace(ownerSetupPaths.dashboard as any)}
+        onContinueLater={() => router.replace(ownerSetupPaths.dashboard as any)}
+        showSetupHero
       />
 
       <Portal>

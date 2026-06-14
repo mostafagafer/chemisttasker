@@ -144,8 +144,8 @@ export default function OtherStaffOverviewScreen() {
       trendUp: true
     },
     {
-      label: 'Total Billed',
-      value: data?.bills_summary?.total_billed ?? '$0',
+      label: 'Total Income This Month',
+      value: data?.invoice_summary?.total_billed ?? data?.bills_summary?.total_billed ?? '$0.00',
       icon: 'cash',
       color: '#10B981',
       trend: 'This Month',
@@ -276,11 +276,11 @@ export default function OtherStaffOverviewScreen() {
         <LinearGradient colors={['#267DB8', '#433894', '#9A087D']} locations={[0, 0.58, 1]} start={{ x: 0, y: 0.1 }} end={{ x: 1, y: 1 }} style={styles.billingHero}>
           <View pointerEvents="none" style={styles.heroAngleOne} />
           <View pointerEvents="none" style={styles.heroAngleTwo} />
-          <Text variant="labelMedium" style={styles.billingEyebrow}>Bills</Text>
+          <Text variant="labelMedium" style={styles.billingEyebrow}>Invoices</Text>
           <View style={styles.billingRow}>
             <View>
               <Text variant="headlineSmall" style={styles.billingValue}>{data?.invoice_summary?.total_billed ?? data?.bills_summary?.total_billed ?? '$0.00'}</Text>
-              <Text variant="bodySmall" style={styles.billingText}>Total billed</Text>
+              <Text variant="bodySmall" style={styles.billingText}>Total income this month</Text>
               <View style={styles.billingMetaRow}>
                 <View style={styles.billingMetaItem}>
                   <Text style={styles.billingMetaValue}>{data?.invoice_summary?.unpaid_count ?? 0}</Text>

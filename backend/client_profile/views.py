@@ -1033,6 +1033,8 @@ def _dashboard_activity(*, shifts_qs, confirmed_qs, invoices_qs, pharmacy_name, 
         hub_qs = hub_qs.filter(organization__isnull=False)
     else:
         hub_qs = hub_qs.filter(platform_hub=PharmacyHubPost.PlatformHub.PUBLIC)
+    if str(dashboard_role or "").lower() == "owner" and user is not None:
+        hub_qs = hub_qs.filter(author_user=user)
     latest_hub_post = hub_qs.select_related("pharmacy", "organization", "community_group").order_by("-created_at").first()
     if latest_hub_post:
         description = (
@@ -1482,8 +1484,11 @@ class OwnerDashboard(APIView):
         now = timezone.now().time()
 
         if workspace == "platform":
-            public_shifts = _public_platform_shifts(today, now)
-            confirmed_shifts = _user_confirmed_platform_shifts(user, today, now)
+            public_shifts = _public_platform_shifts(today, now).filter(created_by=user).distinct()
+            confirmed_shifts = public_shifts.filter(
+                slot_assignments__isnull=False,
+                payment_status__in=['PAID', 'NOT_REQUIRED'],
+            ).distinct()
             invoices_qs = Invoice.objects.filter(user=user, pharmacy__isnull=True)
             extras = _dashboard_payload_extras(
                 shifts_qs=public_shifts,
@@ -1529,6 +1534,8 @@ class OwnerDashboard(APIView):
         shifts_qs = Shift.objects.filter(pharmacy__in=pharmacies).distinct()
         open_shifts = _open_active_shifts(shifts_qs, today, now)
         all_active_shifts = _all_active_shifts(shifts_qs, today, now)
+        personal_shift_scope = shifts_qs.filter(created_by=user).distinct()
+        personal_upcoming_shifts = personal_shift_scope.filter(_future_shift_filter(today, now)).distinct()
 
         # Upcoming shifts
         upcoming_shifts = shifts_qs.filter(
@@ -1542,6 +1549,10 @@ class OwnerDashboard(APIView):
         # ---- Correct confirmed shifts logic ----
         # Confirmed shifts: at least one assignment
         confirmed_shifts = shifts_qs.filter(
+            slot_assignments__isnull=False,
+            payment_status__in=['PAID', 'NOT_REQUIRED'],
+        ).distinct()
+        personal_confirmed_shifts = personal_shift_scope.filter(
             slot_assignments__isnull=False,
             payment_status__in=['PAID', 'NOT_REQUIRED'],
         ).distinct()
@@ -1568,6 +1579,16 @@ class OwnerDashboard(APIView):
             open_qs=open_shifts,
             all_qs=all_active_shifts,
             dashboard_role="owner",
+            user=user,
+        )
+        extras["upcoming_stats"] = _dashboard_upcoming_stats(personal_upcoming_shifts, today, now)
+        extras["activity"] = _dashboard_activity(
+            shifts_qs=_all_active_shifts(personal_shift_scope, today, now),
+            confirmed_qs=personal_confirmed_shifts,
+            invoices_qs=invoices_qs,
+            pharmacy_name=selected_pharmacy.name if selected_pharmacy else "All pharmacies",
+            dashboard_role="owner",
+            selected_pharmacy=selected_pharmacy,
             user=user,
         )
 

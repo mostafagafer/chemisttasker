@@ -10,6 +10,12 @@ export type OwnerSetupStatus = {
 
 const OWNER_ONBOARDING_PATH = "/setup/owner/onboarding";
 const OWNER_PHARMACIES_PATH = "/setup/owner/pharmacies";
+const OWNER_PHARMACY_SETUP_SKIPPED_KEY = "owner-pharmacy-setup-skipped";
+
+function hasSkippedPharmacySetup() {
+  if (typeof window === "undefined") return false;
+  return window.sessionStorage.getItem(OWNER_PHARMACY_SETUP_SKIPPED_KEY) === "true";
+}
 
 export async function getOwnerSetupStatus(): Promise<OwnerSetupStatus> {
   try {
@@ -44,7 +50,7 @@ export async function getOwnerSetupStatus(): Promise<OwnerSetupStatus> {
       onboardingComplete: true,
       pharmaciesCount,
       numberOfPharmacies,
-      nextPath: pharmaciesCount > 0 ? null : OWNER_PHARMACIES_PATH,
+      nextPath: pharmaciesCount > 0 || hasSkippedPharmacySetup() ? null : OWNER_PHARMACIES_PATH,
     };
   } catch (error: any) {
     if (error?.status === 404 || error?.response?.status === 404) {
@@ -64,3 +70,13 @@ export const ownerSetupPaths = {
   onboarding: OWNER_ONBOARDING_PATH,
   pharmacies: OWNER_PHARMACIES_PATH,
 };
+
+export function markOwnerPharmacySetupSkipped() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(OWNER_PHARMACY_SETUP_SKIPPED_KEY, "true");
+}
+
+export function clearOwnerPharmacySetupSkipped() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(OWNER_PHARMACY_SETUP_SKIPPED_KEY);
+}
